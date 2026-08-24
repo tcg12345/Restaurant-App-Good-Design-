@@ -688,9 +688,7 @@ export const RestaurantPanelBody: React.FC<{
             scrolling past the social proof. Hours default closed; today's
             slice is shown on the trigger row. */}
         {snapshot.address && (
-          <MetaRow label="Where">
-            <span className="text-on-surface/80 leading-snug">{snapshot.address}</span>
-          </MetaRow>
+          <p className="text-on-surface/80 leading-snug" style={{ fontSize: '13.5px' }}>{snapshot.address}</p>
         )}
 
         {/* Hours — a real section, not a whisper: the status word leads

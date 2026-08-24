@@ -15,7 +15,9 @@ interface MichelinBadgeProps {
 }
 
 // Michelin red — the brand "Michelin Red" used on the Guide.
-const MICHELIN_RED = '#a2191f';
+// Rides a token so dark mode can lift it: #a2191f on near-black graphite
+// is barely legible (see --michelin-red in index.css).
+const MICHELIN_RED = 'var(--michelin-red)';
 
 /**
  * Compact, label-less distinction mark for dense list rows: just the red
@@ -109,7 +111,7 @@ export function MichelinBadge({ michelin, size = 'sm', href, className = '' }: M
         <ExternalLink
           size={size === 'sm' ? 11 : 12}
           className="shrink-0"
-          style={{ color: `${MICHELIN_RED}99` }}
+          style={{ color: 'color-mix(in srgb, var(--michelin-red) 60%, transparent)' }}
           aria-hidden="true"
         />
       )}
@@ -117,7 +119,7 @@ export function MichelinBadge({ michelin, size = 'sm', href, className = '' }: M
   );
 
   const baseCls = `inline-flex items-center ${gapCls} rounded-full border px-2.5 py-1 ${className}`;
-  const style = { borderColor: `${MICHELIN_RED}33`, backgroundColor: `${MICHELIN_RED}0d` };
+  const style = { borderColor: 'color-mix(in srgb, var(--michelin-red) 30%, transparent)', backgroundColor: 'color-mix(in srgb, var(--michelin-red) 9%, transparent)' };
 
   if (href) {
     return (

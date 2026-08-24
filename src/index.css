@@ -137,6 +137,9 @@
 }
 
 :root {
+  /* Michelin's brand red, lifted in dark the same way the app's own warm
+     accents are — #a2191f disappears into the graphite ground. */
+  --michelin-red: #a2191f;
   --ease-out-strong: cubic-bezier(0.22, 1, 0.36, 1);
   --ease-lens: cubic-bezier(0.16, 1, 0.3, 1);
   --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
@@ -190,6 +193,7 @@
 
 .dark {
   color-scheme: dark;
+  --michelin-red: #f0655b;
 }
 
 /* ── Onboarding kit tokens ────────────────────────────────────────────

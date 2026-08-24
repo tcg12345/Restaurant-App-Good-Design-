@@ -3524,9 +3524,17 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, sear
   }, []);
 
   // Drag-to-dismiss for the mobile detail sheet (swipe down to close).
-  // Drag only fires from the handle (startDetailDrag) so the body scrolls.
+  // Drag-anywhere: a downward pull with the body at its top takes the
+  // sheet (see useBottomSheet); the grab strip still works via startDrag.
   const detailSheetOpen = !!selectedPlace && mode === 'map' && !isDesktopMapMode;
-  const { dragProps: detailDragProps, startDrag: startDetailDrag } = useBottomSheet(detailSheetOpen, closePanelDetail);
+  const detailScrollRef = useRef<HTMLDivElement | null>(null);
+  // Native glass on the sheet's chrome stands down while it enters or is
+  // dragged — the async mirror trails a finger-driven transform.
+  const [detailDragging, setDetailDragging] = useState(false);
+  const [detailEntered, setDetailEntered] = useState(false);
+  const detailGlassSuspended = detailDragging || !detailEntered;
+  const { dragProps: detailDragProps, startDrag: startDetailDrag, sheetRef: detailSheetRef } = useBottomSheet(detailSheetOpen, closePanelDetail, detailScrollRef, setDetailDragging);
+  useEffect(() => { if (!detailSheetOpen) setDetailEntered(false); }, [detailSheetOpen]);
 
   // Solid tier-coloured score disc (green ≥8 / amber 5–7 / red <5) — the
   // bolder score treatment used on the mobile map list rows per the design
@@ -3832,28 +3840,31 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, sear
               Back to {panelTitle}
             </button>
           ) : (
-            <button
-              type="button"
+            <GlassButton
+              id="map-detail-close"
+              symbol="xmark"
+              label="Close"
+              suspended={detailGlassSuspended}
               onClick={closePanelDetail}
-              aria-label="Close"
-              className="w-9 h-9 -ml-1 rounded-full border border-on-surface/10 flex items-center justify-center text-on-surface/70 hover:bg-on-surface/[0.04] transition-colors"
+              className="w-11 h-11 -ml-1 rounded-full bg-on-surface/[0.06] flex items-center justify-center text-on-surface active:scale-95 transition-transform"
             >
-              <X size={16} />
-            </button>
+              <X size={18} />
+            </GlassButton>
           )}
-          <button
-            type="button"
+          <GlassButton
+            id="map-detail-save"
+            symbol={fav ? 'bookmark.fill' : 'bookmark'}
+            label={fav ? 'Remove from wishlist' : 'Save to wishlist'}
+            pressed={fav}
+            suspended={detailGlassSuspended}
             onClick={() => toggleWishlist(restData)}
-            aria-label={fav ? 'Remove from wishlist' : 'Save to wishlist'}
-            aria-pressed={fav}
             className={cn(
-              "w-9 h-9 rounded-full border flex items-center justify-center transition-colors flex-shrink-0",
-              fav ? "border-primary/25 bg-primary/[0.08] text-primary" : "border-on-surface/10 hover:bg-on-surface/[0.04] text-on-surface/70",
+              'w-11 h-11 rounded-full flex items-center justify-center transition-transform active:scale-95 flex-shrink-0',
+              fav ? 'bg-primary/[0.08] text-primary' : 'bg-on-surface/[0.06] text-on-surface',
             )}
-            title={fav ? 'Saved' : 'Save'}
           >
-            <Bookmark size={15} className={fav ? "fill-current" : ""} />
-          </button>
+            <Bookmark size={17} className={fav ? 'fill-current' : ''} />
+          </GlassButton>
         </div>
 
         {/* Single header block: name + a flowing meta row that carries
@@ -3915,6 +3926,8 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, sear
           snapshot={snapshot}
           onClose={closePanelDetail}
           currentUserId={userId}
+          scrollElRef={detailScrollRef}
+          glassSuspended={detailGlassSuspended}
           noHero
           topChrome={topChrome}
         />
@@ -4860,10 +4873,13 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, sear
             initial={{ y: '100%' }}
             animate={{ y: 0 }}
             exit={{ y: '100%' }}
-            transition={{ type: 'spring', damping: 32, stiffness: 320, mass: 0.9 }}
+            // iOS's own drawer curve — matches the reels sheet.
+            transition={{ duration: 0.42, ease: [0.32, 0.72, 0, 1] }}
+            onAnimationComplete={() => setDetailEntered(true)}
+            ref={detailSheetRef as React.RefObject<HTMLDivElement>}
             {...detailDragProps}
             className="fixed left-0 right-0 bottom-0 z-[71] bg-surface rounded-t-[1.75rem] overflow-hidden flex flex-col ring-1 ring-on-surface/[0.08] shadow-[0_-20px_60px_rgba(0,0,0,0.22)]"
-            style={{ height: '92%' }}
+            style={{ height: '92%', willChange: 'transform' }}
           >
             {/* Grab strip — swipe down anywhere on it to dismiss the sheet. */}
             <div

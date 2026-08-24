@@ -530,7 +530,7 @@ export const RestaurantDetailMobile: React.FC = () => {
                 // Sentence case at a normal tracking, not wide-tracked caps.
                 // "CLASSIC CUISINE · $$$$" set in spaced uppercase shouted
                 // over the name it is supposed to introduce.
-                className="group/cuisine mb-3 text-on-surface/45 text-[13.5px] font-medium tracking-normal normal-case"
+                className="group/cuisine mb-3 text-on-surface/50 text-[16px] font-medium tracking-normal normal-case"
               />
               <div className="flex items-start justify-between gap-3.5">
                 <h1 className="min-w-0 flex-1 text-on-surface" style={{ fontSize: '30px', fontWeight: 700, lineHeight: 1.08, letterSpacing: '-0.035em' }}>
@@ -582,7 +582,7 @@ export const RestaurantDetailMobile: React.FC = () => {
 
               <div className="mt-5 flex flex-col gap-3">
                 {place.isOpen !== null && (
-                  <MetaRow label="Today">
+                  <div style={{ fontSize: '14px' }}>
                     <span className="flex items-center gap-2">
                       <span className={cn('inline-block w-[7px] h-[7px] rounded-full flex-shrink-0', place.isOpen ? 'bg-olive' : 'bg-clay')} />
                       {place.isOpen ? (
@@ -604,16 +604,16 @@ export const RestaurantDetailMobile: React.FC = () => {
                         </span>
                       )}
                     </span>
-                  </MetaRow>
+                  </div>
                 )}
-                <MetaRow label="Where">
+                <div style={{ fontSize: '14px' }}>
                   <span className="flex items-center gap-1.5 min-w-0 text-on-surface/80">
                     <span className="truncate">{place.address}</span>
                     {dist && <><span className="text-on-surface/25 flex-shrink-0">·</span><span className="flex-shrink-0 text-on-surface/55">{dist}</span></>}
                     {driveLabel && <><span className="text-on-surface/25 flex-shrink-0">·</span><span className="inline-flex items-center gap-1 flex-shrink-0 text-on-surface/55"><Car size={13} />{driveLabel}</span></>}
                     {!driveLabel && walkLabel && <><span className="text-on-surface/25 flex-shrink-0">·</span><span className="inline-flex items-center gap-1 flex-shrink-0 text-on-surface/55"><Footprints size={13} />{walkLabel}</span></>}
                   </span>
-                </MetaRow>
+                </div>
               </div>
             </section>
           );
