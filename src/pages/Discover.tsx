@@ -305,24 +305,6 @@ const SectionLink: React.FC<{ label: string; to?: string; onClick?: () => void; 
     : <button type="button" onClick={onClick} className={cls}>{inner}</button>;
 };
 
-/** The phone home's location control — a real button that unmistakably
- *  reads as tappable (the old eyebrow-text trigger looked like static copy). */
-const LocationPill: React.FC<{ neighborhood: string | null; onOpen: () => void; className?: string }> = ({ neighborhood, onOpen, className }) => (
-  <button
-    type="button"
-    onClick={onOpen}
-    aria-label="Change location"
-    className={cn(
-      'inline-flex items-center gap-1.5 h-10 pl-3 pr-2.5 rounded-full bg-paper border border-on-surface/[0.12] shadow-sm active:scale-[0.98] transition-transform',
-      className,
-    )}
-  >
-    <MapPin size={15} className="text-primary flex-shrink-0" />
-    <span className="min-w-0 truncate text-[14px] font-semibold text-on-surface">{neighborhood || 'Pick a location'}</span>
-    <ChevronDown size={14} className="text-on-surface/45 flex-shrink-0" />
-  </button>
-);
-
 /** Where is the next meal coming from — the two ways in, as a pair.
  *
  *  The question that used to sit above them ("What sounds good?") was a
@@ -335,24 +317,36 @@ const IntentPair: React.FC<{
   onCook: () => void;
   cookSubtitle: string;
 }> = ({ onFindRestaurant, findSubtitle, onCook, cookSubtitle }) => (
-  <div className="pt-[18px] flex gap-2">
+  // Horizontal, half the old height: icon disc beside a two-line label
+  // instead of a tall card stacking them. The accent / filled-neutral
+  // pairing still says which one is the main verb — the outline went with
+  // the rest of the header's borders.
+  <div className="pt-3.5 flex gap-2">
     <button
       type="button"
       onClick={onFindRestaurant}
-      className="flex-1 min-w-0 rounded-[22px] bg-primary text-white p-[15px] flex flex-col items-start gap-[9px] text-left active:opacity-90 transition-opacity"
+      className="flex-1 min-w-0 rounded-2xl bg-primary text-white pl-2.5 pr-3 py-3 flex items-center gap-2.5 text-left active:opacity-90 transition-opacity"
     >
-      <UtensilsCrossed size={18} strokeWidth={1.8} />
-      <span className="block" style={{ fontSize: '15px', fontWeight: 700, lineHeight: 1.1, letterSpacing: '-0.025em' }}>Find a table</span>
-      <span className="block truncate max-w-full text-white/80" style={{ fontSize: '11.5px', lineHeight: 1.2 }}>{findSubtitle}</span>
+      <span className="w-8 h-8 rounded-full bg-white/[0.16] grid place-items-center flex-shrink-0">
+        <UtensilsCrossed size={15} strokeWidth={1.8} />
+      </span>
+      <span className="min-w-0">
+        <span className="block whitespace-nowrap" style={{ fontSize: '13.5px', fontWeight: 700, lineHeight: 1.15, letterSpacing: '-0.02em' }}>Find a table</span>
+        <span className="block truncate text-white/75 mt-[2px]" style={{ fontSize: '11.5px', lineHeight: 1.2 }}>{findSubtitle}</span>
+      </span>
     </button>
     <button
       type="button"
       onClick={onCook}
-      className="flex-1 min-w-0 rounded-[22px] border border-on-surface/[0.18] p-[15px] flex flex-col items-start gap-[9px] text-left active:bg-on-surface/[0.05] transition-colors"
+      className="flex-1 min-w-0 rounded-2xl bg-on-surface/[0.05] pl-2.5 pr-3 py-3 flex items-center gap-2.5 text-left active:bg-on-surface/[0.08] transition-colors"
     >
-      <ChefHat size={18} strokeWidth={1.8} className="text-primary" />
-      <span className="block text-on-surface" style={{ fontSize: '15px', fontWeight: 700, lineHeight: 1.1, letterSpacing: '-0.025em' }}>Cook something</span>
-      <span className="block truncate max-w-full text-on-surface/45" style={{ fontSize: '11.5px', lineHeight: 1.2 }}>{cookSubtitle}</span>
+      <span className="w-8 h-8 rounded-full bg-primary/10 text-primary grid place-items-center flex-shrink-0">
+        <ChefHat size={15} strokeWidth={1.8} />
+      </span>
+      <span className="min-w-0">
+        <span className="block text-on-surface whitespace-nowrap" style={{ fontSize: '13.5px', fontWeight: 700, lineHeight: 1.15, letterSpacing: '-0.02em' }}>Cook something</span>
+        <span className="block truncate text-on-surface/45 mt-[2px]" style={{ fontSize: '11.5px', lineHeight: 1.2 }}>{cookSubtitle}</span>
+      </span>
     </button>
   </div>
 );
@@ -4213,34 +4207,44 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, sear
           </GlassButton>
         ) : undefined}
       />
-      <div className={cn("flex items-center gap-2 flex-shrink-0", phoneMode ? "px-4 pb-1" : "px-6 pt-2 pb-3")}>
-        <button
-          type="button"
-          onClick={() => navigate('/search/main')}
-          className="flex-1 min-w-0 relative"
-          aria-label="Open search"
-        >
-          <Search size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-on-surface/45" />
-          <div
-            className="w-full bg-on-surface/[0.055] rounded-full py-[11px] pl-[34px] pr-4 text-on-surface/40 text-left truncate"
-            style={{ fontSize: '13.5px' }}
+      {/* One capsule, two controls: search fills the row and the location
+          rides inside it as a trailing token behind a hairline — one wide
+          instrument instead of two capsules fighting for the same line. */}
+      <div className={cn("flex items-center flex-shrink-0", phoneMode ? "px-3 pb-1.5" : "px-6 pt-2 pb-3")}>
+        <div className="flex-1 min-w-0 flex items-center h-11 rounded-full bg-on-surface/[0.055]">
+          <button
+            type="button"
+            onClick={() => navigate('/search/main')}
+            className="flex-1 min-w-0 h-full flex items-center gap-2 pl-4 pr-3 text-left"
+            aria-label="Open search"
           >
-            Dishes, places, people
-          </div>
-        </button>
-        {mode === 'home' && (
-          <LocationPill
-            neighborhood={homeLocation?.label?.split(',')[0]?.trim() || null}
-            onOpen={() => setMobileLocationPickerOpen(true)}
-            className="max-w-[42%] flex-shrink-0"
-          />
-        )}
+            <Search size={15} className="text-on-surface/45 flex-shrink-0" />
+            <span className="truncate text-on-surface/40" style={{ fontSize: '13.5px' }}>Dishes, places, people</span>
+          </button>
+          {mode === 'home' && (
+            <>
+              <span className="w-px h-5 bg-on-surface/[0.12] flex-shrink-0" aria-hidden />
+              <button
+                type="button"
+                onClick={() => setMobileLocationPickerOpen(true)}
+                aria-label="Change location"
+                className="h-full max-w-[45%] flex items-center gap-1.5 pl-3 pr-3.5 active:opacity-70 transition-opacity"
+              >
+                <MapPin size={14} className="text-primary flex-shrink-0" />
+                <span className="min-w-0 truncate text-[13px] font-semibold text-on-surface">
+                  {homeLocation?.label?.split(',')[0]?.trim() || 'Set location'}
+                </span>
+                <ChevronDown size={13} className="text-on-surface/45 flex-shrink-0" />
+              </button>
+            </>
+          )}
+        </div>
       </div>
-      {/* Who the feed is showing. This lived inside the feed as a grey
-          segmented track halfway down the page; it belongs with the other
-          things that decide what you are looking at. */}
+      {/* Who the feed is showing — one full-width segmented track (the same
+          control language as every filter sheet), not three floating
+          bordered chips. */}
       {mode === 'home' && phoneMode && (
-        <div className="px-4 pt-3 pb-3 flex gap-1.5 overflow-x-auto no-scrollbar">
+        <div className="mx-3 mt-2 mb-3 flex p-1 rounded-full bg-on-surface/[0.05]">
           {([['friends', 'Your circle'], ['experts', 'Verified'], ['recipes', 'Recipes']] as const).map(([key, label]) => {
             const on = feedFilter === key;
             return (
@@ -4250,13 +4254,13 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, sear
                 onClick={() => setFeedFilter(key)}
                 aria-pressed={on}
                 className={cn(
-                  'flex-none inline-flex items-center gap-1.5 rounded-full border px-[13px] py-[9px] active:opacity-80 transition-colors',
-                  on ? 'bg-on-surface border-on-surface text-cream' : 'bg-transparent border-on-surface/20 text-on-surface',
+                  'flex-1 min-w-0 h-9 rounded-full inline-flex items-center justify-center gap-1.5 transition-colors',
+                  on ? 'bg-surface text-on-surface shadow-[0_1px_6px_rgba(0,0,0,0.09)]' : 'text-on-surface/55 active:text-on-surface/80',
                 )}
-                style={{ fontSize: '12px', fontWeight: 700 }}
+                style={{ fontSize: '12.5px', fontWeight: 700 }}
               >
                 {key === 'experts' && <VerifiedBadge size={12} />}
-                {label}
+                <span className="truncate">{label}</span>
               </button>
             );
           })}
@@ -5142,7 +5146,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, sear
                 // place of the old greeting + chips + three stacked rails.
                 // The wrapper ref anchors the scroll-header fade distance.
                 return (
-                  <div ref={dayLocRef} className={cn(phoneMode && "px-5")}>
+                  <div ref={dayLocRef} className={cn(phoneMode && "px-3")}>
                     <IntentPair
                       onFindRestaurant={() => {
                         if (!homeLocation) { setMobileLocationPickerOpen(true); return; }
