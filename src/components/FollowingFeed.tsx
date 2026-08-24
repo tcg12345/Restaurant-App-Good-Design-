@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import { Search as SearchIcon, X, ChevronDown, Loader2, Users, UserPlus, SlidersHorizontal, ArrowUpDown, Bookmark } from 'lucide-react';
-import { motion, AnimatePresence } from 'motion/react';
 import { useAuth } from '../contexts/AuthContext';
 import { useSettings } from '../contexts/SettingsContext';
 import { useLists } from '../contexts/ListsContext';
@@ -21,11 +21,10 @@ import { CardShell, CardMedia, MetaRow, SaveButton, AddButton, ScoreBadge } from
 import { VerifiedBadge } from './VerifiedBadge';
 import { LoadingSkeletonList } from './LoadingSkeleton';
 import { extractCityState } from '../lib/places';
-import { useBottomSheet } from '../lib/useBottomSheet';
-import { HoursFilterSection } from './filterPrimitives';
+import { FilterSheet } from './FilterSheet';
+import { FilterSection, PillRow, Pill, Segment, SegmentItem, RangeSlider, FilterDrillSection, HoursFilterSection } from './filterPrimitives';
 import { passesHoursFilter, isHoursFilterActive, emptyHoursFilter, type HoursFilter, restaurantLocalNow } from '../lib/hours';
 import { useWarmHoursForFilter } from '../lib/useWarmHours';
-import { Collapse } from './Collapse';
 
 const CHUNK_SIZE = 15;
 const CACHE_TTL = 3 * 60 * 1000; // 3 minutes
@@ -844,500 +843,89 @@ const FollowingFilterSheet: React.FC<{
   followedPeople,
   onReset,
 }) => {
-  const { phoneMode } = useSettings();
-  const [cuisineSearch, setCuisineSearch] = useState('');
-  const [citySearch, setCitySearch] = useState('');
-  const [personSearch, setPersonSearch] = useState('');
-  const [cuisineOpen, setCuisineOpen] = useState(false);
-  const [cityOpen, setCityOpen] = useState(false);
-  const [peopleOpen, setPeopleOpen] = useState(false);
-  const { dragProps } = useBottomSheet(open, onClose);
-
-  const filteredCuisines = cuisineSearch.trim()
-    ? allCuisines.filter((c) => c.toLowerCase().includes(cuisineSearch.toLowerCase()))
-    : allCuisines;
-  const filteredCities = citySearch.trim()
-    ? allCities.filter((c) => c.toLowerCase().includes(citySearch.toLowerCase()))
-    : allCities;
-  // Role filter narrows the people picker so you can quickly jump
-  // into \"experts only\" and only see the experts you follow.
-  const visiblePeople = followedPeople
-    .filter((p) => {
-      if (roleFilter === 'friends' && p.profile?.is_verified) return false;
-      if (roleFilter === 'experts' && !p.profile?.is_verified) return false;
-      return true;
-    })
-    .filter((p) => {
-      if (!personSearch.trim()) return true;
-      const q = personSearch.toLowerCase();
-      return (
-        (p.profile?.display_name || '').toLowerCase().includes(q) ||
-        (p.profile?.username || '').toLowerCase().includes(q)
-      );
-    });
-
-  return (
-    <AnimatePresence>
-      {open && (
-        <motion.div
-          initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-          transition={{ duration: phoneMode ? 0.18 : 0.16 }}
-          className={cn(
-            'fixed inset-0 z-50',
-            phoneMode ? 'bg-black/40 backdrop-blur-sm' : 'bg-black/50 backdrop-blur-md',
-            !phoneMode && 'flex items-start justify-center pt-[10vh] px-4',
+  // The shared FilterSheet shell — the same chrome as the Discover tab's
+  // filter popup (glass ✕ left, glass "Clear all" right, full-width
+  // Apply). Portaled to body: hosted in the search tab this component
+  // lives inside a low-z page layer, and the shell's fixed overlay
+  // rendered in place would stack under the page's floating glass chrome.
+  return createPortal(
+    <FilterSheet
+      open={open}
+      onClose={onClose}
+      onReset={onReset}
+      title="Filters"
+      glassChrome
+      zIndex={70}
+    >
+      {/* The same primitives the Discover sheet is built from — the
+          shell's unlayered button reset strips raw utility styling, and
+          matching the map tab's sheet is the point anyway. */}
+      <FilterSection label="Sort by">
+        <PillRow>
+          {([['recent', 'Recent'], ['highest', 'Highest Score'], ['lowest', 'Lowest Score']] as const).map(([key, label]) => (
+            <Pill key={key} active={sortBy === key} onClick={() => onSortBy(key)}>{label}</Pill>
+          ))}
+        </PillRow>
+      </FilterSection>
+      <FilterSection label="Who">
+        <Segment>
+          {([['all', 'Everyone'], ['friends', 'Friends'], ['experts', 'Verified']] as const).map(([key, label]) => (
+            <SegmentItem key={key} active={roleFilter === key} onClick={() => onRoleFilter(key)}>{label}</SegmentItem>
+          ))}
+        </Segment>
+      </FilterSection>
+      <FilterDrillSection
+        id="people"
+        label="People"
+        options={followedPeople.map((p) => ({
+          value: p.id,
+          label: p.profile?.display_name || p.profile?.username || 'Unknown',
+        }))}
+        selected={personFilter}
+        onToggle={(v) => onPersonFilter(
+          personFilter.includes(v) ? personFilter.filter((x) => x !== v) : [...personFilter, v],
+        )}
+        emptyLabel="Everyone you follow"
+        searchPlaceholder="Search people"
+      />
+      <FilterSection label="Score" value={`${scoreRange[0]} – ${scoreRange[1]}`} isSet={scoreRange[0] > 0 || scoreRange[1] < 10}>
+        <RangeSlider min={0} max={10} step={0.5} value={scoreRange} onChange={onScoreRange} ariaLabelMin="Minimum score" ariaLabelMax="Maximum score" />
+        <div className="fs-slider-range"><span>0</span><span>10</span></div>
+      </FilterSection>
+      <FilterSection label="Price">
+        <Segment>
+          <SegmentItem active={priceFilter === null} onClick={() => onPriceFilter(null)}>Any</SegmentItem>
+          {['$', '$$', '$$$', '$$$$'].map((p) => (
+            <SegmentItem key={p} active={priceFilter === p} onClick={() => onPriceFilter(priceFilter === p ? null : p)}>{p}</SegmentItem>
+          ))}
+        </Segment>
+      </FilterSection>
+      <HoursFilterSection value={hoursFilter} onChange={onHoursChange} />
+      <FilterDrillSection
+        id="cuisine"
+        label="Cuisine"
+        options={allCuisines.map((c) => ({ value: c, label: c }))}
+        selected={cuisineFilter}
+        onToggle={(v) => onCuisineFilter(
+          cuisineFilter.includes(v) ? cuisineFilter.filter((x) => x !== v) : [...cuisineFilter, v],
+        )}
+        emptyLabel="Any"
+        searchPlaceholder="Search cuisines"
+      />
+      {allCities.length > 0 && (
+        <FilterDrillSection
+          id="city"
+          label="City / Location"
+          options={allCities.map((c) => ({ value: c, label: c }))}
+          selected={cityFilter}
+          onToggle={(v) => onCityFilter(
+            cityFilter.includes(v) ? cityFilter.filter((x) => x !== v) : [...cityFilter, v],
           )}
-          onClick={onClose}
-        >
-          <motion.div
-            {...(phoneMode
-              ? {
-                  initial: { y: '100%' }, animate: { y: 0 }, exit: { y: '100%' },
-                  transition: { type: 'spring' as const, damping: 28, stiffness: 300 },
-                  ...dragProps,
-                }
-              : {
-                  initial: { opacity: 0, scale: 0.94, y: -12 },
-                  animate: { opacity: 1, scale: 1, y: 0 },
-                  exit: { opacity: 0, scale: 0.96, y: -8 },
-                  transition: { duration: 0.22, ease: [0.16, 1, 0.3, 1] as const },
-                })}
-            onClick={(e: React.MouseEvent) => e.stopPropagation()}
-            className={cn(
-              'flex flex-col overflow-hidden bg-surface',
-              phoneMode
-                ? 'fixed bottom-0 left-0 right-0 rounded-t-3xl h-[85vh]'
-                : 'w-full max-w-2xl rounded-[28px] max-h-[80vh] shadow-[0_30px_80px_-16px_rgba(0,0,0,0.42)] ring-1 ring-on-surface/[0.06]',
-            )}
-          >
-            {phoneMode && (
-              <div className="flex justify-center pt-3 pb-1 cursor-grab active:cursor-grabbing flex-shrink-0">
-                <div className="w-10 h-1 rounded-full bg-on-surface/15" />
-              </div>
-            )}
-
-            <div className={cn(
-              'flex items-center justify-between flex-shrink-0',
-              phoneMode ? 'px-5 pt-3 pb-3 border-b border-on-surface/[0.06]' : 'px-6 pt-5 pb-4',
-            )}>
-              <h3 className={cn('font-serif font-bold', phoneMode ? 'text-lg' : 'text-[20px]')}>Filters</h3>
-              <button
-                onClick={onClose}
-                className="hit-44 w-8 h-8 rounded-full bg-on-surface/[0.05] flex items-center justify-center hover:bg-on-surface/[0.10] transition-colors"
-              >
-                <X size={16} className="text-on-surface/60" />
-              </button>
-            </div>
-            {!phoneMode && <div className="border-t border-on-surface/[0.06]" />}
-
-            <div className="flex-1 overflow-y-auto px-5 pt-4 pb-safe-4 space-y-5">
-              {/* Sort */}
-              <div>
-                <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface/40 mb-2.5">
-                  Sort by
-                </p>
-                <div className="flex flex-wrap gap-2">
-                  {(
-                    [
-                      ['recent', 'Recent'],
-                      ['highest', 'Highest Score'],
-                      ['lowest', 'Lowest Score'],
-                    ] as const
-                  ).map(([key, label]) => (
-                    <button
-                      key={key}
-                      onClick={() => onSortBy(key)}
-                      className={cn(
-                        'px-3.5 py-2 rounded-full text-xs font-semibold transition-all',
-                        sortBy === key
-                          ? 'bg-primary text-white'
-                          : 'bg-on-surface/5 text-on-surface/50 hover:bg-on-surface/10',
-                      )}
-                    >
-                      {label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Role — friends / experts / all */}
-              <div>
-                <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface/40 mb-2.5">
-                  Who
-                </p>
-                <div className="flex gap-2">
-                  {(
-                    [
-                      ['all', 'Everyone'],
-                      ['friends', 'Friends'],
-                      ['experts', 'Verified'],
-                    ] as const
-                  ).map(([key, label]) => (
-                    <button
-                      key={key}
-                      onClick={() => onRoleFilter(key)}
-                      className={cn(
-                        'flex-1 py-2 rounded-xl text-xs font-bold transition-all border-2',
-                        roleFilter === key
-                          ? 'border-primary bg-primary/5 text-primary'
-                          : 'border-on-surface/10 text-on-surface/50 hover:border-on-surface/20',
-                      )}
-                    >
-                      {label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Specific people picker — expands to a multi-select list
-                  narrowed by the role filter above. */}
-              <div>
-                <button
-                  onClick={() => setPeopleOpen(!peopleOpen)}
-                  className="flex items-center justify-between w-full mb-2"
-                >
-                  <div className="flex items-center gap-2">
-                    <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface/40">
-                      Specific people
-                    </p>
-                    {personFilter.length > 0 && (
-                      <span className="text-[10px] font-semibold text-primary">
-                        {personFilter.length} selected
-                      </span>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-2">
-                    {personFilter.length > 0 && (
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onPersonFilter([]);
-                        }}
-                        className="text-[10px] text-primary font-semibold"
-                      >
-                        Clear
-                      </button>
-                    )}
-                    <ChevronDown
-                      size={14}
-                      className={cn(
-                        'text-on-surface/30 transition-transform',
-                        peopleOpen && 'rotate-180',
-                      )}
-                    />
-                  </div>
-                </button>
-                <Collapse open={peopleOpen}>
-                      <div className="relative mb-2">
-                        <SearchIcon
-                          size={13}
-                          className="absolute left-2.5 top-1/2 -translate-y-1/2 text-on-surface/30"
-                        />
-                        <input
-                          type="text"
-                          value={personSearch}
-                          onChange={(e) => setPersonSearch(e.target.value)}
-                          placeholder="Search people..."
-                          className="w-full bg-on-surface/5 rounded-lg py-2 pl-8 pr-3 text-xs font-medium focus:outline-none focus:ring-2 focus:ring-primary/20"
-                        />
-                      </div>
-                      <div className="max-h-44 overflow-y-auto pb-1 space-y-1">
-                        {visiblePeople.map((p) => {
-                          const name = p.profile?.display_name || p.profile?.username || 'User';
-                          const initial = name.charAt(0).toUpperCase();
-                          const selected = personFilter.includes(p.id);
-                          const isExpert = !!p.profile?.is_verified;
-                          return (
-                            <button
-                              key={p.id}
-                              onClick={() =>
-                                onPersonFilter(
-                                  selected
-                                    ? personFilter.filter((x) => x !== p.id)
-                                    : [...personFilter, p.id],
-                                )
-                              }
-                              className={cn(
-                                'w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg transition-colors text-left',
-                                selected ? 'bg-primary/5' : 'hover:bg-on-surface/[0.03]',
-                              )}
-                            >
-                              <div className="w-7 h-7 rounded-full bg-on-surface/[0.06] flex items-center justify-center flex-shrink-0">
-                                <span className="text-[11px] font-serif font-bold text-on-surface/55">{initial}</span>
-                              </div>
-                              <div className="flex-1 min-w-0">
-                                <p className={cn(
-                                  'text-[13px] font-semibold truncate',
-                                  selected ? 'text-primary' : 'text-on-surface/80',
-                                )}>
-                                  {name}
-                                </p>
-                                <p className="text-[10px] font-medium uppercase tracking-wider text-on-surface/40 truncate">
-                                  {isExpert
-                                    ? <span className="inline-flex items-center gap-0.5 text-primary font-bold"><VerifiedBadge size={11} />Verified</span>
-                                    : 'Friend'}
-                                </p>
-                              </div>
-                              {selected && <span className="text-[11px] font-bold text-primary">✓</span>}
-                            </button>
-                          );
-                        })}
-                        {visiblePeople.length === 0 && (
-                          <p className="text-[11px] text-on-surface/30 py-2 px-2">
-                            {followedPeople.length === 0
-                              ? "You're not following anyone with ratings yet"
-                              : 'No one matches'}
-                          </p>
-                        )}
-                      </div>
-                </Collapse>
-              </div>
-
-              {/* Score range */}
-              <div>
-                <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface/40 mb-2.5">
-                  Score: {scoreRange[0]} – {scoreRange[1]}
-                </p>
-                <div className="relative h-6 flex items-center">
-                  <div className="absolute inset-x-0 h-1 bg-on-surface/10 rounded-full" />
-                  <div
-                    className="absolute h-1 bg-primary rounded-full"
-                    style={{
-                      left: `${scoreRange[0] * 10}%`,
-                      right: `${100 - scoreRange[1] * 10}%`,
-                    }}
-                  />
-                  <input
-                    type="range"
-                    min={0}
-                    max={10}
-                    step={1}
-                    value={scoreRange[0]}
-                    onChange={(e) =>
-                      onScoreRange([Math.min(+e.target.value, scoreRange[1]), scoreRange[1]])
-                    }
-                    className="absolute inset-x-0 appearance-none bg-transparent pointer-events-none [&::-webkit-slider-thumb]:pointer-events-auto [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-5 [&::-webkit-slider-thumb]:h-5 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-primary [&::-webkit-slider-thumb]:border-2 [&::-webkit-slider-thumb]:border-white [&::-webkit-slider-thumb]:shadow-md [&::-webkit-slider-thumb]:cursor-pointer [&::-moz-range-thumb]:pointer-events-auto [&::-moz-range-thumb]:appearance-none [&::-moz-range-thumb]:w-5 [&::-moz-range-thumb]:h-5 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-primary [&::-moz-range-thumb]:border-2 [&::-moz-range-thumb]:border-white [&::-moz-range-thumb]:shadow-md [&::-moz-range-thumb]:cursor-pointer"
-                  />
-                  <input
-                    type="range"
-                    min={0}
-                    max={10}
-                    step={1}
-                    value={scoreRange[1]}
-                    onChange={(e) =>
-                      onScoreRange([scoreRange[0], Math.max(+e.target.value, scoreRange[0])])
-                    }
-                    className="absolute inset-x-0 appearance-none bg-transparent pointer-events-none [&::-webkit-slider-thumb]:pointer-events-auto [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-5 [&::-webkit-slider-thumb]:h-5 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-primary [&::-webkit-slider-thumb]:border-2 [&::-webkit-slider-thumb]:border-white [&::-webkit-slider-thumb]:shadow-md [&::-webkit-slider-thumb]:cursor-pointer [&::-moz-range-thumb]:pointer-events-auto [&::-moz-range-thumb]:appearance-none [&::-moz-range-thumb]:w-5 [&::-moz-range-thumb]:h-5 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-primary [&::-moz-range-thumb]:border-2 [&::-moz-range-thumb]:border-white [&::-moz-range-thumb]:shadow-md [&::-moz-range-thumb]:cursor-pointer"
-                  />
-                </div>
-                <div className="flex justify-between mt-1">
-                  <span className="text-[10px] text-on-surface/30">0</span>
-                  <span className="text-[10px] text-on-surface/30">10</span>
-                </div>
-              </div>
-
-              {/* Price */}
-              <div>
-                <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface/40 mb-2.5">
-                  Price
-                </p>
-                <div className="flex gap-2">
-                  {['$', '$$', '$$$', '$$$$'].map((p) => (
-                    <button
-                      key={p}
-                      onClick={() => onPriceFilter(priceFilter === p ? null : p)}
-                      className={cn(
-                        'flex-1 py-2 rounded-xl text-xs font-bold transition-all border-2',
-                        priceFilter === p
-                          ? 'border-primary bg-primary/5 text-primary'
-                          : 'border-on-surface/10 text-on-surface/50 hover:border-on-surface/20',
-                      )}
-                    >
-                      {p}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Hours */}
-              <HoursFilterSection value={hoursFilter} onChange={onHoursChange} />
-
-              {/* Cuisine */}
-              <div>
-                <button
-                  onClick={() => setCuisineOpen(!cuisineOpen)}
-                  className="flex items-center justify-between w-full mb-2"
-                >
-                  <div className="flex items-center gap-2">
-                    <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface/40">
-                      Cuisine
-                    </p>
-                    {cuisineFilter.length > 0 && (
-                      <span className="text-[10px] font-semibold text-primary">
-                        {cuisineFilter.join(', ')}
-                      </span>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-2">
-                    {cuisineFilter.length > 0 && (
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onCuisineFilter([]);
-                        }}
-                        className="text-[10px] text-primary font-semibold"
-                      >
-                        Clear
-                      </button>
-                    )}
-                    <ChevronDown
-                      size={14}
-                      className={cn(
-                        'text-on-surface/30 transition-transform',
-                        cuisineOpen && 'rotate-180',
-                      )}
-                    />
-                  </div>
-                </button>
-                <Collapse open={cuisineOpen}>
-                      <div className="relative mb-2">
-                        <SearchIcon
-                          size={13}
-                          className="absolute left-2.5 top-1/2 -translate-y-1/2 text-on-surface/30"
-                        />
-                        <input
-                          type="text"
-                          value={cuisineSearch}
-                          onChange={(e) => setCuisineSearch(e.target.value)}
-                          placeholder="Search cuisines..."
-                          className="w-full bg-on-surface/5 rounded-lg py-2 pl-8 pr-3 text-xs font-medium focus:outline-none focus:ring-2 focus:ring-primary/20"
-                        />
-                      </div>
-                      <div className="flex flex-wrap gap-1.5 max-h-32 overflow-y-auto pb-1">
-                        {filteredCuisines.map((c) => (
-                          <button
-                            key={c}
-                            onClick={() =>
-                              onCuisineFilter(
-                                cuisineFilter.includes(c)
-                                  ? cuisineFilter.filter((x) => x !== c)
-                                  : [...cuisineFilter, c],
-                              )
-                            }
-                            className={cn(
-                              'px-3 py-1.5 rounded-full text-[11px] font-semibold transition-all border',
-                              cuisineFilter.includes(c)
-                                ? 'border-primary bg-primary/10 text-primary'
-                                : 'border-on-surface/10 text-on-surface/50 hover:border-on-surface/20',
-                            )}
-                          >
-                            {c}
-                          </button>
-                        ))}
-                        {filteredCuisines.length === 0 && (
-                          <p className="text-[11px] text-on-surface/30 py-1">No cuisines match</p>
-                        )}
-                      </div>
-                </Collapse>
-              </div>
-
-              {/* City */}
-              <div>
-                <button
-                  onClick={() => setCityOpen(!cityOpen)}
-                  className="flex items-center justify-between w-full mb-2"
-                >
-                  <div className="flex items-center gap-2">
-                    <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface/40">
-                      City / Location
-                    </p>
-                    {cityFilter.length > 0 && (
-                      <span className="text-[10px] font-semibold text-primary">
-                        {cityFilter.join(', ')}
-                      </span>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-2">
-                    {cityFilter.length > 0 && (
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onCityFilter([]);
-                        }}
-                        className="text-[10px] text-primary font-semibold"
-                      >
-                        Clear
-                      </button>
-                    )}
-                    <ChevronDown
-                      size={14}
-                      className={cn(
-                        'text-on-surface/30 transition-transform',
-                        cityOpen && 'rotate-180',
-                      )}
-                    />
-                  </div>
-                </button>
-                <Collapse open={cityOpen}>
-                      <div className="relative mb-2">
-                        <SearchIcon
-                          size={13}
-                          className="absolute left-2.5 top-1/2 -translate-y-1/2 text-on-surface/30"
-                        />
-                        <input
-                          type="text"
-                          value={citySearch}
-                          onChange={(e) => setCitySearch(e.target.value)}
-                          placeholder="Search locations..."
-                          className="w-full bg-on-surface/5 rounded-lg py-2 pl-8 pr-3 text-xs font-medium focus:outline-none focus:ring-2 focus:ring-primary/20"
-                        />
-                      </div>
-                      <div className="flex flex-wrap gap-1.5 max-h-32 overflow-y-auto pb-1">
-                        {filteredCities.map((c) => (
-                          <button
-                            key={c}
-                            onClick={() =>
-                              onCityFilter(
-                                cityFilter.includes(c)
-                                  ? cityFilter.filter((x) => x !== c)
-                                  : [...cityFilter, c],
-                              )
-                            }
-                            className={cn(
-                              'px-3 py-1.5 rounded-full text-[11px] font-semibold transition-all border',
-                              cityFilter.includes(c)
-                                ? 'border-primary bg-primary/10 text-primary'
-                                : 'border-on-surface/10 text-on-surface/50 hover:border-on-surface/20',
-                            )}
-                          >
-                            {c}
-                          </button>
-                        ))}
-                        {filteredCities.length === 0 && (
-                          <p className="text-[11px] text-on-surface/30 py-1">No locations match</p>
-                        )}
-                      </div>
-                </Collapse>
-              </div>
-            </div>
-
-            <div className="flex-shrink-0 border-t border-on-surface/6 px-5 py-4 flex gap-3">
-              <button
-                onClick={onReset}
-                className="flex-1 py-3 rounded-2xl border-2 border-on-surface/10 text-sm font-semibold text-on-surface/60 hover:bg-muted transition-colors"
-              >
-                Reset
-              </button>
-              <button
-                onClick={onClose}
-                className="flex-[2] py-3 rounded-2xl bg-primary text-white text-sm font-semibold shadow-sm hover:bg-primary/90 active:scale-[0.99] transition-all"
-              >
-                Apply
-              </button>
-            </div>
-          </motion.div>
-        </motion.div>
+          emptyLabel="Any"
+          searchPlaceholder="Search locations"
+        />
       )}
-    </AnimatePresence>
+    </FilterSheet>,
+    document.body,
   );
 };

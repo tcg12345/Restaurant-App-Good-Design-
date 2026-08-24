@@ -156,9 +156,18 @@ const PhoneSearch: React.FC = () => {
   return (
     <div className="relative bg-surface overflow-hidden" style={{ height: '100dvh' }}>
       {/* The map experience. Stays mounted behind Following — a Mapbox
-          instance is too expensive to rebuild per pill flick — and hides
-          with visibility, which also stands its native glass down. */}
-      <div className={cn('absolute inset-0', tab !== 'discover' && 'invisible')} aria-hidden={tab !== 'discover' || undefined}>
+          instance is too expensive to rebuild per pill flick — and stays
+          VISIBLE there too: the Following layer is a heavy wash over it,
+          so its glass chrome has a live ground to refract instead of
+          sitting flat on white. `isolate` fences the map page's own
+          z-50 chrome inside this layer so it can't rise over the feed;
+          its native glass stands down via occlusion (the wash covers it).
+          Pointer events off while inactive — visibility used to carry
+          that. */}
+      <div
+        className={cn('absolute inset-0 isolate', tab !== 'discover' && 'pointer-events-none')}
+        aria-hidden={tab !== 'discover' || undefined}
+      >
         <Discover
           mode="map"
           variant="searchTab"
@@ -168,12 +177,13 @@ const PhoneSearch: React.FC = () => {
         />
       </div>
 
-      {/* Following — layered over the map, wearing the same chrome: the
-          shared glass field above, its own glass chip row at the chips'
-          spot, content starting where the Discover chrome ends. */}
+      {/* Following — the map sheet's raised-state material, worn as a
+          page: the same wash the sheet backdrop uses, over the live map,
+          with the shared glass field above and its own glass chip row in
+          the chips' spot. Content starts where the Discover chrome ends. */}
       {tab === 'following' && (
         <div
-          className="absolute inset-0 z-20 bg-surface overflow-y-auto no-scrollbar"
+          className="absolute inset-0 z-20 bg-surface/[0.92] backdrop-blur-2xl overflow-y-auto no-scrollbar"
           style={{ paddingTop: 'calc(env(safe-area-inset-top) + 176px)' }}
         >
           <div className="px-4 pb-32">
