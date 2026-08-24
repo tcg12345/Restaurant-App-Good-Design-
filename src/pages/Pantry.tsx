@@ -5672,6 +5672,7 @@ export const Pantry: React.FC = () => {
   const [showAllRated, setShowAllRated] = useState(false);
   const [createTripFromList, setCreateTripFromList] = useState(false);
   const { phoneMode, setHideBottomNav } = useSettings();
+  const { user } = useAuth();
   const { setOverride: setPageAddAction } = usePageAddAction();
 
   // Spotlight-style search popup — opened by the desktop header's
@@ -6454,9 +6455,18 @@ export const Pantry: React.FC = () => {
               setShowAllRated(true);
             }}
             onOpenMeal={(meal) => {
-              setShowHomeCooking(true);
-              setHomeCookingSelectedMealId(meal.id);
-              navigate('/pantry?view=home-cooking');
+              // The canonical recipe page — the same destination every
+              // cookbook row uses. The old inline Pantry detail this
+              // handler opened is a different, stale surface. Guests
+              // keep it as a fallback: the /recipe route needs an owner
+              // id to load.
+              if (user?.id) {
+                navigate(`/recipe/${user.id}/${meal.id}`);
+              } else {
+                setShowHomeCooking(true);
+                setHomeCookingSelectedMealId(meal.id);
+                navigate('/pantry?view=home-cooking');
+              }
             }}
             wishlistCount={regularWishlist.length}
             homeMeals={homeMeals}
