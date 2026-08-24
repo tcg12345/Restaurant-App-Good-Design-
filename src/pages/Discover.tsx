@@ -4216,7 +4216,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, sear
           glassId="home-search"
           className="flex-1 min-w-0"
           readOnly
-          onPress={() => navigate('/search/main')}
+          onPress={() => navigate('/search', { state: { openTakeover: true } })}
           value=""
           onChange={() => {}}
           placeholder="Dishes, places, people"
@@ -4303,7 +4303,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, sear
       </GlassButton>
       <div className="flex items-center gap-2">
         <GlassButton id="mini-search" symbol="magnifyingglass" label="Search"
-          onClick={() => navigate('/search/main')} className={miniIconBtn}>
+          onClick={() => navigate('/search', { state: { openTakeover: true } })} className={miniIconBtn}>
           <Search size={20} />
         </GlassButton>
         {/* Messages and Circle share one capsule here exactly as they do in

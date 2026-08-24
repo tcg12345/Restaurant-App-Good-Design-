@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { Map as MapIcon, ChevronRight, ChevronLeft, X, MapPin, Navigation, Loader2 } from 'lucide-react';
 import { MAPBOX_TOKEN } from '../lib/keys';
 import { FollowingFeed } from '../components/FollowingFeed';
@@ -34,6 +34,8 @@ const TABS: ReadonlyArray<readonly [SearchTab, string]> = [
    the (hidden) map with the same pill switching between them. */
 
 const PhoneSearch: React.FC = () => {
+  const navigate = useNavigate();
+  const routerLocation = useLocation();
   const [tab, setTab] = useState<SearchTab>('discover');
   const [searching, setSearching] = useState(false);
   const [query, setQuery] = useState('');
@@ -58,6 +60,16 @@ const PhoneSearch: React.FC = () => {
   } | null>(null);
   const [cityLabel, setCityLabel] = useState('Current location');
   const [locOpen, setLocOpen] = useState(false);
+  // The collapsed chip hugs its label: an invisible ruler carrying the
+  // city name at the field's metrics is measured, and the wrapper's
+  // max-width animates between that and near-full — px to px, so the
+  // expand morph stays a real transition.
+  const locRulerRef = useRef<HTMLSpanElement | null>(null);
+  const [locChipW, setLocChipW] = useState(200);
+  useEffect(() => {
+    const w = locRulerRef.current?.offsetWidth;
+    if (w) setLocChipW(Math.min(220, Math.max(104, Math.ceil(w))));
+  }, [cityLabel]);
   const [locQuery, setLocQuery] = useState('');
   const [locLoading, setLocLoading] = useState(false);
   const [locResults, setLocResults] = useState<Array<{ id: string; name: string; lat: number; lng: number }>>([]);
@@ -125,6 +137,20 @@ const PhoneSearch: React.FC = () => {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab]);
+
+  // Deep link from the home header's search field: land here with the
+  // takeover already rising. State is consumed once and cleared, the same
+  // move Messages makes for its openUserId link. Guarded on the pathname
+  // because this page stays mounted (keep-alive) while other routes show.
+  useEffect(() => {
+    if (routerLocation.pathname !== '/search') return;
+    if ((routerLocation.state as { openTakeover?: boolean } | null)?.openTakeover) {
+      setTab('discover');
+      openSearch();
+      navigate('/search', { replace: true, state: null });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [routerLocation]);
   // Closing with an empty draft is the clear: the map drops its query and
   // restores the pre-search places.
   const closeSearch = () => {
@@ -277,11 +303,18 @@ const PhoneSearch: React.FC = () => {
               card underneath. No dropdown-on-a-button, no second element;
               the capsule you tapped is the field you type in. */}
           <div
-            className={cn(
-              'relative min-w-0 flex-1 ml-auto transition-[max-width] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)]',
-              locOpen ? 'max-w-full' : 'max-w-[200px]',
-            )}
+            className="relative min-w-0 flex-1 ml-auto transition-[max-width] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)]"
+            style={{ maxWidth: locOpen ? 640 : locChipW }}
           >
+            {/* Width ruler for the collapsed chip — glyph gutter + label +
+                trailing inset at the field's type size. Zero height. */}
+            <span
+              ref={locRulerRef}
+              aria-hidden
+              className="invisible block h-0 overflow-hidden whitespace-nowrap pl-[40px] pr-[15px] text-[17px] leading-none"
+            >
+              {cityLabel}
+            </span>
             <SearchField
               // Above the tap-out scrim, or the occlusion probe at the
               // field's centre finds the scrim and hides the glass.
