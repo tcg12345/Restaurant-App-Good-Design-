@@ -77,6 +77,9 @@ export function useBottomSheet(
    *  the content instead. Attach the returned `sheetRef` to the sheet
    *  ROOT element (the same node `dragProps` goes on) to opt in. */
   scrollRef?: RefObject<HTMLElement | null>,
+  /** Fired when a dismissal drag begins/ends — hosts use it to suspend
+   *  native glass chrome that can't track a finger-driven transform. */
+  onDragStateChange?: (dragging: boolean) => void,
 ): { dragProps: BottomSheetDragProps; startDrag: (e: ReactPointerEvent) => void; sheetRef: RefObject<HTMLElement | null> } {
   // Lock body scroll while the sheet is open — ref-counted so stacked
   // sheets compose regardless of close order (see acquireBodyScrollLock).
@@ -108,11 +111,13 @@ export function useBottomSheet(
       // broken — a little rubber band says "this is as far as it goes" while
       // staying obviously alive under the finger.
       dragElastic: { top: 0.06, bottom: 1 },
+      onDragStart: () => onDragStateChange?.(true),
       onDragEnd: (_event, info) => {
+        onDragStateChange?.(false);
         if (info.offset.y > 100 || info.velocity.y > 300) onClose();
       },
     }),
-    [onClose, dragControls],
+    [onClose, dragControls, onDragStateChange],
   );
 
   const startDrag = useCallback(
@@ -215,5 +220,6 @@ type BottomSheetDragProps = {
   dragListener: false;
   dragConstraints: { top: number; bottom: number };
   dragElastic: { top: number; bottom: number };
+  onDragStart: () => void;
   onDragEnd: (event: unknown, info: { offset: { y: number }; velocity: { y: number } }) => void;
 };

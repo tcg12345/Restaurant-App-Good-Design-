@@ -266,6 +266,11 @@ export const RestaurantPanelBody: React.FC<{
   /** The sheet host reads the inner scroll position through this to run
    *  drag-anywhere dismissal (see useBottomSheet). */
   scrollElRef?: React.MutableRefObject<HTMLDivElement | null>;
+  /** True while the sheet is entering or being dragged — the pinned glass
+   *  buttons stand their native mirrors down for those frames (the async
+   *  mirror trails a finger-driven transform) and let the web glass look
+   *  carry them. */
+  glassSuspended?: boolean;
   /** When true the map hero is omitted entirely so the body can be
    *  embedded inside another panel (e.g. the Map page's results sidebar)
    *  that already has its own header. The scroll container and all the
@@ -281,7 +286,7 @@ export const RestaurantPanelBody: React.FC<{
    *  inject extra sections (e.g. a distance + routing card) without
    *  re-implementing the rest of the body. */
   headSlot?: React.ReactNode;
-}> = ({ snapshot, onClose, currentUserId, scrollElRef, noHero, topChrome, headSlot }) => {
+}> = ({ snapshot, onClose, currentUserId, scrollElRef, glassSuspended, noHero, topChrome, headSlot }) => {
   const {
     getRating,
     isWishlisted,
@@ -537,8 +542,9 @@ export const RestaurantPanelBody: React.FC<{
               id="panel-close"
               symbol="xmark"
               label="Close"
+              suspended={glassSuspended}
               onClick={onClose}
-              className="absolute top-3 right-3 w-11 h-11 rounded-full bg-black/55 backdrop-blur text-white hover:bg-black/75 flex items-center justify-center transition-colors z-20"
+              className="absolute top-3 right-3 w-11 h-11 rounded-full bg-black/55 backdrop-blur text-white ring-1 ring-white/[0.16] hover:bg-black/75 flex items-center justify-center transition-colors z-20"
             >
               <X size={19} />
             </GlassButton>
@@ -547,9 +553,10 @@ export const RestaurantPanelBody: React.FC<{
               symbol={wishlisted ? 'bookmark.fill' : 'bookmark'}
               label={wishlisted ? 'Remove from wishlist' : 'Save to wishlist'}
               pressed={wishlisted}
+              suspended={glassSuspended}
               onClick={onWishlist}
               className={cn(
-                'absolute top-3 left-3 w-11 h-11 rounded-full backdrop-blur flex items-center justify-center transition-colors z-20',
+                'absolute top-3 left-3 w-11 h-11 rounded-full backdrop-blur ring-1 ring-white/[0.16] flex items-center justify-center transition-colors z-20',
                 wishlisted
                   ? 'bg-primary text-white hover:bg-primary/90 shadow-md shadow-black/20'
                   : 'bg-black/55 text-white hover:bg-black/75',
@@ -1094,7 +1101,12 @@ export const RestaurantPanelBody: React.FC<{
 
 export const RestaurantPanel: React.FC<RestaurantPanelProps> = ({ snapshot, onClose, currentUserId, variant }) => {
   const sheetScrollRef = useRef<HTMLDivElement | null>(null);
-  const { dragProps, sheetRef } = useBottomSheet(!!snapshot && variant === 'sheet', onClose, sheetScrollRef);
+  // Native glass stands down while the sheet is entering or under the
+  // finger — the async mirror can't track a per-frame transform.
+  const [dragging, setDragging] = useState(false);
+  const [entered, setEntered] = useState(false);
+  const { dragProps, sheetRef } = useBottomSheet(!!snapshot && variant === 'sheet', onClose, sheetScrollRef, setDragging);
+  useEffect(() => { if (!snapshot) setEntered(false); }, [snapshot]);
   if (variant === 'sheet') {
     return (
       <AnimatePresence>
@@ -1113,6 +1125,7 @@ export const RestaurantPanel: React.FC<RestaurantPanelProps> = ({ snapshot, onCl
               // iOS's own sheet curve — the spring stuttered against the
               // Mapbox init happening mid-entrance.
               transition={{ duration: 0.42, ease: [0.32, 0.72, 0, 1] }}
+              onAnimationComplete={() => setEntered(true)}
               ref={sheetRef as React.RefObject<HTMLDivElement>}
               {...dragProps}
               onClick={(e) => e.stopPropagation()}
@@ -1127,7 +1140,7 @@ export const RestaurantPanel: React.FC<RestaurantPanelProps> = ({ snapshot, onCl
               <div className="pointer-events-none absolute top-2 left-1/2 -translate-x-1/2 z-30">
                 <span className="block w-10 h-1 rounded-full bg-on-surface/30" />
               </div>
-              <RestaurantPanelBody snapshot={snapshot} onClose={onClose} currentUserId={currentUserId} scrollElRef={sheetScrollRef} />
+              <RestaurantPanelBody snapshot={snapshot} onClose={onClose} currentUserId={currentUserId} scrollElRef={sheetScrollRef} glassSuspended={dragging || !entered} />
             </motion.div>
           </motion.div>
         )}

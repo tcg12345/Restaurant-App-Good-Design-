@@ -349,10 +349,14 @@ export const GlassButton: React.FC<{
   /** Mirrored to `aria-pressed` on the web element — a toggle has to say so
    *  in the fallback, where there is no native control to announce it. */
   pressed?: boolean;
+  /** Temporarily stand the native glass down and let the web fallback
+   *  carry the look — for buttons riding a finger-driven transform (a
+   *  dragged sheet), where the async native mirror visibly trails. */
+  suspended?: boolean;
   children: React.ReactNode;
-} & GlassButtonSpec> = ({ id, onClick, className, style, pressed, children, symbol, title, titleStyle, role, prominent, label, tint, badge, badgeTone, disabled }) => {
+} & GlassButtonSpec> = ({ id, onClick, className, style, pressed, suspended, children, symbol, title, titleStyle, role, prominent, label, tint, badge, badgeTone, disabled }) => {
   const onGlass = useContext(OnGlass);
-  const active = useGlassButtonsActive() && !onGlass;
+  const active = useGlassButtonsActive() && !onGlass && !suspended;
   // Stable for the life of this element, unique across every other one.
   const key = `${id}#${useId()}`;
   const ref = useRef<HTMLButtonElement | null>(null);
