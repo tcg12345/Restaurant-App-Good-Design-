@@ -14,8 +14,9 @@
  */
 import React, { useCallback, useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Check, Loader2, Lock, MapPin, Plus, Users, X } from 'lucide-react';
+import { ArrowLeft, Check, Loader2, Lock, MapPin, Plus, X } from 'lucide-react';
 import { cn } from '../lib/utils';
+import { GlassButton } from '../lib/glass-buttons';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../contexts/ToastContext';
 import {
@@ -113,40 +114,43 @@ export const AdminCuisineSuggestions: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-surface pb-24">
-      <div className="sticky top-0 z-20 border-b border-on-surface/[0.06] bg-surface/85 backdrop-blur-xl">
-        <div className="mx-auto flex w-full max-w-[860px] items-center gap-2 px-5 py-3">
-          <button
-            type="button"
+      <div className="sticky top-0 z-20 border-b border-on-surface/[0.08] bg-surface/95 backdrop-blur-xl">
+        <div className="mx-auto flex w-full max-w-[860px] items-center gap-3 px-5 pt-safe-4 pb-3">
+          <GlassButton
+            id="admin-cuisine-back"
+            symbol="chevron.left"
+            label="Back"
             onClick={() => navigate(-1)}
-            aria-label="Back"
-            className="-ml-2 flex h-10 w-10 items-center justify-center rounded-full text-on-surface/70 transition-colors hover:bg-on-surface/[0.06]"
+            className="hit-44 flex-none w-10 h-10 -ml-1 rounded-full flex items-center justify-center text-on-surface bg-on-surface/[0.05] active:scale-95 transition-transform"
           >
-            <ArrowLeft size={19} />
-          </button>
+            <ArrowLeft size={18} />
+          </GlassButton>
           <span className="text-[11px] font-bold uppercase tracking-[0.18em] text-on-surface/40">Cuisine review</span>
         </div>
       </div>
 
       <div className="mx-auto w-full max-w-[860px] px-5">
         <header className="pt-5 pb-4">
-          <h1 className="font-serif text-[30px] font-bold leading-tight text-on-surface">Suggested cuisines</h1>
-          <p className="mt-1 text-[13px] text-on-surface/50">
-            <b className="font-semibold text-on-surface/70">Add</b> keeps what is there;
-            {' '}<b className="font-semibold text-on-surface/70">Make primary</b> replaces it.
+          <h1 className="font-serif text-[30px] font-bold leading-tight tracking-[-0.03em] text-on-surface">Suggested cuisines</h1>
+          <p className="mt-2 text-[13px] leading-relaxed text-on-surface/55" style={{ textWrap: 'pretty' } as React.CSSProperties}>
+            <b className="font-bold text-on-surface/75">Add</b> keeps what is there;
+            {' '}<b className="font-bold text-on-surface/75">Make primary</b> replaces it.
             {' '}A restaurant holds at most {CUISINE_MAX_COUNT}. Either way it applies everywhere and
             clears every matching suggestion — and {AUTO_APPLY_VOTES} people agreeing adds it without you.
           </p>
         </header>
 
-        <div className="mb-5 flex gap-1.5 overflow-x-auto no-scrollbar">
+        <div className="mb-1 flex gap-2 overflow-x-auto no-scrollbar">
           {TABS.map((t) => (
             <button
               key={t.key}
               type="button"
               onClick={() => setTab(t.key)}
               className={cn(
-                'flex-shrink-0 rounded-full px-3.5 py-1.5 text-[12.5px] font-semibold transition-colors',
-                tab === t.key ? 'bg-on-surface text-surface' : 'bg-on-surface/[0.05] text-on-surface/60 hover:bg-on-surface/[0.09]',
+                'flex-none rounded-full border px-4 py-2.5 text-[12.5px] font-bold transition-colors',
+                tab === t.key
+                  ? 'bg-on-surface text-surface border-on-surface'
+                  : 'bg-transparent text-on-surface border-on-surface/20 active:bg-on-surface/[0.06]',
               )}
             >
               {t.label}
@@ -157,10 +161,13 @@ export const AdminCuisineSuggestions: React.FC = () => {
         {loading ? (
           <div className="flex justify-center py-16"><Loader2 size={20} className="animate-spin text-on-surface/30" /></div>
         ) : groups.length === 0 ? (
-          <p className="py-16 text-center text-[13.5px] text-on-surface/45">Nothing here.</p>
+          <div className="flex flex-col items-center gap-2 py-16 text-center">
+            <p className="font-serif text-[14.5px] font-bold tracking-[-0.02em] text-on-surface">Nothing here</p>
+            <p className="text-[12.5px] text-on-surface/55">Suggestions land in this tab as they come in.</p>
+          </div>
         ) : (
-          <ul className="space-y-2.5">
-            {groups.map((g) => {
+          <ul>
+            {groups.map((g, idx) => {
               const nearlyThere = tab === 'pending' && g.votes >= AUTO_APPLY_VOTES - 1;
               // Fall back to the denormalized snapshot on the suggestion
               // until the live read lands, so the row is never blank.
@@ -168,41 +175,32 @@ export const AdminCuisineSuggestions: React.FC = () => {
                 ?? (g.currentCuisine ? [{ cuisine: g.currentCuisine, source: '' }] : []);
               const full = held.length >= CUISINE_MAX_COUNT;
               return (
-                <li
-                  key={g.id}
-                  className={cn(
-                    'rounded-2xl border p-4',
-                    nearlyThere ? 'border-primary/30 bg-primary/[0.03]' : 'border-on-surface/[0.07]',
-                  )}
-                >
+                <li key={g.id} className={cn('py-4', idx > 0 && 'border-t border-on-surface/[0.08]')}>
                   <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <Link
-                        to={`/restaurant/${g.restaurantId}`}
-                        className="font-serif text-[17px] font-bold leading-tight text-on-surface hover:text-primary"
-                      >
-                        {g.restaurantName || g.restaurantId}
-                      </Link>
-                      {g.restaurantAddress && (
-                        <p className="mt-1 flex items-center gap-1 truncate text-[12px] text-on-surface/45">
-                          <MapPin size={11} className="flex-shrink-0" />{g.restaurantAddress}
-                        </p>
-                      )}
-                    </div>
-                    {g.votes > 1 && (
-                      <span className={cn(
-                        'inline-flex flex-shrink-0 items-center gap-1 rounded-full px-2 py-1 text-[11.5px] font-bold',
-                        nearlyThere ? 'bg-primary/15 text-primary' : 'bg-on-surface/[0.06] text-on-surface/55',
-                      )}>
-                        <Users size={11} />{g.votes}
-                      </span>
-                    )}
+                    <Link
+                      to={`/restaurant/${g.restaurantId}`}
+                      className="min-w-0 font-serif text-[16px] font-bold leading-tight tracking-[-0.025em] text-on-surface active:text-primary"
+                    >
+                      {g.restaurantName || g.restaurantId}
+                    </Link>
+                    <span className={cn(
+                      'flex-none text-[11px] font-semibold',
+                      nearlyThere ? 'text-primary' : 'text-on-surface/45',
+                    )}>
+                      {g.votes} agree
+                    </span>
                   </div>
+                  {g.restaurantAddress && (
+                    <p className="mt-1.5 flex items-center gap-1.5 truncate text-[11.5px] text-on-surface/50">
+                      <MapPin size={11} className="flex-shrink-0" />
+                      <span className="min-w-0 truncate">{g.restaurantAddress}</span>
+                    </p>
+                  )}
 
-                  {/* What the restaurant has now. Each is removable, because
-                      a restaurant at the cap cannot accept anything until
-                      something goes — the queue for it would be stuck. */}
-                  <div className="mt-3 flex flex-wrap items-center gap-1.5 text-[13.5px]">
+                  {/* What the restaurant has now → what is proposed. Each
+                      held chip is removable, because a restaurant at the cap
+                      cannot accept anything until something goes. */}
+                  <div className="mt-3 flex flex-wrap items-center gap-2 text-[12px]">
                     {held.length === 0 ? (
                       <span className="text-on-surface/45">no cuisine yet</span>
                     ) : held.map(({ cuisine, source }) => {
@@ -213,7 +211,7 @@ export const AdminCuisineSuggestions: React.FC = () => {
                       return (
                         <span
                           key={cuisine}
-                          className="inline-flex items-center gap-1 rounded-md bg-on-surface/[0.06] py-0.5 pl-2 pr-1 text-on-surface/70"
+                          className="inline-flex items-center gap-1 rounded-full bg-on-surface/[0.06] py-2 pl-3 pr-1.5 font-medium text-on-surface/75"
                         >
                           {cuisine}
                           {tab === 'pending' && (removable ? (
@@ -223,7 +221,7 @@ export const AdminCuisineSuggestions: React.FC = () => {
                               onClick={() => void drop(g, cuisine)}
                               aria-label={`Remove ${cuisine}`}
                               title={`Remove ${cuisine}`}
-                              className="flex h-4 w-4 items-center justify-center rounded-full text-on-surface/35 transition-colors hover:bg-on-surface/10 hover:text-on-surface disabled:opacity-40"
+                              className="flex h-4.5 w-4.5 items-center justify-center rounded-full text-on-surface/35 transition-colors active:bg-on-surface/10 active:text-on-surface disabled:opacity-40"
                             >
                               <X size={10} />
                             </button>
@@ -231,7 +229,7 @@ export const AdminCuisineSuggestions: React.FC = () => {
                             <span
                               aria-label={`${cuisine} came from ${source || 'a provider'} and cannot be removed`}
                               title={`From ${source || 'a provider'} — make another cuisine the primary to rank it above this one`}
-                              className="flex h-4 w-4 items-center justify-center text-on-surface/25"
+                              className="flex h-4.5 w-4.5 items-center justify-center text-on-surface/25"
                             >
                               <Lock size={9} />
                             </span>
@@ -239,24 +237,24 @@ export const AdminCuisineSuggestions: React.FC = () => {
                         </span>
                       );
                     })}
-                    <span className="text-on-surface/25">+</span>
-                    <span className="rounded-md bg-sky-500/10 px-2 py-0.5 font-bold text-sky-700">{g.cuisine}</span>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" className="text-on-surface/30"><path d="M5 12h14M14 7l5 5-5 5" /></svg>
+                    <span className="rounded-full bg-primary/10 px-3 py-2 font-bold text-primary">{g.cuisine}</span>
                   </div>
 
                   {nearlyThere && (
-                    <p className="mt-2 text-[12px] font-semibold text-primary">
+                    <p className="mt-2.5 text-[12px] font-semibold text-primary">
                       One more and this applies on its own.
                     </p>
                   )}
                   {full && (
-                    <p className="mt-2 text-[12px] text-on-surface/50">
+                    <p className="mt-2.5 text-[12px] leading-relaxed text-on-surface/50">
                       Already at {CUISINE_MAX_COUNT} — remove one above to add this, or make it the primary.
                       {held.some((h) => !isCuisineRemovable(h.source)) && ' Locked ones came from a provider; ranking above them is what changes what people see.'}
                     </p>
                   )}
 
                   {tab === 'pending' && (
-                    <div className="mt-3.5 flex flex-wrap gap-2">
+                    <div className="mt-3.5 flex flex-wrap items-center gap-2">
                       {/* Two approvals, because a suggestion is genuinely
                           ambiguous: "it is ALSO this" and "it is NOT what
                           you have, it is this" arrive as the same row. */}
@@ -265,9 +263,9 @@ export const AdminCuisineSuggestions: React.FC = () => {
                         disabled={busy === g.id || full}
                         onClick={() => void act(g, 'add')}
                         title={full ? `Already at ${CUISINE_MAX_COUNT} cuisines` : 'Keep what is there and add this'}
-                        className="inline-flex h-9 flex-1 items-center justify-center gap-1.5 rounded-full bg-on-surface text-[13px] font-bold text-surface disabled:opacity-40"
+                        className="inline-flex flex-none items-center justify-center gap-1.5 rounded-full bg-on-surface px-4 py-2.5 text-[12.5px] font-bold text-surface disabled:opacity-40 active:opacity-85"
                       >
-                        {busy === g.id ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />}
+                        {busy === g.id ? <Loader2 size={13} className="animate-spin" /> : <Plus size={13} />}
                         Add
                       </button>
                       <button
@@ -275,18 +273,17 @@ export const AdminCuisineSuggestions: React.FC = () => {
                         disabled={busy === g.id}
                         onClick={() => void act(g, 'primary')}
                         title="What is there is wrong — replace it with this"
-                        className="inline-flex h-9 flex-1 items-center justify-center gap-1.5 rounded-full border border-on-surface/[0.18] px-4 text-[13px] font-bold text-on-surface hover:border-on-surface/35 disabled:opacity-50"
+                        className="inline-flex flex-none items-center justify-center gap-1.5 rounded-full border border-on-surface/20 px-4 py-2.5 text-[12.5px] font-bold text-on-surface active:bg-on-surface/[0.06] disabled:opacity-50"
                       >
-                        <Check size={14} />
+                        <Check size={13} />
                         Make primary
                       </button>
                       <button
                         type="button"
                         disabled={busy === g.id}
                         onClick={() => void act(g, 'deny')}
-                        className="inline-flex h-9 items-center justify-center gap-1.5 rounded-full border border-on-surface/[0.12] px-4 text-[13px] font-semibold text-on-surface/65 hover:border-on-surface/25 disabled:opacity-50"
+                        className="inline-flex flex-none items-center justify-center rounded-full px-2.5 py-2.5 text-[12.5px] font-bold text-on-surface/60 active:text-on-surface disabled:opacity-50"
                       >
-                        <X size={14} />
                         Deny
                       </button>
                     </div>

@@ -11,6 +11,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { ArrowLeft, ChevronDown, Loader2, Link2, MapPin, Briefcase, Award, Check, X } from 'lucide-react';
 import { cn } from '../lib/utils';
+import { GlassButton } from '../lib/glass-buttons';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../contexts/ToastContext';
 import { VerifiedBadge } from '../components/VerifiedBadge';
@@ -101,31 +102,46 @@ export const AdminVerification: React.FC = () => {
     );
   }
 
+  // Presentation-only role tag the reference design wears on each row —
+  // derived from the free-text occupation, never stored.
+  const roleTag = (occupation?: string | null): string => {
+    const o = (occupation || '').toLowerCase();
+    if (o.includes('chef') || o.includes('cook')) return 'chef';
+    if (o.includes('critic') || o.includes('writer') || o.includes('journalist') || o.includes('editor')) return 'critic';
+    return 'creator';
+  };
+
   return (
     <div className="min-h-screen bg-surface pb-32">
-      <div className="max-w-2xl mx-auto px-4 pt-safe-5">
-        {/* Header */}
-        <div className="flex items-center gap-3 py-3">
-          <button type="button" onClick={() => navigate(-1)} aria-label="Back"
-            className="w-9 h-9 rounded-full bg-on-surface/[0.05] hover:bg-on-surface/10 flex items-center justify-center text-on-surface/65 flex-shrink-0">
-            <ArrowLeft size={16} />
-          </button>
-          <div className="flex items-center gap-2 min-w-0">
-            <VerifiedBadge size={20} />
-            <h1 className="font-serif font-bold text-[22px] leading-none truncate">Verification requests</h1>
-          </div>
+      <div className="sticky top-0 z-20 bg-surface/95 backdrop-blur border-b border-on-surface/[0.08]">
+        <div className="max-w-2xl mx-auto px-5 pt-safe-4 pb-3.5 flex items-center gap-3">
+          <GlassButton
+            id="admin-verif-back"
+            symbol="chevron.left"
+            label="Back"
+            onClick={() => navigate(-1)}
+            className="hit-44 flex-none w-10 h-10 -ml-1 rounded-full flex items-center justify-center text-on-surface bg-on-surface/[0.05] active:scale-95 transition-transform"
+          >
+            <ArrowLeft size={18} />
+          </GlassButton>
+          <h1 className="flex-1 min-w-0 font-serif font-bold text-[19px] leading-tight tracking-[-0.025em] truncate">Verification requests</h1>
+          <VerifiedBadge size={19} />
         </div>
+      </div>
 
-        {/* Tabs */}
-        <div className="flex gap-2 mt-2 mb-4">
+      <div className="max-w-2xl mx-auto px-5">
+        {/* Tabs — ink pill for the active state, outlined for the rest. */}
+        <div className="flex gap-2 pt-4 overflow-x-auto no-scrollbar">
           {TABS.map((t) => (
             <button
               key={t.key}
               type="button"
               onClick={() => setTab(t.key)}
               className={cn(
-                'px-4 h-9 rounded-full text-[13px] font-semibold transition-colors',
-                tab === t.key ? 'bg-primary text-white' : 'bg-on-surface/[0.05] text-on-surface/60 hover:bg-on-surface/[0.09]',
+                'flex-none px-4 py-2.5 rounded-full text-[12.5px] font-bold border transition-colors',
+                tab === t.key
+                  ? 'bg-on-surface text-surface border-on-surface'
+                  : 'bg-transparent text-on-surface border-on-surface/20 active:bg-on-surface/[0.06]',
               )}
             >
               {t.label}
@@ -133,49 +149,63 @@ export const AdminVerification: React.FC = () => {
           ))}
         </div>
 
-        {/* List */}
         {loading ? (
           <div className="flex items-center justify-center py-16">
             <Loader2 size={22} className="text-on-surface/30 animate-spin" />
           </div>
         ) : requests.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-16 text-center">
-            <VerifiedBadge size={32} className="opacity-30" />
-            <p className="mt-3 text-sm font-medium text-on-surface/45">
-              {tab === 'pending' ? 'No pending applications' : `No ${tab} applications`}
+          <div className="flex flex-col items-center justify-center py-16 gap-2.5 text-center">
+            <span className="w-[46px] h-[46px] rounded-full bg-primary/10 text-primary flex items-center justify-center">
+              <Check size={21} strokeWidth={2.1} />
+            </span>
+            <p className="font-serif font-bold text-[14.5px] tracking-[-0.02em] text-on-surface">
+              No {tab} applications
             </p>
           </div>
         ) : (
-          <ul className="space-y-3">
-            {requests.map((r) => {
+          <ul>
+            {requests.map((r, idx) => {
               const name = r.user_profiles?.display_name || r.full_name || 'Unknown';
               const username = r.user_profiles?.username;
               const open = expanded === r.id;
+              const tag = roleTag(r.occupation);
               return (
-                <li key={r.id} className="rounded-2xl border border-on-surface/[0.08] bg-paper overflow-hidden">
-                  {/* Card header */}
+                <li key={r.id} className={cn(idx > 0 && 'border-t border-on-surface/[0.08]')}>
                   <button
                     type="button"
                     onClick={() => setExpanded(open ? null : r.id)}
-                    className="w-full flex items-center gap-3 px-4 py-3.5 text-left"
+                    className="w-full flex items-start gap-3 py-4 text-left active:opacity-70 transition-opacity"
                   >
-                    <div className="flex-1 min-w-0">
-                      <p className="text-[15px] font-bold text-on-surface truncate">
-                        {name}
-                        {username && <span className="ml-1.5 font-medium text-on-surface/45">@{username}</span>}
-                      </p>
-                      <p className="text-[12px] text-on-surface/50 truncate mt-0.5">
-                        {[r.occupation, r.affiliation].filter(Boolean).join(' · ') || 'No role given'}
-                        {'  ·  '}
-                        {new Date(r.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-                      </p>
-                    </div>
-                    <ChevronDown size={16} className={cn('flex-shrink-0 text-on-surface/35 transition-transform', open && 'rotate-180')} />
+                    <span className="flex-none w-10 h-10 rounded-full bg-on-surface/[0.07] text-on-surface/70 flex items-center justify-center font-serif font-bold text-[15px]">
+                      {(name[0] || '?').toUpperCase()}
+                    </span>
+                    <span className="flex-1 min-w-0 block">
+                      <span className="flex items-center gap-2 min-w-0">
+                        <span className="font-serif font-bold text-[15px] leading-tight tracking-[-0.02em] text-on-surface truncate">{name}</span>
+                        <span className={cn(
+                          'flex-none rounded-full px-2 py-[5px] text-[9.5px] font-bold uppercase tracking-[0.1em]',
+                          tag === 'chef' ? 'bg-primary/10 text-primary' : 'bg-on-surface/[0.06] text-on-surface/70',
+                        )}>
+                          {tag}
+                        </span>
+                      </span>
+                      <span className="block mt-1.5 text-[12.5px] leading-snug text-on-surface/55 truncate">
+                        {[r.occupation, r.affiliation].filter(Boolean).join(', ') || 'No role given'}
+                        {username ? ` · @${username}` : ''}
+                      </span>
+                      <span className="block mt-1.5 text-[11.5px] text-on-surface/40">
+                        Applied {new Date(r.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                        {(r.links?.filter((l) => l.url).length || 0) > 0
+                          ? ` · ${r.links.filter((l) => l.url).length} proof${r.links.filter((l) => l.url).length === 1 ? '' : 's'}`
+                          : ''}
+                      </span>
+                    </span>
+                    <ChevronDown size={16} className={cn('flex-none mt-3 text-on-surface/35 transition-transform', open && 'rotate-180')} />
                   </button>
 
                   {/* Expanded application */}
                   {open && (
-                    <div className="px-4 pb-4 space-y-3 border-t border-on-surface/[0.06] pt-3">
+                    <div className="pb-5 pl-[52px] space-y-3">
                       <DetailRow icon={<MapPin size={13} />} label="City" value={r.city} />
                       <DetailRow icon={<Briefcase size={13} />} label="Occupation" value={r.occupation} />
                       <DetailRow icon={<Briefcase size={13} />} label="Affiliation" value={r.affiliation} />
@@ -197,7 +227,7 @@ export const AdminVerification: React.FC = () => {
                       )}
                       <DetailRow label="Statement" value={r.statement} multiline />
                       {username && (
-                        <Link to={`/user/${username}`} className="inline-block text-[13px] font-semibold text-primary hover:underline">
+                        <Link to={`/user/${username}`} className="inline-block text-[13px] font-bold text-primary">
                           View profile →
                         </Link>
                       )}
@@ -208,7 +238,7 @@ export const AdminVerification: React.FC = () => {
                       {/* Actions — pending only */}
                       {r.status === 'pending' && (
                         denyFor === r.id ? (
-                          <div className="pt-1 space-y-2">
+                          <div className="pt-1 space-y-2.5">
                             <input
                               type="text"
                               value={denyReason}
@@ -216,30 +246,30 @@ export const AdminVerification: React.FC = () => {
                               maxLength={140}
                               placeholder="Optional reason the applicant will see"
                               autoFocus
-                              className="w-full bg-on-surface/5 rounded-xl py-2.5 px-3.5 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20"
+                              className="w-full rounded-2xl border border-on-surface/[0.14] bg-on-surface/[0.035] py-3 px-4 text-[14px] font-medium focus:outline-none placeholder:text-on-surface/30"
                             />
                             <div className="flex gap-2">
                               <button type="button" onClick={() => { setDenyFor(null); setDenyReason(''); }}
-                                className="flex-1 py-2.5 rounded-xl border-2 border-on-surface/10 text-[13px] font-semibold text-on-surface/60">
+                                className="flex-none px-4 py-2.5 rounded-full border border-on-surface/20 text-[12.5px] font-bold text-on-surface active:bg-on-surface/[0.06]">
                                 Cancel
                               </button>
                               <button type="button" disabled={acting === r.id} onClick={() => void handleDeny(r.id)}
-                                className="flex-[1.4] py-2.5 rounded-xl bg-red-500 text-white text-[13px] font-semibold disabled:opacity-50 flex items-center justify-center gap-1.5">
-                                {acting === r.id ? <Loader2 size={13} className="animate-spin" /> : <X size={14} />}
+                                className="flex-none px-4 py-2.5 rounded-full bg-red-600 text-white text-[12.5px] font-bold disabled:opacity-50 flex items-center justify-center gap-1.5 active:opacity-85">
+                                {acting === r.id ? <Loader2 size={13} className="animate-spin" /> : <X size={13} />}
                                 Confirm deny
                               </button>
                             </div>
                           </div>
                         ) : (
                           <div className="flex gap-2 pt-1">
-                            <button type="button" disabled={!!acting} onClick={() => setDenyFor(r.id)}
-                              className="flex-1 py-2.5 rounded-xl border-2 border-on-surface/10 text-[13px] font-semibold text-on-surface/60 hover:border-red-300 hover:text-red-500 transition-colors">
-                              Deny
-                            </button>
                             <button type="button" disabled={!!acting} onClick={() => void handleApprove(r.id)}
-                              className="flex-[1.4] py-2.5 rounded-xl bg-primary text-white text-[13px] font-semibold disabled:opacity-50 flex items-center justify-center gap-1.5">
-                              {acting === r.id ? <Loader2 size={13} className="animate-spin" /> : <Check size={14} />}
+                              className="flex-none px-4 py-2.5 rounded-full bg-on-surface text-surface text-[12.5px] font-bold disabled:opacity-50 flex items-center justify-center gap-1.5 active:opacity-85">
+                              {acting === r.id ? <Loader2 size={13} className="animate-spin" /> : <Check size={13} />}
                               Approve
+                            </button>
+                            <button type="button" disabled={!!acting} onClick={() => setDenyFor(r.id)}
+                              className="flex-none px-4 py-2.5 rounded-full border border-on-surface/20 text-[12.5px] font-bold text-on-surface active:bg-on-surface/[0.06] transition-colors">
+                              Deny
                             </button>
                           </div>
                         )

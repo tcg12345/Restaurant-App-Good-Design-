@@ -3,7 +3,8 @@ import { motion } from 'motion/react';
 import { useNavigate } from 'react-router-dom';
 import { useSettings } from '../contexts/SettingsContext';
 import { useHeaderFade } from '../lib/useHeaderFade';
-import { ArrowLeft, Bookmark, CheckCircle, XCircle, Loader2, FileUp, Images, Sparkles, X, AlertTriangle } from 'lucide-react';
+import { GlassButton } from '../lib/glass-buttons';
+import { ArrowLeft, Bookmark, CheckCircle, XCircle, Loader2, FileUp, Images, X, AlertTriangle } from 'lucide-react';
 import { ScoreBadge } from '../components/ScoreBadge';
 import { useLists, type RestaurantRating, type RestaurantMeta } from '../contexts/ListsContext';
 import { useAuth } from '../contexts/AuthContext';
@@ -445,15 +446,21 @@ export const ImportRestaurants: React.FC = () => {
       <motion.div
         ref={headerFade.headerRef}
         style={headerFade.headerStyle}
-        className="sticky top-0 z-10 bg-surface/95 backdrop-blur-sm border-b border-primary/10 px-4 pt-safe-3 pb-3"
+        className="sticky top-0 z-10 bg-surface/95 backdrop-blur-sm border-b border-on-surface/[0.08] px-4 pt-safe-3 pb-3"
       >
         <div className="flex items-center gap-3">
-          <button onClick={() => navigate(-1)} className="p-2 -ml-2 hover:bg-primary/5 rounded-full transition-colors">
-            <ArrowLeft className="w-5 h-5 text-primary" />
-          </button>
-          <div>
-            <h1 className="text-lg font-serif font-semibold text-primary">Import Restaurants</h1>
-            <p className="text-xs text-on-surface/45">From Beli screenshots, a screen recording, or a file</p>
+          <GlassButton
+            id="import-back"
+            symbol="chevron.left"
+            label="Back"
+            onClick={() => navigate(-1)}
+            className="hit-44 flex-none w-10 h-10 -ml-1 rounded-full flex items-center justify-center text-on-surface bg-on-surface/[0.05] active:scale-95 transition-transform"
+          >
+            <ArrowLeft size={18} />
+          </GlassButton>
+          <div className="min-w-0">
+            <h1 className="font-serif font-bold text-[19px] leading-tight tracking-[-0.025em] text-on-surface truncate">Import restaurants</h1>
+            <p className="text-[11.5px] text-on-surface/50 mt-0.5 truncate">Beli screenshots, a screen recording, or a file</p>
           </div>
         </div>
       </motion.div>
@@ -473,20 +480,20 @@ export const ImportRestaurants: React.FC = () => {
             <button
               type="button"
               onClick={() => screenshotInputRef.current?.click()}
-              className={`w-full text-left rounded-2xl bg-primary text-white p-5 shadow-lg shadow-primary/25 hover:bg-primary/90 active:scale-[0.99] transition-all ${
+              className={`w-full text-left rounded-[22px] bg-primary text-white px-[17px] py-[18px] active:opacity-90 transition-all ${
                 dragOver ? 'ring-4 ring-primary/30 scale-[1.01]' : ''
               }`}
             >
-              <div className="flex items-center gap-4">
-                <span className="w-12 h-12 rounded-2xl bg-white/15 flex items-center justify-center flex-shrink-0">
-                  <Images size={22} />
+              <div className="flex items-start gap-3.5">
+                <span className="w-11 h-11 rounded-[15px] bg-white/[0.18] flex items-center justify-center flex-shrink-0">
+                  <Images size={21} strokeWidth={1.9} />
                 </span>
                 <span className="min-w-0 flex-1">
-                  <span className="block text-[15px] font-bold leading-tight">
+                  <span className="block font-serif font-bold text-[16px] leading-tight tracking-[-0.025em]">
                     {dragOver ? 'Drop your screenshots or recording' : 'Import from screenshots or a recording'}
                   </span>
-                  <span className="block text-[12px] text-white/80 mt-1 leading-snug">
-                    Screenshot your Beli lists — or just screen-record yourself scrolling through one — and we'll read the restaurants, scores and all.
+                  <span className="block text-[12.5px] text-white/[0.82] mt-1.5 leading-relaxed">
+                    Screenshot your Beli lists — or screen-record yourself scrolling one — and we'll read the restaurants, scores and all.
                     <span className="hidden md:inline"> You can also drag &amp; drop here.</span>
                   </span>
                 </span>
@@ -494,25 +501,30 @@ export const ImportRestaurants: React.FC = () => {
             </button>
 
             {/* How-to for the Beli case — three tiny steps, no jargon */}
-            <div className="bg-on-surface/3 rounded-2xl p-4">
-              <p className="text-xs font-bold text-on-surface/50 uppercase tracking-wider mb-2.5 flex items-center gap-1.5">
-                <Sparkles size={12} className="text-primary" /> Importing from Beli
-              </p>
-              <ol className="space-y-1.5 text-xs text-on-surface/65 list-none">
-                <li className="flex gap-2"><span className="font-bold text-primary">1.</span> Open your list in Beli. Easiest: start a screen recording and scroll steadily to the bottom. Or screenshot as you scroll (up to {MAX_SCREENSHOTS} at a time).</li>
-                <li className="flex gap-2"><span className="font-bold text-primary">2.</span> Tap the button above and pick the recording or the screenshots.</li>
-                <li className="flex gap-2"><span className="font-bold text-primary">3.</span> Review the matches and import — scores come across exactly as rated.</li>
+            <div className="rounded-[20px] bg-on-surface/[0.05] px-[17px] py-[17px]">
+              <p className="text-[10.5px] font-bold uppercase tracking-[0.16em] text-on-surface/50">How it works</p>
+              <ol className="mt-3.5 space-y-3 list-none">
+                {[
+                  `Open your list in Beli. Easiest: start a screen recording and scroll steadily to the bottom — or screenshot as you scroll (up to ${MAX_SCREENSHOTS} at a time).`,
+                  'Tap the button above and pick the recording or the screenshots.',
+                  'Review the matches and import — scores come across exactly as rated.',
+                ].map((step, i) => (
+                  <li key={i} className="flex gap-3">
+                    <span className="flex-none w-5 h-5 rounded-full bg-on-surface text-surface flex items-center justify-center font-serif font-bold text-[10.5px]">{i + 1}</span>
+                    <span className="flex-1 text-[13px] leading-relaxed text-on-surface/70">{step}</span>
+                  </li>
+                ))}
               </ol>
             </div>
 
             {/* File path — secondary */}
             <div
               onClick={() => fileInputRef.current?.click()}
-              className="border-2 border-dashed border-on-surface/15 rounded-2xl p-5 text-center cursor-pointer hover:border-primary/30 hover:bg-primary/3 transition-all"
+              className="flex flex-col items-center gap-2 border-[1.5px] border-dashed border-on-surface/25 rounded-[20px] px-[18px] py-[26px] text-center cursor-pointer active:bg-on-surface/[0.04] transition-colors"
             >
-              <FileUp size={22} className="mx-auto text-on-surface/25 mb-2" />
-              <p className="text-sm font-semibold text-on-surface/60">Or upload a file</p>
-              <p className="text-xs text-on-surface/35 mt-1">CSV or JSON with a "name" column — ratings, cities and notes come along if present</p>
+              <FileUp size={22} strokeWidth={1.7} className="text-on-surface/40" />
+              <p className="font-serif font-bold text-[14px] tracking-[-0.02em] text-on-surface">Or upload a file</p>
+              <p className="text-[12px] leading-relaxed text-on-surface/55 max-w-[260px]">CSV or JSON with a "name" column — ratings, cities and notes come along if present</p>
             </div>
 
             <input ref={screenshotInputRef} type="file" accept="image/*,video/*" multiple onChange={handleScreenshots} className="hidden" />
@@ -529,7 +541,7 @@ export const ImportRestaurants: React.FC = () => {
 
         {/* Screenshot reading state — thumbnails + progress */}
         {aiReading && (
-          <div className="rounded-2xl border border-on-surface/10 bg-white p-6 text-center space-y-4">
+          <div className="rounded-2xl border border-on-surface/10 bg-paper p-6 text-center space-y-4">
             {shotPreviews.length > 0 && (
               <div className="flex justify-center gap-2">
                 {shotPreviews.slice(0, 4).map((src, i) => (
@@ -601,7 +613,7 @@ export const ImportRestaurants: React.FC = () => {
                   [stats.noData, 'No data', 'text-on-surface/45'],
                   [stats.pending, 'Left', 'text-on-surface/60'],
                 ] as const).map(([n, label, color]) => (
-                  <div key={label} className="rounded-xl bg-white border border-on-surface/[0.06] py-2.5">
+                  <div key={label} className="rounded-xl bg-paper border border-on-surface/[0.06] py-2.5">
                     <div className={`font-serif font-bold text-[19px] leading-none tabular-nums ${color}`}>{n}</div>
                     <div className="text-[9px] font-bold uppercase tracking-[0.1em] text-on-surface/40 mt-1">{label}</div>
                   </div>

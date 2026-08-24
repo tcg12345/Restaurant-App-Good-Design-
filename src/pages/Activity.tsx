@@ -22,6 +22,7 @@ import {
   ChevronRight, Layers, FileText, Trash2, Clock,
 } from 'lucide-react';
 import { cn } from '../lib/utils';
+import { GlassButton } from '../lib/glass-buttons';
 import { useReels, reelRowToUi, type Reel } from '../contexts/ReelsContext';
 import { usePosts, postRowToUi, type Post } from '../contexts/PostsContext';
 import { useAuth } from '../contexts/AuthContext';
@@ -232,29 +233,30 @@ interface IndexRowProps {
   to: string;
 }
 
-const IndexRow: React.FC<IndexRowProps> = ({ icon, label, description, count, loading, to }) => {
+const IndexRow: React.FC<IndexRowProps & { first?: boolean }> = ({ icon, label, description, count, loading, to, first }) => {
   const navigate = useNavigate();
   return (
-    <motion.button
-      type="button"
-      onClick={() => navigate(to)}
-      whileHover={{ x: 2 }}
-      whileTap={{ scale: 0.98 }}
-      transition={{ type: 'spring', stiffness: 400, damping: 28 }}
-      className="w-full flex items-center gap-4 px-5 py-5 rounded-2xl bg-paper ring-1 ring-on-surface/[0.07] hover:ring-on-surface/[0.14] hover:bg-on-surface/[0.02] transition-colors text-left shadow-sm"
-    >
-      <span className="w-12 h-12 rounded-2xl bg-on-surface/[0.06] flex items-center justify-center text-on-surface flex-shrink-0">
-        {icon}
-      </span>
-      <div className="flex-1 min-w-0">
-        <p className="font-serif font-bold text-on-surface text-[17px] leading-tight">{label}</p>
-        <p className="text-on-surface/55 text-[12px] mt-0.5">{description}</p>
-      </div>
-      <span className="text-on-surface/50 text-[14px] font-semibold tabular-nums tabular-nums">
-        {loading ? <Loader2 size={14} className="animate-spin" /> : formatCount(count)}
-      </span>
-      <ChevronRight size={18} className="text-on-surface/30 flex-shrink-0" />
-    </motion.button>
+    <div className={cn(!first && 'border-t border-on-surface/[0.08]')}>
+      <button
+        type="button"
+        onClick={() => navigate(to)}
+        className="w-full flex items-center gap-3.5 py-[15px] text-left active:opacity-60 transition-opacity"
+      >
+        <span className="flex-none w-[38px] h-[38px] rounded-[13px] bg-on-surface/[0.055] flex items-center justify-center text-on-surface">
+          {icon}
+        </span>
+        <span className="flex-1 min-w-0 block">
+          <span className="block font-serif font-bold text-[15px] leading-tight tracking-[-0.015em] text-on-surface">{label}</span>
+          <span className="block mt-1 text-[12px] leading-snug text-on-surface/50">{description}</span>
+        </span>
+        <span className="flex-none flex items-center gap-2">
+          <span className={cn('font-serif font-bold text-[15px] tabular-nums tracking-[-0.02em]', count === 0 ? 'text-on-surface/35' : 'text-on-surface')}>
+            {loading ? <Loader2 size={14} className="animate-spin" /> : formatCount(count)}
+          </span>
+          <ChevronRight size={15} strokeWidth={2.2} className="text-on-surface/30" />
+        </span>
+      </button>
+    </div>
   );
 };
 
@@ -269,31 +271,26 @@ interface DraftRowProps {
   onDelete: () => void;
 }
 
-const DraftRow: React.FC<DraftRowProps> = ({ draft, onOpen, onDelete }) => {
+const DraftRow: React.FC<DraftRowProps & { first?: boolean }> = ({ draft, onOpen, onDelete, first }) => {
   const [confirmDel, setConfirmDel] = useState(false);
   return (
-    <motion.div
-      whileHover={{ x: 2 }}
-      whileTap={{ scale: 0.985 }}
-      transition={{ type: 'spring', stiffness: 400, damping: 28 }}
-      className="w-full flex items-center gap-4 px-5 py-4 rounded-2xl bg-paper ring-1 ring-on-surface/[0.07] hover:ring-on-surface/[0.14] hover:bg-on-surface/[0.02] transition-colors text-left shadow-sm"
-    >
+    <div className={cn('flex items-center gap-3.5 py-[15px]', !first && 'border-t border-on-surface/[0.08]')}>
       <button
         type="button"
         onClick={onOpen}
-        className="flex items-center gap-4 flex-1 min-w-0 text-left"
+        className="flex items-center gap-3.5 flex-1 min-w-0 text-left active:opacity-60 transition-opacity"
       >
         <span
-          className="w-14 h-14 rounded-xl bg-on-surface/[0.06] flex items-center justify-center text-on-surface/40 flex-shrink-0 overflow-hidden"
+          className="w-12 h-12 rounded-[13px] bg-on-surface/[0.055] flex items-center justify-center text-on-surface/40 flex-shrink-0 overflow-hidden"
           style={draft.coverPhoto ? { backgroundImage: `url("${draft.coverPhoto}")`, backgroundSize: 'cover', backgroundPosition: 'center' } : undefined}
         >
-          {!draft.coverPhoto && <FileText size={20} />}
+          {!draft.coverPhoto && <FileText size={19} strokeWidth={1.9} />}
         </span>
-        <div className="flex-1 min-w-0">
-          <p className="font-serif font-bold text-on-surface text-[16px] leading-tight truncate">
+        <span className="flex-1 min-w-0 block">
+          <span className="block font-serif font-bold text-[15px] leading-tight tracking-[-0.015em] text-on-surface truncate">
             {draft.title}
-          </p>
-          <p className="text-on-surface/55 text-[12px] mt-0.5 flex items-center gap-3 flex-wrap">
+          </span>
+          <span className="mt-1 text-[12px] leading-snug text-on-surface/50 flex items-center gap-2 flex-wrap">
             <span className="inline-flex items-center gap-1">
               <Clock size={11} />
               {formatDraftTimeAgo(draft.savedAt)}
@@ -303,25 +300,25 @@ const DraftRow: React.FC<DraftRowProps> = ({ draft, onOpen, onDelete }) => {
             {draft.editingMealId && (
               <>
                 <span className="text-on-surface/30">·</span>
-                <span className="text-on-surface/50 italic">Editing existing recipe</span>
+                <span className="italic">Editing existing recipe</span>
               </>
             )}
-          </p>
-        </div>
+          </span>
+        </span>
       </button>
       {confirmDel ? (
         <div className="flex items-center gap-1.5 flex-shrink-0">
           <button
             type="button"
             onClick={(e) => { e.stopPropagation(); setConfirmDel(false); }}
-            className="px-3 py-1.5 text-[11px] font-semibold text-on-surface/60 border border-on-surface/15 rounded-full hover:bg-on-surface/[0.04]"
+            className="px-3.5 py-2 text-[11.5px] font-bold text-on-surface border border-on-surface/20 rounded-full active:bg-on-surface/[0.06]"
           >
             Cancel
           </button>
           <button
             type="button"
             onClick={(e) => { e.stopPropagation(); onDelete(); }}
-            className="px-3 py-1.5 text-[11px] font-semibold text-white bg-red-500 rounded-full hover:bg-red-600"
+            className="px-3.5 py-2 text-[11.5px] font-bold text-white bg-red-600 rounded-full active:opacity-85"
           >
             Delete
           </button>
@@ -331,12 +328,12 @@ const DraftRow: React.FC<DraftRowProps> = ({ draft, onOpen, onDelete }) => {
           type="button"
           onClick={(e) => { e.stopPropagation(); setConfirmDel(true); }}
           aria-label={`Delete draft "${draft.title}"`}
-          className="w-9 h-9 rounded-full text-on-surface/40 hover:text-red-500 hover:bg-red-500/10 flex items-center justify-center flex-shrink-0 transition-colors"
+          className="w-9 h-9 rounded-full text-on-surface/40 active:text-red-500 active:bg-red-500/10 flex items-center justify-center flex-shrink-0 transition-colors"
         >
-          <Trash2 size={15} />
+          <Trash2 size={15} strokeWidth={1.9} />
         </button>
       )}
-    </motion.div>
+    </div>
   );
 };
 
@@ -351,17 +348,18 @@ const ActivityHeader: React.FC<{ title: string; onBack: () => void }> = ({ title
     <motion.header
       ref={fade.headerRef}
       style={fade.headerStyle}
-      className="sticky top-0 z-20 bg-surface/95 backdrop-blur border-b border-on-surface/[0.07] px-5 pt-safe-3 pb-3 flex items-center gap-3"
+      className="sticky top-0 z-20 bg-surface/95 backdrop-blur border-b border-on-surface/[0.08] px-5 pt-safe-3 pb-3.5 flex items-center gap-3"
     >
-      <button
-        type="button"
+      <GlassButton
+        id="activity-back"
+        symbol="chevron.left"
+        label="Back"
         onClick={onBack}
-        aria-label="Back"
-        className="w-9 h-9 rounded-full hover:bg-on-surface/[0.05] flex items-center justify-center text-on-surface/65 transition-colors"
+        className="hit-44 flex-none w-10 h-10 -ml-1 rounded-full flex items-center justify-center text-on-surface bg-on-surface/[0.05] active:scale-95 transition-transform"
       >
         <ArrowLeft size={18} />
-      </button>
-      <h1 className="font-serif font-bold text-on-surface text-[18px] leading-none">{title}</h1>
+      </GlassButton>
+      <h1 className="font-serif font-bold text-on-surface text-[19px] leading-tight tracking-[-0.025em] truncate">{title}</h1>
     </motion.header>
   );
 };
@@ -507,27 +505,28 @@ export const Activity: React.FC = () => {
     return (
       <div className="min-h-screen bg-surface pb-32">
         <ActivityHeader title="Your activity" onBack={() => navigate(-1)} />
-        <main className="max-w-2xl mx-auto px-5 pt-6">
-          <p className="text-on-surface/55 text-[13px] leading-snug mb-5 px-1">
-            Everything you've saved, liked, and joined in on — in one place.
+        <main className="max-w-2xl mx-auto px-5 pt-5">
+          <p className="text-on-surface/55 text-[13.5px] leading-relaxed mb-1" style={{ textWrap: 'pretty' } as React.CSSProperties}>
+            Everything you've saved, liked and joined in on — in one place.
           </p>
-          <div className="space-y-2.5">
+          <div>
             <IndexRow
-              icon={<Bookmark size={20} />}
+              first
+              icon={<Bookmark size={17} strokeWidth={1.9} />}
               label="Saved"
               description="Reels and posts you've bookmarked"
               count={savedCount}
               to="/activity/saved"
             />
             <IndexRow
-              icon={<Heart size={20} />}
+              icon={<Heart size={17} strokeWidth={1.9} />}
               label="Likes"
               description="Everything you've liked"
               count={likedCount}
               to="/activity/likes"
             />
             <IndexRow
-              icon={<MessageCircle size={20} />}
+              icon={<MessageCircle size={17} strokeWidth={1.9} />}
               label="Comments"
               description="Reels and posts you've commented on"
               count={commentedCount}
@@ -535,7 +534,7 @@ export const Activity: React.FC = () => {
               to="/activity/comments"
             />
             <IndexRow
-              icon={<FileText size={20} />}
+              icon={<FileText size={17} strokeWidth={1.9} />}
               label="Recipe drafts"
               description="Saved drafts from the Advanced recipe builder"
               count={drafts.length}
@@ -565,13 +564,14 @@ export const Activity: React.FC = () => {
             />
           ) : (
             <>
-              <p className="text-on-surface/55 text-[12px] mb-4 tabular-nums">
+              <p className="text-on-surface/55 text-[12px] mb-1 tabular-nums">
                 {drafts.length} {drafts.length === 1 ? 'draft' : 'drafts'}
               </p>
-              <div className="space-y-2.5">
-                {drafts.map((d) => (
+              <div>
+                {drafts.map((d, i) => (
                   <DraftRow
                     key={d.id}
+                    first={i === 0}
                     draft={d}
                     onOpen={() => handleResumeDraft(d)}
                     onDelete={() => handleDeleteDraft(d.id)}
