@@ -123,7 +123,7 @@
   margin-left: 2px;
 }
 
-.gcx-phone .gcx-head-close:hover { background: #33302b; color: #ffffff; }
+.gcx-phone .gcx-head-close:hover { background: var(--gcx-ink); color: var(--gcx-bg); }
 
 .gcx-step-title {
   margin: 12px 0 0;
@@ -346,7 +346,7 @@
 
 .gcx-chip.is-on {
   background: var(--gcx-ink);
-  color: #ffffff;
+  color: var(--gcx-bg);
 }
 
 .gcx-chip.is-on:hover { background: #33302a; }
@@ -621,7 +621,7 @@
   padding: 8px 15px;
   border-radius: 999px;
   background: var(--gcx-ink);
-  color: #ffffff;
+  color: var(--gcx-bg);
   font-size: 12.5px;
   font-weight: 650;
   flex-shrink: 0;
@@ -874,7 +874,7 @@
 .gcx-icon-btn.is-on {
   background: var(--gcx-ink);
   border-color: var(--gcx-ink);
-  color: #ffffff;
+  color: var(--gcx-bg);
 }
 
 .gcx-icon-danger:hover { border-color: #b4231b; color: #b4231b; }
@@ -1076,7 +1076,7 @@
   justify-content: center;
   gap: 8px;
   background: var(--gcx-ink);
-  color: #ffffff;
+  color: var(--gcx-bg);
   font-size: 14.5px;
   font-weight: 650;
   letter-spacing: 0.01em;
@@ -1157,7 +1157,7 @@
   height: 52px;
   border-radius: 999px;
   background: var(--gcx-ink);
-  color: #ffffff;
+  color: var(--gcx-bg);
   font-size: 14.5px;
   font-weight: 650;
 }
@@ -1421,7 +1421,7 @@
   height: 50px;
   border-radius: 999px;
   background: var(--gcx-ink);
-  color: #ffffff;
+  color: var(--gcx-bg);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1432,3 +1432,31 @@
 }
 
 .gcx-detail-done:active { transform: scale(0.98); }
+
+/* ── Dark mode ─────────────────────────────────────────────────────
+   The wizard's whole surface rides the --gcx tokens, so the ramp flips
+   here; the rules after it catch the handful of literals (hovers,
+   dashes, disabled states) that carried the warm palette directly. */
+.dark .gcx {
+  --gcx-bg: #1e1e20;
+  --gcx-ink: #ededed;
+  --gcx-secondary: #a0a0a6;
+  --gcx-faint: #6a6a70;
+  --gcx-hairline: #3a3a3e;
+  --gcx-hairline-strong: #48484c;
+  --gcx-chip: #2d2d30;
+  --gcx-card: #2b2b2e;
+}
+.dark .gcx-title-input::placeholder { color: #55555a; }
+.dark .gcx-chip.is-on:hover { background: #ffffff; }
+.dark .gcx-chip-add { border-color: #55555a; }
+.dark .gcx-city-opt:hover { background: #2d2d30; }
+.dark .gcx-seg-btn { color: #96969c; }
+.dark .gcx-row-toggle { border-color: #48484c; }
+.dark .gcx-cover-slot { border-color: #48484c; background: rgba(255, 255, 255, 0.04); }
+.dark .gcx-grip { background-image: radial-gradient(#55555a 1.5px, transparent 1.6px); }
+.dark .gcx-icon-btn { color: #96969c; }
+.dark .gcx-icon-danger:hover { border-color: #e08273; color: #e08273; }
+.dark .gcx-addmore { border-color: #48484c; color: #96969c; }
+.dark .gcx-foot-cta.is-disabled { background: #333338; color: #6a6a70; }
+.dark .gcx-detail-trash:active { color: #e08273; }

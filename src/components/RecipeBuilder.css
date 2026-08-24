@@ -211,8 +211,8 @@
   text-align: left;
   gap: 3px;
   padding: 18px 16px;
-  background: #ffffff;
-  border: 1px solid #e4dfd7;
+  background: var(--rcx-card);
+  border: 1px solid var(--rcx-hairline-strong);
   border-radius: 16px;
   animation: rcxRowIn 0.3s var(--ease-out-strong) both;
   transition: border-color 0.18s ease, transform 0.18s ease, box-shadow 0.18s ease;
@@ -711,7 +711,7 @@
 .rcx-chip.is-on {
   background: var(--rcx-ink);
   border-color: var(--rcx-ink);
-  color: #faf9f7;
+  color: var(--rcx-bg);
 }
 
 .rcx-chip-dash {
@@ -1105,7 +1105,7 @@
   padding: 0 18px;
   border-radius: 999px;
   background: var(--rcx-ink);
-  color: #faf9f7;
+  color: var(--rcx-bg);
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -1159,7 +1159,7 @@
   height: 26px;
   border-radius: 999px;
   background: var(--rcx-ink);
-  color: #faf9f7;
+  color: var(--rcx-bg);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1696,7 +1696,7 @@
 .rcxa-pill:hover { border-color: var(--rcx-faint); }
 .rcxa-pill.is-open { border-color: var(--rcx-faint); background: #fbfaf8; }
 .rcxa-pill.is-open .rcxa-pill-caret { transform: rotate(180deg); }
-.rcxa-pill.is-on { border-color: var(--rcx-ink); background: var(--rcx-ink); color: #fff; }
+.rcxa-pill.is-on { border-color: var(--rcx-ink); background: var(--rcx-ink); color: var(--rcx-bg); }
 .rcxa-pill.is-on .rcxa-pill-caret { color: rgba(255, 255, 255, 0.65); }
 
 /* Backdrop + panel portal to <body>, above the recipe modal (z-[110]
@@ -2078,7 +2078,7 @@
   justify-content: center;
   gap: 8px;
   background: var(--rcx-ink);
-  color: #faf9f7;
+  color: var(--rcx-bg);
   font-size: 14.5px;
   font-weight: 650;
   letter-spacing: 0.01em;
@@ -2161,7 +2161,7 @@
   height: 50px;
   border-radius: 999px;
   background: var(--rcx-ink);
-  color: #faf9f7;
+  color: var(--rcx-bg);
   font-size: 14.5px;
   font-weight: 650;
 }
@@ -2312,3 +2312,65 @@
     transition-duration: 0.16s;
   }
 }
+
+/* ── Dark mode ─────────────────────────────────────────────────────
+   Token flip for the builder (and the portalled .rcxa-menu, which
+   re-declares the same tokens outside .rcx), then the literal warm
+   hexes — hovers, dashes, error tints, disabled states — remapped
+   onto the graphite ramp. The .rcx-preview card deliberately STAYS
+   near-black in both themes: it is a mock of the finished recipe
+   page's dark hero, and its cream text depends on it. */
+.dark .rcx,
+.dark .rcxa-menu {
+  --rcx-bg: #1e1e20;
+  --rcx-ink: #ededed;
+  --rcx-secondary: #a0a0a6;
+  --rcx-faint: #6a6a70;
+  --rcx-hairline: #3a3a3e;
+  --rcx-hairline-strong: #48484c;
+  --rcx-chip: #2d2d30;
+  --rcx-card: #2b2b2e;
+  --rcx-amber: #d9a855;
+}
+.dark .rcx-method-chip { color: #a5a5ab; }
+.dark .rcx-choose-handle { background: #48484c; }
+.dark .rcx-saved-dot { background: #55555a; }
+.dark .rcx-seg { background: #35353a; }
+.dark .rcx-seg.is-done { background: color-mix(in srgb, var(--rcx-accent) 45%, #35353a); }
+.dark .rcx-title-input::placeholder { color: #55555a; }
+.dark .rcx input[type='range'] { background: #35353a; }
+.dark .rcx-tw-wheels::before { background: #2d2d30; }
+.dark .rcx-round-btn { color: #a5a5ab; }
+.dark .rcx-chip { color: #a5a5ab; }
+.dark .rcx-chip-dash { border-color: #48484c; }
+.dark .rcx-photo-slot { border-color: #48484c; }
+.dark .rcx-ghost-delete:hover:not(:disabled) { background: rgba(224, 130, 115, 0.12); color: #e08273; }
+.dark .rcx-ing-input.is-error { background: rgba(224, 130, 115, 0.1); }
+.dark .rcx-ing-unit-item:hover { background: #2d2d30; }
+.dark .rcx-ing-empty { border-color: #48484c; }
+.dark .rcx-add-dash { border-color: #48484c; color: #a5a5ab; }
+.dark .rcx-mini-primary:hover:not(:disabled) { background: #ffffff; }
+.dark .rcx-tip-callout { background: #29292c; }
+.dark .rcx-preview { background: #141416; }
+.dark .rcx-rating-box.is-set { background: rgba(79, 195, 148, 0.14); }
+.dark .rcx-vis-card svg { color: #6f6f75; }
+.dark .rcx-validation { background: rgba(224, 130, 115, 0.1); color: #e08273; }
+.dark .rcx-prompt { background: var(--rcx-card); }
+.dark .rcx-prompt:focus { background: var(--rcx-card); }
+.dark .rcx-prompt::placeholder { color: #6a6a70; }
+.dark .rcxa-idea { background: rgba(255, 255, 255, 0.04); color: #a5a5ab; }
+.dark .rcxa-idea:hover { background: #2d2d30; }
+.dark .rcxa-cancel:hover { background: #2d2d30; }
+.dark .rcxa-pill { color: #a5a5ab; }
+.dark .rcxa-pill.is-open { background: #2d2d30; }
+.dark .rcxa-pill.is-on .rcxa-pill-caret { color: rgba(30, 30, 32, 0.6); }
+.dark .rcxa-opt { color: #a5a5ab; }
+.dark .rcxa-opt:hover { background: #2d2d30; }
+.dark .rcxa-input::placeholder { color: #6a6a70; }
+.dark .rcxa-send:hover:not(:disabled) { background: #e1714b; }
+.dark .rcxa-error { background: rgba(224, 130, 115, 0.1); border-color: rgba(224, 130, 115, 0.25); color: #e08273; }
+.dark .rcx-src-btn { color: #96969c; }
+.dark .rcx-paste-btn { color: #a5a5ab !important; }
+.dark .rcx-import-add { border-color: #48484c; }
+.dark .rcx-foot-cta.is-disabled { background: #333338; color: #6a6a70; }
+.dark .rcx-modal-error { color: #e08273; }
