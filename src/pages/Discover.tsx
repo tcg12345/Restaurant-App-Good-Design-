@@ -4255,7 +4255,9 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, sear
                 aria-pressed={on}
                 className={cn(
                   'flex-1 min-w-0 h-9 rounded-full inline-flex items-center justify-center gap-1.5 transition-colors',
-                  on ? 'bg-surface text-on-surface shadow-[0_1px_6px_rgba(0,0,0,0.09)]' : 'text-on-surface/55 active:text-on-surface/80',
+                  // dark: bg-surface equals the page ground there, so the
+                  // active cell lifts with an on-surface wash instead.
+                  on ? 'bg-surface dark:bg-on-surface/[0.14] text-on-surface shadow-[0_1px_6px_rgba(0,0,0,0.09)]' : 'text-on-surface/55 active:text-on-surface/80',
                 )}
                 style={{ fontSize: '12.5px', fontWeight: 700 }}
               >
