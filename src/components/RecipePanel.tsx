@@ -16,7 +16,7 @@
  * The recipe lives in the author's home_meals table (FriendHomeMeal),
  * fetched lazily via getPublicHomeMealById.
  */
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import { Link } from 'react-router-dom';
@@ -518,7 +518,9 @@ const RecipePanelBody: React.FC<{
   snapshot: RecipePanelSnapshot;
   onClose: () => void;
   currentUserId: string | null;
-}> = ({ snapshot, onClose, currentUserId }) => {
+  /** Sheet host reads the inner scroll position for drag-anywhere dismissal. */
+  scrollElRef?: React.MutableRefObject<HTMLDivElement | null>;
+}> = ({ snapshot, onClose, currentUserId, scrollElRef }) => {
   const { authorId, recipe } = snapshot;
   const { homeMeals, createHomeMeal, lists, createList, addRecipe, removeRecipe } = useLists();
   const { showToast } = useToast();
@@ -772,7 +774,11 @@ const RecipePanelBody: React.FC<{
       </div>
 
       {/* Scrollable body */}
-      <div className="flex-1 min-h-0 overflow-y-auto px-5 pt-5 pb-6 space-y-6">
+      <div
+        ref={(el) => { if (scrollElRef) scrollElRef.current = el; }}
+        className="flex-1 min-h-0 overflow-y-auto px-5 pt-5 pb-6 space-y-6"
+        style={{ overscrollBehavior: 'none' }}
+      >
         {/* Author chip */}
         {author && (
           <Link
@@ -956,7 +962,8 @@ const RecipePanelBody: React.FC<{
 /* ── Desktop side panel + mobile sheet ───────────────────────────────── */
 
 export const RecipePanel: React.FC<RecipePanelProps> = ({ snapshot, onClose, currentUserId, variant }) => {
-  const { dragProps } = useBottomSheet(!!snapshot && variant === 'sheet', onClose);
+  const sheetScrollRef = useRef<HTMLDivElement | null>(null);
+  const { dragProps, sheetDragProps } = useBottomSheet(!!snapshot && variant === 'sheet', onClose, sheetScrollRef);
   if (variant === 'sheet') {
     return (
       <AnimatePresence>
@@ -972,8 +979,9 @@ export const RecipePanel: React.FC<RecipePanelProps> = ({ snapshot, onClose, cur
               initial={{ y: '100%' }}
               animate={{ y: 0 }}
               exit={{ y: '100%' }}
-              transition={{ type: 'spring', damping: 30, stiffness: 300 }}
+              transition={{ duration: 0.42, ease: [0.32, 0.72, 0, 1] }}
               {...dragProps}
+              {...sheetDragProps}
               onClick={(e) => e.stopPropagation()}
               className="bg-surface w-full rounded-t-3xl flex flex-col ring-1 ring-on-surface/[0.16] overflow-hidden relative kb-pad"
               style={{ height: '92%' }}
@@ -984,7 +992,7 @@ export const RecipePanel: React.FC<RecipePanelProps> = ({ snapshot, onClose, cur
               <div className="pointer-events-none absolute top-2 left-1/2 -translate-x-1/2 z-30">
                 <span className="block w-10 h-1 rounded-full bg-on-surface/30" />
               </div>
-              <RecipePanelBody snapshot={snapshot} onClose={onClose} currentUserId={currentUserId} />
+              <RecipePanelBody snapshot={snapshot} onClose={onClose} currentUserId={currentUserId} scrollElRef={sheetScrollRef} />
             </motion.div>
           </motion.div>
         )}

@@ -263,6 +263,9 @@ export const RestaurantPanelBody: React.FC<{
   snapshot: RestaurantPanelSnapshot;
   onClose: () => void;
   currentUserId: string | null;
+  /** The sheet host reads the inner scroll position through this to run
+   *  drag-anywhere dismissal (see useBottomSheet). */
+  scrollElRef?: React.MutableRefObject<HTMLDivElement | null>;
   /** When true the map hero is omitted entirely so the body can be
    *  embedded inside another panel (e.g. the Map page's results sidebar)
    *  that already has its own header. The scroll container and all the
@@ -278,7 +281,7 @@ export const RestaurantPanelBody: React.FC<{
    *  inject extra sections (e.g. a distance + routing card) without
    *  re-implementing the rest of the body. */
   headSlot?: React.ReactNode;
-}> = ({ snapshot, onClose, currentUserId, noHero, topChrome, headSlot }) => {
+}> = ({ snapshot, onClose, currentUserId, scrollElRef, noHero, topChrome, headSlot }) => {
   const {
     getRating,
     isWishlisted,
@@ -503,7 +506,7 @@ export const RestaurantPanelBody: React.FC<{
   const hasPhotos = !!myRating?.photos && myRating.photos.length > 0;
   const hasPrice = !!myRating?.price;
 
-  const scrollRef = useRef<HTMLDivElement>(null);
+  const scrollRef = useRef<HTMLDivElement | null>(null);
 
   // Creating a Mapbox WebGL context is main-thread work heavy enough to
   // stutter the sheet's entrance — hold the map back until the slide has
@@ -558,9 +561,14 @@ export const RestaurantPanelBody: React.FC<{
         )}
 
         <div
-          ref={scrollRef}
+          ref={(el) => {
+            scrollRef.current = el;
+            if (scrollElRef) scrollElRef.current = el;
+          }}
+          // overscroll 'none': the local top-bounce used to fight the
+          // drag-anywhere dismissal for the first few pixels.
           className="h-full overflow-y-auto pb-6"
-          style={{ overscrollBehavior: 'contain' }}
+          style={{ overscrollBehavior: 'none' }}
         >
           {!noHero && (
             <div className="relative w-full h-[168px] bg-cream-2 overflow-hidden">
@@ -1085,7 +1093,8 @@ export const RestaurantPanelBody: React.FC<{
 /* ── Desktop side panel + mobile sheet ───────────────────────────────── */
 
 export const RestaurantPanel: React.FC<RestaurantPanelProps> = ({ snapshot, onClose, currentUserId, variant }) => {
-  const { dragProps } = useBottomSheet(!!snapshot && variant === 'sheet', onClose);
+  const sheetScrollRef = useRef<HTMLDivElement | null>(null);
+  const { dragProps, sheetDragProps } = useBottomSheet(!!snapshot && variant === 'sheet', onClose, sheetScrollRef);
   if (variant === 'sheet') {
     return (
       <AnimatePresence>
@@ -1105,6 +1114,7 @@ export const RestaurantPanel: React.FC<RestaurantPanelProps> = ({ snapshot, onCl
               // Mapbox init happening mid-entrance.
               transition={{ duration: 0.42, ease: [0.32, 0.72, 0, 1] }}
               {...dragProps}
+              {...sheetDragProps}
               onClick={(e) => e.stopPropagation()}
               className="bg-surface w-full rounded-t-3xl flex flex-col ring-1 ring-on-surface/[0.16] overflow-hidden relative"
               style={{ height: '92%', willChange: 'transform' }}
@@ -1117,7 +1127,7 @@ export const RestaurantPanel: React.FC<RestaurantPanelProps> = ({ snapshot, onCl
               <div className="pointer-events-none absolute top-2 left-1/2 -translate-x-1/2 z-30">
                 <span className="block w-10 h-1 rounded-full bg-on-surface/30" />
               </div>
-              <RestaurantPanelBody snapshot={snapshot} onClose={onClose} currentUserId={currentUserId} />
+              <RestaurantPanelBody snapshot={snapshot} onClose={onClose} currentUserId={currentUserId} scrollElRef={sheetScrollRef} />
             </motion.div>
           </motion.div>
         )}

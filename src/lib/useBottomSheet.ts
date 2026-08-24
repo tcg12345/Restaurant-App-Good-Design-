@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, type PointerEvent as ReactPointerEvent } from 'react';
+import { useCallback, useEffect, useMemo, useRef, type PointerEvent as ReactPointerEvent, type RefObject } from 'react';
 import { useDragControls } from 'motion/react';
 import { pushOverlay } from './overlay-registry';
 
@@ -70,7 +70,14 @@ function acquireBodyScrollLock(): () => void {
 export function useBottomSheet(
   open: boolean,
   onClose: () => void,
-): { dragProps: BottomSheetDragProps; startDrag: (e: ReactPointerEvent) => void } {
+  /** Pass the sheet's inner scroll container to enable drag-ANYWHERE
+   *  dismissal with correct scroll interop: a downward drag begun while
+   *  that container sits at its top takes the whole sheet with it (the
+   *  iOS gesture); once the content is scrolled, the same drag scrolls
+   *  the content instead. Spread the returned `sheetDragProps` on the
+   *  sheet root alongside `dragProps` to opt in. */
+  scrollRef?: RefObject<HTMLElement | null>,
+): { dragProps: BottomSheetDragProps; startDrag: (e: ReactPointerEvent) => void; sheetDragProps: SheetDragHandlers } {
   // Lock body scroll while the sheet is open — ref-counted so stacked
   // sheets compose regardless of close order (see acquireBodyScrollLock).
   useEffect(() => {
@@ -95,11 +102,12 @@ export function useBottomSheet(
       dragControls,
       dragListener: false,
       dragConstraints: { top: 0, bottom: 0 },
-      // Downward is the dismissal, so it gives freely. Upward is a boundary,
+      // Downward is the dismissal, so it tracks the finger 1:1 — half-rate
+      // follow read as the sheet resisting the drag. Upward is a boundary,
       // and a boundary that does not move at all reads as the gesture having
       // broken — a little rubber band says "this is as far as it goes" while
       // staying obviously alive under the finger.
-      dragElastic: { top: 0.06, bottom: 0.5 },
+      dragElastic: { top: 0.06, bottom: 1 },
       onDragEnd: (_event, info) => {
         if (info.offset.y > 100 || info.velocity.y > 300) onClose();
       },
@@ -114,8 +122,43 @@ export function useBottomSheet(
     [dragControls],
   );
 
-  return { dragProps, startDrag };
+  // ── Drag-anywhere: watch the gesture from the sheet root and hand it to
+  // Framer once it reads as a downward pull with the content at its top.
+  // Starting on MOVE (8px in) instead of DOWN keeps taps, buttons and
+  // horizontal swipes untouched.
+  const gestureRef = useRef<{ x: number; y: number; live: boolean } | null>(null);
+  const onSheetPointerDown = useCallback((e: ReactPointerEvent) => {
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    gestureRef.current = { x: e.clientX, y: e.clientY, live: true };
+  }, []);
+  const onSheetPointerMove = useCallback((e: ReactPointerEvent) => {
+    const g = gestureRef.current;
+    if (!g?.live) return;
+    const dx = e.clientX - g.x;
+    const dy = e.clientY - g.y;
+    // Horizontal or upward intent → not a dismiss; stand down for this touch.
+    if (Math.abs(dx) > 10 && Math.abs(dx) > Math.abs(dy)) { g.live = false; return; }
+    if (dy < -10) { g.live = false; return; }
+    if (dy > 8) {
+      g.live = false;
+      const scroller = scrollRef?.current;
+      // Content scrolled down → this drag belongs to the scroller.
+      if (scroller && scroller.scrollTop > 0) return;
+      dragControls.start(e);
+    }
+  }, [dragControls, scrollRef]);
+  const sheetDragProps = useMemo<SheetDragHandlers>(
+    () => ({ onPointerDown: onSheetPointerDown, onPointerMove: onSheetPointerMove }),
+    [onSheetPointerDown, onSheetPointerMove],
+  );
+
+  return { dragProps, startDrag, sheetDragProps };
 }
+
+type SheetDragHandlers = {
+  onPointerDown: (e: ReactPointerEvent) => void;
+  onPointerMove: (e: ReactPointerEvent) => void;
+};
 
 type BottomSheetDragProps = {
   drag: 'y';
