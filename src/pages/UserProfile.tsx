@@ -41,6 +41,7 @@ import { ProfileRestaurantRowMinimal } from '../components/profile/ProfileRestau
 import { ProfilePalate } from '../components/profile/ProfilePalate';
 import { ProfileRecipeRow } from '../components/profile/ProfileRecipeRow';
 import { ProfilePostsSection, ProfileReelsSection, ProfileGuidesSection } from '../components/ProfileReelsSection';
+import { SearchField } from '../components/SearchField';
 
 // Simple in-memory cache to avoid re-fetching on back navigation
 const profileCache: Record<string, {
@@ -1350,19 +1351,13 @@ export const UserProfile: React.FC = () => {
           {viewTab === 'restaurants' && (
             <>
               <div className="flex items-center gap-2.5 px-6 pt-4 pb-3">
-                <div className="relative flex-1 flex items-center min-w-0">
-                  <Search size={16} className="absolute left-4 text-ink-3" />
-                  <input
-                    type="text"
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    placeholder="Search restaurants…"
-                    className="w-full h-11 pl-11 pr-9 rounded-full bg-paper border border-line-2 focus:border-ink-2 focus:outline-none text-[13.5px] font-medium text-on-surface placeholder:text-ink-3"
-                  />
-                  {searchQuery && (
-                    <button onClick={() => setSearchQuery('')} className="absolute right-3.5 text-ink-3" aria-label="Clear"><X size={14} /></button>
-                  )}
-                </div>
+                <SearchField
+                  glassId="profile-rest-search"
+                  className="flex-1 min-w-0"
+                  value={searchQuery}
+                  onChange={setSearchQuery}
+                  placeholder="Search restaurants…"
+                />
                 <button
                   onClick={() => { setSheetPage(null); setFiltersOpen(true); }}
                   className={cn(

@@ -116,6 +116,7 @@ import {
 } from '../components/filterPrimitives';
 import { MichelinDrillSection } from '../components/MichelinDistinctionFilter';
 import { passesHoursFilter, isHoursFilterActive, emptyHoursFilter, type HoursFilter, restaurantLocalNow } from '../lib/hours';
+import { SearchField } from '../components/SearchField';
 
 /* ── Guide card view-model ────────────────────────────────────────────────────
    The Guides rail renders real, published guides for the selected city
@@ -2797,34 +2798,13 @@ export const LocationPage: React.FC = () => {
           {/* Search + Filters row */}
           {isMobile ? (
             <div className="flex items-center gap-2 mb-4 px-3">
-              <div className="flex-1 min-w-0 relative">
-                <Search size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none z-10" style={{ color: 'var(--muted)' }} />
-                <input
-                  type="text"
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="Search restaurants..."
-                  autoCapitalize="off"
-                  autoCorrect="off"
-                  className="w-full h-[40px] pl-10 pr-9 rounded-full text-[14px] font-medium focus:outline-none transition-colors"
-                  style={{
-                    background: 'var(--surface)',
-                    color: 'var(--ink)',
-                    border: '1px solid var(--border-strong)',
-                  }}
-                />
-                {searchQuery && (
-                  <button
-                    type="button"
-                    onClick={() => setSearchQuery('')}
-                    aria-label="Clear search"
-                    className="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 grid place-items-center rounded-full hover:bg-on-surface/[0.06] transition-colors z-10"
-                    style={{ color: 'var(--muted)' }}
-                  >
-                    <X size={13} />
-                  </button>
-                )}
-              </div>
+              <SearchField
+                glassId="location-rest-search"
+                className="flex-1 min-w-0"
+                value={searchQuery}
+                onChange={setSearchQuery}
+                placeholder="Search restaurants…"
+              />
               {/* Filters pill — same inline-style recipe as the filter chips
                   above (so padding/shape/font survive the .location-page-root
                   button reset), but with a surface background + border so it

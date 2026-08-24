@@ -2096,25 +2096,13 @@ const ListDetailView: React.FC<{
           the header-scoped "Search this list" button instead. */}
       {phoneMode && (
         <div className="mb-4">
-          <div className="relative">
-            <Search size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-on-surface/45 pointer-events-none transition-colors peer-focus:text-primary" />
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search by name, cuisine, location..."
-              className="peer w-full rounded-full border border-transparent bg-on-surface/[0.055] py-[11px] pl-[38px] pr-9 text-[13.5px] text-on-surface placeholder:text-on-surface/40 outline-none transition-colors focus:border-primary focus:bg-transparent"
-            />
-            {searchQuery && (
-              <button
-                onClick={() => setSearchQuery('')}
-                aria-label="Clear search"
-                className="absolute right-3 top-1/2 -translate-y-1/2 grid h-[22px] w-[22px] place-items-center rounded-full bg-on-surface/[0.12] text-on-surface transition-opacity active:opacity-70"
-              >
-                <X size={11} strokeWidth={2.6} />
-              </button>
-            )}
-          </div>
+          <SearchField
+            glassId="list-detail-search"
+            value={searchQuery}
+            onChange={setSearchQuery}
+            placeholder="Search by name, cuisine, location…"
+            aria-label="Search this list"
+          />
         </div>
       )}
 
@@ -4569,25 +4557,13 @@ const HomeCookingTab: React.FC<{
           {/* Always-visible search input — same look as every other
               list view on phone. */}
           <div className="mb-4">
-            <div className="relative">
-              <Search size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-on-surface/45 pointer-events-none transition-colors peer-focus:text-primary" />
-              <input
-                type="text"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search by name, cuisine, location..."
-                className="peer w-full rounded-full border border-transparent bg-on-surface/[0.055] py-[11px] pl-[38px] pr-9 text-[13.5px] text-on-surface placeholder:text-on-surface/40 outline-none transition-colors focus:border-primary focus:bg-transparent"
-              />
-              {searchQuery && (
-                <button
-                  onClick={() => setSearchQuery('')}
-                  aria-label="Clear search"
-                  className="absolute right-3 top-1/2 -translate-y-1/2 grid h-[22px] w-[22px] place-items-center rounded-full bg-on-surface/[0.12] text-on-surface transition-opacity active:opacity-70"
-                >
-                  <X size={11} strokeWidth={2.6} />
-                </button>
-              )}
-            </div>
+            <SearchField
+              glassId="cooking-search"
+              value={searchQuery}
+              onChange={setSearchQuery}
+              placeholder="Search by name, cuisine, location…"
+              aria-label="Search your recipes"
+            />
           </div>
 
           {/* Filter pill row — mirrors the desktop toolbar's recipe

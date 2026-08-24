@@ -4207,38 +4207,38 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, sear
           </GlassButton>
         ) : undefined}
       />
-      {/* One capsule, two controls: search fills the row and the location
-          rides inside it as a trailing token behind a hairline — one wide
-          instrument instead of two capsules fighting for the same line. */}
-      <div className={cn("flex items-center flex-shrink-0", phoneMode ? "px-3 pb-1.5" : "px-6 pt-2 pb-3")}>
-        <div className="flex-1 min-w-0 flex items-center h-11 rounded-full bg-on-surface/[0.055]">
-          <button
-            type="button"
-            onClick={() => navigate('/search/main')}
-            className="flex-1 min-w-0 h-full flex items-center gap-2 pl-4 pr-3 text-left"
-            aria-label="Open search"
+      {/* The search page's own materials: a real glass field (read-only —
+          tapping it goes to the search page, the same handover the map
+          field makes) with the location as a labelled glass pill beside
+          it, the takeover's location-chip pattern worn at home. */}
+      <div className={cn("flex items-center gap-2 flex-shrink-0", phoneMode ? "px-3 pb-1.5" : "px-6 pt-2 pb-3")}>
+        <SearchField
+          glassId="home-search"
+          className="flex-1 min-w-0"
+          readOnly
+          onPress={() => navigate('/search/main')}
+          value=""
+          onChange={() => {}}
+          placeholder="Dishes, places, people"
+          aria-label="Open search"
+        />
+        {mode === 'home' && (
+          <GlassButton
+            id="home-location"
+            symbol="location"
+            title={homeLocation?.label?.split(',')[0]?.trim() || 'Set location'}
+            titleStyle="chip"
+            label="Change location"
+            onClick={() => setMobileLocationPickerOpen(true)}
+            className="flex-shrink-0 max-w-[45%] h-10 pl-3 pr-3.5 rounded-full flex items-center gap-1.5 text-[13px] font-semibold text-on-surface active:scale-[0.98] transition-transform"
           >
-            <Search size={15} className="text-on-surface/45 flex-shrink-0" />
-            <span className="truncate text-on-surface/40" style={{ fontSize: '13.5px' }}>Dishes, places, people</span>
-          </button>
-          {mode === 'home' && (
-            <>
-              <span className="w-px h-5 bg-on-surface/[0.12] flex-shrink-0" aria-hidden />
-              <button
-                type="button"
-                onClick={() => setMobileLocationPickerOpen(true)}
-                aria-label="Change location"
-                className="h-full max-w-[45%] flex items-center gap-1.5 pl-3 pr-3.5 active:opacity-70 transition-opacity"
-              >
-                <MapPin size={14} className="text-primary flex-shrink-0" />
-                <span className="min-w-0 truncate text-[13px] font-semibold text-on-surface">
-                  {homeLocation?.label?.split(',')[0]?.trim() || 'Set location'}
-                </span>
-                <ChevronDown size={13} className="text-on-surface/45 flex-shrink-0" />
-              </button>
-            </>
-          )}
-        </div>
+            <MapPin size={14} className="text-primary flex-shrink-0" />
+            <span className="min-w-0 truncate">
+              {homeLocation?.label?.split(',')[0]?.trim() || 'Set location'}
+            </span>
+            <ChevronDown size={13} className="text-on-surface/45 flex-shrink-0" />
+          </GlassButton>
+        )}
       </div>
       {/* Who the feed is showing — one full-width segmented track (the same
           control language as every filter sheet), not three floating

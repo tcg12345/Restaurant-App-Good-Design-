@@ -42,6 +42,7 @@ import { POST_MAX_ITEMS } from '../contexts/PostsContext';
 import type { GuideType } from '../lib/supabase-guides';
 import { cn } from '../lib/utils';
 import { GlassButton } from '../lib/glass-buttons';
+import { SearchField } from '../components/SearchField';
 
 type Mode = 'post' | 'rate' | 'guide' | 'recipe';
 const MODES: Mode[] = ['post', 'rate', 'guide', 'recipe'];
@@ -682,12 +683,11 @@ const RateSurface: React.FC = () => {
       <Eyebrow>Rate a restaurant</Eyebrow>
 
       <div className="relative">
-        <Search size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-on-surface/35 pointer-events-none" />
-        <input
+        <SearchField
+          glassId="create-rest-search"
           value={query}
-          onChange={(e) => setQuery(e.target.value)}
+          onChange={setQuery}
           placeholder="Search restaurants"
-          className="w-full rounded-full border border-on-surface/[0.1] bg-on-surface/[0.03] py-2.5 pl-10 pr-9 text-[14px] font-medium placeholder:text-on-surface/35 focus:border-primary/40 focus:bg-surface focus:outline-none transition-colors"
         />
         {searching && <Loader2 size={14} className="absolute right-3.5 top-1/2 -translate-y-1/2 animate-spin text-on-surface/35" />}
       </div>

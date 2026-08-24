@@ -102,12 +102,12 @@
    on non-/location routes; `.dark .location-page-root` overrides the page's
    local token block (which otherwise wins by specificity). */
 .dark {
-  --bg: #131314;
-  --bg-2: #1c1c1e;
-  --surface: #1c1c1e;
-  --surface-2: #18181a;
-  --border: rgba(255, 255, 255, 0.08);
-  --border-strong: rgba(255, 255, 255, 0.16);
+  --bg: #1e1e20;
+  --bg-2: #28282b;
+  --surface: #2b2b2e;
+  --surface-2: #232326;
+  --border: rgba(255, 255, 255, 0.10);
+  --border-strong: rgba(255, 255, 255, 0.20);
   --ink: #ededed;
   --ink-2: #c2c2c2;
   --muted: #8a8a8a;
@@ -116,18 +116,18 @@
   --accent-soft: rgba(194, 84, 62, 0.16);
   /* Dark surfaces for the shared editorial tokens (recipe builder / guide
      creator). Page bg goes near-black; cards ride --surface above. */
-  --cream: #131314;
-  --cream-2: #1c1c1e;
+  --cream: #232326;
+  --cream-2: #2d2d30;
   --green-soft: rgba(46, 125, 92, 0.18);
   --overlay-ink: 235, 235, 235;
 }
 .dark .location-page-root {
-  --bg: #131314;
-  --bg-2: #1c1c1e;
-  --surface: #1c1c1e;
-  --surface-2: #18181a;
-  --border: rgba(255, 255, 255, 0.08);
-  --border-strong: rgba(255, 255, 255, 0.16);
+  --bg: #1e1e20;
+  --bg-2: #28282b;
+  --surface: #2b2b2e;
+  --surface-2: #232326;
+  --border: rgba(255, 255, 255, 0.10);
+  --border-strong: rgba(255, 255, 255, 0.20);
   --ink: #ededed;
   --ink-2: #c2c2c2;
   --muted: #8a8a8a;

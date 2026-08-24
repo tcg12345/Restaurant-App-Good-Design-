@@ -35,6 +35,7 @@ import { useToast } from '../contexts/ToastContext';
 import { useSignInModal } from '../contexts/SignInModalContext';
 import { VerifiedBadge } from '../components/VerifiedBadge';
 import { ScoreBadge } from '../components/ScoreBadge';
+import { SearchField } from '../components/SearchField';
 import {
   getProfileByUsername, canViewProfile, getFollowCounts, getFollowListIds,
   getProfilesByIds, getFriends, getSentRequestIds, followPublicAccount,
@@ -367,21 +368,13 @@ export const FollowList: React.FC = () => {
         <div className="mx-auto max-w-[560px]">
           {/* search */}
           <div className="px-4 pt-3 pb-1">
-            <div className="relative flex items-center">
-              <Search size={16} className="absolute left-3.5 text-ink-3 pointer-events-none" />
-              <input
-                type="text"
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                placeholder="Search"
-                className="w-full h-10 pl-10 pr-9 rounded-xl bg-on-surface/[0.05] focus:outline-none focus:ring-2 focus:ring-on-surface/10 text-[14px] font-medium text-on-surface placeholder:text-ink-3"
-              />
-              {query && (
-                <button onClick={() => setQuery('')} className="absolute right-3 text-ink-3 hover:text-on-surface" aria-label="Clear search">
-                  <X size={14} />
-                </button>
-              )}
-            </div>
+            <SearchField
+              glassId="follow-search"
+              value={query}
+              onChange={setQuery}
+              placeholder="Search"
+              aria-label="Search people"
+            />
           </div>
 
           {/* ── Rated (own profile only) ── */}

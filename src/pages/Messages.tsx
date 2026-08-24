@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { ArrowLeft, Plus, Send, Search, X, Users, Check, CheckCheck, MessageCircle, ChevronRight, Star, MapPin, Trash2, ChefHat, Clock, Film, PlayCircle, Info, Store, AlertCircle } from 'lucide-react';
 import { cn, firstFrameSrc } from '../lib/utils';
+import { SearchField } from '../components/SearchField';
 import { VerifiedBadge } from '../components/VerifiedBadge';
 import { scoreColor } from '../lib/score';
 import { ScoreBadge } from '../components/ScoreBadge';
@@ -1527,9 +1528,13 @@ const MobileMessageList: React.FC<{
           </div>
           <button onClick={onCompose} className="w-9 h-9 rounded-full grid place-items-center text-primary active:bg-primary/10" title="New message"><Plus size={22} /></button>
         </div>
-        <div className="mt-2.5 flex items-center gap-2.5 h-10 px-3.5 rounded-full bg-on-surface/[0.05] border border-on-surface/8">
-          <Search size={15} className="text-on-surface/40 flex-shrink-0" />
-          <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search messages and friends" className="flex-1 bg-transparent text-[14px] text-on-surface placeholder:text-on-surface/40 focus:outline-none min-w-0" />
+        <div className="mt-2.5">
+          <SearchField
+            glassId="messages-search"
+            value={query}
+            onChange={setQuery}
+            placeholder="Search messages and friends"
+          />
         </div>
         <div className="mt-2.5 flex gap-2">
           {tabs.map((t) => (

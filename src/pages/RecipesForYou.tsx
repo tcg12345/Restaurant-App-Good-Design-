@@ -34,6 +34,7 @@ import { cn } from '../lib/utils';
 import { shareExternally } from '../lib/native-share';
 import './RecipesForYou.css';
 import { avatarHue } from '../lib/avatar';
+import { SearchField } from '../components/SearchField';
 
 type SourceFilter = 'all' | 'friend' | 'chef' | 'home';
 type SortKey = 'recent' | 'quick' | 'az';
@@ -610,20 +611,13 @@ export const RecipesForYou: React.FC = () => {
             </div>
           </div>
           <div className="m-browse-bar">
-            <div className="m-search">
-              <Search />
-              <input
-                type="text"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search recipes, ingredients, cuisines…"
-              />
-              {searchQuery && (
-                <button type="button" className="clr" onClick={() => setSearchQuery('')} aria-label="Clear">
-                  <X />
-                </button>
-              )}
-            </div>
+            <SearchField
+              glassId="recipes-search"
+              className="flex-1 min-w-0"
+              value={searchQuery}
+              onChange={setSearchQuery}
+              placeholder="Search recipes, ingredients, cuisines…"
+            />
             <button
               type="button"
               className={cn('m-filter-btn', sheetFilterCount > 0 && 'active')}

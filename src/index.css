@@ -144,14 +144,18 @@
    the codebase still uses (bg-white, bg-on-surface/[0.05], …) are
    swept into the new palette below. */
 .dark {
-  --color-surface: #0e0e0f;
+  /* The ground is a graphite, not a void: near-black surfaces swallowed
+     every card and hairline sitting on them. Elevation reads by lightness
+     — surface (pages) < muted (wells) ≈ paper (cards) — with lines bumped
+     to stay visible on the lighter grounds. */
+  --color-surface: #1e1e20;
   --color-on-surface: #ededed;
-  --color-muted: #1f1f20;
-  --color-cream: #131314;
-  --color-cream-2: #1c1c1e;
-  --color-paper: #18181a;
-  --color-line: #2a2a2c;
-  --color-line-2: #353537;
+  --color-muted: #29292c;
+  --color-cream: #232326;
+  --color-cream-2: #2d2d30;
+  --color-paper: #2b2b2e;
+  --color-line: #3a3a3e;
+  --color-line-2: #48484c;
   --color-ink: #ededed;
   --color-ink-2: #c2c2c2;
   --color-ink-3: #8a8a8a;

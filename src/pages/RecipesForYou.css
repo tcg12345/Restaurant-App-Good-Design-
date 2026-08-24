@@ -54,12 +54,12 @@
    buttons that float over recipe photos are left light on purpose; only the
    page-level cream surfaces (the sticky mobile header) are flipped here. */
 .dark .recipes-page-root {
-  --bg: #131314;
-  --bg-2: #1c1c1e;
-  --surface: #1c1c1e;
-  --surface-2: #18181a;
-  --border: rgba(255, 255, 255, 0.08);
-  --border-strong: rgba(255, 255, 255, 0.16);
+  --bg: #1e1e20;
+  --bg-2: #28282b;
+  --surface: #2b2b2e;
+  --surface-2: #232326;
+  --border: rgba(255, 255, 255, 0.10);
+  --border-strong: rgba(255, 255, 255, 0.20);
   --ink: #ededed;
   --ink-2: #c2c2c2;
   --muted: #8a8a8a;

@@ -35,7 +35,7 @@
 /* Dark mode: elevate cards above the sheet (the white above would glare).
    ink / borders / accent already flip via the app's --color-* tokens. */
 .dark {
-  --fs-surface: #242428;
+  --fs-surface: #38383c;
 }
 
 .fs-overlay {
