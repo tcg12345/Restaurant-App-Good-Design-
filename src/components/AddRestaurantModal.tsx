@@ -515,6 +515,15 @@ export const AddRestaurantModal: React.FC = () => {
                   : "h-full sm:max-w-md sm:max-h-[92vh] sm:h-[92vh] rounded-none sm:rounded-3xl"
             )}
           >
+            {phoneMode && (
+              <div
+                onPointerDown={startDrag}
+                className="flex justify-center pt-2.5 pb-1 flex-shrink-0 touch-none cursor-grab active:cursor-grabbing"
+                aria-label="Drag to dismiss"
+              >
+                <div className="w-9 h-1 rounded-full bg-on-surface/20" />
+              </div>
+            )}
             {photoInput}
             <AnimatePresence mode="wait">
               {/* ═══════════ RATE PAGE — the score comes first ═══════════
@@ -1254,11 +1263,7 @@ export const AddRestaurantModal: React.FC = () => {
             className={cn("fixed bottom-0 left-0 right-0 z-[110] bg-surface rounded-t-3xl flex flex-col overflow-hidden kb-pad",
               phoneMode ? "h-[92vh]" : "max-h-[75vh]")}
           >
-            {phoneMode && (
-              <div onPointerDown={startDrag} className="flex justify-center pt-3 pb-1 touch-none cursor-grab active:cursor-grabbing">
-                <div className="w-10 h-1 rounded-full bg-on-surface/15" />
-              </div>
-            )}
+            {phoneMode && <div className="flex justify-center pt-3 pb-1"><div className="w-10 h-1 rounded-full bg-on-surface/15" /></div>}
             <div className="flex items-center justify-between px-5 pt-3 pb-3 border-b border-on-surface/6 flex-shrink-0">
               <h3 className="font-serif font-bold text-lg">{newListMode === 'browse' ? 'New List' : 'Create Custom List'}</h3>
               <button onClick={() => { setNewListSheetOpen(false); setNewListMode('browse'); }} className="w-8 h-8 rounded-full bg-on-surface/5 flex items-center justify-center">
