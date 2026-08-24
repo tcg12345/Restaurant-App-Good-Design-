@@ -26,11 +26,20 @@ import {
   Send,
   Sparkles,
   Square,
+  Star,
   Trash2,
   X,
   Zap,
+  Heart,
+  Gem,
+  Users,
+  Moon,
+  Coffee,
+  Info,
+  CircleDollarSign,
 } from 'lucide-react';
 import { cn } from '../lib/utils';
+import { GlassButton } from '../lib/glass-buttons';
 import { cuisineLabel as placeCuisineLabel, labelForCuisineType } from '../lib/cuisine';
 import { useSettings } from '../contexts/SettingsContext';
 import { useAuth } from '../contexts/AuthContext';
@@ -191,6 +200,9 @@ interface LocationChatProps {
    *  browsing New York). Augments placeById so the chat can render
    *  cards + auto-link any of those names mentioned in prose. */
   knownPlaces: ScoredPlace[];
+  /** Display-only: how many restaurants the user has rated. Feeds the
+   *  empty state's "I know your N ratings" line — nothing else. */
+  ratingsCount?: number;
   /** Personalization context — user's taste, lists, friends, etc.
    *  Shipped in the request body and inlined into the system prompt
    *  so Claude can tailor recommendations. Optional; omit and the
@@ -746,12 +758,32 @@ function uiBlocksToAnthropicContent(blocks: UiBlock[]): ContentBlock[] {
   return out;
 }
 
-interface ChatSuggestion { prompt: string; title: string; subtitle: string; }
+interface ChatSuggestion { prompt: string; title: string; subtitle: string; icon: React.ReactNode; }
 
-/** Suggestion cards for the empty state. Every slot derives from the live
- *  context — active cuisine/neighborhood/price filters plus time of day —
- *  so the cards read as "about this search", not boilerplate. `prompt` is
- *  sent to the model; `title` / `subtitle` drive the horizontal card. */
+/** The starter deck rotates: each open of the chat (and each new chat)
+ *  advances a persisted counter, and the four visible cards are a sliding
+ *  window over the pool below — so the page never greets you with the
+ *  same four twice in a row. */
+const STARTER_ROT_KEY = 'gourmad-chat-starter-rot';
+function nextStarterSeed(): number {
+  try {
+    const n = ((parseInt(localStorage.getItem(STARTER_ROT_KEY) || '0', 10) || 0) + 1) % 10000;
+    localStorage.setItem(STARTER_ROT_KEY, String(n));
+    return n;
+  } catch { return Math.floor(Math.random() * 16); }
+}
+function pickStarters(pool: ChatSuggestion[], seed: number): ChatSuggestion[] {
+  if (pool.length <= 4) return pool;
+  const start = (seed * 4) % pool.length;
+  return Array.from({ length: 4 }, (_, i) => pool[(start + i) % pool.length]);
+}
+
+/** Suggestion-card pool for the empty state. Every slot derives from the
+ *  live context — active cuisine/neighborhood/price filters plus time of
+ *  day — so the cards read as "about this search", not boilerplate.
+ *  `prompt` is sent to the model; `title` / `subtitle` / `icon` drive the
+ *  card. Order matters: the first four are the strongest, and rotation
+ *  walks the ring from there. */
 function buildSuggestions(shortCity: string, filters: ChatFilters): ChatSuggestion[] {
   const cuisineLabel = labelForCuisineType(filters.cuisines?.[0]);
   const cuisineLc = cuisineLabel.toLowerCase();
@@ -771,21 +803,53 @@ function buildSuggestions(shortCity: string, filters: ChatFilters): ChatSuggesti
         : { key: 'late-night food', title: 'Late night', subtitle: 'still serving' };
   return [
     cuisineLabel
-      ? { prompt: `Best ${cuisineLc} spots in ${area}`, title: `Best ${cuisineLabel}`, subtitle: `top picks in ${area}` }
-      : { prompt: `Best date night spots in ${area}`, title: 'Date night', subtitle: `romantic spots in ${area}` },
+      ? { prompt: `Best ${cuisineLc} spots in ${area}`, title: `Best ${cuisineLabel}`, subtitle: `top picks in ${area}`, icon: <Sparkles size={14} strokeWidth={1.9} /> }
+      : { prompt: `Best date night spots in ${area}`, title: 'Date night', subtitle: 'somewhere worth dressing for', icon: <Heart size={14} strokeWidth={1.9} /> },
     {
       prompt: `Hidden gems most people miss in ${area}`,
       title: 'Hidden gems',
       subtitle: hood ? `underrated in ${hood}` : 'underrated local favorites',
+      icon: <Gem size={14} strokeWidth={1.9} />,
     },
     {
       prompt: `Where should I go for ${meal.key}${cuisineLc ? ` — ideally ${cuisineLc}` : ''} in ${area}?`,
       title: meal.title,
       subtitle: cuisineLabel ? `${meal.subtitle} · ${cuisineLabel}` : meal.subtitle,
+      icon: <Clock size={14} strokeWidth={1.9} />,
     },
     priceTier > 0
-      ? { prompt: `Best ${priceSigns} ${cuisineLc || 'restaurants'} in ${area}`, title: `Best ${priceSigns}`, subtitle: 'matches your price filter' }
-      : { prompt: `Something quick under $20 in ${area}`, title: 'Under $20', subtitle: 'quick & budget-friendly' },
+      ? { prompt: `Best ${priceSigns} ${cuisineLc || 'restaurants'} in ${area}`, title: `Best ${priceSigns}`, subtitle: 'matches your price filter', icon: <CircleDollarSign size={14} strokeWidth={1.9} /> }
+      : { prompt: `Something quick under $20 in ${area}`, title: 'Under $20', subtitle: 'quick and budget-friendly', icon: <CircleDollarSign size={14} strokeWidth={1.9} /> },
+    {
+      prompt: `What have people I follow rated highly recently?`,
+      title: 'This week',
+      subtitle: 'what your people just rated',
+      icon: <Users size={14} strokeWidth={1.9} />,
+    },
+    {
+      prompt: `Where's still serving late tonight in ${area}?`,
+      title: 'Open late',
+      subtitle: 'kitchens running past eleven',
+      icon: <Moon size={14} strokeWidth={1.9} />,
+    },
+    {
+      prompt: `Best brunch in ${area}`,
+      title: 'Brunch',
+      subtitle: 'weekend-morning picks',
+      icon: <Coffee size={14} strokeWidth={1.9} />,
+    },
+    {
+      prompt: `Somewhere special worth a trip in ${area}`,
+      title: 'Worth the trip',
+      subtitle: 'destination meals nearby',
+      icon: <MapPin size={14} strokeWidth={1.9} />,
+    },
+    {
+      prompt: `What are the local classics ${shortCity} is actually known for?`,
+      title: 'Local classics',
+      subtitle: `what ${shortCity} does best`,
+      icon: <Star size={14} strokeWidth={1.9} />,
+    },
   ];
 }
 
@@ -826,6 +890,7 @@ export const LocationChat: React.FC<LocationChatProps> = ({
   restaurantMeta,
   cityDisplay,
   shortCityName,
+  ratingsCount,
   filters,
   origin,
   onSearchRestaurants,
@@ -943,6 +1008,9 @@ export const LocationChat: React.FC<LocationChatProps> = ({
   // AiChatHistoryContext (localStorage cache + Supabase cross-device
   // sync); this component just reads it and upserts/deletes entries.
   const [view, setView] = useState<'chat' | 'history'>('chat');
+  // Starter-deck rotation — advances on every open and every new chat.
+  const [starterSeed, setStarterSeed] = useState(0);
+  useEffect(() => { if (open) setStarterSeed(nextStarterSeed()); }, [open]);
   const [currentChatId, setCurrentChatId] = useState<string | null>(null);
   // Free-text filter for the saved-chats list (history view).
   const [historyQuery, setHistoryQuery] = useState('');
@@ -1111,6 +1179,7 @@ export const LocationChat: React.FC<LocationChatProps> = ({
     setError(null);
     setView('chat');
     setStreaming(false);
+    setStarterSeed(nextStarterSeed());
   }, [flushSave]);
 
   const handleSelectChat = useCallback((chat: SavedChat) => {
@@ -1185,8 +1254,8 @@ export const LocationChat: React.FC<LocationChatProps> = ({
   }, [phoneMode, pos]);
 
   const suggestions = useMemo(
-    () => buildSuggestions(shortCityName, filters),
-    [shortCityName, filters],
+    () => pickStarters(buildSuggestions(shortCityName, filters), starterSeed),
+    [shortCityName, filters, starterSeed],
   );
 
   const placeById = useMemo(() => {
@@ -2498,15 +2567,15 @@ export const LocationChat: React.FC<LocationChatProps> = ({
               style={!phoneMode ? { cursor: pos ? 'grab' : 'default', userSelect: 'none' } : undefined}
             >
               {view === 'history' ? (
-                <button
-                  type="button"
-                  className="lp-chat-head-back"
+                <GlassButton
+                  id="ai-back"
+                  symbol="chevron.left"
+                  label="Back to chat"
                   onClick={() => setView('chat')}
-                  aria-label="Back to chat"
-                  title="Back to chat"
+                  className="lp-chat-glass-btn"
                 >
                   <ArrowLeft size={16} />
-                </button>
+                </GlassButton>
               ) : (
                 <div className="lp-chat-head-icon" aria-hidden="true">
                   <Sparkles />
@@ -2532,8 +2601,8 @@ export const LocationChat: React.FC<LocationChatProps> = ({
                         aria-expanded={modelMenuOpen}
                         title="Change model"
                       >
-                        {model === 'auto' && <Zap size={10} strokeWidth={2.6} />}
-                        <span>{MODEL_LABELS[model]}</span>
+                        <span className="lp-chat-model-dot" aria-hidden="true" />
+                        <span>{MODEL_LABELS[model]} · {MODEL_SUBLABELS[model].toLowerCase()}</span>
                         <ChevronDown size={11} strokeWidth={2.4} />
                       </button>
                       {modelMenuOpen && (
@@ -2565,34 +2634,35 @@ export const LocationChat: React.FC<LocationChatProps> = ({
               </div>
               {view === 'chat' && (
                 <>
-                  <button
-                    type="button"
-                    className="lp-chat-head-action"
+                  <GlassButton
+                    id="ai-new"
+                    symbol="plus"
+                    label="New chat"
                     onClick={handleNewChat}
-                    aria-label="New chat"
-                    title="New chat"
+                    className="lp-chat-glass-btn"
                   >
                     <Plus size={16} />
-                  </button>
-                  <button
-                    type="button"
-                    className="lp-chat-head-action"
+                  </GlassButton>
+                  <GlassButton
+                    id="ai-history"
+                    symbol="clock"
+                    label="Prior chats"
                     onClick={() => { setHistoryQuery(''); setView('history'); }}
-                    aria-label="Prior chats"
-                    title="Prior chats"
+                    className="lp-chat-glass-btn"
                   >
                     <Clock size={16} />
-                  </button>
+                  </GlassButton>
                 </>
               )}
-              <button
-                type="button"
-                className="lp-chat-head-close"
+              <GlassButton
+                id="ai-close"
+                symbol="xmark"
+                label="Close"
                 onClick={() => setOpen(false)}
-                aria-label="Close"
+                className="lp-chat-glass-btn"
               >
                 <X size={16} />
-              </button>
+              </GlassButton>
             </header>
 
             <div className={cn('lp-chat-body', view === 'history' && 'is-history')} ref={scrollRef}>
@@ -2664,6 +2734,7 @@ export const LocationChat: React.FC<LocationChatProps> = ({
                         >
                           <Trash2 size={14} />
                         </button>
+                        <ChevronRight size={15} strokeWidth={2.2} className="lp-chat-history-chev" aria-hidden="true" />
                       </div>
                     ))
                     )}
@@ -2675,12 +2746,34 @@ export const LocationChat: React.FC<LocationChatProps> = ({
               {messages.length === 0 && (
                 <div className="lp-chat-empty">
                   <div className="lp-chat-empty-mark" aria-hidden="true">
-                    <Sparkles size={22} />
+                    <Sparkles size={26} />
                   </div>
-                  <p className="lp-chat-empty-lead">
-                    Ask me what to eat in {shortCityName}
+                  <h2 className="lp-chat-empty-lead">
+                    What should I eat in {shortCityName}?
+                  </h2>
+                  <p className="lp-chat-empty-sub">
+                    {ratingsCount && ratingsCount > 0
+                      ? `I know your ${ratingsCount} rating${ratingsCount === 1 ? '' : 's'}, your saves and who you follow. Ask like you'd ask a friend who lives here.`
+                      : "I know your saves and who you follow. Ask like you'd ask a friend who lives here."}
                   </p>
-                  <p className="lp-chat-empty-sub">I'll pick from your filtered list.</p>
+                  <div className="lp-chat-starters">
+                    {suggestions.map((sg, i) => (
+                      <button
+                        key={`${sg.title}-${i}`}
+                        type="button"
+                        className="lp-chat-starter"
+                        onClick={() => handleSuggestion(sg.prompt)}
+                      >
+                        <span className="icon" aria-hidden="true">{sg.icon}</span>
+                        <span className="title">{sg.title}</span>
+                        <span className="sub">{sg.subtitle}</span>
+                      </button>
+                    ))}
+                  </div>
+                  <p className="lp-chat-empty-note">
+                    <Info size={13} strokeWidth={1.9} />
+                    Answers draw on your ratings, your circle and live search.
+                  </p>
                 </div>
               )}
 
@@ -2713,6 +2806,7 @@ export const LocationChat: React.FC<LocationChatProps> = ({
               {streaming && (
                 <div className="lp-chat-msg is-assistant lp-chat-streaming-indicator">
                   <div className="lp-chat-bubble lp-chat-thinking">
+                    <span className="lp-chat-thinking-mark" aria-hidden="true"><Sparkles size={11} /></span>
                     <span className="lp-chat-typing" aria-label="Assistant is responding">
                       <span /><span /><span />
                     </span>
@@ -2758,22 +2852,6 @@ export const LocationChat: React.FC<LocationChatProps> = ({
               </>
               )}
             </div>
-
-            {view === 'chat' && messages.length === 0 && (
-              <div className="lp-chat-suggest-row">
-                {suggestions.map((s) => (
-                  <button
-                    key={s.prompt}
-                    type="button"
-                    className="lp-chat-suggest-card"
-                    onClick={() => handleSuggestion(s.prompt)}
-                  >
-                    <span className="title">{s.title}</span>
-                    <span className="sub">{s.subtitle}</span>
-                  </button>
-                ))}
-              </div>
-            )}
 
             {view === 'chat' && (
             <form className="lp-chat-foot" onSubmit={handleSubmit}>

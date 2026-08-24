@@ -963,6 +963,7 @@ export const AppAssistant: React.FC = () => {
       restaurantMeta={restaurantMeta}
       cityDisplay={cityDisplay}
       shortCityName={shortCityName}
+      ratingsCount={lists.ratings.length}
       filters={filters}
       origin={origin}
       onSearchRestaurants={handleSearchRestaurants}
