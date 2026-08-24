@@ -123,74 +123,84 @@ export function useBottomSheet(
   );
 
   // ── Drag-anywhere ────────────────────────────────────────────────────
-  // React's synthetic pointermove alone isn't enough: on iOS, WebKit
-  // decides whether a touch becomes a native scroll (or a rubber-band
-  // bounce) within the first few pixels of movement, and once it does the
-  // touch is gone — later pointermoves stop arriving (or arrive as
-  // pointercancel). A handler that only calls dragControls.start() after
-  // the fact is too late; the sheet just sits there while the page under
-  // it tries to scroll. The fix is the one every native-feeling web sheet
-  // uses: attach a real (non-passive) listener so `preventDefault()` can
-  // claim the gesture for the sheet BEFORE the browser commits to a
-  // scroll — which requires bypassing React's synthetic event system,
-  // since passivity there isn't guaranteed. Hence a plain DOM listener
-  // on `sheetRef`, added imperatively in an effect.
+  // The subtle part is WHO owns the touch. On iOS, WebKit commits a touch
+  // to native scrolling within the first few pixels, and the only veto is
+  // preventDefault() on a NON-PASSIVE `touchmove` listener — pointer
+  // events observe the gesture but canceling them does nothing, and
+  // React's synthetic handlers don't guarantee passivity either. So this
+  // runs two plain DOM listeners on the sheet root:
+  //
+  //   pointermove — reads the gesture, makes the one-shot decision
+  //     (sheet-drag vs content-scroll vs horizontal), and hands the sheet
+  //     to Framer via dragControls.start().
+  //   touchmove (passive: false) — the veto: while the gesture belongs to
+  //     the sheet it preventDefault()s every move so native scroll never
+  //     starts underneath the drag.
+  //
+  // The decision is made on the FIRST meaningful move and never revisited
+  // for that touch: a downward pull with the content at its top is the
+  // sheet's; anything upward, horizontal, or with the content scrolled
+  // stays the browser's, untouched — which keeps normal scrolling,
+  // momentum and horizontal swipes exactly as they were.
   const sheetRef = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
     const root = sheetRef.current;
     if (!open || !root) return;
 
-    let phase: 'idle' | 'undecided' | 'horizontal' | 'content' | 'sheet' = 'idle';
+    let phase: 'idle' | 'undecided' | 'sheet' | 'browser' = 'idle';
+    let started = false;
     let startX = 0;
     let startY = 0;
 
-    const reset = () => { phase = 'idle'; };
+    const decide = (x: number, y: number) => {
+      if (phase !== 'undecided') return;
+      const dx = x - startX;
+      const dy = y - startY;
+      if (Math.abs(dx) < 3 && Math.abs(dy) < 3) return; // not legible yet
+      if (Math.abs(dx) > Math.abs(dy)) { phase = 'browser'; return; }
+      if (dy < 0) { phase = 'browser'; return; }
+      const scroller = scrollRef?.current;
+      if (scroller && scroller.scrollTop > 0) { phase = 'browser'; return; }
+      phase = 'sheet';
+    };
 
     const onPointerDown = (e: PointerEvent) => {
       if (e.pointerType === 'mouse' && e.button !== 0) return;
       phase = 'undecided';
+      started = false;
       startX = e.clientX;
       startY = e.clientY;
     };
 
     const onPointerMove = (e: PointerEvent) => {
-      if (phase === 'idle' || phase === 'horizontal' || phase === 'content') return;
-      const dx = e.clientX - startX;
-      const dy = e.clientY - startY;
-
-      if (phase === 'sheet') {
-        // Already committed — keep claiming the gesture so a mid-drag
-        // pause doesn't hand it back to native scroll.
-        e.preventDefault();
-        return;
+      decide(e.clientX, e.clientY);
+      if (phase === 'sheet' && !started) {
+        started = true;
+        dragControls.start(e);
       }
-
-      // Undecided: horizontal intent releases to the browser untouched.
-      if (Math.abs(dx) > 10 && Math.abs(dx) > Math.abs(dy)) { phase = 'horizontal'; return; }
-      // Upward, or downward with the content scrolled past its top, is a
-      // normal scroll — let it through so momentum / rubber-band still work.
-      const scroller = scrollRef?.current;
-      if (dy < 0 || (scroller && scroller.scrollTop > 0)) { phase = 'content'; return; }
-      // Small residual motion — hold the decision but keep the browser
-      // from committing to anything until the gesture is legible.
-      if (Math.abs(dy) <= 6) { e.preventDefault(); return; }
-
-      // A genuine downward pull with nowhere left to scroll: claim it.
-      phase = 'sheet';
-      e.preventDefault();
-      dragControls.start(e);
     };
 
-    // { passive: false } is the whole point — it's what makes
-    // preventDefault() effective instead of a silent no-op.
+    const onTouchMove = (e: TouchEvent) => {
+      const t = e.touches[0];
+      if (t) decide(t.clientX, t.clientY);
+      // The veto. Once any touchmove is canceled, WebKit abandons native
+      // scrolling for the rest of the touch — exactly what a sheet-drag
+      // wants, and why this only fires after the decision says "sheet".
+      if (phase === 'sheet' && e.cancelable) e.preventDefault();
+    };
+
+    const reset = () => { phase = 'idle'; started = false; };
+
     root.addEventListener('pointerdown', onPointerDown, { passive: true });
-    root.addEventListener('pointermove', onPointerMove, { passive: false });
+    root.addEventListener('pointermove', onPointerMove, { passive: true });
+    root.addEventListener('touchmove', onTouchMove, { passive: false });
     root.addEventListener('pointerup', reset, { passive: true });
     root.addEventListener('pointercancel', reset, { passive: true });
     return () => {
       root.removeEventListener('pointerdown', onPointerDown);
       root.removeEventListener('pointermove', onPointerMove);
+      root.removeEventListener('touchmove', onTouchMove);
       root.removeEventListener('pointerup', reset);
       root.removeEventListener('pointercancel', reset);
     };
