@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { useMotionValue, useTransform, type MotionValue } from 'motion/react';
+import { animate, useMotionValue, useTransform, type MotionValue } from 'motion/react';
 
 /* ── Scroll-linked header fade ──────────────────────────────────────────────
    The mobile Discover header's signature move, packaged for every page: the
@@ -63,6 +63,7 @@ export function useHeaderFade({
   enabled = true,
   fadeDist,
   windowScroll = false,
+  condensedOnScrollUp = false,
 }: {
   /** Off on desktop — the style stays pinned at fully visible. */
   enabled?: boolean;
@@ -71,6 +72,11 @@ export function useHeaderFade({
   fadeDist?: number;
   /** The page scrolls the window/body rather than an inner container. */
   windowScroll?: boolean;
+  /** Discover-home manners for the condensed bar: instead of pinning
+   *  permanently once the full header is gone, it stays away while
+   *  scrolling DOWN (the page is immersive, nothing for content to slide
+   *  into) and returns only on scroll-up. */
+  condensedOnScrollUp?: boolean;
 } = {}): HeaderFade {
   const headerEl = useRef<HTMLElement | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
@@ -91,9 +97,18 @@ export function useHeaderFade({
   // scroll (worst on sticky headers, which never move out of the way).
   // Sharing the one `opacity` value keeps them exactly in step with each
   // other and with `enabled` (off → opacity 1 → condensed 0).
-  const condensedOpacity = useTransform(opacity, (o) => Math.min(1, Math.max(0, (0.35 - o) / 0.35)));
+  const handoff = useTransform(opacity, (o) => Math.min(1, Math.max(0, (0.35 - o) / 0.35)));
+  // Direction gate for condensedOnScrollUp: 1 while the bar is allowed to
+  // show, 0 while scrolling down. Always 1 in the pinned (default) mode.
+  const reveal = useMotionValue(condensedOnScrollUp ? 0 : 1);
+  const condensedOpacity = useTransform([handoff, reveal] as const, (v: number[]) => v[0] * v[1]);
   const condensedY = useTransform(condensedOpacity, (v) => -(1 - v) * 8);
   const condensedPointerEvents = useTransform(condensedOpacity, (v) => (v > 0.6 ? 'auto' : 'none'));
+
+  const lastTopRef = useRef(0);
+  const revealShownRef = useRef(false);
+  const directionRef = useRef(condensedOnScrollUp);
+  directionRef.current = condensedOnScrollUp;
 
   const applyScroll = useCallback(
     (top: number) => {
@@ -102,8 +117,25 @@ export function useHeaderFade({
       const o = Math.min(1, Math.max(0, 1 - top / dist));
       opacity.set(o);
       y.set(-(1 - o) * 10);
+
+      // Scroll-up reveal — the Discover-home mini-cluster rule: hidden
+      // while the full header still owns the top or the user is heading
+      // down; eased in the moment they turn back up. Same curve and 4px
+      // decision threshold as the home page, so the two feel identical.
+      if (directionRef.current) {
+        const prev = lastTopRef.current;
+        lastTopRef.current = top;
+        const T = { duration: 0.28, ease: [0.22, 1, 0.36, 1] as const };
+        if (top <= dist) {
+          if (revealShownRef.current) { revealShownRef.current = false; animate(reveal, 0, T); }
+        } else {
+          const delta = top - prev;
+          if (delta > 4 && revealShownRef.current) { revealShownRef.current = false; animate(reveal, 0, T); }
+          else if (delta < -4 && !revealShownRef.current) { revealShownRef.current = true; animate(reveal, 1, T); }
+        }
+      }
     },
-    [opacity, y],
+    [opacity, y, reveal],
   );
 
   const onScroll = useCallback(

@@ -45,7 +45,10 @@ export const TopBar: React.FC<TopBarProps> = ({ title = "Gourmet Canvas", rightA
   const location = useLocation();
 
   const isCirclePage = location.pathname === '/circle';
-  const fade = useHeaderFade({ enabled: fadeOnScroll, windowScroll: true });
+  // condensedOnScrollUp: the compact bar follows the home page's manners —
+  // away while scrolling down (content owns the full screen, nothing for
+  // it to slide into), back the moment the user scrolls up.
+  const fade = useHeaderFade({ enabled: fadeOnScroll, windowScroll: true, condensedOnScrollUp: true });
   const fadeProps = fadeOnScroll ? { ref: fade.headerRef, style: fade.headerStyle } : {};
   const showCondensed = fadeOnScroll && !!condensedTitle;
 
