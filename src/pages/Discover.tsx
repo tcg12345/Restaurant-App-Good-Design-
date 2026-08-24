@@ -50,7 +50,7 @@ import { RestaurantCard } from '../components/RestaurantCard';
 import { RestaurantPanelBody, type RestaurantPanelSnapshot } from '../components/RestaurantPanel';
 import { useBottomSheet } from '../lib/useBottomSheet';
 import { SocialFeed, type FeedFilter } from '../components/SocialFeed';
-import { SearchField } from '../components/SearchField';
+import { SearchField, searchFieldChipWidth } from '../components/SearchField';
 import { TopBar } from '../components/TopBar';
 import {
   HomeLocationBar,
@@ -4228,22 +4228,14 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, sear
             /* The takeover's location-chip construction: a read-only glass
                FIELD, not a pill — a field fills its web box exactly, so the
                chip can't outgrow its slot and crowd the search bar the way
-               a self-sizing native pill did. The box itself is sized by an
-               invisible span carrying the label at the field's metrics
-               (glyph gutter + text + trailing inset), so the capsule hugs
-               "Miami" and "Central Park" alike instead of holding a fixed
-               38% with dead glass after a short name. */
-            <div className="relative flex-none max-w-[45%]">
-              {/* Width-only ruler: zero height, so the in-flow field below
-                  is the box. (`absolute` on the field loses to .ios-search's
-                  own unlayered position:relative, so overlaying isn't an
-                  option.) */}
-              <span
-                aria-hidden
-                className="invisible block h-0 overflow-hidden whitespace-nowrap pl-[40px] pr-[15px] text-[17px] leading-none"
-              >
-                {cityLabel}
-              </span>
+               a self-sizing native pill did. The box is set from the label
+               measured at the field's own type metrics, so the capsule hugs
+               "Miami" and "Central Park" alike — shrink-to-fit was tried
+               and the fallback input's intrinsic width inflated it. */
+            <div
+              className="relative flex-none max-w-[45%]"
+              style={{ width: Math.max(96, searchFieldChipWidth(cityLabel)) }}
+            >
               <SearchField
                 glassId="home-location"
                 glassSymbol="location"

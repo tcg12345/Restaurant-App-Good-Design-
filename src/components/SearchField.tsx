@@ -30,6 +30,23 @@ import { useGlassField } from '../lib/glass-buttons';
  * from plus the fallback everywhere else — the same handover every glass
  * button makes, extended to typing. See `useGlassField`.
  */
+/** Width for a read-only field worn as a CHIP (the location chips): glyph
+ *  gutter (40) + the label at the field's 17px type + trailing inset (15)
+ *  and a hair of slack. Measured on a canvas in the system stack — the
+ *  native field sets SF at 17, and `-apple-system` IS SF in WebKit — so
+ *  the box hugs the label instead of guessing. DOM rulers were tried and
+ *  lied twice: a block span measures its container, and the fallback
+ *  input's intrinsic ~20ch width inflates any shrink-to-fit wrapper. */
+let chipCtx: CanvasRenderingContext2D | null = null;
+export function searchFieldChipWidth(label: string): number {
+  if (!chipCtx) {
+    chipCtx = document.createElement('canvas').getContext('2d');
+    if (chipCtx) chipCtx.font = '17px -apple-system, BlinkMacSystemFont, Manrope, sans-serif';
+  }
+  const text = chipCtx ? chipCtx.measureText(label).width : label.length * 8.6;
+  return Math.ceil(40 + text + 17);
+}
+
 export const SearchField: React.FC<{
   value: string;
   onChange: (v: string) => void;
