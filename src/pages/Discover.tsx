@@ -4836,6 +4836,12 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, sear
           same RestaurantPanel detail the desktop map shows on marker tap, so
           tapping a marker or a result card opens this panel instead of
           navigating to the full restaurant page. */}
+      {/* Portalled to <body>: on the Search tab this map lives inside an
+          `isolate` layer BELOW the page's own z-50 chrome (glass field +
+          Discover|Following pill), so an in-place overlay could never rise
+          above them — the chrome kept floating over the open sheet and the
+          native glass never saw itself covered. Same fix as FilterSheet. */}
+      {createPortal(
       <AnimatePresence>
         {selectedPlace && mode === 'map' && !isDesktopMapMode && (
           <motion.div
@@ -4844,7 +4850,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, sear
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.2 }}
-            className="absolute inset-0 z-[60] bg-black/45 backdrop-blur-sm"
+            className="fixed inset-0 z-[70] bg-black/45 backdrop-blur-sm"
             onClick={closePanelDetail}
           />
         )}
@@ -4856,7 +4862,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, sear
             exit={{ y: '100%' }}
             transition={{ type: 'spring', damping: 32, stiffness: 320, mass: 0.9 }}
             {...detailDragProps}
-            className="absolute left-0 right-0 bottom-0 z-[61] bg-surface rounded-t-[1.75rem] overflow-hidden flex flex-col ring-1 ring-on-surface/[0.08] shadow-[0_-20px_60px_rgba(0,0,0,0.22)]"
+            className="fixed left-0 right-0 bottom-0 z-[71] bg-surface rounded-t-[1.75rem] overflow-hidden flex flex-col ring-1 ring-on-surface/[0.08] shadow-[0_-20px_60px_rgba(0,0,0,0.22)]"
             style={{ height: '92%' }}
           >
             {/* Grab strip — swipe down anywhere on it to dismiss the sheet. */}
@@ -4872,7 +4878,9 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, sear
             </div>
           </motion.div>
         )}
-      </AnimatePresence>
+      </AnimatePresence>,
+      document.body,
+      )}
 
       {/* The raised state's ground. Not part of the sheet: the band above
           the grabber is the map with this fading over it, so raising the
