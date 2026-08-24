@@ -374,9 +374,13 @@ export const AppAssistant: React.FC = () => {
   const onSearchMap = settings.phoneMode && location.pathname === '/search';
 
   // Gate by route + auth — assistant lives only inside the signed-in app.
+  // hideBottomNav means a sheet owns the bottom of the screen (comment
+  // popups, the location picker) — the FAB stands down with the nav so it
+  // doesn't float over the sheet's composer.
   const hidden = !auth.isSignedIn || !auth.profileComplete
     || shouldHideAssistant(location.pathname, settings.phoneMode)
-    || (onSearchMap && !takeoverOpen);
+    || (onSearchMap && !takeoverOpen)
+    || (settings.phoneMode && settings.hideBottomNav);
 
   /* ── Build the fallback user context for the system prompt (pages
        can publish a richer one — see below) ─────────────────────── */
