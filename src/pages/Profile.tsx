@@ -310,7 +310,9 @@ const EditTopListsSheet: React.FC<{
 }> = ({ open, onClose, visibleLists, addableByCategory, onDelete, onAdd, onReorder }) => {
   const { phoneMode } = useSettings();
   const [category, setCategory] = useState<'cuisine' | 'city' | 'price' | 'tag' | 'status'>('cuisine');
-  const { dragProps } = useBottomSheet(open, onClose);
+  // Handle-only drag: the list below is a Reorder.Group (drag-to-reorder
+  // rows), which would fight a drag-anywhere sheet on the same axis.
+  const { dragProps, startDrag } = useBottomSheet(open, onClose);
 
   useEffect(() => { if (open) setCategory('cuisine'); }, [open]);
 
@@ -338,7 +340,7 @@ const EditTopListsSheet: React.FC<{
         >
           <motion.div
             {...(phoneMode
-              ? { initial: { y: '100%' }, animate: { y: 0 }, exit: { y: '100%' }, transition: { type: 'spring' as const, damping: 28, stiffness: 300 }, ...dragProps }
+              ? { initial: { y: '100%' }, animate: { y: 0 }, exit: { y: '100%' }, transition: { duration: 0.42, ease: [0.32, 0.72, 0, 1] as const }, ...dragProps }
               : {
                   initial: { opacity: 0, scale: 0.94, y: -12 },
                   animate: { opacity: 1, scale: 1, y: 0 },
@@ -353,7 +355,11 @@ const EditTopListsSheet: React.FC<{
                 : 'w-full max-w-2xl rounded-[28px] max-h-[80vh] shadow-[0_30px_80px_-16px_rgba(0,0,0,0.42)] ring-1 ring-on-surface/[0.06]',
             )}
           >
-            {phoneMode && <div className="flex justify-center pt-3 pb-1"><div className="w-10 h-1 rounded-full bg-on-surface/15" /></div>}
+            {phoneMode && (
+              <div onPointerDown={startDrag} className="flex justify-center pt-3 pb-1 touch-none cursor-grab active:cursor-grabbing">
+                <div className="w-10 h-1 rounded-full bg-on-surface/15" />
+              </div>
+            )}
 
             {/* Header. The count sits in the title rather than in a
                 subtitle, so the sheet says what state you are in before it

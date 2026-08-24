@@ -548,7 +548,8 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
   // Post-level overlays (open one at a time, controlled by the post card)
   const [openPostCommentsId, setOpenPostCommentsId] = useState<string | null>(null);
   const [sharePayload, setSharePayload] = useState<SharePayload | null>(null);
-  const { dragProps: postCommentsDragProps } = useBottomSheet(!!openPostCommentsId, () => setOpenPostCommentsId(null));
+  const postCommentsScrollRef = useRef<HTMLDivElement | null>(null);
+  const { dragProps: postCommentsDragProps, sheetRef: postCommentsSheetRef } = useBottomSheet(!!openPostCommentsId, () => setOpenPostCommentsId(null), postCommentsScrollRef);
   // Ratings authored by experts the user follows. Loaded lazily the first
   // time the Experts filter is opened.
   const [expertActivity, setExpertActivity] = useState<CommunityRating[]>([]);
@@ -609,7 +610,8 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
   const [replyingTo, setReplyingTo] = useState<string | null>(null);
   const [replyText, setReplyText] = useState('');
 
-  const { dragProps: recipeCommentsDragProps } = useBottomSheet(!!openMealComments, () => setOpenMealComments(null));
+  const recipeCommentsScrollRef = useRef<HTMLDivElement | null>(null);
+  const { dragProps: recipeCommentsDragProps, sheetRef: recipeCommentsSheetRef } = useBottomSheet(!!openMealComments, () => setOpenMealComments(null), recipeCommentsScrollRef);
 
   // Hide the bottom nav while any comment popup is open (recipe, post, or the
   // inline restaurant thread) so the sheet reads as a focused overlay.
@@ -1656,10 +1658,11 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
             onClick={() => setOpenMealComments(null)}
           >
             <motion.div
+              ref={recipeCommentsSheetRef as React.RefObject<HTMLDivElement>}
               initial={{ y: '100%' }}
               animate={{ y: 0 }}
               exit={{ y: '100%' }}
-              transition={{ type: 'spring', damping: 30, stiffness: 300 }}
+              transition={{ duration: 0.42, ease: [0.32, 0.72, 0, 1] }}
               {...recipeCommentsDragProps}
               onClick={(e) => e.stopPropagation()}
               className="bg-paper w-full rounded-t-3xl flex flex-col"
@@ -1686,6 +1689,7 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
                 targetId={openMealComments.id}
                 variant="sheet"
                 onCountChange={(n) => setMealCommentCounts((prev) => ({ ...prev, [openMealComments.id]: n }))}
+                scrollRef={recipeCommentsScrollRef}
               />
             </motion.div>
           </motion.div>
@@ -1732,8 +1736,9 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
               onClick={() => setOpenPostCommentsId(null)}
             >
               <motion.div
+                ref={postCommentsSheetRef as React.RefObject<HTMLDivElement>}
                 initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
-                transition={{ type: 'spring', damping: 30, stiffness: 300 }}
+                transition={{ duration: 0.42, ease: [0.32, 0.72, 0, 1] }}
                 {...postCommentsDragProps}
                 onClick={(e) => e.stopPropagation()}
                 className="bg-white w-full rounded-t-3xl flex flex-col"
@@ -1750,6 +1755,7 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
                   addComment={addPostCommentAdapter}
                   deleteComment={deletePostCommentAdapter}
                   currentUserId={userId}
+                  scrollRef={postCommentsScrollRef}
                 />
               </motion.div>
             </motion.div>

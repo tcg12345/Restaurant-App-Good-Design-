@@ -183,7 +183,8 @@ export const ShareDialog: React.FC<ShareDialogProps> = ({ open, onClose, payload
   const [sending, setSending] = useState(false);
   const [sentMode, setSentMode] = useState(false);
 
-  const { dragProps } = useBottomSheet(open, onClose);
+  const sheetScrollRef = useRef<HTMLDivElement | null>(null);
+  const { dragProps, sheetRef } = useBottomSheet(open, onClose, sheetScrollRef);
 
   // Reset transient state on open.
   useEffect(() => {
@@ -326,8 +327,9 @@ export const ShareDialog: React.FC<ShareDialogProps> = ({ open, onClose, payload
           onClick={onClose}
         >
           <motion.div
+            ref={sheetRef as React.RefObject<HTMLDivElement>}
             initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
-            transition={{ type: 'spring', damping: 30, stiffness: 300 }}
+            transition={{ duration: 0.42, ease: [0.32, 0.72, 0, 1] }}
             {...dragProps}
             onClick={(e) => e.stopPropagation()}
             className={cn(
@@ -381,7 +383,7 @@ export const ShareDialog: React.FC<ShareDialogProps> = ({ open, onClose, payload
             </div>
 
             {/* List */}
-            <div className="flex-1 min-h-0 overflow-y-auto px-3 pb-2">
+            <div ref={sheetScrollRef} className="flex-1 min-h-0 overflow-y-auto px-3 pb-2">
               {allTargets.length === 0 ? (
                 <div className="text-center py-10 px-6">
                   <MessageCircle size={28} className="mx-auto text-on-surface/15 mb-2" />

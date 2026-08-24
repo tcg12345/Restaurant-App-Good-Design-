@@ -472,8 +472,9 @@ export const LocationMap: React.FC = () => {
   // navigating away to the full restaurant route.
   const [detailPlace, setDetailPlace] = useState<PlaceResult | null>(null);
   const closeDetail = useCallback(() => setDetailPlace(null), []);
-  const { dragProps: detailDragProps, startDrag: startDetailDrag } =
-    useBottomSheet(!!detailPlace && isMobile, closeDetail);
+  const detailScrollRef = useRef<HTMLDivElement | null>(null);
+  const { dragProps: detailDragProps, sheetRef: detailSheetRef } =
+    useBottomSheet(!!detailPlace && isMobile, closeDetail, detailScrollRef);
 
   const selectPlace = useCallback((place: PlaceResult, fly: boolean) => {
     setSelectedId(place.id);
@@ -777,6 +778,7 @@ export const LocationMap: React.FC = () => {
           currentUserId={user?.id ?? null}
           noHero
           topChrome={topChrome}
+          scrollElRef={detailScrollRef}
         />
       </div>
     );
@@ -1169,20 +1171,17 @@ export const LocationMap: React.FC = () => {
         {detailPlace && (
           <motion.div
             key="loc-map-detail-sheet"
+            ref={detailSheetRef as React.RefObject<HTMLDivElement>}
             initial={{ y: '100%' }}
             animate={{ y: 0 }}
             exit={{ y: '100%' }}
-            transition={{ type: 'spring', damping: 32, stiffness: 320, mass: 0.9 }}
+            transition={{ duration: 0.42, ease: [0.32, 0.72, 0, 1] }}
             {...detailDragProps}
             className="absolute left-0 right-0 bottom-0 z-[61] bg-surface rounded-t-[1.75rem] overflow-hidden flex flex-col ring-1 ring-on-surface/[0.08] shadow-[0_-20px_60px_rgba(0,0,0,0.22)]"
             style={{ height: '92%' }}
           >
-            {/* Grab strip — swipe down anywhere on it to dismiss. */}
-            <div
-              className="flex justify-center pt-2.5 pb-1.5 flex-shrink-0 cursor-grab active:cursor-grabbing"
-              style={{ touchAction: 'none' }}
-              onPointerDown={startDetailDrag}
-            >
+            {/* Grab strip — purely visual, the sheet drags from anywhere. */}
+            <div className="flex justify-center pt-2.5 pb-1.5 flex-shrink-0" aria-hidden>
               <div className="w-10 h-1.5 rounded-full bg-on-surface/15" />
             </div>
             <div className="flex-1 min-h-0">

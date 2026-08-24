@@ -1,10 +1,10 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { motion } from 'motion/react';
 import { useNavigate } from 'react-router-dom';
 import { Heart, MessageCircle, X } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useAuth } from '../contexts/AuthContext';
-import { useBottomSheet } from '../lib/useBottomSheet';
+import { mergeRefs, useBottomSheet } from '../lib/useBottomSheet';
 import {
   getLikesForRatings, getCommentCounts, toggleLike,
   type CommunityRating, type CommunityPhoto,
@@ -61,7 +61,8 @@ export const FriendReviewSheet: React.FC<FriendReviewSheetProps> = ({
 }) => {
   const navigate = useNavigate();
   const { user } = useAuth();
-  const { dragProps, startDrag } = useBottomSheet(!!rating, onClose);
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+  const { dragProps, sheetRef } = useBottomSheet(!!rating, onClose, scrollRef);
   const [liked, setLiked] = useState(false);
   const [likeCount, setLikeCount] = useState(0);
   const [commentCount, setCommentCount] = useState(0);
@@ -114,13 +115,14 @@ export const FriendReviewSheet: React.FC<FriendReviewSheetProps> = ({
         onClick={onClose}
       />
       <motion.div
+        ref={mergeRefs(sheetRef, scrollRef) as React.RefCallback<HTMLDivElement>}
         initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
-        transition={{ type: 'spring', damping: 30, stiffness: 320 }}
+        transition={{ duration: 0.42, ease: [0.32, 0.72, 0, 1] }}
         {...dragProps}
         className="fixed bottom-0 inset-x-0 z-50 bg-cream rounded-t-[28px] max-h-[82vh] overflow-y-auto overscroll-contain type-archivo"
         style={{ boxShadow: '0 -14px 44px rgba(18,15,14,0.26)', paddingLeft: 22, paddingRight: 22 }}
       >
-        <div onPointerDown={startDrag} className="pt-3 pb-4 -mx-[22px] px-[22px] cursor-grab" style={{ touchAction: 'none' }}>
+        <div className="pt-3 pb-4 -mx-[22px] px-[22px]">
           <div className="w-[42px] h-[5px] rounded-full bg-on-surface/15 mx-auto" />
         </div>
 

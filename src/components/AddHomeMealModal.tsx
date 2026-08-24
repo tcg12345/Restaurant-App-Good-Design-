@@ -155,7 +155,7 @@ export const AddHomeMealModal: React.FC = () => {
   }, [homeMealModalOpen]);
 
   // Drag-to-dismiss for the phone chooser sheet.
-  const { dragProps } = useBottomSheet(homeMealModalOpen && stage === 'choose' && phoneMode, closeHomeMealModal);
+  const { dragProps, sheetRef } = useBottomSheet(homeMealModalOpen && stage === 'choose' && phoneMode, closeHomeMealModal);
 
   const handlePickMethod = (m: Method) => {
     if (m === 'custom') setMode('advanced');
@@ -303,11 +303,12 @@ export const AddHomeMealModal: React.FC = () => {
               {stage === 'choose' ? (
                 <motion.div
                   key="chooser"
+                  ref={phoneMode ? (sheetRef as React.RefObject<HTMLDivElement>) : undefined}
                   initial={phoneMode ? { y: '100%' } : { opacity: 0, scale: 0.94, y: 14 }}
                   animate={phoneMode ? { y: 0 } : { opacity: 1, scale: 1, y: 0 }}
                   exit={phoneMode ? { y: '100%' } : { opacity: 0, scale: 0.96, y: 8 }}
                   transition={phoneMode
-                    ? { type: 'spring', damping: 30, stiffness: 320 }
+                    ? { duration: 0.42, ease: [0.32, 0.72, 0, 1] as const }
                     : { duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
                   {...(phoneMode ? dragProps : {})}
                   onClick={(e) => e.stopPropagation()}

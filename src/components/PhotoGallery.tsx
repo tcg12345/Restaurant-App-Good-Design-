@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { X, Search, ChevronLeft, ChevronRight } from 'lucide-react';
 import type { CommunityPhoto } from '../lib/supabase-community';
@@ -29,7 +29,8 @@ export const PhotoGallery: React.FC<{
   // marks the initial open (no slide).
   const [expanded, setExpanded] = useState<{ index: number; dir: 1 | -1 | 0 } | null>(null);
 
-  const { dragProps } = useBottomSheet(true, onClose);
+  const sheetScrollRef = useRef<HTMLDivElement | null>(null);
+  const { dragProps, sheetRef } = useBottomSheet(true, onClose, sheetScrollRef);
 
   // Build unified photo list with captions
   const allPhotos: GalleryPhoto[] = React.useMemo(() => {
@@ -105,10 +106,11 @@ export const PhotoGallery: React.FC<{
       onClick={onClose}
     >
       <motion.div
+        ref={sheetRef as React.RefObject<HTMLDivElement>}
         initial={{ y: '100%' }}
         animate={{ y: 0 }}
         exit={{ y: '100%' }}
-        transition={{ type: 'spring', damping: 30, stiffness: 300 }}
+        transition={{ duration: 0.42, ease: [0.32, 0.72, 0, 1] }}
         {...dragProps}
         onClick={(e) => e.stopPropagation()}
         className="absolute inset-0 bg-surface flex flex-col kb-pad"
@@ -144,7 +146,7 @@ export const PhotoGallery: React.FC<{
         </div>
 
         {/* Scrollable content */}
-        <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain pb-8" style={{ WebkitOverflowScrolling: 'touch' } as React.CSSProperties}>
+        <div ref={sheetScrollRef} className="flex-1 min-h-0 overflow-y-auto overscroll-contain pb-8" style={{ WebkitOverflowScrolling: 'touch' } as React.CSSProperties}>
 
           {/* Active dish filter chip */}
           {activeDish && (

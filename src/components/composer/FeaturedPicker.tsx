@@ -266,7 +266,8 @@ export const FeaturedPickerOverlay: React.FC<{
   const close = useCallback(() => onCloseRef.current(), []);
   // Stable identity matters: Framer Motion treats a new drag-props object
   // as a controller reset, which cancels an in-flight dismiss gesture.
-  const { dragProps, startDrag } = useBottomSheet(open && phoneMode, close);
+  const resultsScrollRef = useRef<HTMLDivElement | null>(null);
+  const { dragProps, sheetRef } = useBottomSheet(open && phoneMode, close, resultsScrollRef);
 
   const isRestaurant = kind === 'restaurant';
   const query = search.trim();
@@ -302,10 +303,11 @@ export const FeaturedPickerOverlay: React.FC<{
           onClick={(e) => { e.stopPropagation(); close(); }}
         >
           <motion.div
+            ref={phoneMode ? (sheetRef as React.RefObject<HTMLDivElement>) : undefined}
             initial={phoneMode ? { y: '100%' } : { opacity: 0, scale: 0.97, y: 10 }}
             animate={phoneMode ? { y: 0 } : { opacity: 1, scale: 1, y: 0 }}
             exit={phoneMode ? { y: '100%' } : { opacity: 0, scale: 0.98, y: 6 }}
-            transition={{ type: 'spring', damping: 30, stiffness: 300 }}
+            transition={phoneMode ? { duration: 0.42, ease: [0.32, 0.72, 0, 1] } : { type: 'spring', damping: 30, stiffness: 300 }}
             {...(phoneMode ? dragProps : {})}
             onClick={(e) => e.stopPropagation()}
             className={cn(
@@ -316,14 +318,10 @@ export const FeaturedPickerOverlay: React.FC<{
             )}
             style={phoneMode ? { height: 'min(78%, 620px)', maxHeight: '100%' } : undefined}
           >
-            {/* Grab handle — phone only, and the only drag origin so the
-                list underneath still scrolls. */}
+            {/* Grab handle — phone only, purely visual now: the sheet
+                drags from anywhere, ceding to the list's own scroll. */}
             {phoneMode && (
-              <div
-                onPointerDown={startDrag}
-                className="flex-shrink-0 pt-2.5 pb-1 flex justify-center touch-none cursor-grab active:cursor-grabbing"
-                aria-label="Drag to dismiss"
-              >
+              <div className="flex-shrink-0 pt-2.5 pb-1 flex justify-center" aria-hidden>
                 <div className="w-9 h-1 rounded-full bg-on-surface/20" />
               </div>
             )}
@@ -375,6 +373,7 @@ export const FeaturedPickerOverlay: React.FC<{
 
             {/* Results */}
             <div
+              ref={resultsScrollRef}
               className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-2"
               style={{ paddingBottom: 'max(0.75rem, env(safe-area-inset-bottom, 0px), var(--kb-height, 0px))' }}
             >

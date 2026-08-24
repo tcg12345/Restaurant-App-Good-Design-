@@ -48,7 +48,8 @@ export const CuisinePicker: React.FC<{
   const { phoneMode } = useSettings();
   const [query, setQuery] = useState('');
   const [saving, setSaving] = useState('');
-  const sheet = useBottomSheet(open && phoneMode, onClose);
+  const listScrollRef = useRef<HTMLDivElement | null>(null);
+  const sheet = useBottomSheet(open && phoneMode, onClose, listScrollRef);
   const inputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => { if (open) { setQuery(''); setSaving(''); } }, [open]);
@@ -89,10 +90,11 @@ export const CuisinePicker: React.FC<{
         >
           <motion.div
             key="cuisine-picker"
+            ref={phoneMode ? (sheet.sheetRef as React.RefObject<HTMLDivElement>) : undefined}
             initial={phoneMode ? { y: '100%' } : { opacity: 0, scale: 0.97 }}
             animate={phoneMode ? { y: 0 } : { opacity: 1, scale: 1 }}
             exit={phoneMode ? { y: '100%' } : { opacity: 0, scale: 0.97 }}
-            transition={phoneMode ? { type: 'spring', damping: 30, stiffness: 320 } : { duration: 0.16 }}
+            transition={phoneMode ? { duration: 0.42, ease: [0.32, 0.72, 0, 1] as const } : { duration: 0.16 }}
             {...(phoneMode ? sheet.dragProps : {})}
             onClick={(e) => e.stopPropagation()}
             role="dialog"
@@ -106,7 +108,7 @@ export const CuisinePicker: React.FC<{
             )}
           >
             {phoneMode && (
-              <div className="flex justify-center pt-2.5 pb-1" onPointerDown={sheet.startDrag} aria-hidden>
+              <div className="flex justify-center pt-2.5 pb-1" aria-hidden>
                 <div className="h-1 w-9 rounded-full bg-on-surface/15" />
               </div>
             )}
@@ -177,7 +179,7 @@ export const CuisinePicker: React.FC<{
               </div>
             </div>
 
-            <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-[max(16px,env(safe-area-inset-bottom))]">
+            <div ref={listScrollRef} className="min-h-0 flex-1 overflow-y-auto px-3 pb-[max(16px,env(safe-area-inset-bottom))]">
               {filtered.length === 0 ? (
                 <p className="px-2 py-8 text-center text-[13.5px] text-on-surface/45">
                   Nothing matches “{query.trim()}”.

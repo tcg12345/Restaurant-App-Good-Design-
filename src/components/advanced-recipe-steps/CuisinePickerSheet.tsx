@@ -22,7 +22,8 @@ interface Props {
 
 export const CuisinePickerSheet: React.FC<Props> = ({ isOpen, options, selected, onClose, onSelect }) => {
   const [query, setQuery] = useState('');
-  const { dragProps, startDrag } = useBottomSheet(isOpen, onClose);
+  const listScrollRef = useRef<HTMLDivElement | null>(null);
+  const { dragProps, sheetRef } = useBottomSheet(isOpen, onClose, listScrollRef);
   const inputRef = useRef<HTMLInputElement | null>(null);
 
   // Reset the search when the sheet opens.
@@ -60,15 +61,16 @@ export const CuisinePickerSheet: React.FC<Props> = ({ isOpen, options, selected,
         >
           <motion.div
             key="cuisine-sheet"
+            ref={sheetRef as React.RefObject<HTMLDivElement>}
             initial={{ y: '100%' }}
             animate={{ y: 0 }}
             exit={{ y: '100%' }}
-            transition={{ type: 'spring', damping: 30, stiffness: 320 }}
+            transition={{ duration: 0.42, ease: [0.32, 0.72, 0, 1] }}
             {...dragProps}
             onClick={(e) => e.stopPropagation()}
             className="arb-cuisine-sheet"
           >
-            <div className="arb-cuisine-drag" onPointerDown={startDrag} aria-hidden>
+            <div className="arb-cuisine-drag" aria-hidden>
               <div className="arb-cuisine-drag-pill" />
             </div>
 
@@ -108,7 +110,7 @@ export const CuisinePickerSheet: React.FC<Props> = ({ isOpen, options, selected,
               </div>
             </div>
 
-            <div className="arb-cuisine-list">
+            <div ref={listScrollRef} className="arb-cuisine-list">
               {filtered.length === 0 ? (
                 <div className="arb-cuisine-empty">No matches for "{query}".</div>
               ) : (

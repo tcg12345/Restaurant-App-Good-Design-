@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { X, Plus, Check } from 'lucide-react';
 import { cn } from '../lib/utils';
@@ -14,7 +14,8 @@ export const AddToListModal: React.FC = () => {
   const [newName, setNewName] = useState('');
   const [newEmoji, setNewEmoji] = useState('📋');
 
-  const { dragProps } = useBottomSheet(addToListModalOpen, closeAddToListModal);
+  const sheetScrollRef = useRef<HTMLDivElement | null>(null);
+  const { dragProps, sheetRef } = useBottomSheet(addToListModalOpen, closeAddToListModal, sheetScrollRef);
 
   const handleToggle = (listId: string, isIn: boolean) => {
     if (!addToListRestaurantId) return;
@@ -50,25 +51,27 @@ export const AddToListModal: React.FC = () => {
           onClick={handleClose}
         >
           <motion.div
-            initial={{ y: 100, opacity: 0 }}
-            animate={{ y: 0, opacity: 1 }}
-            exit={{ y: 100, opacity: 0 }}
-            transition={{ type: 'spring', damping: 25, stiffness: 300 }}
+            ref={sheetRef as React.RefObject<HTMLDivElement>}
+            initial={{ y: '100%' }}
+            animate={{ y: 0 }}
+            exit={{ y: '100%' }}
+            transition={{ duration: 0.42, ease: [0.32, 0.72, 0, 1] }}
             {...dragProps}
             onClick={(e) => e.stopPropagation()}
-            className="bg-surface w-full sm:max-w-sm sm:rounded-3xl rounded-t-3xl max-h-[70vh] overflow-y-auto kb-pad"
+            className="bg-surface w-full sm:max-w-sm sm:rounded-3xl rounded-t-3xl max-h-[70vh] flex flex-col overflow-hidden kb-pad"
           >
-            {/* Header */}
-            <div className="sticky top-0 bg-surface/95 backdrop-blur-sm px-5 pt-safe-5 pb-3 border-b border-on-surface/8 z-10">
-              <div className="flex items-center justify-between">
-                <h2 className="font-serif font-bold text-lg">Add to List</h2>
-                <button onClick={handleClose} className="p-2 -mr-2 text-on-surface/40 hover:text-on-surface transition-colors">
-                  <X size={20} />
-                </button>
+            <div ref={sheetScrollRef} className="min-h-0 overflow-y-auto">
+              {/* Header */}
+              <div className="sticky top-0 bg-surface/95 backdrop-blur-sm px-5 pt-safe-5 pb-3 border-b border-on-surface/8 z-10">
+                <div className="flex items-center justify-between">
+                  <h2 className="font-serif font-bold text-lg">Add to List</h2>
+                  <button onClick={handleClose} className="p-2 -mr-2 text-on-surface/40 hover:text-on-surface transition-colors">
+                    <X size={20} />
+                  </button>
+                </div>
               </div>
-            </div>
 
-            <div className="px-5 pt-4 pb-safe-4 space-y-2">
+              <div className="px-5 pt-4 pb-safe-4 space-y-2">
               {lists.map((list) => {
                 const isIn = list.restaurantIds.includes(addToListRestaurantId);
                 return (
@@ -152,6 +155,7 @@ export const AddToListModal: React.FC = () => {
                   <span className="text-sm font-semibold">Create New List</span>
                 </button>
               )}
+              </div>
             </div>
           </motion.div>
         </motion.div>

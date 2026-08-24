@@ -1,6 +1,19 @@
-import { useCallback, useEffect, useMemo, useRef, type PointerEvent as ReactPointerEvent, type RefObject } from 'react';
+import { useCallback, useEffect, useMemo, useRef, type PointerEvent as ReactPointerEvent, type Ref, type RefCallback, type RefObject } from 'react';
 import { useDragControls } from 'motion/react';
 import { pushOverlay } from './overlay-registry';
+
+/** Combine several refs onto one DOM node — for sheets whose draggable
+ *  root is ALSO the scrollable element, so both `sheetRef` (drag) and a
+ *  caller's own `scrollRef` (top-of-scroll check) can point at it. */
+export function mergeRefs<T>(...refs: Array<Ref<T> | undefined>): RefCallback<T> {
+  return (value) => {
+    for (const ref of refs) {
+      if (!ref) continue;
+      if (typeof ref === 'function') ref(value);
+      else (ref as { current: T | null }).current = value;
+    }
+  };
+}
 
 /**
  * Behavioural primitives shared by every bottom-sheet in the app:

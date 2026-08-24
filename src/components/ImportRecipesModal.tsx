@@ -285,7 +285,8 @@ export const ImportRecipesModal: React.FC<Props> = ({ open, onClose }) => {
   const [showFormat, setShowFormat] = useState(false);
   const abortRef = useRef(false);
 
-  const { dragProps } = useBottomSheet(open, onClose);
+  const sheetScrollRef = useRef<HTMLDivElement | null>(null);
+  const { dragProps, sheetRef } = useBottomSheet(open, onClose, sheetScrollRef);
 
   const reset = () => {
     setParsed([]);
@@ -415,10 +416,11 @@ export const ImportRecipesModal: React.FC<Props> = ({ open, onClose }) => {
           onClick={handleClose}
         >
           <motion.div
+            ref={sheetRef as React.RefObject<HTMLDivElement>}
             initial={{ y: '100%' }}
             animate={{ y: 0 }}
             exit={{ y: '100%' }}
-            transition={{ type: 'spring', damping: 30, stiffness: 300 }}
+            transition={{ duration: 0.42, ease: [0.32, 0.72, 0, 1] }}
             {...dragProps}
             onClick={(e) => e.stopPropagation()}
             className={cn(
@@ -445,7 +447,7 @@ export const ImportRecipesModal: React.FC<Props> = ({ open, onClose }) => {
               </GlassButton>
             </div>
 
-            <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-6 pb-6 space-y-4">
+            <div ref={sheetScrollRef} className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-6 pb-6 space-y-4">
               {parsed.length === 0 && (
                 <>
                   {/* Dropzone */}

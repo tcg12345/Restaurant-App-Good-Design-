@@ -116,7 +116,9 @@ const PickerSheet: React.FC<{
   onConfirm: () => void;
   confirmLabel?: string;
 }> = ({ isOpen, onClose, title, children, onConfirm, confirmLabel = 'Done' }) => {
-  const { dragProps } = useBottomSheet(isOpen, onClose);
+  // Handle-only drag: the wheel below owns vertical touch itself (scroll-
+  // snap to pick a value), which would fight a drag-anywhere sheet.
+  const { dragProps, startDrag } = useBottomSheet(isOpen, onClose);
   return (
   <AnimatePresence>
     {isOpen && (
@@ -131,12 +133,12 @@ const PickerSheet: React.FC<{
           initial={{ y: '100%' }}
           animate={{ y: 0 }}
           exit={{ y: '100%' }}
-          transition={{ type: 'spring', damping: 32, stiffness: 320 }}
+          transition={{ duration: 0.42, ease: [0.32, 0.72, 0, 1] }}
           {...dragProps}
           onClick={(e) => e.stopPropagation()}
           className="bg-surface w-full sm:max-w-md rounded-t-3xl sm:rounded-3xl pt-3 pb-safe-6 px-6"
         >
-          <div className="flex items-center justify-center mb-3">
+          <div onPointerDown={startDrag} className="flex items-center justify-center mb-3 touch-none cursor-grab active:cursor-grabbing">
             <div className="w-10 h-1 rounded-full bg-on-surface/15" />
           </div>
           <p className="text-center font-serif font-bold text-lg mb-5">{title}</p>

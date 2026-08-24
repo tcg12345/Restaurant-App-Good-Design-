@@ -61,7 +61,8 @@ export const AddRecipeModal: React.FC = () => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const coverInputRef = useRef<HTMLInputElement>(null);
 
-  const { dragProps } = useBottomSheet(addRecipeModalOpen, closeAddRecipeModal);
+  const sheetScrollRef = useRef<HTMLDivElement | null>(null);
+  const { dragProps, sheetRef } = useBottomSheet(addRecipeModalOpen, closeAddRecipeModal, sheetScrollRef);
 
   useEffect(() => {
     if (addRecipeModalOpen) {
@@ -238,8 +239,9 @@ export const AddRecipeModal: React.FC = () => {
           onClick={closeAddRecipeModal}
         >
           <motion.div
+            ref={sheetRef as React.RefObject<HTMLDivElement>}
             initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
-            transition={{ type: 'spring', damping: 30, stiffness: 300 }}
+            transition={{ duration: 0.42, ease: [0.32, 0.72, 0, 1] }}
             {...dragProps}
             onClick={(e) => e.stopPropagation()}
             className={cn("bg-surface w-full overflow-hidden flex flex-col kb-pad",
@@ -260,7 +262,7 @@ export const AddRecipeModal: React.FC = () => {
                     <button onClick={closeAddRecipeModal} className="p-2 -mr-2 text-on-surface/40 hover:text-on-surface transition-colors"><X size={20} /></button>
                   </div>
 
-                  <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-5 pb-4">
+                  <div ref={sheetScrollRef} className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-5 pb-4">
                     {/* Cover photo */}
                     <button onClick={() => coverInputRef.current?.click()}
                       className="w-full h-36 rounded-2xl border-2 border-dashed border-on-surface/15 flex flex-col items-center justify-center gap-2 mb-5 overflow-hidden hover:border-primary/30 transition-colors relative">

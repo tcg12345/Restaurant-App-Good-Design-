@@ -1,10 +1,10 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { X, Plus, Check, BookmarkPlus, BookOpen } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useLists, DEFAULT_COOKED_ID, type HomeMeal } from '../contexts/ListsContext';
 import { useToast } from '../contexts/ToastContext';
-import { useBottomSheet } from '../lib/useBottomSheet';
+import { mergeRefs, useBottomSheet } from '../lib/useBottomSheet';
 
 const EMOJI_OPTIONS = ['🍳', '📋', '🍝', '🥗', '🍰', '🍜', '🌮', '🔥', '🥘', '🍲', '☕', '🌿', '👨‍🍳', '🎉', '🥩', '🍞'];
 
@@ -28,7 +28,8 @@ interface SaveRecipeToListSheetProps {
 export const SaveRecipeToListSheet: React.FC<SaveRecipeToListSheetProps> = ({ open, onClose, meal, allowCookbook }) => {
   const { lists, homeMeals, addRecipeToList, removeRecipeFromList, createList, addRecipeToCookbook, removeRecipeFromCookbook } = useLists();
   const { showToast } = useToast();
-  const { dragProps } = useBottomSheet(open, onClose);
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+  const { dragProps, sheetRef } = useBottomSheet(open, onClose, scrollRef);
 
   const [creating, setCreating] = useState(false);
   const [newName, setNewName] = useState('');
@@ -90,10 +91,11 @@ export const SaveRecipeToListSheet: React.FC<SaveRecipeToListSheetProps> = ({ op
           onClick={handleClose}
         >
           <motion.div
-            initial={{ y: 100, opacity: 0 }}
-            animate={{ y: 0, opacity: 1 }}
-            exit={{ y: 100, opacity: 0 }}
-            transition={{ type: 'spring', damping: 26, stiffness: 300 }}
+            ref={mergeRefs(sheetRef, scrollRef) as React.RefCallback<HTMLDivElement>}
+            initial={{ y: '100%' }}
+            animate={{ y: 0 }}
+            exit={{ y: '100%' }}
+            transition={{ duration: 0.42, ease: [0.32, 0.72, 0, 1] }}
             {...dragProps}
             onClick={(e) => e.stopPropagation()}
             className="bg-surface w-full sm:max-w-[440px] sm:rounded-[28px] rounded-t-[28px] max-h-[82vh] overflow-y-auto shadow-[0_30px_80px_-16px_rgba(0,0,0,0.42)] ring-1 ring-on-surface/[0.06] kb-pad"

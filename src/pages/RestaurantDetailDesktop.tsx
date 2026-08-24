@@ -107,7 +107,8 @@ export const RestaurantDetailDesktop: React.FC = () => {
 
   const { toggleWishlist, isWishlisted, getRating, openAddRestaurantModal, deleteVisit, scoresUnlocked } = useLists();
   const [confirmDeleteVisitId, setConfirmDeleteVisitId] = useState<string | null>(null);
-  const { dragProps: friendsDetailDragProps } = useBottomSheet(showFriendsDetail, () => setShowFriendsDetail(false));
+  const friendsDetailScrollRef = useRef<HTMLDivElement | null>(null);
+  const { dragProps: friendsDetailDragProps, sheetRef: friendsDetailSheetRef } = useBottomSheet(showFriendsDetail, () => setShowFriendsDetail(false), friendsDetailScrollRef);
   const { user } = useAuth();
   const myRatingRef = useRef<HTMLElement | null>(null);
   const [expandedVisit, setExpandedVisit] = useState<string | null>(null);
@@ -930,7 +931,7 @@ export const RestaurantDetailDesktop: React.FC = () => {
         {showFriendsDetail && (
           <>
             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50" onClick={() => setShowFriendsDetail(false)} />
-            <motion.div initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }} transition={{ type: 'spring', damping: 28, stiffness: 300 }} {...friendsDetailDragProps} className="fixed bottom-0 left-0 right-0 z-50 bg-surface rounded-t-3xl max-h-[70vh] flex flex-col overflow-hidden">
+            <motion.div ref={friendsDetailSheetRef as React.RefObject<HTMLDivElement>} initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }} transition={{ duration: 0.42, ease: [0.32, 0.72, 0, 1] }} {...friendsDetailDragProps} className="fixed bottom-0 left-0 right-0 z-50 bg-surface rounded-t-3xl max-h-[70vh] flex flex-col overflow-hidden">
               <div className="flex items-center justify-between px-5 pt-5 pb-3 border-b border-on-surface/[0.06] flex-shrink-0">
                 <div>
                   <h3 className="font-serif font-bold text-lg">Friends' Ratings</h3>
@@ -938,7 +939,7 @@ export const RestaurantDetailDesktop: React.FC = () => {
                 </div>
                 <button onClick={() => setShowFriendsDetail(false)} className="w-8 h-8 rounded-full bg-on-surface/[0.05] grid place-items-center" aria-label="Close"><X size={16} className="text-on-surface/60" /></button>
               </div>
-              <div className="flex-1 overflow-y-auto px-5 py-4 space-y-3">
+              <div ref={friendsDetailScrollRef} className="flex-1 overflow-y-auto px-5 py-4 space-y-3">
                 {friendsStats.ratings.map((r) => (
                   <div key={r.id} className="bg-white rounded-xl border border-on-surface/[0.08] p-4">
                     <div className="flex items-center justify-between mb-1">

@@ -1372,10 +1372,13 @@ interface CommentsBodyProps {
   addComment: (id: string, body: string, parentId?: string | null) => Promise<UnifiedComment | null>;
   deleteComment: (id: string, commentId: string, removedCount?: number) => Promise<boolean>;
   currentUserId: string | null;
+  /** 'sheet' variant only — the list's scroll container, so a hosting
+   *  bottom sheet can tell drag-to-dismiss from list scrolling. */
+  scrollRef?: React.RefObject<HTMLDivElement | null>;
 }
 
 /** State + composer + list. The wrapper (sheet/panel) decides chrome. */
-export const CommentsBody: React.FC<CommentsBodyProps> = ({ targetId, onClose, variant, loadComments, addComment, deleteComment, currentUserId }) => {
+export const CommentsBody: React.FC<CommentsBodyProps> = ({ targetId, onClose, variant, loadComments, addComment, deleteComment, currentUserId, scrollRef }) => {
   const { showToast } = useToast();
   const { requireSignIn } = useSignInModal();
   const [comments, setComments] = useState<UnifiedComment[]>([]);
@@ -1605,7 +1608,7 @@ export const CommentsBody: React.FC<CommentsBodyProps> = ({ targetId, onClose, v
       </div>
 
       {/* List */}
-      <div className="flex-1 min-h-0 overflow-y-auto px-5 py-3 space-y-4">
+      <div ref={scrollRef} className="flex-1 min-h-0 overflow-y-auto px-5 py-3 space-y-4">
         {loading ? (
           <div className={cn('flex items-center justify-center py-8', muteCls)}>
             <Loader2 size={20} className="animate-spin" />
@@ -1678,7 +1681,8 @@ interface CommentsSheetProps {
 }
 
 const CommentsSheet: React.FC<CommentsSheetProps> = ({ targetId, onClose, loadComments, addComment, deleteComment, currentUserId }) => {
-  const { dragProps } = useBottomSheet(!!targetId, onClose);
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+  const { dragProps, sheetRef } = useBottomSheet(!!targetId, onClose, scrollRef);
   return (
     <AnimatePresence>
       {targetId && (
@@ -1688,8 +1692,9 @@ const CommentsSheet: React.FC<CommentsSheetProps> = ({ targetId, onClose, loadCo
           onClick={onClose}
         >
           <motion.div
+            ref={sheetRef as React.RefObject<HTMLDivElement>}
             initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
-            transition={{ type: 'spring', damping: 30, stiffness: 300 }}
+            transition={{ duration: 0.42, ease: [0.32, 0.72, 0, 1] }}
             {...dragProps}
             onClick={(e) => e.stopPropagation()}
             className="bg-white w-full rounded-t-3xl flex flex-col"
@@ -1709,6 +1714,7 @@ const CommentsSheet: React.FC<CommentsSheetProps> = ({ targetId, onClose, loadCo
               addComment={addComment}
               deleteComment={deleteComment}
               currentUserId={currentUserId}
+              scrollRef={scrollRef}
             />
           </motion.div>
         </motion.div>

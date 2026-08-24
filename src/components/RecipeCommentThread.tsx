@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type FC } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type FC, type RefObject } from 'react';
 import { Heart, Send, Loader2, MessageSquare } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useSignInModal } from '../contexts/SignInModalContext';
@@ -42,9 +42,12 @@ interface Props {
   variant?: 'inline' | 'sheet';
   /** Notified after comments load/change so callers can update a count. */
   onCountChange?: (count: number) => void;
+  /** 'sheet' variant only — the list's scroll container, so a hosting
+   *  bottom sheet can tell drag-to-dismiss from list scrolling. */
+  scrollRef?: RefObject<HTMLDivElement | null>;
 }
 
-export const RecipeCommentThread: FC<Props> = ({ targetId, className, variant = 'inline', onCountChange }) => {
+export const RecipeCommentThread: FC<Props> = ({ targetId, className, variant = 'inline', onCountChange, scrollRef }) => {
   const { user, isSignedIn } = useAuth();
   const { requireSignIn } = useSignInModal();
   const [comments, setComments] = useState<RecipeComment[]>([]);
@@ -254,7 +257,7 @@ export const RecipeCommentThread: FC<Props> = ({ targetId, className, variant = 
   if (variant === 'sheet') {
     return (
       <div className={cn('flex flex-1 min-h-0 flex-col', className)}>
-        <div className="flex-1 overflow-y-auto overscroll-contain px-5 py-4">{list}</div>
+        <div ref={scrollRef} className="flex-1 overflow-y-auto overscroll-contain px-5 py-4">{list}</div>
         <div className="flex-shrink-0 border-t border-on-surface/8 bg-paper px-4 py-3 pb-safe-3">{composer}</div>
       </div>
     );

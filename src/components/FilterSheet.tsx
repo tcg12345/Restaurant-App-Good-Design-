@@ -96,9 +96,11 @@ export const FilterSheet: React.FC<FilterSheetProps> = ({
   children,
 }) => {
   const { phoneMode } = useSettings();
-  // dragProps still supplies the body-scroll lock; the handle is gone —
-  // a full page is not a sheet, so it closes with the ×.
-  const { dragProps } = useBottomSheet(open, onClose);
+  // Drag-anywhere dismissal — a downward pull with the list at its top
+  // takes the whole sheet; scrolled content, or a drill-in subpage, keeps
+  // the drag native to whatever's under the finger.
+  const sheetScrollRef = useRef<HTMLDivElement | null>(null);
+  const { dragProps, sheetRef } = useBottomSheet(open, onClose, sheetScrollRef);
   const handleApply = onApply ?? onClose;
 
   // ── Drill sub-page state ──
@@ -137,12 +139,13 @@ export const FilterSheet: React.FC<FilterSheetProps> = ({
           onClick={onClose}
         >
           <motion.div
+            ref={phoneMode ? (sheetRef as React.RefObject<HTMLDivElement>) : undefined}
             {...(phoneMode
               ? {
                   initial: { y: '100%' },
                   animate: { y: 0 },
                   exit: { y: '100%' },
-                  transition: { type: 'spring' as const, damping: 28, stiffness: 300 },
+                  transition: { duration: 0.42, ease: [0.32, 0.72, 0, 1] as const },
                   ...dragProps,
                 }
               : {
@@ -220,6 +223,7 @@ export const FilterSheet: React.FC<FilterSheetProps> = ({
                     shrinks a little as the new one covers it, so the stack
                     reads as depth rather than as a swap. */}
                 <motion.div
+                  ref={sheetScrollRef}
                   className="fs-body"
                   animate={page ? { x: '-22%', scale: 0.97, opacity: 0.5 } : { x: '0%', scale: 1, opacity: 1 }}
                   transition={{ duration: 0.4, ease: [0.32, 0.72, 0, 1] }}

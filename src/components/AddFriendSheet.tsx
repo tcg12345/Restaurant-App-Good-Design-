@@ -47,7 +47,8 @@ export const AddFriendSheet: React.FC<Props> = ({ open, onClose }) => {
   const { phoneMode } = useSettings();
   const navigate = useNavigate();
   const userId = user?.id ?? null;
-  const { dragProps, startDrag } = useBottomSheet(open, onClose);
+  const listScrollRef = useRef<HTMLDivElement | null>(null);
+  const { dragProps, sheetRef } = useBottomSheet(open, onClose, listScrollRef);
 
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<UserProfile[]>([]);
@@ -174,10 +175,11 @@ export const AddFriendSheet: React.FC<Props> = ({ open, onClose }) => {
           onClick={onClose}
         >
           <motion.div
+            ref={phoneMode ? (sheetRef as React.RefObject<HTMLDivElement>) : undefined}
             {...(phoneMode
               ? {
                   initial: { y: '100%' }, animate: { y: 0 }, exit: { y: '100%' },
-                  transition: { type: 'spring' as const, damping: 28, stiffness: 300 },
+                  transition: { duration: 0.42, ease: [0.32, 0.72, 0, 1] as const },
                   ...dragProps,
                 }
               : {
@@ -195,10 +197,7 @@ export const AddFriendSheet: React.FC<Props> = ({ open, onClose }) => {
             )}
           >
             {phoneMode && (
-              <div
-                className="flex justify-center pt-3 pb-1 flex-shrink-0 cursor-grab active:cursor-grabbing"
-                onPointerDown={startDrag}
-              >
+              <div className="flex justify-center pt-3 pb-1 flex-shrink-0">
                 <div className="w-10 h-1 rounded-full bg-on-surface/15" />
               </div>
             )}
@@ -241,7 +240,7 @@ export const AddFriendSheet: React.FC<Props> = ({ open, onClose }) => {
               </div>
             </div>
 
-            <div className="flex-1 overflow-y-auto px-5 pb-5">
+            <div ref={listScrollRef} className="flex-1 overflow-y-auto px-5 pb-5">
               {loading && results.length === 0 ? (
                 <div className="flex items-center justify-center py-10 text-on-surface/40 text-sm">
                   <Loader2 size={16} className="animate-spin mr-2" />

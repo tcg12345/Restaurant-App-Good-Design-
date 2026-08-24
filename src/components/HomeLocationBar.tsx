@@ -291,7 +291,8 @@ export const HomeLocationBar: React.FC<Props> = ({ location, onChange, onUseCurr
   const [recents, setRecents] = useState<HomeLocation[]>(() => loadRecentLocations());
   const [currentLoading, setCurrentLoading] = useState(false);
   const [currentError, setCurrentError] = useState<string | null>(null);
-  const { dragProps } = useBottomSheet(open, () => setOpen(false));
+  const sheetScrollRef = useRef<HTMLDivElement | null>(null);
+  const { dragProps, sheetRef } = useBottomSheet(open, () => setOpen(false), sheetScrollRef);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -466,12 +467,13 @@ export const HomeLocationBar: React.FC<Props> = ({ location, onChange, onUseCurr
               onClick={() => setOpen(false)}
             />
             <motion.div
+              ref={phoneMode ? (sheetRef as React.RefObject<HTMLDivElement>) : undefined}
               {...(phoneMode
                 ? {
                     initial: { y: '100%' },
                     animate: { y: 0 },
                     exit: { y: '100%' },
-                    transition: { type: 'spring' as const, damping: 28, stiffness: 300 },
+                    transition: { duration: 0.42, ease: [0.32, 0.72, 0, 1] as const },
                     ...dragProps,
                   }
                 : {
@@ -526,7 +528,7 @@ export const HomeLocationBar: React.FC<Props> = ({ location, onChange, onUseCurr
                 </div>
               </div>
 
-              <div className="flex-1 overflow-y-auto px-5 pb-safe-5 space-y-5">
+              <div ref={sheetScrollRef} className="flex-1 overflow-y-auto px-5 pb-safe-5 space-y-5">
                 {query.trim() ? (
                   <div className="space-y-0.5">
                     {searching && (

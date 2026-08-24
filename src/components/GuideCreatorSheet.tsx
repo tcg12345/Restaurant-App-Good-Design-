@@ -1328,7 +1328,11 @@ export const GuideCreatorSheet: React.FC<GuideCreatorSheetProps> = ({ open, onCl
   const [liveEditOpen, setLiveEditOpen] = useState(false);
   const [authorProfile, setAuthorProfile] = useState<UserProfile | null>(null);
 
-  const { dragProps } = useBottomSheet(open, onClose);
+  // Handle-only drag: the Arrange step's cards drag by their own grip to
+  // reorder (see ArrangeCardPhone), a gesture that would fight a
+  // drag-anywhere sheet on the same vertical axis. A dedicated strip
+  // keeps dismissal working without that conflict.
+  const { dragProps, startDrag } = useBottomSheet(open, onClose);
   const dragRef = useRef<number | null>(null);
 
   useEffect(() => {
@@ -1761,7 +1765,7 @@ export const GuideCreatorSheet: React.FC<GuideCreatorSheetProps> = ({ open, onCl
           animate={phoneMode ? { y: 0 } : { opacity: 1, scale: 1, y: 0 }}
           exit={phoneMode ? { y: '100%' } : { opacity: 0, scale: 0.97, y: 10 }}
           transition={phoneMode
-            ? { type: 'spring', damping: 28, stiffness: 300 }
+            ? { duration: 0.42, ease: [0.32, 0.72, 0, 1] as const }
             : { duration: 0.25, ease: [0.22, 1, 0.36, 1] }}
           {...(phoneMode ? dragProps : {})}
           onClick={(e) => e.stopPropagation()}
@@ -1770,6 +1774,15 @@ export const GuideCreatorSheet: React.FC<GuideCreatorSheetProps> = ({ open, onCl
             phoneMode ? 'gcx-phone w-full h-full' : 'gcx-desktop w-full max-w-[640px]',
           )}
         >
+          {phoneMode && (
+            <div
+              onPointerDown={startDrag}
+              className="flex-shrink-0 pt-2.5 pb-1 flex justify-center touch-none cursor-grab active:cursor-grabbing"
+              aria-label="Drag to dismiss"
+            >
+              <div className="w-9 h-1 rounded-full bg-on-surface/20" />
+            </div>
+          )}
           {/* ── Header ── */}
           <div className="gcx-head">
             <div className="gcx-head-row">
