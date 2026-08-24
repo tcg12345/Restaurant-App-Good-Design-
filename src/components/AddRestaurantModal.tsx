@@ -518,7 +518,7 @@ export const AddRestaurantModal: React.FC = () => {
             {phoneMode && (
               <div
                 onPointerDown={startDrag}
-                className="flex justify-center pt-2.5 pb-1 flex-shrink-0 touch-none cursor-grab active:cursor-grabbing"
+                className="flex justify-center pt-safe-3 pb-1 flex-shrink-0 touch-none cursor-grab active:cursor-grabbing"
                 aria-label="Drag to dismiss"
               >
                 <div className="w-9 h-1 rounded-full bg-on-surface/20" />

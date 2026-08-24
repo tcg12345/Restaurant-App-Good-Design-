@@ -1774,17 +1774,17 @@ export const GuideCreatorSheet: React.FC<GuideCreatorSheetProps> = ({ open, onCl
             phoneMode ? 'gcx-phone w-full h-full' : 'gcx-desktop w-full max-w-[640px]',
           )}
         >
-          {phoneMode && (
-            <div
-              onPointerDown={startDrag}
-              className="flex-shrink-0 pt-2.5 pb-1 flex justify-center touch-none cursor-grab active:cursor-grabbing"
-              aria-label="Drag to dismiss"
-            >
-              <div className="w-9 h-1 rounded-full bg-on-surface/20" />
-            </div>
-          )}
           {/* ── Header ── */}
           <div className="gcx-head">
+            {phoneMode && (
+              <div
+                onPointerDown={startDrag}
+                className="flex justify-center pb-2 -mt-1 touch-none cursor-grab active:cursor-grabbing"
+                aria-label="Drag to dismiss"
+              >
+                <div className="w-9 h-1 rounded-full bg-on-surface/20" />
+              </div>
+            )}
             <div className="gcx-head-row">
               {/* Phone keeps the chrome minimal: just Save draft + a
                   prominent close. Desktop keeps the eyebrow + Live edit. */}
