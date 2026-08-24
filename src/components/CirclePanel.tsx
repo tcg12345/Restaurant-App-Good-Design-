@@ -15,7 +15,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
-import { Search, X, Plus, Filter, ArrowLeft, Check, Loader2, UserPlus, Heart, MessageCircle, Bell , Utensils } from 'lucide-react';
+import { Search, X, Plus, ArrowLeft, Check, Loader2, UserPlus, Heart, MessageCircle, Bell, Utensils, ChevronDown } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { VerifiedBadge } from './VerifiedBadge';
 import { useAuth } from '../contexts/AuthContext';
@@ -28,10 +28,14 @@ import {
   getFollowerIds, getSentRequestIds, sendFriendRequest, searchUsersByUsername,
   type FriendInfo, type FriendRequest, type UserProfile, type CommunityRating,
 } from '../lib/supabase-community';
-import { ScoreBadge } from './ScoreBadge';
 import { AddFriendSheet } from './AddFriendSheet';
+import { Collapse } from './Collapse';
+import { SearchField } from './SearchField';
+import { GlassButton } from '../lib/glass-buttons';
+import { scoreTintStyle } from '../lib/score';
+import { displayCuisine } from '../lib/cuisine';
 
-type Tab = 'all' | 'friends' | 'experts' | 'alerts';
+type Tab = 'activity' | 'alerts';
 type TimeBucket = 'today' | 'week' | 'earlier';
 
 const AVATAR_PALETTE = [
@@ -88,9 +92,15 @@ export const CirclePanel: React.FC<CirclePanelProps> = ({ variant, onClose }) =>
   const { user, refreshPendingRequests } = useAuth();
   const userId = user?.id ?? null;
 
-  const [tab, setTab] = useState<Tab>('all');
+  const [tab, setTab] = useState<Tab>('activity');
+  // Which grouped alerts are open (keyed by actor).
+  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
   const [searchQuery, setSearchQuery] = useState('');
+  const [searchOpen, setSearchOpen] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
+  // The Add page's own query — global people search lives there now.
+  const [addQuery, setAddQuery] = useState('');
+  const [inviteOpen, setInviteOpen] = useState(false);
 
   // Incoming friend requests (rows where the current user is the friend_id
   // and status is still 'pending'). Surfaced as a dedicated section so they
@@ -136,10 +146,8 @@ export const CirclePanel: React.FC<CirclePanelProps> = ({ variant, onClose }) =>
   const [highlightedNotifs, setHighlightedNotifs] = useState<Set<string>>(new Set());
 
   // Activity filter popover state
-  const [filterOpen, setFilterOpen] = useState(false);
   const [filterTime, setFilterTime] = useState<'all' | 'today' | 'week'>('all');
   const [filterFriendIds, setFilterFriendIds] = useState<Set<string>>(new Set());
-  const filterBtnRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!userId) { setLoading(false); return; }
@@ -220,16 +228,6 @@ export const CirclePanel: React.FC<CirclePanelProps> = ({ variant, onClose }) =>
     // while the tab is open stay unread until it's re-opened.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab]);
-
-  // Close filter popover on outside click.
-  useEffect(() => {
-    if (!filterOpen) return;
-    const handler = (e: MouseEvent) => {
-      if (filterBtnRef.current && !filterBtnRef.current.contains(e.target as Node)) setFilterOpen(false);
-    };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, [filterOpen]);
 
   const handleFollow = useCallback(async (expertId: string) => {
     if (!userId) return;
@@ -332,8 +330,8 @@ export const CirclePanel: React.FC<CirclePanelProps> = ({ variant, onClose }) =>
   // ── Global people search ──────────────────────────────────────────────
   // Debounced lookup of ANY user by username/name once there's a query.
   useEffect(() => {
-    if (!userId) { setPeopleResults([]); return; }
-    const query = searchQuery.trim();
+    if (!userId || !addOpen) { setPeopleResults([]); return; }
+    const query = addQuery.trim();
     if (!query) { setPeopleResults([]); setPeopleLoading(false); return; }
     let cancelled = false;
     setPeopleLoading(true);
@@ -342,7 +340,7 @@ export const CirclePanel: React.FC<CirclePanelProps> = ({ variant, onClose }) =>
       if (!cancelled) { setPeopleResults(res); setPeopleLoading(false); }
     }, 300);
     return () => { cancelled = true; clearTimeout(handle); };
-  }, [searchQuery, userId]);
+  }, [addQuery, addOpen, userId]);
 
   // Incoming pending request id keyed by requester, so a search result that
   // already sent ME a request shows "Accept".
@@ -480,387 +478,172 @@ export const CirclePanel: React.FC<CirclePanelProps> = ({ variant, onClose }) =>
     return { today, week, earlier };
   }, [notificationsFiltered]);
 
-  // ── Section renderers ─────────────────────────────────────────────
-  // People search results — anyone on the app matching the query, each with a
-  // follow control. Only rendered while there's a search query.
-  const renderPeople = () => (
-    <section>
-      <h4 className="text-[11px] font-bold uppercase tracking-[0.16em] text-on-surface/55 mb-3">
-        People
-      </h4>
-      {peopleLoading && peopleResults.length === 0 ? (
-        <ul className="space-y-3.5">
-          {[0, 1, 2].map((i) => (
-            <li key={i} className="flex items-center gap-3">
-              <div className="w-11 h-11 rounded-full bg-on-surface/[0.05] animate-pulse" />
-              <div className="flex-1 space-y-1.5">
-                <div className="h-3 w-32 rounded-full bg-on-surface/[0.05] animate-pulse" />
-                <div className="h-2.5 w-24 rounded-full bg-on-surface/[0.05] animate-pulse" />
-              </div>
-            </li>
-          ))}
-        </ul>
-      ) : peopleResults.length === 0 ? (
-        <p className="text-[12.5px] text-on-surface/40">No people match &ldquo;{searchQuery.trim()}&rdquo;.</p>
-      ) : (
-        <ul className="space-y-3.5">
-          {peopleResults.map((p) => {
-            const color = avatarColor(p.user_id);
-            const initial = initialOf(p.display_name || p.username);
-            const busy = peopleBusy.has(p.user_id);
-            const reqId = incomingByUser[p.user_id];
-            const status: 'following' | 'requested' | 'incoming' | 'followback' | 'none' =
-              followedIds.has(p.user_id) ? 'following'
-              : sentRequestIds.has(p.user_id) ? 'requested'
-              : (reqId && !acceptedReqIds.has(reqId)) ? 'incoming'
-              : followerIds.has(p.user_id) ? 'followback'
-              : 'none';
-            const pillNeutral = 'hit-44-y inline-flex items-center gap-1.5 px-3 h-8 rounded-full border border-on-surface/15 text-[12px] font-semibold text-on-surface/70 flex-shrink-0';
-            const pillPrimary = 'hit-44-y inline-flex items-center gap-1 px-3.5 h-8 rounded-full bg-primary text-white text-[12px] font-bold hover:bg-primary/90 transition-colors disabled:opacity-60 flex-shrink-0';
-            return (
-              <li key={p.user_id} className="flex items-center gap-3">
-                <Link to={`/user/${p.username || ''}`} onClick={() => onClose?.()} className="relative flex-shrink-0">
-                  <div className={cn('w-11 h-11 rounded-full flex items-center justify-center', color.bg)}>
-                    <span className={cn('text-[15px] font-serif font-bold', color.text)}>{initial}</span>
-                  </div>
-                  {p.is_verified && (
-                    <span className="absolute -bottom-0.5 -right-0.5 w-4 h-4 rounded-full bg-surface flex items-center justify-center ring-1 ring-surface">
-                      <VerifiedBadge size={14} />
-                    </span>
-                  )}
-                </Link>
-                <Link to={`/user/${p.username || ''}`} onClick={() => onClose?.()} className="flex-1 min-w-0 group">
-                  <p className="text-[14px] font-bold text-on-surface truncate leading-tight group-hover:text-primary transition-colors">
-                    {p.display_name || p.username || 'User'}
-                  </p>
-                  <p className="text-[12px] text-on-surface/55 truncate mt-0.5">@{p.username}</p>
-                </Link>
-                {status === 'following' ? (
-                  <span className={pillNeutral}><Check size={13} /> Following</span>
-                ) : status === 'requested' ? (
-                  <span className={pillNeutral}><Check size={13} /> Requested</span>
-                ) : status === 'incoming' ? (
-                  <button type="button" onClick={() => acceptPerson(p)} disabled={busy} className={pillPrimary}>
-                    {busy ? <Loader2 size={12} className="animate-spin" /> : <Check size={13} strokeWidth={2.6} />} Accept
-                  </button>
-                ) : status === 'followback' ? (
-                  <button type="button" onClick={() => followPerson(p)} disabled={busy} className={pillPrimary}>
-                    {busy ? <Loader2 size={12} className="animate-spin" /> : <UserPlus size={12} strokeWidth={2.6} />} Follow back
-                  </button>
-                ) : (
-                  <button type="button" onClick={() => followPerson(p)} disabled={busy} className={pillPrimary}>
-                    {busy ? <Loader2 size={12} className="animate-spin" /> : <UserPlus size={12} strokeWidth={2.6} />} Follow
-                  </button>
-                )}
-              </li>
-            );
-          })}
-        </ul>
-      )}
-    </section>
+  // ── The reference's page ───────────────────────────────────────────
+  // Two segments instead of four tabs, a compact friends strip, activity
+  // rows that lead with the place and wear the score as a ring, alerts
+  // that group repeated suggestions into one expandable row, and an Add
+  // page that slides over for finding people (search + verified experts).
+
+  // Where a notification lands. Review traffic goes to the queue; ratings
+  // land on the restaurant page, where the comments now live.
+  const notificationTarget = (n: AppNotification): string => {
+    if (n.subjectType === 'cuisine') return '/admin/cuisine';
+    if (n.subjectType === 'post') return `/r/post-${n.subjectId}`;
+    if (n.subjectType === 'reel') return `/r/reel-${n.subjectId}`;
+    return n.restaurantId ? `/restaurant/${n.restaurantId}` : `/review/${n.subjectId}`;
+  };
+
+  const requestsPending = requests.filter((r) => !acceptedReqIds.has(r.id));
+  const alertBadge = unreadCount + requestsPending.length;
+
+  const segTrack = (
+    <div className="flex p-1 rounded-full bg-on-surface/[0.06]">
+      {([['activity', 'Activity'], ['alerts', 'Alerts']] as const).map(([key, label]) => {
+        const on = tab === key;
+        return (
+          <button
+            key={key}
+            type="button"
+            onClick={() => setTab(key)}
+            aria-pressed={on}
+            className={cn(
+              'flex-1 h-9 rounded-full inline-flex items-center justify-center gap-1.5 text-[12.5px] font-bold transition-colors',
+              on ? 'bg-surface dark:bg-on-surface/[0.14] text-on-surface shadow-[0_1px_6px_rgba(0,0,0,0.09)]' : 'text-on-surface/55 active:text-on-surface/80',
+            )}
+          >
+            {label}
+            {key === 'alerts' && alertBadge > 0 && (
+              <span className="min-w-[17px] h-[17px] px-1 rounded-full bg-primary text-white text-[10px] font-bold grid place-items-center tabular-nums">{alertBadge}</span>
+            )}
+          </button>
+        );
+      })}
+    </div>
   );
 
-  // Incoming friend requests — a distinct, highlighted card so it's
-  // obvious where to accept/decline. Hidden entirely when there are none.
-  const renderRequests = () => {
-    if (requests.length === 0) return null;
+  const friendsRail = (
+    <div className="flex items-start gap-4 pt-4 overflow-x-auto no-scrollbar">
+      <button type="button" onClick={() => { setAddQuery(''); setAddOpen(true); }} className="flex flex-col items-center gap-1.5 flex-shrink-0">
+        <span className="w-14 h-14 rounded-full border-[1.5px] border-dashed border-on-surface/30 grid place-items-center text-on-surface/60">
+          <Plus size={18} strokeWidth={2.2} />
+        </span>
+        <span className="text-[11px] font-semibold text-on-surface/55">Add</span>
+      </button>
+      {friendsFiltered.map((f) => {
+        const p = friendProfiles[f.friend_id];
+        const name = p?.display_name || p?.username || 'Friend';
+        const color = avatarColor(f.friend_id);
+        return (
+          <Link
+            key={f.friend_id}
+            to={`/user/${p?.username || ''}`}
+            onClick={() => onClose?.()}
+            className="flex flex-col items-center gap-1.5 flex-shrink-0"
+          >
+            <span className={cn('relative w-14 h-14 rounded-full flex items-center justify-center', color.bg)}>
+              <span className={cn('text-[19px] font-serif font-bold', color.text)}>{initialOf(name)}</span>
+              {p?.is_verified && (
+                <span className="absolute -bottom-0.5 -right-0.5 w-[18px] h-[18px] rounded-full bg-surface grid place-items-center ring-1 ring-surface">
+                  <VerifiedBadge size={15} />
+                </span>
+              )}
+            </span>
+            <span className="text-[11px] font-medium text-on-surface/75 truncate max-w-[60px]">{(name || '').split(' ')[0]}</span>
+          </Link>
+        );
+      })}
+    </div>
+  );
+
+  // ── Activity ────────────────────────────────────────────────────────
+  const activityChips = (
+    <div className="flex gap-1.5 pt-3.5 overflow-x-auto no-scrollbar">
+      {([['all', 'All'], ['today', 'Today'], ['week', 'This week']] as const).map(([k, label]) => {
+        const on = filterTime === k;
+        return (
+          <button
+            key={k}
+            type="button"
+            onClick={() => setFilterTime(k)}
+            className={cn(
+              'flex-none h-8 px-3.5 rounded-full text-[12px] font-bold transition-colors',
+              on ? 'bg-on-surface text-surface' : 'bg-on-surface/[0.06] text-on-surface/65 active:bg-on-surface/[0.1]',
+            )}
+          >
+            {label}
+          </button>
+        );
+      })}
+      {friends.map((f) => {
+        const p = friendProfiles[f.friend_id];
+        const name = (p?.display_name || p?.username || 'Friend').split(' ')[0];
+        const on = filterFriendIds.has(f.friend_id);
+        return (
+          <button
+            key={f.friend_id}
+            type="button"
+            onClick={() => setFilterFriendIds((prev) => {
+              const next = new Set(prev);
+              if (next.has(f.friend_id)) next.delete(f.friend_id); else next.add(f.friend_id);
+              return next;
+            })}
+            className={cn(
+              'flex-none h-8 px-3.5 rounded-full text-[12px] font-bold transition-colors inline-flex items-center gap-1',
+              on ? 'bg-on-surface text-surface' : 'bg-on-surface/[0.06] text-on-surface/65 active:bg-on-surface/[0.1]',
+            )}
+          >
+            {on && <Check size={11} />}
+            {name}
+          </button>
+        );
+      })}
+    </div>
+  );
+
+  const scoreRing = (score: number) => {
+    const t = scoreTintStyle(score);
     return (
-      <section className="rounded-2xl border border-primary/20 bg-primary/[0.04] p-4">
-        <div className="flex items-center gap-2 mb-3">
-          <span className="inline-grid place-items-center min-w-[20px] h-5 px-1.5 rounded-full bg-primary text-white text-[11px] font-bold tabular-nums">
-            {requests.length}
-          </span>
-          <h4 className="text-[11px] font-bold uppercase tracking-[0.16em] text-on-surface/70">
-            Friend request{requests.length === 1 ? '' : 's'}
-          </h4>
-        </div>
-        <ul className="space-y-3">
-          {requests.map((r) => {
-            const p = requestProfiles[r.user_id];
-            const name = p?.display_name || p?.username || 'Someone';
-            const color = avatarColor(r.user_id);
-            const initial = initialOf(name);
-            const busy = requestBusy.has(r.id);
-            const accepted = acceptedReqIds.has(r.id);
-            // My follow status toward this requester (drives the post-accept
-            // button): explicit follow-back state wins, else derive from what
-            // I already follow / have requested.
-            const myFollow: 'none' | 'pending' | 'accepted' =
-              followBackState[r.user_id]
-              ?? (followedIds.has(r.user_id) ? 'accepted'
-                : sentRequestIds.has(r.user_id) ? 'pending'
-                : 'none');
-            return (
-              <li key={r.id} className="flex items-center gap-3">
-                <Link
-                  to={`/user/${p?.username || ''}`}
-                  onClick={() => onClose?.()}
-                  className="flex-shrink-0"
-                >
-                  <div className={cn('w-11 h-11 rounded-full flex items-center justify-center', color.bg)}>
-                    <span className={cn('text-[15px] font-serif font-bold', color.text)}>{initial}</span>
-                  </div>
-                </Link>
-                <Link
-                  to={`/user/${p?.username || ''}`}
-                  onClick={() => onClose?.()}
-                  className="flex-1 min-w-0 group"
-                >
-                  <p className="text-[14px] font-bold text-on-surface truncate leading-tight group-hover:text-primary transition-colors">
-                    {name}
-                  </p>
-                  <p className="text-[12px] text-on-surface/55 truncate mt-0.5">
-                    {p?.username ? `@${p.username}` : 'wants to be friends'}
-                    {r.created_at && <span className="text-on-surface/30"> · {timeAgoShort(r.created_at)}</span>}
-                  </p>
-                </Link>
-                <div className="flex items-center gap-1.5 flex-shrink-0">
-                  {!accepted ? (
-                    <>
-                      <button
-                        type="button"
-                        onClick={() => handleAcceptRequest(r)}
-                        disabled={busy}
-                        className="hit-44-y inline-flex items-center gap-1 px-3.5 h-8 rounded-full bg-primary text-white text-[12px] font-bold hover:bg-primary/90 transition-colors disabled:opacity-60"
-                      >
-                        {busy ? <Loader2 size={12} className="animate-spin" /> : <Check size={13} strokeWidth={2.6} />}
-                        Accept
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleDeclineRequest(r)}
-                        disabled={busy}
-                        aria-label={`Decline request from ${name}`}
-                        className="hit-44 w-8 h-8 rounded-full border border-on-surface/15 grid place-items-center text-on-surface/55 hover:bg-on-surface/[0.05] hover:text-on-surface transition-colors disabled:opacity-60"
-                      >
-                        <X size={15} />
-                      </button>
-                    </>
-                  ) : myFollow === 'accepted' ? (
-                    <span className="inline-flex items-center gap-1.5 px-3 h-8 rounded-full bg-on-surface/[0.06] text-[12px] font-semibold text-on-surface/55">
-                      <Check size={13} /> Friends
-                    </span>
-                  ) : myFollow === 'pending' ? (
-                    <span className="inline-flex items-center gap-1.5 px-3 h-8 rounded-full bg-on-surface/[0.06] text-[12px] font-semibold text-on-surface/55">
-                      <Check size={13} /> Requested
-                    </span>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={() => handleFollowBackRequest(r)}
-                      disabled={busy}
-                      className="hit-44-y inline-flex items-center gap-1 px-3.5 h-8 rounded-full bg-primary text-white text-[12px] font-bold hover:bg-primary/90 transition-colors disabled:opacity-60"
-                    >
-                      {busy ? <Loader2 size={12} className="animate-spin" /> : <Plus size={13} strokeWidth={2.6} />}
-                      Follow back
-                    </button>
-                  )}
-                </div>
-              </li>
-            );
-          })}
-        </ul>
-      </section>
+      <span
+        className="flex-none w-9 h-9 rounded-full grid place-items-center font-serif font-bold text-[12.5px] tabular-nums"
+        style={{ color: t.color, background: t.background, boxShadow: `inset 0 0 0 1.5px ${t.ring}` }}
+      >
+        {Number(score) >= 10 ? '10' : Number(score).toFixed(1)}
+      </span>
     );
   };
 
-  const renderFriendsAvatars = () => (
-    <section>
-      <div className="flex items-center justify-between mb-3.5">
-        <h4 className="text-[11px] font-bold uppercase tracking-[0.16em] text-on-surface/55">
-          My friends <span className="text-on-surface/30 ml-1">· {friendsCount}</span>
-        </h4>
-        <button
-          type="button"
-          onClick={() => setAddOpen(true)}
-          className="text-[12px] font-bold text-primary hover:text-primary/80 inline-flex items-center gap-1"
-        >
-          <Plus size={12} strokeWidth={2.6} />
-          Invite
-        </button>
-      </div>
-      {friendsFiltered.length === 0 && q ? (
-        <p className="text-[12.5px] text-on-surface/40">No friends match this search.</p>
-      ) : (
-        <div className="flex items-start gap-4 overflow-x-auto pb-1 no-scrollbar">
-          <button
-            type="button"
-            onClick={() => setAddOpen(true)}
-            className="flex flex-col items-center gap-2 flex-shrink-0 group"
-          >
-            <div className="w-16 h-16 rounded-full border-2 border-dashed border-primary/40 group-hover:border-primary/70 flex items-center justify-center text-primary transition-colors">
-              <Plus size={20} strokeWidth={2.4} />
-            </div>
-            <span className="text-[11.5px] font-semibold text-primary">Add</span>
-          </button>
-          {friendsFiltered.slice(0, 8).map((f) => {
-            const p = friendProfiles[f.friend_id];
-            const color = avatarColor(f.friend_id);
-            const initial = initialOf(p?.display_name || p?.username || '');
-            return (
-              <Link
-                key={f.friend_id}
-                to={`/user/${p?.username || ''}`}
-                onClick={() => onClose?.()}
-                className="flex flex-col items-center gap-2 flex-shrink-0 group"
-              >
-                <div className={cn('w-16 h-16 rounded-full flex items-center justify-center transition-transform group-hover:scale-[1.03]', color.bg)}>
-                  <span className={cn('text-[24px] font-serif font-bold', color.text)}>{initial}</span>
-                </div>
-                <span className="text-[12.5px] font-medium text-on-surface truncate max-w-[72px]">
-                  {p?.display_name || p?.username || 'User'}
-                </span>
-              </Link>
-            );
-          })}
-        </div>
-      )}
-    </section>
-  );
-
-  const renderExpertsList = (limited: boolean) => (
-    <section>
-      <div className="flex items-center justify-between mb-3">
-        <h4 className="text-[11px] font-bold uppercase tracking-[0.16em] text-on-surface/55">
-          Experts <span className="text-on-surface/30 ml-1">· {expertsCount}</span>
-        </h4>
-        {limited && expertsCount > 3 && (
-          <button
-            type="button"
-            onClick={() => setTab('experts')}
-            className="text-[12px] font-bold text-primary hover:text-primary/80"
-          >
-            See all
-          </button>
-        )}
-      </div>
-      {expertsLoading && expertsFiltered.length === 0 ? (
-        <ul className="space-y-3">
-          {[0, 1, 2].map((i) => (
-            <li key={i} className="flex items-center gap-3">
-              <div className="w-11 h-11 rounded-full bg-on-surface/[0.05] animate-pulse" />
-              <div className="flex-1 space-y-1.5">
-                <div className="h-3 w-32 rounded-full bg-on-surface/[0.05] animate-pulse" />
-                <div className="h-2.5 w-44 rounded-full bg-on-surface/[0.05] animate-pulse" />
-              </div>
-            </li>
-          ))}
-        </ul>
-      ) : expertsFiltered.length === 0 ? (
-        <p className="text-[12.5px] text-on-surface/40">No verified users match this search.</p>
-      ) : (
-        <ul className="space-y-3.5">
-          {(limited ? expertsFiltered.slice(0, 3) : expertsFiltered).map((p) => {
-            const color = avatarColor(p.user_id);
-            const initial = initialOf(p.display_name || p.username);
-            const ratingCount = expertRatingCounts[p.user_id] || 0;
-            const followers = expertFollowerCounts[p.user_id] || 0;
-            const following = followedIds.has(p.user_id);
-            return (
-              <li key={p.user_id} className="flex items-center gap-3">
-                <Link to={`/user/${p.username || ''}`} onClick={() => onClose?.()} className="relative flex-shrink-0">
-                  <div className={cn('w-11 h-11 rounded-full flex items-center justify-center', color.bg)}>
-                    <span className={cn('text-[15px] font-serif font-bold', color.text)}>{initial}</span>
-                  </div>
-                  <span className="absolute -bottom-0.5 -right-0.5 w-4 h-4 rounded-full bg-surface flex items-center justify-center ring-1 ring-surface">
-                    <VerifiedBadge size={14} />
-                  </span>
-                </Link>
-                <Link to={`/user/${p.username || ''}`} onClick={() => onClose?.()} className="flex-1 min-w-0 group">
-                  <p className="text-[14px] font-bold text-on-surface truncate leading-tight group-hover:text-primary transition-colors">
-                    {p.display_name || p.username || 'Verified user'}
-                  </p>
-                  {p.bio && (
-                    <p className="text-[12px] text-on-surface/55 truncate mt-0.5">
-                      {p.bio}
-                    </p>
-                  )}
-                  <p className="text-[11px] text-on-surface/40 truncate mt-0.5">
-                    {ratingCount} review{ratingCount === 1 ? '' : 's'} · {formatCount(followers)} follower{followers === 1 ? '' : 's'}
-                  </p>
-                </Link>
-                {following ? (
-                  <button
-                    type="button"
-                    onClick={() => handleUnfollow(p.user_id)}
-                    className="hit-44-y inline-flex items-center gap-1 px-3 h-8 rounded-full border border-on-surface/15 text-[12px] font-semibold text-on-surface/70 hover:bg-on-surface/[0.04] transition-colors"
-                  >
-                    Following
-                  </button>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={() => handleFollow(p.user_id)}
-                    className="hit-44-y px-3 h-8 rounded-full bg-primary text-white text-[12px] font-bold hover:bg-primary/90 transition-colors"
-                  >
-                    Follow
-                  </button>
-                )}
-              </li>
-            );
-          })}
-        </ul>
-      )}
-    </section>
-  );
-
-  const renderActivityRow = (a: CommunityRating) => {
+  const renderActivityRow = (a: CommunityRating, i: number) => {
     const prof = activityProfiles[a.user_id];
-    const name = prof?.display_name || prof?.username || 'User';
+    const name = prof?.display_name || prof?.username || 'Someone';
     const username = prof?.username || '';
     const color = avatarColor(a.user_id);
-    const initial = initialOf(name);
     const city = a.address?.split(',')[0]?.trim();
-    const meta = [a.cuisine, a.price, city].filter(Boolean).join(' · ');
-
+    const line = [`${name.split(' ')[0]} rated`, [displayCuisine(a.cuisine), a.price].filter(Boolean).join(' · ')].filter(Boolean).join(' · ');
     return (
-      <li key={a.id} className="relative">
-        <Link
-          to={`/restaurant/${a.restaurant_id}`}
-          onClick={() => onClose?.()}
-          className="flex items-start gap-3 py-2.5 group"
-        >
-          {/* Friend avatar — separate Link so tapping it goes to their profile
-              instead of the restaurant. */}
+      <li key={a.id} className={cn(i > 0 && 'border-t border-on-surface/[0.07]')}>
+        <Link to={`/restaurant/${a.restaurant_id}`} onClick={() => onClose?.()} className="flex items-center gap-3 py-3.5 group">
           <span
             role="link"
             tabIndex={0}
             onClick={(e) => { e.preventDefault(); e.stopPropagation(); onClose?.(); navigate(`/user/${username}`); }}
             onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); onClose?.(); navigate(`/user/${username}`); } }}
-            className={cn('w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0', color.bg)}
+            className={cn('w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0 self-start mt-0.5', color.bg)}
           >
-            <span className={cn('text-[14px] font-serif font-bold', color.text)}>{initial}</span>
+            <span className={cn('text-[13px] font-serif font-bold', color.text)}>{initialOf(name)}</span>
           </span>
-
-          <div className="flex-1 min-w-0">
-            <p className="text-[13.5px] leading-snug text-on-surface/75">
-              <span
-                className="font-bold text-on-surface hover:text-primary"
-                onClick={(e) => { e.preventDefault(); e.stopPropagation(); onClose?.(); navigate(`/user/${username}`); }}
-              >
-                {name}
-              </span>
-              <span className="font-normal"> rated </span>
-              <span className="font-semibold text-on-surface group-hover:text-primary transition-colors">
-                {a.restaurant_name}
-              </span>
-              {Number(a.score) > 0 && (
-                <span className="font-bold text-on-surface"> — {Number(a.score).toFixed(1)}</span>
-              )}
-            </p>
-            {(meta || a.created_at) && (
-              <p className="text-[11.5px] text-on-surface/45 truncate mt-0.5">
-                {meta}
-                {meta && a.created_at && <span className="text-on-surface/25 mx-1.5">·</span>}
-                {a.created_at && <span>{timeAgoShort(a.created_at)}</span>}
-              </p>
-            )}
+          <span className="flex-1 min-w-0 block">
+            <span className="block font-serif font-bold text-[15px] leading-[1.2] tracking-[-0.02em] text-on-surface truncate group-hover:text-primary transition-colors">
+              {a.restaurant_name}
+            </span>
+            <span className="block mt-[4px] text-[12px] leading-[1.25] text-on-surface/55 truncate">{line}</span>
+            <span className="block mt-[3px] text-[11px] leading-[1.2] text-on-surface/40 truncate">
+              {[city, timeAgoShort(a.created_at)].filter(Boolean).join(' · ')}
+            </span>
             {a.notes && (
-              <p className="text-[12.5px] italic text-on-surface/55 truncate mt-1">
-                &ldquo;{a.notes}&rdquo;
-              </p>
+              <span className="block mt-1.5 text-[12.5px] italic leading-snug text-on-surface/60 line-clamp-2">&ldquo;{a.notes}&rdquo;</span>
             )}
-          </div>
+          </span>
+          {Number(a.score) > 0 && scoreRing(Number(a.score))}
         </Link>
       </li>
     );
@@ -868,445 +651,490 @@ export const CirclePanel: React.FC<CirclePanelProps> = ({ variant, onClose }) =>
 
   const renderActivity = () => (
     <section>
-      <div className="flex items-center justify-between mb-2">
-        <h4 className="text-[11px] font-bold uppercase tracking-[0.16em] text-on-surface/55">
-          Activity <span className="text-on-surface/30 ml-1">· {activity.length}</span>
-        </h4>
-        <div className="relative" ref={filterBtnRef}>
-          <button
-            type="button"
-            onClick={() => setFilterOpen((o) => !o)}
-            className={cn(
-              'inline-flex items-center gap-1 text-[12px] font-bold transition-colors',
-              activeFilterCount > 0 || filterOpen ? 'text-primary' : 'text-on-surface/55 hover:text-on-surface',
-            )}
-          >
-            <Filter size={12} />
-            Filter
-            {activeFilterCount > 0 && (
-              <span className="ml-0.5 min-w-[16px] h-[16px] px-1 rounded-full bg-primary text-white text-[10px] font-bold grid place-items-center">
-                {activeFilterCount}
-              </span>
-            )}
-          </button>
-          {filterOpen && (
-            <div className="absolute right-0 top-[calc(100%+6px)] z-30 w-[260px] p-4 rounded-2xl bg-surface border border-on-surface/[0.08] shadow-[0_18px_48px_-12px_rgba(0,0,0,0.28)]">
-              <div className="mb-4">
-                <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-on-surface/45 mb-2">When</p>
-                <div className="flex gap-1.5">
-                  {([
-                    ['all', 'All'],
-                    ['today', 'Today'],
-                    ['week', 'This week'],
-                  ] as const).map(([k, label]) => (
-                    <button
-                      key={k}
-                      type="button"
-                      onClick={() => setFilterTime(k)}
-                      className={cn(
-                        'flex-1 h-8 rounded-full text-[12px] font-semibold transition-colors',
-                        filterTime === k
-                          ? 'bg-on-surface text-surface'
-                          : 'bg-on-surface/[0.05] text-on-surface/65 hover:bg-on-surface/[0.08]',
-                      )}
-                    >
-                      {label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-              {friends.length > 0 && (
-                <div>
-                  <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-on-surface/45 mb-2">From</p>
-                  <div className="flex flex-wrap gap-1.5 max-h-[160px] overflow-y-auto">
-                    {friends.map((f) => {
-                      const p = friendProfiles[f.friend_id];
-                      const name = p?.display_name || p?.username || 'Friend';
-                      const active = filterFriendIds.has(f.friend_id);
-                      return (
-                        <button
-                          key={f.friend_id}
-                          type="button"
-                          onClick={() => {
-                            setFilterFriendIds((prev) => {
-                              const next = new Set(prev);
-                              if (next.has(f.friend_id)) next.delete(f.friend_id);
-                              else next.add(f.friend_id);
-                              return next;
-                            });
-                          }}
-                          className={cn(
-                            'inline-flex items-center gap-1 h-7 px-2.5 rounded-full text-[12px] font-medium border transition-colors',
-                            active
-                              ? 'bg-on-surface text-surface border-on-surface'
-                              : 'bg-transparent text-on-surface/65 border-on-surface/15 hover:border-on-surface/35',
-                          )}
-                        >
-                          {active && <Check size={11} />}
-                          {name}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
-              {activeFilterCount > 0 && (
-                <button
-                  type="button"
-                  onClick={() => { setFilterTime('all'); setFilterFriendIds(new Set()); }}
-                  className="mt-3 text-[12px] font-semibold text-on-surface/55 hover:text-on-surface"
-                >
-                  Clear filters
-                </button>
-              )}
-            </div>
-          )}
-        </div>
-      </div>
-      {activityFiltered.length === 0 ? (
-        <p className="text-[12.5px] text-on-surface/40 py-2">
-          {q || activeFilterCount > 0 ? 'No activity matches.' : 'No friend activity yet.'}
+      {activityChips}
+      {searchOpen && q && (
+        <p className="pt-3.5 text-[12px] font-medium text-on-surface/45">
+          {activityFiltered.length} result{activityFiltered.length === 1 ? '' : 's'}
         </p>
+      )}
+      {activityFiltered.length === 0 ? (
+        <div className="py-14">
+          <p className="font-serif font-bold text-[17px] tracking-[-0.02em] text-on-surface">Nothing matches that</p>
+          <p className="mt-1.5 text-[12.5px] text-on-surface/45">Try a friend&rsquo;s name, a place, or a cuisine.</p>
+        </div>
       ) : (
         <>
-          {activityBuckets.today.length > 0 && (
-            <>
-              <BucketLabel>Today</BucketLabel>
-              <ul className="divide-y divide-on-surface/[0.05] mb-2">
-                {activityBuckets.today.map(renderActivityRow)}
-              </ul>
-            </>
-          )}
-          {activityBuckets.week.length > 0 && (
-            <>
-              <BucketLabel>This week</BucketLabel>
-              <ul className="divide-y divide-on-surface/[0.05] mb-2">
-                {activityBuckets.week.map(renderActivityRow)}
-              </ul>
-            </>
-          )}
-          {activityBuckets.earlier.length > 0 && (
-            <>
-              <BucketLabel>Earlier</BucketLabel>
-              <ul className="divide-y divide-on-surface/[0.05]">
-                {activityBuckets.earlier.map(renderActivityRow)}
-              </ul>
-            </>
+          {([['Today', activityBuckets.today], ['This week', activityBuckets.week], ['Earlier', activityBuckets.earlier]] as const).map(([label, list]) =>
+            list.length > 0 ? (
+              <div key={label}>
+                <BucketLabel>{label}</BucketLabel>
+                <ul>{list.map(renderActivityRow)}</ul>
+              </div>
+            ) : null,
           )}
         </>
       )}
     </section>
   );
 
-  // ── Notification centre ────────────────────────────────────────────
-  // Where a notification lands. Ratings go to the restaurant page rather
-  // than the review page, because that's the surface that now shows the
-  // comments left on your rating — the thing you came to read.
-  const notificationTarget = (n: AppNotification): string => {
-    // Review traffic lands in the queue, not on the restaurant: the point
-    // of the row is that there's a decision waiting.
-    if (n.subjectType === 'cuisine') return '/admin/cuisine';
-    if (n.subjectType === 'post') return `/r/post-${n.subjectId}`;
-    if (n.subjectType === 'reel') return `/r/reel-${n.subjectId}`;
-    return n.restaurantId ? `/restaurant/${n.restaurantId}` : `/review/${n.subjectId}`;
+  // ── Alerts ──────────────────────────────────────────────────────────
+  const renderRequestRow = (r: FriendRequest, i: number) => {
+    const p = requestProfiles[r.user_id];
+    const name = p?.display_name || p?.username || 'Someone';
+    const color = avatarColor(r.user_id);
+    const busy = requestBusy.has(r.id);
+    const accepted = acceptedReqIds.has(r.id);
+    const myFollow: 'none' | 'pending' | 'accepted' =
+      followBackState[r.user_id]
+      ?? (followedIds.has(r.user_id) ? 'accepted'
+        : sentRequestIds.has(r.user_id) ? 'pending'
+        : 'none');
+    return (
+      <li key={r.id} className={cn('flex items-center gap-3 py-3.5', i > 0 && 'border-t border-on-surface/[0.07]')}>
+        <Link to={`/user/${p?.username || ''}`} onClick={() => onClose?.()} className={cn('w-11 h-11 rounded-full flex items-center justify-center flex-shrink-0', color.bg)}>
+          <span className={cn('text-[15px] font-serif font-bold', color.text)}>{initialOf(name)}</span>
+        </Link>
+        <Link to={`/user/${p?.username || ''}`} onClick={() => onClose?.()} className="flex-1 min-w-0 block">
+          <span className="block font-serif font-bold text-[14.5px] leading-[1.2] tracking-[-0.02em] text-on-surface truncate">{name}</span>
+          <span className="block mt-[4px] text-[11.5px] leading-[1.2] text-on-surface/50 truncate">
+            {[p?.username ? `@${p.username}` : '', r.created_at ? timeAgoShort(r.created_at) : ''].filter(Boolean).join(' · ') || 'wants to follow you'}
+          </span>
+        </Link>
+        {!accepted ? (
+          <span className="flex items-center gap-2 flex-shrink-0">
+            <button
+              type="button"
+              onClick={() => handleAcceptRequest(r)}
+              disabled={busy}
+              className="hit-44-y inline-flex items-center gap-1 px-4 h-9 rounded-full bg-on-surface text-surface text-[12.5px] font-bold active:opacity-85 transition-opacity disabled:opacity-60"
+            >
+              {busy ? <Loader2 size={12} className="animate-spin" /> : null}
+              Accept
+            </button>
+            <button
+              type="button"
+              onClick={() => handleDeclineRequest(r)}
+              disabled={busy}
+              className="hit-44-y text-[12.5px] font-semibold text-on-surface/50 active:text-on-surface transition-colors disabled:opacity-60"
+            >
+              Ignore
+            </button>
+          </span>
+        ) : myFollow === 'accepted' ? (
+          <span className="flex-shrink-0 inline-flex items-center gap-1.5 px-3 h-8 rounded-full bg-on-surface/[0.06] text-[12px] font-semibold text-on-surface/55"><Check size={13} /> Friends</span>
+        ) : myFollow === 'pending' ? (
+          <span className="flex-shrink-0 inline-flex items-center gap-1.5 px-3 h-8 rounded-full bg-on-surface/[0.06] text-[12px] font-semibold text-on-surface/55"><Check size={13} /> Requested</span>
+        ) : (
+          <button
+            type="button"
+            onClick={() => handleFollowBackRequest(r)}
+            disabled={busy}
+            className="hit-44-y flex-shrink-0 inline-flex items-center gap-1 px-3.5 h-9 rounded-full bg-primary text-white text-[12.5px] font-bold active:opacity-90 disabled:opacity-60"
+          >
+            {busy ? <Loader2 size={12} className="animate-spin" /> : <UserPlus size={12} strokeWidth={2.6} />}
+            Follow back
+          </button>
+        )}
+      </li>
+    );
   };
 
-  const renderNotificationRow = (n: AppNotification) => {
+  // Repeated cuisine suggestions from one person collapse into a single
+  // expandable row — nine near-identical alerts said the same thing nine
+  // times. Grouping is per bucket, per actor.
+  type AlertItem = { kind: 'single'; n: AppNotification } | { kind: 'group'; actorId: string; items: AppNotification[] };
+  const groupAlerts = (list: AppNotification[]): AlertItem[] => {
+    const out: AlertItem[] = [];
+    const grouped = new Map<string, AppNotification[]>();
+    for (const n of list) {
+      if (isReviewNotification(n) && n.kind !== 'cuisine_auto') {
+        const arr = grouped.get(n.actorId) || [];
+        arr.push(n);
+        grouped.set(n.actorId, arr);
+      }
+    }
+    const claimed = new Set<string>();
+    for (const [actorId, items] of grouped) {
+      if (items.length >= 2) items.forEach((n) => claimed.add(n.id));
+      else grouped.delete(actorId);
+    }
+    const emitted = new Set<string>();
+    for (const n of list) {
+      if (claimed.has(n.id)) {
+        if (!emitted.has(n.actorId)) {
+          emitted.add(n.actorId);
+          out.push({ kind: 'group', actorId: n.actorId, items: grouped.get(n.actorId)! });
+        }
+      } else {
+        out.push({ kind: 'single', n });
+      }
+    }
+    return out;
+  };
+
+  const alertIcon = (n: AppNotification) => {
+    const isAuto = n.kind === 'cuisine_auto';
+    if (isReviewNotification(n)) return isAuto ? <Check size={15} strokeWidth={2.4} /> : <Utensils size={14} strokeWidth={2.2} />;
+    if (n.kind === 'like') return <Heart size={14} strokeWidth={2.2} />;
+    return <MessageCircle size={14} strokeWidth={2.2} />;
+  };
+
+  const alertSentence = (n: AppNotification): string => {
     const p = notifActors[n.actorId];
     const name = p?.display_name || p?.username || 'Someone';
-    const color = avatarColor(n.actorId);
-    const isLike = n.kind === 'like';
-    const isReview = isReviewNotification(n);
-    const isAuto = n.kind === 'cuisine_auto';
-    const isNew = n.readAt == null || highlightedNotifs.has(n.id);
-    const subject = n.subjectType === 'rating' ? 'rating' : n.subjectType;
     const place = n.subjectLabel.trim();
+    const subject = n.subjectType === 'rating' ? 'rating' : n.subjectType;
+    if (n.kind === 'cuisine_auto') return `A cuisine changed on ${place || 'a place'} — enough people agreed`;
+    if (isReviewNotification(n)) return `${name} suggested a cuisine for ${place || 'a place'}`;
+    if (n.kind === 'like') return `${name} liked your ${subject}${place ? ` of ${place}` : ''}`;
+    return `${name} commented on your ${subject}${place ? ` · ${place}` : ''}`;
+  };
 
+  const renderAlertSingle = (n: AppNotification, i: number) => {
+    const isNew = n.readAt == null || highlightedNotifs.has(n.id);
     return (
-      <li key={n.id}>
+      <li key={n.id} className={cn(i > 0 && 'border-t border-on-surface/[0.07]')}>
         <Link
           to={notificationTarget(n)}
           state={n.subjectType === 'rating' ? { focusRatingComments: true } : undefined}
           onClick={() => onClose?.()}
-          className={cn(
-            'flex items-start gap-3 px-3 -mx-3 py-2.5 rounded-2xl group transition-colors',
-            isNew ? 'bg-primary/[0.045] hover:bg-primary/[0.075]' : 'hover:bg-on-surface/[0.03]',
-          )}
+          className="flex items-start gap-3 py-3.5"
         >
-          <span className="relative flex-shrink-0">
-            <span
-              role="link"
-              tabIndex={0}
-              onClick={(e) => { e.preventDefault(); e.stopPropagation(); onClose?.(); navigate(`/user/${p?.username || ''}`); }}
-              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); onClose?.(); navigate(`/user/${p?.username || ''}`); } }}
-              className={cn('w-10 h-10 rounded-full flex items-center justify-center', color.bg)}
-            >
-              <span className={cn('text-[14px] font-serif font-bold', color.text)}>{initialOf(name)}</span>
-            </span>
-            <span
-              className={cn(
-                'absolute -bottom-0.5 -right-0.5 w-[18px] h-[18px] rounded-full grid place-items-center ring-2 ring-surface',
-                isReview ? (isAuto ? 'bg-emerald-600 text-white' : 'bg-sky-600 text-white')
-                  : isLike ? 'bg-rose-500 text-white' : 'bg-primary text-white',
-              )}
-            >
-              {isReview
-                ? (isAuto ? <Check size={10} strokeWidth={3.5} /> : <Utensils size={10} strokeWidth={3} />)
-                : isLike
-                  ? <Heart size={10} strokeWidth={0} className="fill-current" />
-                  : <MessageCircle size={10} strokeWidth={3} />}
-            </span>
+          <span className={cn(
+            'flex-none w-9 h-9 rounded-full grid place-items-center border',
+            isNew ? 'border-primary/35 bg-primary/[0.07] text-primary' : 'border-on-surface/[0.14] text-on-surface/55',
+          )}>
+            {alertIcon(n)}
           </span>
-
-          <div className="flex-1 min-w-0">
-            <p className="text-[13.5px] leading-snug text-on-surface/75">
-              <span
-                className="font-bold text-on-surface hover:text-primary"
-                onClick={(e) => { e.preventDefault(); e.stopPropagation(); onClose?.(); navigate(`/user/${p?.username || ''}`); }}
-              >
-                {name}
-              </span>
-              <span className="font-normal">
-                {isAuto ? ' — enough people agreed, so a cuisine changed on '
-                  : isReview ? ' suggested a cuisine for '
-                  : isLike ? ' liked your ' : ' commented on your '}
-                {!isReview && subject}
-              </span>
-              {place && (
-                <>
-                  <span className="font-normal">{isReview ? '' : n.subjectType === 'rating' ? ' of ' : ' · '}</span>
-                  <span className="font-semibold text-on-surface group-hover:text-primary transition-colors">{place}</span>
-                </>
-              )}
-            </p>
+          <span className="flex-1 min-w-0 block">
+            <span className={cn('block font-serif font-bold text-[14.5px] leading-[1.3] tracking-[-0.02em]', isNew ? 'text-on-surface' : 'text-on-surface/85')}>
+              {alertSentence(n)}
+            </span>
             {n.preview && (
-              <p className="text-[12.5px] italic text-on-surface/60 mt-1 line-clamp-2">
-                &ldquo;{n.preview}&rdquo;
-              </p>
+              <span className="block mt-[5px] text-[12px] leading-[1.35] text-on-surface/55 line-clamp-2">&ldquo;{n.preview}&rdquo;</span>
             )}
-            <p className="text-[11.5px] text-on-surface/40 mt-0.5">{timeAgoShort(isoOf(n.createdAt))}</p>
-          </div>
-
-          {isNew && <span className="mt-3 w-2 h-2 rounded-full bg-primary flex-shrink-0" aria-label="New" />}
+          </span>
+          <span className="flex-none flex items-center gap-2 mt-1">
+            <span className="text-[11px] text-on-surface/40">{timeAgoShort(isoOf(n.createdAt))}</span>
+            {isNew && <span className="w-2 h-2 rounded-full bg-primary" aria-label="New" />}
+          </span>
         </Link>
       </li>
     );
   };
 
-  const renderNotifications = () => (
-    <section>
-      <div className="flex items-center justify-between mb-2">
-        <h4 className="text-[11px] font-bold uppercase tracking-[0.16em] text-on-surface/55">
-          Alerts
-          {notifications.length > 0 && <span className="text-on-surface/30 ml-1">· {notifications.length}</span>}
-        </h4>
-        {notifications.length > 0 && (
-          <button
-            type="button"
-            onClick={clearNotifications}
-            className="text-[12px] font-bold text-on-surface/55 hover:text-on-surface transition-colors"
-          >
-            Clear all
-          </button>
-        )}
-      </div>
-      {notificationsFiltered.length === 0 ? (
-        <div className="flex flex-col items-center text-center py-14">
-          <span className="w-12 h-12 rounded-full bg-on-surface/[0.05] grid place-items-center text-on-surface/30 mb-3">
-            <Bell size={20} />
-          </span>
-          <p className="font-serif text-[16px] font-bold text-on-surface">
-            {q ? 'Nothing matches' : 'No alerts yet'}
-          </p>
-          <p className="text-[12.5px] text-on-surface/45 mt-1 max-w-[260px]">
-            {q
-              ? 'Try a different search.'
-              : 'Likes and comments on your posts, reels and ratings land here.'}
-          </p>
-        </div>
-      ) : (
-        <>
-          {notificationBuckets.today.length > 0 && (
-            <>
-              <BucketLabel>Today</BucketLabel>
-              <ul className="space-y-0.5 mb-2">{notificationBuckets.today.map(renderNotificationRow)}</ul>
-            </>
-          )}
-          {notificationBuckets.week.length > 0 && (
-            <>
-              <BucketLabel>This week</BucketLabel>
-              <ul className="space-y-0.5 mb-2">{notificationBuckets.week.map(renderNotificationRow)}</ul>
-            </>
-          )}
-          {notificationBuckets.earlier.length > 0 && (
-            <>
-              <BucketLabel>Earlier</BucketLabel>
-              <ul className="space-y-0.5">{notificationBuckets.earlier.map(renderNotificationRow)}</ul>
-            </>
-          )}
-        </>
-      )}
-    </section>
-  );
-
-  // ── Body content ───────────────────────────────────────────────────
-  const body = (
-    <>
-      {/* Header */}
-      <div className="px-6 pt-safe-4 pb-2 flex-shrink-0">
-        <div className="flex items-center gap-2">
-          {variant === 'page' && (
-            <button
-              type="button"
-              onClick={() => navigate(-1)}
-              className="w-9 h-9 -ml-2 rounded-full hover:bg-on-surface/[0.06] flex items-center justify-center text-on-surface/70 flex-shrink-0"
-              aria-label="Back"
-            >
-              <ArrowLeft size={19} />
-            </button>
-          )}
-          <h2 className="flex-1 font-serif text-[22px] font-bold leading-tight text-on-surface truncate">Friends</h2>
-          {variant === 'overlay' && (
-            <button
-              type="button"
-              onClick={onClose}
-              className="w-9 h-9 rounded-full hover:bg-on-surface/[0.06] flex items-center justify-center text-on-surface/65 flex-shrink-0"
-              aria-label="Close panel"
-            >
-              <X size={18} />
-            </button>
-          )}
-        </div>
-      </div>
-
-      {/* Search */}
-      <div className="px-6 pt-3 pb-3 flex-shrink-0">
-        <div className="relative">
-          <Search size={15} className="absolute left-4 top-1/2 -translate-y-1/2 text-on-surface/35" />
-          <input
-            type="text"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search friends, places, activity…"
-            className="w-full h-11 pl-10 pr-9 rounded-2xl bg-on-surface/[0.05] text-[14px] placeholder:text-on-surface/40 focus:outline-none focus:ring-2 focus:ring-on-surface/[0.08]"
-          />
-          {searchQuery && (
-            <button
-              type="button"
-              onClick={() => setSearchQuery('')}
-              className="absolute right-3 top-1/2 -translate-y-1/2 w-6 h-6 rounded-full bg-on-surface/[0.08] flex items-center justify-center text-on-surface/55 hover:bg-on-surface/[0.12]"
-              aria-label="Clear search"
-            >
-              <X size={12} />
-            </button>
-          )}
-        </div>
-      </div>
-
-      {/* Tabs — scrollable so the fourth one never wraps on a small phone. */}
-      <div className="px-6 flex-shrink-0 border-b border-on-surface/[0.06]">
-        <div className="flex items-center gap-6 overflow-x-auto no-scrollbar">
-          {([
-            { value: 'all' as Tab, label: 'All', count: allCount, alert: false },
-            { value: 'friends' as Tab, label: 'Friends', count: friendsCount, alert: false },
-            { value: 'experts' as Tab, label: 'Experts', count: expertsCount, alert: false },
-            { value: 'alerts' as Tab, label: 'Alerts', count: unreadCount, alert: true },
-          ]).map((t) => {
-            const active = tab === t.value;
-            // The Alerts count is unread-only, so a zero is silence, not a
-            // stat — hide it rather than showing a permanent "0".
-            const showCount = t.alert ? t.count > 0 : true;
-            return (
-              <button
-                key={t.value}
-                type="button"
-                onClick={() => setTab(t.value)}
-                className={cn(
-                  'relative pt-2.5 pb-3 inline-flex items-baseline gap-1.5 text-[12px] font-bold uppercase tracking-[0.12em] transition-colors flex-shrink-0',
-                  active ? 'text-on-surface' : 'text-on-surface/45 hover:text-on-surface/75',
-                )}
-              >
-                {t.label}
-                {showCount && (
-                  <span
-                    className={cn(
-                      'text-[12px] font-bold tabular-nums',
-                      t.alert
-                        ? 'min-w-[17px] h-[17px] px-1 rounded-full bg-primary text-white text-[10px] grid place-items-center self-center'
-                        : active ? 'text-on-surface/70' : 'text-on-surface/35',
-                    )}
-                  >
-                    {t.count}
-                  </span>
-                )}
-                {active && <span className="absolute inset-x-0 bottom-0 h-[2px] bg-on-surface rounded-full" />}
-              </button>
-            );
+  const renderAlertGroup = (g: { actorId: string; items: AppNotification[] }, i: number) => {
+    const p = notifActors[g.actorId];
+    const name = p?.display_name || p?.username || 'Someone';
+    const open = expandedGroups.has(g.actorId);
+    const isNew = g.items.some((n) => n.readAt == null || highlightedNotifs.has(n.id));
+    const newest = g.items[0];
+    return (
+      <li key={`group-${g.actorId}`} className={cn(i > 0 && 'border-t border-on-surface/[0.07]')}>
+        <button
+          type="button"
+          onClick={() => setExpandedGroups((prev) => {
+            const next = new Set(prev);
+            if (next.has(g.actorId)) next.delete(g.actorId); else next.add(g.actorId);
+            return next;
           })}
-        </div>
-      </div>
+          aria-expanded={open}
+          className="w-full flex items-start gap-3 py-3.5 text-left"
+        >
+          <span className={cn(
+            'flex-none w-9 h-9 rounded-full grid place-items-center border',
+            isNew ? 'border-primary/35 bg-primary/[0.07] text-primary' : 'border-on-surface/[0.14] text-on-surface/55',
+          )}>
+            <Utensils size={14} strokeWidth={2.2} />
+          </span>
+          <span className="flex-1 min-w-0 block">
+            <span className={cn('block font-serif font-bold text-[14.5px] leading-[1.3] tracking-[-0.02em]', isNew ? 'text-on-surface' : 'text-on-surface/85')}>
+              {name} suggested cuisines for {g.items.length} places
+            </span>
+            <span className="block mt-[5px] text-[12px] leading-[1.3] text-on-surface/55">
+              {open ? 'Tap a place to review it' : 'Review them together'}
+            </span>
+          </span>
+          <span className="flex-none flex items-center gap-2 mt-1">
+            <span className="text-[11px] text-on-surface/40">{timeAgoShort(isoOf(newest.createdAt))}</span>
+            <ChevronDown size={14} className={cn('text-on-surface/40 transition-transform duration-300', open && 'rotate-180')} />
+          </span>
+        </button>
+        <Collapse open={open}>
+          <div className="pl-12 pb-3 flex flex-col gap-2.5">
+            {g.items.map((n) => (
+              <Link
+                key={n.id}
+                to={notificationTarget(n)}
+                onClick={() => onClose?.()}
+                className="flex items-center gap-2.5"
+              >
+                <span className="flex-1 min-w-0 block">
+                  <span className="block text-[13px] font-semibold text-on-surface truncate">{n.subjectLabel.trim() || 'A place'}</span>
+                  {n.preview && <span className="block mt-[3px] text-[11.5px] text-on-surface/50 truncate">{n.preview}</span>}
+                </span>
+                <span className="flex-none text-[12px] font-bold text-primary">Review</span>
+              </Link>
+            ))}
+          </div>
+        </Collapse>
+      </li>
+    );
+  };
 
-      {/* Body — scrolls. Safe-area bottom padding: the page variant has no
-          bottom nav, so the last rows must clear the iPhone home indicator. */}
-      <div className="flex-1 overflow-y-auto px-6 pt-5 pb-safe-6">
-        {loading ? (
-          <div className="flex items-center justify-center py-16 text-on-surface/40 text-sm">Loading your circle…</div>
-        ) : (
-          <div className="space-y-7">
-            {/* People search — anyone on the app — shown first whenever the
-                search box has a query, across every tab. */}
-            {q && renderPeople()}
-            {tab === 'all' && (
-              <>
-                {/* Unread alerts get a nudge on the default tab — the
-                    notification centre is new, and a badge on a tab
-                    nobody has learned to look at yet is easy to miss. */}
-                {unreadCount > 0 && (
-                  <button
-                    type="button"
-                    onClick={() => setTab('alerts')}
-                    className="w-full flex items-center gap-3 p-3.5 rounded-2xl border border-primary/20 bg-primary/[0.04] text-left hover:bg-primary/[0.07] transition-colors"
-                  >
-                    <span className="w-9 h-9 rounded-full bg-primary text-white grid place-items-center flex-shrink-0">
-                      <Bell size={16} />
-                    </span>
-                    <span className="flex-1 min-w-0">
-                      <span className="block text-[13.5px] font-bold text-on-surface">
-                        {unreadCount} new {unreadCount === 1 ? 'alert' : 'alerts'}
-                      </span>
-                      <span className="block text-[12px] text-on-surface/55 truncate">
-                        Likes and comments on what you shared
-                      </span>
-                    </span>
-                    <span className="text-[12px] font-bold text-primary flex-shrink-0">View</span>
-                  </button>
-                )}
-                {renderRequests()}
-                {renderFriendsAvatars()}
-                {renderExpertsList(true)}
-                {renderActivity()}
-              </>
-            )}
-            {tab === 'friends' && (
-              <>
-                {renderRequests()}
-                {renderFriendsAvatars()}
-              </>
-            )}
-            {tab === 'experts' && renderExpertsList(false)}
-            {tab === 'alerts' && renderNotifications()}
+  const renderAlerts = () => {
+    const buckets = ([['Today', notificationBuckets.today], ['This week', notificationBuckets.week], ['Earlier', notificationBuckets.earlier]] as const)
+      .filter(([, list]) => list.length > 0);
+    const empty = requestsPending.length === 0 && notificationsFiltered.length === 0;
+    return (
+      <section className="pt-1.5">
+        {requestsPending.length > 0 && (
+          <div className="pt-3">
+            <h4 className="text-[10.5px] font-bold uppercase tracking-[0.16em] text-on-surface/45">Requests</h4>
+            <ul>{requestsPending.map(renderRequestRow)}</ul>
           </div>
         )}
+        {requests.some((r) => acceptedReqIds.has(r.id)) && (
+          <ul>{requests.filter((r) => acceptedReqIds.has(r.id)).map((r, i) => renderRequestRow(r, requestsPending.length + i))}</ul>
+        )}
+        {buckets.map(([label, list], bi) => (
+          <div key={label} className="pt-3">
+            <div className="flex items-center justify-between">
+              <h4 className="text-[10.5px] font-bold uppercase tracking-[0.16em] text-on-surface/45">{label}</h4>
+              {bi === 0 && notifications.length > 0 && (
+                <button type="button" onClick={clearNotifications} className="text-[12px] font-bold text-on-surface/50 active:text-on-surface transition-colors">
+                  Clear all
+                </button>
+              )}
+            </div>
+            <ul>
+              {groupAlerts(list).map((item, i) =>
+                item.kind === 'group' ? renderAlertGroup(item, i) : renderAlertSingle(item.n, i),
+              )}
+            </ul>
+          </div>
+        ))}
+        {empty && (
+          <div className="py-14 flex flex-col items-center text-center gap-2">
+            <span className="w-11 h-11 rounded-full border border-on-surface/[0.14] grid place-items-center text-on-surface/35"><Bell size={17} /></span>
+            <p className="font-serif font-bold text-[15px] tracking-[-0.02em] text-on-surface">All caught up</p>
+            <p className="text-[12.5px] text-on-surface/45 max-w-[250px]">Requests, likes and comments on what you share land here.</p>
+          </div>
+        )}
+      </section>
+    );
+  };
+
+  // ── Add friends page — slides over the panel ────────────────────────
+  const followStatusOf = (uid: string): 'following' | 'requested' | 'incoming' | 'followback' | 'none' => {
+    const reqId = incomingByUser[uid];
+    return followedIds.has(uid) ? 'following'
+      : sentRequestIds.has(uid) ? 'requested'
+      : (reqId && !acceptedReqIds.has(reqId)) ? 'incoming'
+      : followerIds.has(uid) ? 'followback'
+      : 'none';
+  };
+
+  const personRow = (p: UserProfile, meta: string, i: number) => {
+    const color = avatarColor(p.user_id);
+    const busy = peopleBusy.has(p.user_id);
+    const status = followStatusOf(p.user_id);
+    const inkPill = 'hit-44-y flex-shrink-0 inline-flex items-center gap-1 px-4 h-9 rounded-full bg-on-surface text-surface text-[12.5px] font-bold active:opacity-85 transition-opacity disabled:opacity-60';
+    const quietPill = 'flex-shrink-0 inline-flex items-center gap-1.5 px-3.5 h-9 rounded-full bg-on-surface/[0.06] text-[12.5px] font-semibold text-on-surface/55';
+    return (
+      <li key={p.user_id} className={cn('flex items-center gap-3 py-3', i > 0 && 'border-t border-on-surface/[0.07]')}>
+        <Link to={`/user/${p.username || ''}`} onClick={() => onClose?.()} className={cn('relative w-11 h-11 rounded-full flex items-center justify-center flex-shrink-0', color.bg)}>
+          <span className={cn('text-[15px] font-serif font-bold', color.text)}>{initialOf(p.display_name || p.username)}</span>
+          {p.is_verified && (
+            <span className="absolute -bottom-0.5 -right-0.5 w-4 h-4 rounded-full bg-surface grid place-items-center ring-1 ring-surface"><VerifiedBadge size={14} /></span>
+          )}
+        </Link>
+        <Link to={`/user/${p.username || ''}`} onClick={() => onClose?.()} className="flex-1 min-w-0 block">
+          <span className="block font-serif font-bold text-[14.5px] leading-[1.2] tracking-[-0.02em] text-on-surface truncate">{p.display_name || p.username || 'User'}</span>
+          <span className="block mt-[4px] text-[11.5px] leading-[1.2] text-on-surface/50 truncate">{meta}</span>
+        </Link>
+        {status === 'following' ? (
+          <button type="button" onClick={() => handleUnfollow(p.user_id)} className={quietPill}><Check size={13} /> Following</button>
+        ) : status === 'requested' ? (
+          <span className={quietPill}><Check size={13} /> Requested</span>
+        ) : status === 'incoming' ? (
+          <button type="button" onClick={() => acceptPerson(p)} disabled={busy} className={inkPill}>
+            {busy ? <Loader2 size={12} className="animate-spin" /> : null} Accept
+          </button>
+        ) : (
+          <button type="button" onClick={() => followPerson(p)} disabled={busy} className={inkPill}>
+            {busy ? <Loader2 size={12} className="animate-spin" /> : null}
+            {status === 'followback' ? 'Follow back' : 'Follow'}
+          </button>
+        )}
+      </li>
+    );
+  };
+
+  const addPage = (
+    <div
+      className={cn(
+        'absolute inset-0 z-20 bg-surface flex flex-col transition-transform duration-[420ms] ease-[cubic-bezier(0.32,0.72,0,1)]',
+        addOpen ? 'translate-x-0' : 'translate-x-full',
+      )}
+      aria-hidden={!addOpen || undefined}
+    >
+      <div className="px-5 pt-safe-4 pb-3 flex items-center gap-2.5 border-b border-on-surface/[0.08] flex-shrink-0">
+        <button
+          type="button"
+          onClick={() => setAddOpen(false)}
+          aria-label="Back"
+          className="w-9 h-9 -ml-1.5 rounded-full grid place-items-center text-on-surface/60 active:bg-on-surface/[0.07]"
+        >
+          <ArrowLeft size={19} />
+        </button>
+        <h3 className="flex-1 min-w-0 font-serif font-bold text-[19px] tracking-[-0.02em] truncate">Add friends</h3>
+        <button
+          type="button"
+          onClick={() => setInviteOpen(true)}
+          className="flex-shrink-0 text-[12.5px] font-bold text-primary active:opacity-70"
+        >
+          Invite
+        </button>
+      </div>
+      <div className="px-5 pt-3.5 flex-shrink-0">
+        <SearchField
+          value={addQuery}
+          onChange={setAddQuery}
+          placeholder="Names or @usernames"
+          aria-label="Search people"
+        />
+      </div>
+      <div className="flex-1 min-h-0 overflow-y-auto px-5 pt-2 pb-safe-6">
+        {addQuery.trim() ? (
+          peopleLoading && peopleResults.length === 0 ? (
+            <div className="flex justify-center py-10"><Loader2 size={16} className="animate-spin text-on-surface/30" /></div>
+          ) : peopleResults.length === 0 ? (
+            <p className="py-10 text-[13px] text-on-surface/45">No one by that name.</p>
+          ) : (
+            <ul>{peopleResults.map((p, i) => personRow(p, p.username ? `@${p.username}` : '', i))}</ul>
+          )
+        ) : (
+          <>
+            <h4 className="pt-3 pb-1 text-[10.5px] font-bold uppercase tracking-[0.16em] text-on-surface/45">
+              Verified experts
+            </h4>
+            {expertsLoading && experts.length === 0 ? (
+              <div className="flex justify-center py-10"><Loader2 size={16} className="animate-spin text-on-surface/30" /></div>
+            ) : (
+              <ul>
+                {experts.map((p, i) => personRow(
+                  p,
+                  [
+                    p.username ? `@${p.username}` : '',
+                    `${expertRatingCounts[p.user_id] || 0} review${(expertRatingCounts[p.user_id] || 0) === 1 ? '' : 's'}`,
+                    `${formatCount(expertFollowerCounts[p.user_id] || 0)} follower${(expertFollowerCounts[p.user_id] || 0) === 1 ? '' : 's'}`,
+                  ].filter(Boolean).join(' · '),
+                  i,
+                ))}
+              </ul>
+            )}
+          </>
+        )}
+      </div>
+    </div>
+  );
+
+  // ── Body ────────────────────────────────────────────────────────────
+  const body = (
+    <div className="relative flex-1 min-h-0 flex flex-col overflow-hidden">
+      <div
+        className={cn(
+          'flex-1 min-h-0 flex flex-col transition-[transform,opacity] duration-[420ms] ease-[cubic-bezier(0.32,0.72,0,1)]',
+          addOpen && 'translate-x-[-20%] scale-[0.975] opacity-45 pointer-events-none',
+        )}
+      >
+        {/* Header */}
+        <div className="px-5 pt-safe-4 flex-shrink-0">
+          <div className="flex items-center gap-2">
+            {variant === 'page' && (
+              <GlassButton
+                id="circle-back"
+                symbol="chevron.left"
+                label="Back"
+                onClick={() => navigate(-1)}
+                className="hit-44 flex-none w-9 h-9 -ml-1 rounded-full flex items-center justify-center text-on-surface active:scale-95 transition-transform"
+              >
+                <ArrowLeft size={18} />
+              </GlassButton>
+            )}
+            <h2 className="flex-1 font-serif text-[22px] font-bold leading-tight tracking-[-0.02em] text-on-surface truncate">Friends</h2>
+            <button
+              type="button"
+              onClick={() => { setSearchOpen((v) => { if (v) setSearchQuery(''); return !v; }); }}
+              aria-label={searchOpen ? 'Close search' : 'Search'}
+              aria-expanded={searchOpen}
+              className={cn(
+                'w-9 h-9 rounded-full grid place-items-center transition-colors flex-shrink-0',
+                searchOpen ? 'bg-on-surface text-surface' : 'text-on-surface/60 active:bg-on-surface/[0.07]',
+              )}
+            >
+              <Search size={17} />
+            </button>
+            <button
+              type="button"
+              onClick={() => { setAddQuery(''); setAddOpen(true); }}
+              className="flex-shrink-0 h-9 px-4 rounded-full bg-on-surface text-surface text-[12.5px] font-bold inline-flex items-center gap-1.5 active:opacity-85 transition-opacity"
+            >
+              <Plus size={13} strokeWidth={2.6} />
+              Add
+            </button>
+            {variant === 'overlay' && (
+              <button
+                type="button"
+                onClick={onClose}
+                className="w-9 h-9 rounded-full active:bg-on-surface/[0.07] flex items-center justify-center text-on-surface/60 flex-shrink-0"
+                aria-label="Close panel"
+              >
+                <X size={18} />
+              </button>
+            )}
+          </div>
+
+          {/* Search — expands under the title, the reference's move. */}
+          <div className={cn('overflow-hidden transition-[max-height,opacity] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)]', searchOpen ? 'max-h-[64px] opacity-100' : 'max-h-0 opacity-0')}>
+            <div className="pt-3">
+              <SearchField
+                value={searchQuery}
+                onChange={setSearchQuery}
+                placeholder="Friends, places, cuisines"
+                aria-label="Search activity and alerts"
+                autoFocus={searchOpen}
+              />
+            </div>
+          </div>
+
+          <div className="pt-3">{segTrack}</div>
+        </div>
+
+        {/* Scroll body */}
+        <div className="flex-1 min-h-0 overflow-y-auto px-5 pb-safe-6">
+          {loading ? (
+            <div className="flex items-center justify-center py-16 text-on-surface/40 text-sm">Loading your circle…</div>
+          ) : (
+            <>
+              {friendsRail}
+              <div className="mt-4 border-t border-on-surface/[0.1]" />
+              {tab === 'activity' ? renderActivity() : renderAlerts()}
+            </>
+          )}
+        </div>
       </div>
 
-      <AddFriendSheet open={addOpen} onClose={() => setAddOpen(false)} />
-    </>
+      {addPage}
+      <AddFriendSheet open={inviteOpen} onClose={() => setInviteOpen(false)} />
+    </div>
   );
 
   // ── Variant wrappers ───────────────────────────────────────────────
   if (variant === 'page') {
     return (
-      <div className="flex flex-col h-full min-h-screen bg-surface">
+      <div className="flex flex-col h-[100dvh] bg-surface">
         {body}
       </div>
     );

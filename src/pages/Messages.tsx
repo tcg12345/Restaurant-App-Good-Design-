@@ -16,6 +16,7 @@ import type { RealtimeChannel } from '@supabase/supabase-js';
 import { pickAvatarColor, initialsFor } from '../lib/avatar';
 import { ShareSheet } from '../components/messages/ShareSheet';
 import { Collapse } from '../components/Collapse';
+import { GlassButton } from '../lib/glass-buttons';
 
 /* ── Shared display helpers (used by both panes) ── */
 
@@ -734,9 +735,15 @@ const ChatView: React.FC<{
         phoneMode ? 'px-4 pt-safe-3 pb-3' : 'px-6 py-3.5',
       )}>
         {phoneMode && (
-          <button onClick={onBack} className="p-2 -ml-2 text-on-surface/40 hover:text-on-surface transition-colors">
-            <ArrowLeft size={20} />
-          </button>
+          <GlassButton
+            id="chat-back"
+            symbol="chevron.left"
+            label="Back"
+            onClick={onBack}
+            className="hit-44 flex-none w-9 h-9 -ml-1 rounded-full flex items-center justify-center text-on-surface active:scale-95 transition-transform"
+          >
+            <ArrowLeft size={18} />
+          </GlassButton>
         )}
         {isGroup ? (
           <div className={cn('rounded-full bg-primary/10 grid place-items-center flex-shrink-0', phoneMode ? 'w-9 h-9' : 'w-11 h-11')}>
@@ -1300,8 +1307,16 @@ const MobileMessageList: React.FC<{
         className="absolute top-0 inset-x-0 z-30 px-4 pt-safe-4 pb-2.5 bg-surface/90 backdrop-blur-md border-b border-on-surface/[0.06]"
       >
         <div className="flex items-center justify-between">
-          <div className="flex items-center gap-1.5">
-            <button onClick={onBack} className="p-1.5 -ml-1.5 text-on-surface/45 active:text-on-surface"><ArrowLeft size={22} /></button>
+          <div className="flex items-center gap-2">
+            <GlassButton
+              id="messages-back"
+              symbol="chevron.left"
+              label="Back"
+              onClick={onBack}
+              className="hit-44 flex-none w-9 h-9 -ml-1 rounded-full flex items-center justify-center text-on-surface active:scale-95 transition-transform"
+            >
+              <ArrowLeft size={18} />
+            </GlassButton>
             <h1 className="font-serif font-bold text-[26px] tracking-tight">Messages</h1>
           </div>
           <button onClick={onCompose} className="w-9 h-9 rounded-full grid place-items-center text-primary active:bg-primary/10" title="New message"><Plus size={22} /></button>
