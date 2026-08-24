@@ -1,24 +1,20 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { ArrowLeft, Plus, Send, Search, X, Users, Check, CheckCheck, MessageCircle, ChevronRight, Star, MapPin, Trash2, ChefHat, Clock, Film, PlayCircle, Info, Store, AlertCircle } from 'lucide-react';
+import { ArrowLeft, Plus, Send, Search, X, Users, Check, CheckCheck, MessageCircle, ChevronRight, MapPin, Trash2, ChefHat, Clock, Film, PlayCircle, Info, Store, AlertCircle, MoreVertical } from 'lucide-react';
 import { cn, firstFrameSrc } from '../lib/utils';
 import { SearchField } from '../components/SearchField';
 import { VerifiedBadge } from '../components/VerifiedBadge';
-import { scoreColor } from '../lib/score';
-import { ScoreBadge } from '../components/ScoreBadge';
+import { scoreTintStyle } from '../lib/score';
 import { useChat, type Conversation, type SharedRestaurant, type SharedRecipe, type SharedReel, type SharedPost } from '../contexts/ChatContext';
 import { useAuth } from '../contexts/AuthContext';
-import { useLists, type RestaurantRating, type RestaurantMeta } from '../contexts/ListsContext';
 import { useSettings } from '../contexts/SettingsContext';
 import { useHeaderFade } from '../lib/useHeaderFade';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { getFriends, getProfilesByIds, type UserProfile } from '../lib/supabase-community';
-import { useBottomSheet } from '../lib/useBottomSheet';
 import { supabase, supabaseConfigured } from '../lib/supabase';
 import type { RealtimeChannel } from '@supabase/supabase-js';
 import { pickAvatarColor, initialsFor } from '../lib/avatar';
-import { ShareRestaurantPicker } from '../components/messages/ShareRestaurantPicker';
-import { ShareRecipePicker } from '../components/messages/ShareRecipePicker';
+import { ShareSheet } from '../components/messages/ShareSheet';
 import { Collapse } from '../components/Collapse';
 
 /* ── Shared display helpers (used by both panes) ── */
@@ -76,77 +72,57 @@ const PersonAvatar: React.FC<{ name: string; userId: string; size?: number; expe
   </div>
 );
 
-/* ── Restaurant Share Card (iMessage-style rich preview) ── */
+/* ── Restaurant Share Card — the reference's card: serif title over one
+      meta line, the score worn as a 38pt disc, a hairline action strip.
+      No photo; the card is a pointer to the restaurant page, not a
+      preview of it. ── */
 const RestaurantShareCard: React.FC<{
   restaurant: SharedRestaurant;
   isMe: boolean;
   hasTextAbove: boolean;
   onClick?: () => void;
 }> = ({ restaurant, isMe, hasTextAbove, onClick }) => {
-  // Color tokens adapt to bubble side
-  const titleCls = isMe ? 'text-white' : 'text-on-surface';
-  const subCls = isMe ? 'text-white/75' : 'text-on-surface/50';
-  const faintCls = isMe ? 'text-white/60' : 'text-on-surface/40';
-  const tagCls = isMe ? 'bg-white/20 text-white/95' : 'bg-primary/8 text-primary';
-
+  const meta = [restaurant.cuisine, restaurant.price, restaurant.address?.split(',')[0]].filter(Boolean).join(' · ');
   return (
     <button
       onClick={onClick}
       className={cn(
-        "block w-full max-w-[280px] overflow-hidden text-left active:scale-[0.985] transition-transform",
-        // Match bubble corner shape (flat top if text sits above)
-        hasTextAbove ? "rounded-b-2xl" : "rounded-2xl",
-        isMe
-          ? cn("bg-primary", hasTextAbove ? "" : "rounded-br-md")
-          : cn("bg-on-surface/[0.06]", hasTextAbove ? "" : "rounded-bl-md")
+        'block w-[250px] overflow-hidden text-left active:scale-[0.985] transition-transform rounded-[20px] border',
+        hasTextAbove && 'rounded-t-2xl',
+        isMe ? 'bg-primary border-white/[0.18]' : 'bg-on-surface/[0.05] border-on-surface/[0.09]',
       )}
     >
-      {restaurant.image && (
-        <div className="w-full aspect-[5/3] overflow-hidden bg-black/5">
-          <img src={restaurant.image} alt={restaurant.name} className="w-full h-full object-cover" />
-        </div>
-      )}
-      <div className="px-3.5 py-2.5">
-        <div className="flex items-start justify-between gap-2">
-          <div className="min-w-0 flex-1">
-            <p className={cn("text-sm font-semibold truncate leading-snug", titleCls)}>{restaurant.name}</p>
-            <div className="flex items-center gap-1.5 mt-0.5">
-              {restaurant.cuisine && <span className={cn("text-[11px]", subCls)}>{restaurant.cuisine}</span>}
-              {restaurant.price && <span className={cn("text-[11px]", faintCls)}>{restaurant.price}</span>}
-            </div>
-          </div>
-          {restaurant.isReview && restaurant.score !== undefined && restaurant.score > 0 && (
-            isMe ? (
-              <span className="flex-shrink-0 w-9 h-9 rounded-full border border-white/30 bg-white/15 text-white flex items-center justify-center font-bold text-sm tabular-nums">
-                {restaurant.score.toFixed(1)}
-              </span>
-            ) : (
-              <ScoreBadge rating={restaurant.score} size="sm" />
-            )
+      <div className="px-3.5 py-3 flex items-start gap-3">
+        <div className="flex-1 min-w-0">
+          <p className={cn('font-serif font-bold text-[15px] leading-[1.2] tracking-[-0.02em] truncate', isMe ? 'text-white' : 'text-on-surface')}>{restaurant.name}</p>
+          {meta && <p className={cn('mt-1.5 text-[12px] leading-[1.3] truncate', isMe ? 'text-white/70' : 'text-on-surface/50')}>{meta}</p>}
+          {restaurant.isReview && restaurant.notes && (
+            <p className={cn('text-[12px] mt-1.5 line-clamp-2 leading-relaxed italic', isMe ? 'text-white/75' : 'text-on-surface/55')}>&ldquo;{restaurant.notes}&rdquo;</p>
           )}
         </div>
-        {restaurant.address && (
-          <div className="flex items-center gap-1 mt-1.5">
-            <MapPin size={10} className={cn("flex-shrink-0", faintCls)} />
-            <span className={cn("text-[11px] truncate", subCls)}>{restaurant.address}</span>
-          </div>
+        {restaurant.isReview && restaurant.score !== undefined && restaurant.score > 0 && (
+          <span
+            className="flex-none w-[38px] h-[38px] rounded-full grid place-items-center font-serif font-bold text-[13px] tabular-nums"
+            style={isMe
+              ? { background: 'rgba(255,255,255,0.16)', color: '#fff' }
+              : (() => { const t = scoreTintStyle(restaurant.score); return { background: t.background, color: t.color, boxShadow: `inset 0 0 0 1.5px ${t.ring}` }; })()}
+          >
+            {restaurant.score >= 10 ? '10' : restaurant.score.toFixed(1)}
+          </span>
         )}
-        {restaurant.isReview && restaurant.notes && (
-          <p className={cn("text-[12px] mt-1.5 line-clamp-2 leading-relaxed italic", subCls)}>"{restaurant.notes}"</p>
-        )}
-        {restaurant.isReview && restaurant.tags && restaurant.tags.length > 0 && (
-          <div className="flex flex-wrap gap-1 mt-1.5">
-            {restaurant.tags.slice(0, 3).map((tag) => (
-              <span key={tag} className={cn("px-1.5 py-0.5 text-[10px] font-semibold rounded-full", tagCls)}>{tag}</span>
-            ))}
-          </div>
-        )}
+      </div>
+      <div className={cn(
+        'px-3.5 py-2.5 border-t text-[12px] font-semibold',
+        isMe ? 'border-white/[0.14] text-white/75' : 'border-on-surface/[0.08] text-on-surface/55',
+      )}>
+        View restaurant
       </div>
     </button>
   );
 };
 
-/* ── Recipe Share Card (iMessage-style rich preview) ── */
+/* ── Recipe Share Card — same anatomy as the restaurant card, with the
+      cook time worn as the disc. ── */
 const RecipeShareCard: React.FC<{
   recipe: SharedRecipe;
   isMe: boolean;
@@ -154,63 +130,40 @@ const RecipeShareCard: React.FC<{
   onClick?: () => void;
 }> = ({ recipe, isMe, hasTextAbove, onClick }) => {
   const totalLabel = recipe.totalTime && recipe.totalTime > 0
-    ? (recipe.totalTime < 60 ? `${recipe.totalTime}m` : `${Math.floor(recipe.totalTime / 60)}h ${recipe.totalTime % 60 ? `${recipe.totalTime % 60}m` : ''}`.trim())
+    ? (recipe.totalTime < 60 ? `${recipe.totalTime}m` : `${Math.floor(recipe.totalTime / 60)}h${recipe.totalTime % 60 ? ` ${recipe.totalTime % 60}m` : ''}`)
     : '';
-
-  const titleCls = isMe ? 'text-white' : 'text-on-surface';
-  const subCls = isMe ? 'text-white/75' : 'text-on-surface/50';
-  const faintCls = isMe ? 'text-white/60' : 'text-on-surface/40';
-  const accentCls = isMe ? 'text-white/90' : 'text-recipes-ink';
-  const pillCls = isMe ? 'bg-white/20 text-white/95' : 'bg-recipes-tint text-recipes-ink/85';
-  const neutralPillCls = isMe ? 'bg-white/12 text-white/80' : 'bg-on-surface/5 text-on-surface/50';
-
+  const meta = [`by ${recipe.authorName}`, recipe.difficulty, recipe.ingredientCount ? `${recipe.ingredientCount} ingredients` : ''].filter(Boolean).join(' · ');
   return (
     <button
       onClick={onClick}
       className={cn(
-        "block w-full max-w-[280px] overflow-hidden text-left active:scale-[0.985] transition-transform",
-        hasTextAbove ? "rounded-b-2xl" : "rounded-2xl",
-        isMe
-          ? cn("bg-primary", hasTextAbove ? "" : "rounded-br-md")
-          : cn("bg-on-surface/[0.06]", hasTextAbove ? "" : "rounded-bl-md")
+        'block w-[250px] overflow-hidden text-left active:scale-[0.985] transition-transform rounded-[20px] border',
+        hasTextAbove && 'rounded-t-2xl',
+        isMe ? 'bg-primary border-white/[0.18]' : 'bg-on-surface/[0.05] border-on-surface/[0.09]',
       )}
     >
-      {recipe.image && (
-        <div className="w-full aspect-[5/3] overflow-hidden bg-black/5">
-          <img src={recipe.image} alt={recipe.name} className="w-full h-full object-cover" />
+      <div className="px-3.5 py-3 flex items-start gap-3">
+        <div className="flex-1 min-w-0">
+          <p className={cn('font-serif font-bold text-[15px] leading-[1.2] tracking-[-0.02em] truncate', isMe ? 'text-white' : 'text-on-surface')}>{recipe.name}</p>
+          {meta && <p className={cn('mt-1.5 text-[12px] leading-[1.3] truncate', isMe ? 'text-white/70' : 'text-on-surface/50')}>{meta}</p>}
+          {recipe.description && (
+            <p className={cn('text-[12px] mt-1.5 line-clamp-1 leading-relaxed italic', isMe ? 'text-white/75' : 'text-on-surface/55')}>{recipe.description}</p>
+          )}
         </div>
-      )}
-      <div className="px-3.5 py-2.5">
-        <div className="flex items-center gap-1.5 mb-1">
-          <ChefHat size={12} className={accentCls} />
-          <span className={cn("text-[10px] font-semibold uppercase tracking-wider", accentCls)}>
-            {recipe.authorName}&rsquo;s recipe
+        {totalLabel && (
+          <span className={cn(
+            'flex-none min-w-[38px] h-[38px] px-1.5 rounded-full grid place-items-center font-serif font-bold text-[12px]',
+            isMe ? 'bg-white/[0.16] text-white' : 'bg-recipes-tint text-recipes-ink',
+          )}>
+            {totalLabel}
           </span>
-        </div>
-        <p className={cn("text-sm font-serif font-bold truncate leading-snug", titleCls)}>{recipe.name}</p>
-        {recipe.description && (
-          <p className={cn("text-[12px] mt-0.5 line-clamp-1 leading-snug italic", subCls)}>{recipe.description}</p>
         )}
-        <div className="flex items-center flex-wrap gap-1.5 mt-2">
-          {totalLabel && (
-            <span className={cn("inline-flex items-center gap-0.5 text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full", pillCls)}>
-              <Clock size={9} /> {totalLabel}
-            </span>
-          )}
-          {recipe.difficulty && (
-            <span className={cn("text-[10px] font-semibold px-1.5 py-0.5 rounded-full", neutralPillCls)}>{recipe.difficulty}</span>
-          )}
-          {(recipe.ingredientCount ?? 0) > 0 && (
-            <span className={cn("text-[10px]", faintCls)}>{recipe.ingredientCount} ingredients</span>
-          )}
-        </div>
-        {recipe.tags && recipe.tags.length > 0 && (
-          <div className="flex flex-wrap gap-1 mt-1.5">
-            {recipe.tags.slice(0, 3).map((tag) => (
-              <span key={tag} className={cn("px-1.5 py-0.5 text-[10px] font-semibold rounded-full", neutralPillCls)}>{tag}</span>
-            ))}
-          </div>
-        )}
+      </div>
+      <div className={cn(
+        'px-3.5 py-2.5 border-t text-[12px] font-semibold',
+        isMe ? 'border-white/[0.14] text-white/75' : 'border-on-surface/[0.08] text-on-surface/55',
+      )}>
+        View recipe
       </div>
     </button>
   );
@@ -363,127 +316,6 @@ const PostShareCard: React.FC<{
   );
 };
 
-/* ── Share Restaurant Sheet ── */
-const ShareRestaurantSheet: React.FC<{
-  open: boolean;
-  onClose: () => void;
-  onShare: (restaurant: SharedRestaurant) => void;
-}> = ({ open, onClose, onShare }) => {
-  const { ratings } = useLists();
-  const { phoneMode } = useSettings();
-  const [searchQuery, setSearchQuery] = useState('');
-  const { dragProps } = useBottomSheet(open, onClose);
-
-  const filteredRatings = useMemo(() => {
-    if (!searchQuery.trim()) return ratings;
-    const q = searchQuery.toLowerCase();
-    return ratings.filter((r) => r.name.toLowerCase().includes(q) || r.cuisine.toLowerCase().includes(q));
-  }, [ratings, searchQuery]);
-
-  const handleShareReview = (rating: RestaurantRating) => {
-    onShare({
-      restaurantId: rating.restaurantId,
-      name: rating.name,
-      image: rating.image,
-      cuisine: rating.cuisine,
-      price: rating.price,
-      address: rating.address,
-      score: rating.score,
-      notes: rating.notes,
-      tags: rating.tags,
-      isReview: true,
-    });
-    onClose();
-  };
-
-  const handleShareRestaurant = (rating: RestaurantRating) => {
-    onShare({
-      restaurantId: rating.restaurantId,
-      name: rating.name,
-      image: rating.image,
-      cuisine: rating.cuisine,
-      price: rating.price,
-      address: rating.address,
-      isReview: false,
-    });
-    onClose();
-  };
-
-  return (
-    <AnimatePresence>
-      {open && (
-        <>
-          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-            className="fixed inset-0 bg-black/40 backdrop-blur-sm z-[80]" onClick={onClose} />
-          <motion.div
-            initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
-            transition={{ type: 'spring', damping: 28, stiffness: 300 }}
-            {...dragProps}
-            className={cn("fixed bottom-0 left-0 right-0 z-[80] bg-surface rounded-t-3xl flex flex-col overflow-hidden",
-              phoneMode ? "max-h-[85vh]" : "max-h-[70vh]")}
-          >
-            {phoneMode && <div className="flex justify-center pt-3 pb-1"><div className="w-10 h-1 rounded-full bg-on-surface/15" /></div>}
-            <div className="flex items-center justify-between px-5 pt-3 pb-3 border-b border-on-surface/6 flex-shrink-0">
-              <h3 className="font-serif font-bold text-lg">Share Restaurant</h3>
-              <button onClick={onClose} className="w-8 h-8 rounded-full bg-on-surface/5 flex items-center justify-center">
-                <X size={16} className="text-on-surface/60" />
-              </button>
-            </div>
-
-            <div className="px-5 pt-3 pb-2 flex-shrink-0">
-              <div className="relative">
-                <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-on-surface/30" />
-                <input type="text" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="Search your rated restaurants..."
-                  className="w-full bg-on-surface/5 rounded-xl py-2.5 pl-9 pr-4 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20" />
-              </div>
-            </div>
-
-            <div className="flex-1 overflow-y-auto px-5 pb-safe-5">
-              {filteredRatings.length === 0 ? (
-                <div className="text-center py-12">
-                  <Star size={28} className="mx-auto text-on-surface/15 mb-2" />
-                  <p className="text-sm text-on-surface/35">{searchQuery ? 'No matches found' : 'No rated restaurants yet'}</p>
-                </div>
-              ) : (
-                <div className="space-y-2 pt-2">
-                  {filteredRatings.map((r) => {
-                    return (
-                      <div key={r.restaurantId} className="flex items-center gap-3 p-2.5 rounded-xl border border-on-surface/8 hover:border-on-surface/15 transition-all">
-                        {r.image ? (
-                          <img src={r.image} alt={r.name} className="w-12 h-12 rounded-xl object-cover flex-shrink-0" />
-                        ) : (
-                          <div className="w-12 h-12 rounded-xl bg-on-surface/5 flex items-center justify-center flex-shrink-0">
-                            <MapPin size={16} className="text-on-surface/25" />
-                          </div>
-                        )}
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm font-semibold text-on-surface/80 truncate">{r.name}</p>
-                          <p className="text-[11px] text-on-surface/40">{r.cuisine} · {r.price}</p>
-                        </div>
-                        <span className="mr-1"><ScoreBadge rating={r.score} size="xs" /></span>
-                        <div className="flex flex-col gap-1 flex-shrink-0">
-                          <button onClick={() => handleShareReview(r)}
-                            className="px-2.5 py-1 bg-primary text-white text-[10px] font-semibold rounded-lg hover:bg-primary/90 transition-colors">
-                            Review
-                          </button>
-                          <button onClick={() => handleShareRestaurant(r)}
-                            className="px-2.5 py-1 bg-on-surface/5 text-on-surface/50 text-[10px] font-semibold rounded-lg hover:bg-on-surface/10 transition-colors">
-                            Details
-                          </button>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-          </motion.div>
-        </>
-      )}
-    </AnimatePresence>
-  );
-};
 
 /* ── New Chat Sheet ── */
 const NewChatSheet: React.FC<{
@@ -779,16 +611,11 @@ const ChatView: React.FC<{
   const { phoneMode } = useSettings();
   const navigate = useNavigate();
   const [text, setText] = useState('');
-  const [restPickerOpen, setRestPickerOpen] = useState(false);     // share-a-restaurant picker
-  const [recipePickerOpen, setRecipePickerOpen] = useState(false); // share-a-recipe picker
+  // The ONE share surface — the composer's + opens it.
+  const [shareOpen, setShareOpen] = useState(false);
+  // Header overflow: view profile / delete live behind the ⋯.
+  const [menuOpen, setMenuOpen] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
-  const [pendingShare, setPendingShare] = useState<SharedRestaurant | null>(null);
-  // Collapse keeps its children mounted even while closed, so the preview
-  // renders from the last non-null share — clearing pendingShare animates
-  // the box shut without blanking the card (or dereferencing null).
-  const lastShareRef = useRef<SharedRestaurant | null>(null);
-  if (pendingShare) lastShareRef.current = pendingShare;
-  const shownShare = pendingShare ?? lastShareRef.current;
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -864,12 +691,11 @@ const ChatView: React.FC<{
   };
 
   const handleSend = () => {
-    if (!text.trim() && !pendingShare) return;
+    if (!text.trim()) return;
     const id = ensureConversationId();
     if (!id) return;
-    sendMessage(id, text.trim(), pendingShare || undefined);
+    sendMessage(id, text.trim());
     setText('');
-    setPendingShare(null);
     inputRef.current?.focus();
   };
 
@@ -879,7 +705,7 @@ const ChatView: React.FC<{
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); }
   };
 
-  // Desktop pickers: send straight into the (possibly draft) thread.
+  // The share sheet sends straight into the (possibly draft) thread.
   const handleShareRestaurantNow = (restaurant: SharedRestaurant) => {
     const id = ensureConversationId();
     if (id) sendMessage(id, '', restaurant);
@@ -934,18 +760,37 @@ const ChatView: React.FC<{
             <p className="text-[12.5px] text-on-surface/45 truncate">{handle}</p>
           ) : null}
         </div>
-        <div className="flex items-center gap-1">
-          {!phoneMode && !isGroup && otherProfile?.username && (
-            <button onClick={() => navigate(`/user/${otherProfile.username}`)}
-              className="w-9 h-9 rounded-full grid place-items-center text-on-surface/45 hover:text-on-surface hover:bg-on-surface/[0.06] transition-colors" title="View profile">
-              <Info size={18} />
-            </button>
-          )}
-          {convId && (
-            <button onClick={() => setConfirmDelete(true)}
-              className="w-9 h-9 rounded-full grid place-items-center text-on-surface/35 hover:text-red-500 hover:bg-red-500/5 transition-colors" title="Delete conversation">
-              <Trash2 size={phoneMode ? 16 : 17} />
-            </button>
+        <div className="relative">
+          <button
+            onClick={() => setMenuOpen((v) => !v)}
+            aria-label="Conversation options"
+            aria-expanded={menuOpen}
+            className="w-9 h-9 rounded-full grid place-items-center text-on-surface/50 active:bg-on-surface/[0.08] transition-colors"
+          >
+            <MoreVertical size={18} />
+          </button>
+          {menuOpen && (
+            <>
+              <div className="fixed inset-0 z-30" onClick={() => setMenuOpen(false)} aria-hidden />
+              <div className="absolute right-0 top-full mt-1.5 z-40 min-w-[190px] rounded-2xl bg-paper border border-on-surface/[0.09] shadow-[0_16px_44px_-10px_rgba(0,0,0,0.35)] overflow-hidden py-1">
+                {!isGroup && otherProfile?.username && (
+                  <button
+                    onClick={() => { setMenuOpen(false); navigate(`/user/${otherProfile.username}`); }}
+                    className="w-full flex items-center gap-2.5 px-4 py-2.5 text-left text-[13.5px] font-semibold text-on-surface active:bg-on-surface/[0.05]"
+                  >
+                    <Info size={15} className="text-on-surface/50" /> View profile
+                  </button>
+                )}
+                {convId && (
+                  <button
+                    onClick={() => { setMenuOpen(false); setConfirmDelete(true); }}
+                    className="w-full flex items-center gap-2.5 px-4 py-2.5 text-left text-[13.5px] font-semibold text-red-500 active:bg-red-500/[0.06]"
+                  >
+                    <Trash2 size={15} /> Delete conversation
+                  </button>
+                )}
+              </div>
+            </>
           )}
         </div>
       </div>
@@ -1103,117 +948,58 @@ const ChatView: React.FC<{
         {isOtherTyping && <TypingIndicator />}
       </div>
 
-      {/* Pending share preview */}
-      <Collapse open={!!pendingShare}>
-        {shownShare && (
-          <div className="px-4 pt-3 pb-2 flex items-start gap-3">
-            <div className="flex-1 min-w-0 flex items-start gap-2.5 bg-white rounded-xl border border-on-surface/10 p-2.5 shadow-sm">
-              {shownShare.image && (
-                <img src={shownShare.image} alt={shownShare.name} className="w-11 h-11 rounded-lg object-cover flex-shrink-0" />
-              )}
-              <div className="min-w-0 flex-1">
-                <p className="text-xs font-semibold text-on-surface/80 truncate">{shownShare.name}</p>
-                <div className="flex items-center gap-1.5 mt-0.5">
-                  {shownShare.cuisine && <span className="text-[10px] text-on-surface/40">{shownShare.cuisine}</span>}
-                  {shownShare.price && <span className="text-[10px] text-on-surface/30">{shownShare.price}</span>}
-                  {shownShare.isReview && shownShare.score !== undefined && (
-                    <span className={cn("text-[10px] font-bold", scoreColor(shownShare.score))}>
-                      {shownShare.score.toFixed(1)}
-                    </span>
-                  )}
-                </div>
-                <span className="text-[9px] font-semibold text-primary mt-0.5 inline-block">
-                  {shownShare.isReview ? 'Review' : 'Details'}
-                </span>
-              </div>
-            </div>
-            <button onClick={() => setPendingShare(null)}
-              className="p-1.5 text-on-surface/30 hover:text-on-surface/60 hover:bg-on-surface/5 rounded-full transition-colors flex-shrink-0 mt-1">
-              <X size={14} />
-            </button>
-          </div>
-        )}
-      </Collapse>
-
-      {/* Composer */}
-      {phoneMode ? (
-        <div className="msg-composer-bar flex flex-col gap-2 px-3 pt-2.5 pb-safe-4 border-t border-on-surface/[0.06] bg-surface flex-shrink-0">
-          {/* Share buttons */}
-          <div className="flex items-center gap-2">
-            <button onClick={() => setRestPickerOpen(true)}
-              className="flex-1 flex items-center gap-2.5 px-3 py-2.5 rounded-2xl bg-paper border border-on-surface/10 active:bg-primary/[0.05] active:border-primary/40 transition-colors text-left">
-              <span className="w-7 h-7 rounded-lg bg-primary/10 grid place-items-center text-primary flex-shrink-0"><Store size={15} /></span>
-              <span className="min-w-0">
-                <span className="block text-[12.5px] font-semibold text-on-surface leading-tight">Share restaurant</span>
-                <span className="block text-[10.5px] text-on-surface/45 truncate">Your reviews · the full database</span>
-              </span>
-            </button>
-            <button onClick={() => setRecipePickerOpen(true)}
-              className="flex-1 flex items-center gap-2.5 px-3 py-2.5 rounded-2xl bg-paper border border-on-surface/10 active:bg-primary/[0.05] active:border-primary/40 transition-colors text-left">
-              <span className="w-7 h-7 rounded-lg bg-primary/10 grid place-items-center text-primary flex-shrink-0"><ChefHat size={15} /></span>
-              <span className="min-w-0">
-                <span className="block text-[12.5px] font-semibold text-on-surface leading-tight">Share recipe</span>
-                <span className="block text-[10.5px] text-on-surface/45 truncate">Your cookbook · community recipes</span>
-              </span>
-            </button>
-          </div>
-          {/* Input row */}
-          <div className="flex items-center gap-1 rounded-full bg-paper border border-on-surface/10 focus-within:border-primary/40 pl-4 pr-1.5 py-1.5">
-            <input ref={inputRef} type="text" value={text} onChange={(e) => { setText(e.target.value); if (e.target.value.trim()) notifyTyping(); }} onKeyDown={handleKeyDown}
-              placeholder={`Message ${(title || '').split(' ')[0] || ''}…`}
-              className="flex-1 bg-transparent text-[15px] text-on-surface placeholder:text-on-surface/35 focus:outline-none py-1.5 min-w-0" />
-            <button onClick={handleSend} disabled={!text.trim() && !pendingShare}
-              className="w-10 h-10 rounded-full bg-primary text-white grid place-items-center disabled:opacity-30 transition-opacity flex-shrink-0 active:scale-95"><Send size={16} /></button>
-          </div>
+      {/* Composer — the reference's: one + that opens the share sheet
+          (the permanent two-button shelf is gone), the field, one send
+          that dims until there's a draft. */}
+      <div className={cn(
+        'flex items-end gap-2 flex-shrink-0 border-t border-on-surface/[0.08] bg-surface',
+        phoneMode ? 'px-3 pt-2.5 pb-safe-4' : 'px-5 pt-3 pb-4',
+      )}>
+        <button
+          type="button"
+          onClick={() => setShareOpen(true)}
+          aria-label="Share a restaurant or recipe"
+          className={cn(
+            'flex-none w-10 h-10 rounded-full grid place-items-center bg-on-surface/[0.07] text-on-surface active:bg-on-surface/[0.12] transition-[background-color,transform] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)]',
+            shareOpen && 'rotate-45',
+          )}
+        >
+          <Plus size={19} strokeWidth={2.2} />
+        </button>
+        <div className="flex-1 min-w-0 flex items-center rounded-[22px] bg-on-surface/[0.06] px-4">
+          <input
+            ref={inputRef}
+            type="text"
+            value={text}
+            onChange={(e) => { setText(e.target.value); if (e.target.value.trim()) notifyTyping(); }}
+            onKeyDown={handleKeyDown}
+            placeholder={`Message ${(title || '').split(' ')[0] || ''}`}
+            className="flex-1 bg-transparent text-[15px] text-on-surface placeholder:text-on-surface/35 focus:outline-none py-[11px] min-w-0"
+          />
         </div>
-      ) : (
-        <div className="flex flex-col gap-2.5 px-6 pt-3 pb-4 border-t border-on-surface/[0.06] bg-surface flex-shrink-0">
-          {/* Share buttons */}
-          <div className="flex items-center gap-2.5">
-            <button onClick={() => setRestPickerOpen(true)}
-              className="flex-1 flex items-center gap-3 h-[52px] px-4 rounded-2xl bg-paper border border-on-surface/10 hover:border-primary/40 hover:bg-primary/[0.03] transition-all text-left group">
-              <span className="w-8 h-8 rounded-xl bg-primary/10 grid place-items-center text-primary flex-shrink-0 group-hover:bg-primary group-hover:text-white transition-colors"><Store size={16} /></span>
-              <span className="min-w-0">
-                <span className="block text-[13.5px] font-semibold text-on-surface leading-tight">Share a restaurant</span>
-                <span className="block text-[11.5px] text-on-surface/45 truncate">Your reviews · the full database</span>
-              </span>
-              <ChevronRight size={16} className="ml-auto text-on-surface/30 flex-shrink-0" />
-            </button>
-            <button onClick={() => setRecipePickerOpen(true)}
-              className="flex-1 flex items-center gap-3 h-[52px] px-4 rounded-2xl bg-paper border border-on-surface/10 hover:border-primary/40 hover:bg-primary/[0.03] transition-all text-left group">
-              <span className="w-8 h-8 rounded-xl bg-primary/10 grid place-items-center text-primary flex-shrink-0 group-hover:bg-primary group-hover:text-white transition-colors"><ChefHat size={16} /></span>
-              <span className="min-w-0">
-                <span className="block text-[13.5px] font-semibold text-on-surface leading-tight">Share a recipe</span>
-                <span className="block text-[11.5px] text-on-surface/45 truncate">Your cookbook · community recipes</span>
-              </span>
-              <ChevronRight size={16} className="ml-auto text-on-surface/30 flex-shrink-0" />
-            </button>
-          </div>
-          {/* Input row */}
-          <div className="flex items-center gap-1.5 rounded-full bg-paper border border-on-surface/10 focus-within:border-primary/40 focus-within:ring-4 focus-within:ring-primary/10 transition-all pl-4 pr-1.5 py-1.5">
-            <input ref={inputRef} type="text" value={text} onChange={(e) => { setText(e.target.value); if (e.target.value.trim()) notifyTyping(); }} onKeyDown={handleKeyDown}
-              placeholder={`Message ${(title || '').split(' ')[0] || ''}…`}
-              className="flex-1 bg-transparent text-sm text-on-surface placeholder:text-on-surface/35 focus:outline-none py-1.5 min-w-0" />
-            <button onClick={handleSend} disabled={!text.trim() && !pendingShare}
-              className="w-10 h-10 rounded-full bg-primary text-white grid place-items-center disabled:opacity-30 hover:bg-primary/90 transition-all flex-shrink-0 active:scale-95"><Send size={16} /></button>
-          </div>
-        </div>
-      )}
+        <button
+          type="button"
+          onClick={handleSend}
+          disabled={!text.trim()}
+          aria-label="Send"
+          className={cn(
+            'flex-none w-10 h-10 rounded-full grid place-items-center transition-all active:scale-95',
+            text.trim() ? 'bg-primary text-white' : 'bg-on-surface/[0.07] text-on-surface/30',
+          )}
+        >
+          <Send size={16} />
+        </button>
+      </div>
 
-      {/* Share pickers — responsive (centered modal on desktop, full-screen sheet on mobile) */}
-      <ShareRestaurantPicker
-        open={restPickerOpen}
-        recipientName={isGroup ? title : (title || '').split(' ')[0]}
-        onClose={() => setRestPickerOpen(false)}
-        onShare={handleShareRestaurantNow}
-      />
-      <ShareRecipePicker
-        open={recipePickerOpen}
-        recipientName={isGroup ? title : (title || '').split(' ')[0]}
+      <ShareSheet
+        open={shareOpen}
+        recipientName={title}
         selfName={selfName}
-        onClose={() => setRecipePickerOpen(false)}
-        onShare={handleShareRecipeNow}
+        onClose={() => setShareOpen(false)}
+        onShareRestaurant={handleShareRestaurantNow}
+        onShareRecipe={handleShareRecipeNow}
       />
+
     </div>
   );
 };
@@ -1411,14 +1197,7 @@ const DesktopEmptyChat: React.FC<{ onCompose: () => void }> = ({ onCompose }) =>
   </div>
 );
 
-/* ── Mobile list screen (rail + tabs + sections) ── */
-const MobileSection: React.FC<{ label: string; count: number }> = ({ label, count }) => (
-  <div className="flex items-center justify-between px-5 pt-4 pb-1.5">
-    <span className="text-[10.5px] font-bold uppercase tracking-[0.13em] text-on-surface/40">{label}</span>
-    <span className="text-[10.5px] font-semibold text-on-surface/30">{count}</span>
-  </div>
-);
-
+/* ── Mobile list screen — one list, one composer ── */
 const MobileConvRow: React.FC<{
   conv: Conversation;
   profiles: Record<string, UserProfile>;
@@ -1432,7 +1211,7 @@ const MobileConvRow: React.FC<{
   const expert = !conv.isGroup && otherId ? !!profiles[otherId]?.is_verified : false;
   const share = lastMessageIsShare(conv);
   return (
-    <button onClick={onClick} className="w-full flex items-center gap-3 px-4 py-2.5 text-left active:bg-on-surface/[0.05] transition-colors">
+    <button onClick={onClick} className="w-full flex items-center gap-3 px-4 py-3 text-left active:bg-on-surface/[0.05] transition-colors">
       {conv.isGroup
         ? <div className="w-[52px] h-[52px] rounded-full bg-primary/10 grid place-items-center flex-shrink-0"><Users size={18} className="text-primary" /></div>
         : <PersonAvatar name={fullTitle} userId={otherId || conv.id} size={52} expert={expert} />}
@@ -1453,14 +1232,16 @@ const MobileConvRow: React.FC<{
   );
 };
 
+/* A friend with no thread yet — the same row as a conversation, with a
+   muted "Say hi" where the last message would be. One list, no separate
+   friends section, no Message pill. */
 const MobileFriendRow: React.FC<{ friend: FriendLite; expert: boolean; onClick: () => void }> = ({ friend, expert, onClick }) => (
-  <button onClick={onClick} className="w-full flex items-center gap-3 px-4 py-2.5 text-left active:bg-on-surface/[0.05] transition-colors">
-    <PersonAvatar name={friend.name} userId={friend.id} size={48} expert={expert} />
+  <button onClick={onClick} className="w-full flex items-center gap-3 px-4 py-3 text-left active:bg-on-surface/[0.05] transition-colors">
+    <PersonAvatar name={friend.name} userId={friend.id} size={52} expert={expert} />
     <div className="flex-1 min-w-0">
-      <p className="text-[15px] font-semibold text-on-surface/85 truncate">{friend.name.split(' ')[0]}</p>
-      <p className="text-[12.5px] text-on-surface/45 truncate">{friend.username ? `@${friend.username}` : 'Tap to message'}</p>
+      <p className="text-[15.5px] font-semibold text-on-surface/85 truncate">{friend.name}</p>
+      <p className="text-[13px] text-on-surface/40 truncate mt-0.5">Say hi</p>
     </div>
-    <span className="flex-shrink-0 text-[11px] font-bold tracking-wide text-primary bg-primary/[0.08] px-3 py-1.5 rounded-full">Message</span>
   </button>
 );
 
@@ -1501,9 +1282,6 @@ const MobileMessageList: React.FC<{
     return friends.filter((f) => !hasThread(f.id) && (!q || f.name.toLowerCase().includes(q) || (f.username || '').toLowerCase().includes(q)));
   }, [friends, tab, q, hasThread]);
 
-  // Rail: friends with a thread first, then the rest.
-  const rail = useMemo(() => [...friends.filter((f) => hasThread(f.id)), ...friends.filter((f) => !hasThread(f.id))], [friends, hasThread]);
-
   const unreadCount = conversations.filter((c) => getUnread(c.id) > 0).length;
   const sharesCount = conversations.filter(lastMessageIsShare).length;
   const tabs: { key: 'all' | 'unread' | 'shares'; label: string; count?: number }[] = [
@@ -1536,11 +1314,11 @@ const MobileMessageList: React.FC<{
             placeholder="Search messages and friends"
           />
         </div>
-        <div className="mt-2.5 flex gap-2">
+        <div className="mt-2.5 flex gap-1.5">
           {tabs.map((t) => (
-            <button key={t.key} onClick={() => setTab(t.key)} className={cn('flex-1 py-2 rounded-full text-[12.5px] font-semibold border transition-colors inline-flex items-center justify-center gap-1.5', tab === t.key ? 'bg-on-surface text-surface border-on-surface' : 'bg-surface text-on-surface/60 border-on-surface/10')}>
+            <button key={t.key} onClick={() => setTab(t.key)} aria-pressed={tab === t.key} className={cn('h-9 px-4 rounded-full text-[12.5px] font-bold transition-colors inline-flex items-center gap-1.5', tab === t.key ? 'bg-on-surface text-surface' : 'bg-on-surface/[0.06] text-on-surface active:bg-on-surface/[0.1]')}>
               {t.label}
-              {t.count !== undefined && t.count > 0 && <span className={cn('text-[10px] font-bold px-1.5 py-0.5 rounded-full', tab === t.key ? 'bg-surface/25 text-surface' : 'bg-primary/12 text-primary')}>{t.count}</span>}
+              {t.count !== undefined && t.count > 0 && <span className={cn('text-[11px] font-bold', tab === t.key ? 'text-surface/60' : 'text-on-surface/40')}>{t.count}</span>}
             </button>
           ))}
         </div>
@@ -1552,43 +1330,25 @@ const MobileMessageList: React.FC<{
         className="flex-1 overflow-y-auto pb-safe-5"
         style={{ paddingTop: headerFade.headerH }}
       >
-        {tab === 'all' && !q && rail.length > 0 && (
-          <div className="flex gap-3.5 px-4 pt-3.5 pb-1.5 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-            <button onClick={onCompose} className="flex flex-col items-center gap-1.5 w-16 flex-shrink-0">
-              <span className="w-[58px] h-[58px] rounded-full grid place-items-center bg-surface border-2 border-dashed border-primary text-primary"><Plus size={22} /></span>
-              <span className="text-[11.5px] text-on-surface/60 w-16 text-center truncate">New</span>
-            </button>
-            {rail.map((f) => (
-              <button key={f.id} onClick={() => onOpenFriend(f.id)} className="flex flex-col items-center gap-1.5 w-16 flex-shrink-0">
-                <PersonAvatar name={f.name} userId={f.id} size={58} expert={!!profiles[f.id]?.is_verified} />
-                <span className="text-[11.5px] text-on-surface/70 w-16 text-center truncate">{f.name.split(' ')[0]}</span>
-              </button>
-            ))}
-          </div>
-        )}
-
-        {filteredConvs.length > 0 && (
-          <>
-            <MobileSection label="Conversations" count={filteredConvs.length} />
-            {filteredConvs.map((c) => (
-              <MobileConvRow key={c.id} conv={c} profiles={profiles} selfId={selfId} unread={getUnread(c.id)} onClick={() => onOpenConversation(c.id)} />
-            ))}
-          </>
-        )}
-
-        {friendsWithoutThread.length > 0 && (
-          <>
-            <MobileSection label="All friends" count={friendsWithoutThread.length} />
-            {friendsWithoutThread.map((f) => (
-              <MobileFriendRow key={f.id} friend={f} expert={!!profiles[f.id]?.is_verified} onClick={() => onOpenFriend(f.id)} />
-            ))}
-          </>
-        )}
+        {/* One list. People you've talked to sit at the top (recency
+            order arrives sorted); everyone else you follow reads "Say hi"
+            beneath them. The avatar rail and the separate All-friends
+            section with its Message pills said the same names three
+            times — this says them once. */}
+        <div className="divide-y divide-on-surface/[0.06]">
+          {filteredConvs.map((c) => (
+            <MobileConvRow key={c.id} conv={c} profiles={profiles} selfId={selfId} unread={getUnread(c.id)} onClick={() => onOpenConversation(c.id)} />
+          ))}
+          {friendsWithoutThread.map((f) => (
+            <MobileFriendRow key={f.id} friend={f} expert={!!profiles[f.id]?.is_verified} onClick={() => onOpenFriend(f.id)} />
+          ))}
+        </div>
 
         {filteredConvs.length === 0 && friendsWithoutThread.length === 0 && (
           <div className="px-6 py-20 text-center">
             <MessageCircle size={36} className="mx-auto text-on-surface/12 mb-3" />
-            <p className="text-[14px] font-semibold text-on-surface/40">{q ? `No matches for “${query}”` : tab === 'unread' ? 'No unread messages' : tab === 'shares' ? 'No shared cards yet' : 'No conversations yet'}</p>
+            <p className="text-[14px] font-semibold text-on-surface/45">{q ? 'No one by that name' : tab === 'unread' ? 'No unread messages' : tab === 'shares' ? 'No shared cards yet' : 'No conversations yet'}</p>
+            {q && <p className="mt-1.5 text-[12.5px] text-on-surface/35 leading-relaxed max-w-[260px] mx-auto">Search only covers people you follow and the threads you already have.</p>}
             {!q && tab === 'all' && (
               <button onClick={onCompose} className="mt-4 inline-flex items-center gap-2 px-5 py-2.5 bg-primary text-white text-sm font-semibold rounded-full active:scale-95 transition-transform"><Plus size={16} /> New message</button>
             )}
