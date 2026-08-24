@@ -17,6 +17,7 @@ import { Link } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import { Heart, MessageCircle, Bookmark, Share2, ChefHat, ChevronRight, Trash2, MapPin, PlayCircle } from 'lucide-react';
 import { cn } from '../lib/utils';
+import { scoreColor, scoreColorLight } from '../lib/score';
 import { VerifiedBadge } from './VerifiedBadge';
 import { ScoreBadge } from './RestaurantCard';
 import { usePosts, type Post, type PostItemRow } from '../contexts/PostsContext';
@@ -118,27 +119,27 @@ const RestaurantCard: React.FC<{ item: PostItemRow; onClick: () => void }> = ({ 
       type="button"
       onClick={onClick}
       className={cn(
-        'w-full flex items-center gap-3 rounded-2xl pl-2 pr-3 py-2 text-left transition-colors',
+        'w-full flex items-center gap-3 rounded-[18px] px-4 py-3 text-left transition-colors',
         phoneMode
-          ? 'bg-black/40 backdrop-blur-md border border-white/15 shadow-[0_4px_12px_rgba(0,0,0,0.25)] hover:bg-black/50'
+          ? 'bg-black/45 backdrop-blur-xl border border-white/[0.12] shadow-[0_4px_12px_rgba(0,0,0,0.25)] hover:bg-black/55'
           : 'bg-white/95 backdrop-blur shadow-lg hover:bg-white',
       )}
     >
-      <div className="w-14 h-14 rounded-xl overflow-hidden flex-shrink-0 bg-gradient-to-br from-rose-700 to-orange-700 flex items-center justify-center">
-        {r.image ? (
-          <img src={r.image} alt="" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
-        ) : (
-          <span className="text-white text-[10px] font-bold uppercase tracking-widest text-center px-1">{r.cuisine}</span>
-        )}
-      </div>
       <div className="flex-1 min-w-0">
-        <p className={cn('text-[10px] font-bold uppercase tracking-widest', phoneMode ? 'text-white/65' : 'text-on-surface/55')}>Featured place</p>
-        <p className={cn('text-[15px] font-bold leading-tight truncate', phoneMode ? 'text-white' : 'text-on-surface')}>{r.name}</p>
-        <p className={cn('text-[11px] truncate mt-0.5', phoneMode ? 'text-white/65' : 'text-on-surface/55')}>
+        <p className={cn('text-[9.5px] font-bold uppercase tracking-[0.14em]', phoneMode ? 'text-white/55' : 'text-on-surface/50')}>Featured place</p>
+        <p className={cn('text-[15.5px] font-bold leading-tight tracking-[-0.01em] truncate mt-1', phoneMode ? 'text-white' : 'text-on-surface')}>{r.name}</p>
+        <p className={cn('text-[11.5px] truncate mt-1', phoneMode ? 'text-white/60' : 'text-on-surface/55')}>
           {[r.cuisine, r.price].filter(Boolean).join(' · ')}
         </p>
       </div>
-      <ScoreBadge rating={score} size="sm" />
+      {score > 0 && (
+        <span className={cn(
+          'inline-flex items-center justify-center min-w-[40px] h-8 px-2.5 rounded-full text-[13px] font-bold tabular-nums flex-shrink-0',
+          phoneMode ? cn('bg-white/[0.14]', scoreColorLight(score)) : cn('bg-on-surface/[0.06]', scoreColor(score)),
+        )}>
+          {score.toFixed(1)}
+        </span>
+      )}
       <ChevronRight size={16} className={cn('flex-shrink-0', phoneMode ? 'text-white/45' : 'text-on-surface/40')} />
     </button>
   );
@@ -152,23 +153,16 @@ const RecipeCard: React.FC<{ item: PostItemRow; onClick: () => void }> = ({ item
       type="button"
       onClick={onClick}
       className={cn(
-        'w-full flex items-center gap-3 rounded-2xl pl-2 pr-2 py-2 text-left transition-colors',
+        'w-full flex items-center gap-3 rounded-[18px] px-4 py-3 text-left transition-colors',
         phoneMode
-          ? 'bg-black/40 backdrop-blur-md border border-white/15 shadow-[0_4px_12px_rgba(0,0,0,0.25)] hover:bg-black/50'
+          ? 'bg-black/45 backdrop-blur-xl border border-white/[0.12] shadow-[0_4px_12px_rgba(0,0,0,0.25)] hover:bg-black/55'
           : 'bg-white/95 backdrop-blur shadow-lg hover:bg-white',
       )}
     >
-      <div className="w-14 h-14 rounded-xl overflow-hidden flex-shrink-0 bg-blue-50 flex items-center justify-center">
-        {r.image ? (
-          <img src={r.image} alt="" className="w-full h-full object-cover" />
-        ) : (
-          <ChefHat size={26} className="text-blue-600" />
-        )}
-      </div>
       <div className="flex-1 min-w-0">
-        <p className={cn('text-[10px] font-bold uppercase tracking-widest', phoneMode ? 'text-white/65' : 'text-on-surface/55')}>Recipe</p>
-        <p className={cn('text-[15px] font-bold leading-tight truncate', phoneMode ? 'text-white' : 'text-on-surface')}>{r.title}</p>
-        <p className={cn('text-[11px] truncate mt-0.5', phoneMode ? 'text-white/65' : 'text-on-surface/55')}>{formatRecipeMeta(r.prepTime, r.cookTime, r.servings, r.difficulty)}</p>
+        <p className={cn('text-[9.5px] font-bold uppercase tracking-[0.14em]', phoneMode ? 'text-white/55' : 'text-on-surface/50')}>Featured recipe</p>
+        <p className={cn('text-[15.5px] font-bold leading-tight tracking-[-0.01em] truncate mt-1', phoneMode ? 'text-white' : 'text-on-surface')}>{r.title}</p>
+        <p className={cn('text-[11.5px] truncate mt-1', phoneMode ? 'text-white/60' : 'text-on-surface/55')}>{formatRecipeMeta(r.prepTime, r.cookTime, r.servings, r.difficulty)}</p>
       </div>
       <span className={cn(
         'px-3.5 h-9 rounded-full text-xs font-bold flex items-center justify-center flex-shrink-0',
@@ -687,9 +681,11 @@ const PostSlideInner: React.FC<PostSlideProps> = ({
                     <p className="mb-3 text-white/70 text-[12px] font-mono truncate">♪ {post.audioLabel}</p>
                   )}
 
-                  {/* Stop propagation so tapping the attached card navigates
-                      to the restaurant/recipe instead of collapsing. */}
-                  <div onClick={(e) => e.stopPropagation()}>
+                  {/* pointer-events-auto: the overlay root is pointer-events-none
+                      (taps reach the video), so without this the featured card
+                      was untappable. stopPropagation keeps the tap from also
+                      collapsing the section. */}
+                  <div className="pointer-events-auto" onClick={(e) => e.stopPropagation()}>
                     {item?.attachedKind === 'restaurant' && item.restaurant && (
                       <RestaurantCard item={item} onClick={() => onItemAttachmentClick(item)} />
                     )}
