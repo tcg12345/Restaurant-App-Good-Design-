@@ -1072,34 +1072,38 @@ export const Profile: React.FC = () => {
       </div>
 
       {/* ── Tabs ──────────────────────────────────────────────────────
-          Pills, not four icon-and-caps columns under an underline. The
-          old bar spent a full row of height on decoration — an icon, a
-          spaced-capitals label and a sliding rule — to say one word. */}
-      <div className="mt-6 px-[22px] pb-3.5 flex gap-1.5 overflow-x-auto no-scrollbar border-b border-on-surface/[0.14]">
-        {([
-          ['rated', Star, 'Rated'],
-          ['posts', LayoutGrid, 'Posts'],
-          ['reels', Film, 'Reels'],
-          ['guides', BookOpen, 'Guides'],
-        ] as const).map(([key, Icon, label]) => {
-          const on = activeTab === key;
-          return (
-            <button
-              key={key}
-              type="button"
-              onClick={() => setActiveTab(key)}
-              aria-pressed={on}
-              className={cn(
-                'flex-none inline-flex items-center gap-1.5 rounded-full border px-3 py-2.5 active:opacity-80 transition-colors',
-                on ? 'bg-on-surface border-on-surface text-cream' : 'bg-transparent border-on-surface/20 text-on-surface',
-              )}
-              style={{ fontSize: '12px', fontWeight: 700 }}
-            >
-              <Icon size={14} className={cn(on && key === 'rated' && 'fill-current')} />
-              {label}
-            </button>
-          );
-        })}
+          One full-width segmented track, not four free-floating pills —
+          the same connected control the Friends and Lists pages use, so
+          the four choices read as one object with a raised active cell. */}
+      <div className="mt-6 px-[22px] pb-3.5 border-b border-on-surface/[0.14]">
+        <div className="flex rounded-full bg-on-surface/[0.05] p-1">
+          {([
+            ['rated', Star, 'Rated'],
+            ['posts', LayoutGrid, 'Posts'],
+            ['reels', Film, 'Reels'],
+            ['guides', BookOpen, 'Guides'],
+          ] as const).map(([key, Icon, label]) => {
+            const on = activeTab === key;
+            return (
+              <button
+                key={key}
+                type="button"
+                onClick={() => setActiveTab(key)}
+                aria-pressed={on}
+                className={cn(
+                  'flex-1 min-w-0 inline-flex items-center justify-center gap-1.5 rounded-full py-2.5 transition-colors',
+                  on
+                    ? 'bg-surface dark:bg-on-surface/[0.14] text-on-surface shadow-[0_1px_4px_rgba(0,0,0,0.08)]'
+                    : 'text-on-surface/55 active:text-on-surface',
+                )}
+                style={{ fontSize: '12px', fontWeight: 700 }}
+              >
+                <Icon size={14} className={cn('flex-none', on && key === 'rated' && 'fill-current')} />
+                <span className="truncate">{label}</span>
+              </button>
+            );
+          })}
+        </div>
       </div>
       {/* ── Tab content ───────────────────────────────────────────────── */}
       <main className="px-[22px]">
