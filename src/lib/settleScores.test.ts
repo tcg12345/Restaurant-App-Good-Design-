@@ -159,6 +159,60 @@ describe('soft anchoring by count', () => {
     expect(Math.min(...next.map((r) => r.score))).toBe(1.0);
   });
 
+  it('a crowded, UNEVEN tier decompresses without flattening into a ladder', () => {
+    // THE regression. Three tight clusters with real chasms between them —
+    // "these four are basically my favourites, then a clear step down". The
+    // old projection floored every gap at one constant, and in a crowded
+    // tier every gap is below the floor, so they all landed on the SAME
+    // number: the clusters and the chasms came out identical and the user's
+    // judgment was erased. Repeated H2H inserts made it worse each time.
+    const raw = [
+      9.20, 9.18, 9.16, 9.15,  // cluster A
+      8.70, 8.68, 8.66,        // ← chasm, cluster B
+      8.60, 8.58,
+      8.10, 8.08, 8.06, 8.05,  // ← chasm, cluster C
+      7.60,                    // ← chasm, loner
+    ];
+    let all = raw.map((s, i) => mk(`c${String(i).padStart(2, '0')}`, s));
+    all = settleAndApply(all, { justRatedId: 'c00' });
+
+    // Then six real H2H inserts, settling after each — the path that used
+    // to grind the shape flat.
+    for (let k = 0; k < 6; k++) {
+      const id = `ins${k}`;
+      const sorted = tierRows(all, 'loved');
+      const median = sorted[Math.floor(sorted.length / 2)].score;
+      let st = initH2H(all, 'loved', id);
+      let guard = 0;
+      while (!isComplete(st)) {
+        const comp = pickComparison(st);
+        if (!comp) break;
+        st = applyChoice(st, median > comp.score);
+        if (++guard > 40) break;
+      }
+      const placed = computeFinalScore(st);
+      const order = placementOrder(st, id, placed);
+      all = settleAndApply([...all, mk(id, placed)], { justRatedId: id, explicitOrder: order });
+    }
+
+    const scores = tierRows(all, 'loved').map((r) => r.score);
+    const gaps: number[] = [];
+    for (let i = 0; i < scores.length - 1; i++) gaps.push(scores[i] - scores[i + 1]);
+    const maxGap = Math.max(...gaps);
+    const minGap = Math.min(...gaps);
+
+    // It decompressed: the band is genuinely used.
+    expect(scores[0] - scores[scores.length - 1]).toBeGreaterThanOrEqual(2.5);
+    // …and it is NOT a ladder. The chasms the user drew stay several times
+    // wider than the gaps inside a cluster. (Uniform spacing would put this
+    // ratio at ~1.0 — the old code produced 1.07.)
+    expect(maxGap / minGap).toBeGreaterThan(3);
+    // Still strictly ordered, still on the grid, still in band.
+    for (const g of gaps) expect(g).toBeGreaterThanOrEqual(MIN_GAP - 1e-9);
+    expect(scores[0]).toBeLessThanOrEqual(10);
+    expect(scores[scores.length - 1]).toBeGreaterThanOrEqual(7);
+  });
+
   it('preserves gap ratios at full maturity (no uniform spacing)', () => {
     // 11 items; one deliberate chasm between the top pair and the rest.
     const scores = [9.9, 9.8, 8.9, 8.8, 8.7, 8.6, 8.5, 8.4, 8.3, 8.2, 8.1];

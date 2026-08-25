@@ -39,8 +39,16 @@ import { tierRange, type Tier } from './headToHeadRating';
  *  restaurants may display the same rounded 8.3, but underneath one is
  *  always strictly higher. */
 export const MIN_GAP = 0.01;
+/** The smallest gap that still reads as a difference at one decimal — what
+ *  the layout tries to give every adjacent pair so no two ratings look
+ *  identical. It is a TARGET, not a hard floor: it gets capped at half the
+ *  average gap (see settleTierScores), because a minimum as large as the
+ *  average forces every gap to BE the average, which is exactly the
+ *  uniform-ladder failure this whole module exists to avoid. */
+export const MIN_VISIBLE_GAP = 0.1;
 /** Spacing a mature tier relaxes toward. 3.0 band / 0.3 = 10 gaps, so a tier
- *  reaches full spread right around the same count it reaches maturity. */
+ *  reaches full spread right around the same count it reaches maturity.
+ *  Drives the tier's SPAN, never a per-gap floor. */
 export const PREFERRED_GAP = 0.3;
 /** Maturity f = min(1, (n-1)/K): 1 item = untouched, 11+ = fully anchored. */
 export const MATURITY_K = 10;
@@ -93,14 +101,52 @@ interface OrderedRow {
 }
 
 /**
+ * Raise every gap to at least `floor`, paying for it out of the roomier
+ * gaps in proportion to how much room each has to spare. Total span is
+ * unchanged, and the gaps that weren't at the floor keep their ratios to
+ * each other — that's the whole point: a chasm the user actually meant
+ * stays a chasm, it just donates a little of itself so its crowded
+ * neighbours become legible.
+ *
+ * Feasible in one pass whenever `floor` ≤ span/nGaps (callers guarantee
+ * a much stronger bound); the loop is belt-and-braces.
+ */
+function waterFillGaps(gaps: number[], floor: number): void {
+  for (let iter = 0; iter < 8; iter++) {
+    let deficit = 0;
+    let surplus = 0;
+    for (const g of gaps) {
+      if (g < floor) deficit += floor - g;
+      else surplus += g - floor;
+    }
+    if (deficit <= 1e-12) return;
+    if (surplus <= 1e-12) { gaps.fill(floor); return; }
+    const take = Math.min(1, deficit / surplus);
+    for (let i = 0; i < gaps.length; i++) {
+      gaps[i] = gaps[i] < floor ? floor : floor + (gaps[i] - floor) * (1 - take);
+    }
+  }
+}
+
+/**
  * Settle one tier's rows (already ordered desc) — a constraint PROJECTION,
  * not a continuous relaxation, so it is idempotent: once the constraints
  * hold, settling again changes nothing.
  *
- *  - Every adjacent gap is floored at gapFloor(f) = MIN_GAP + f·(PREFERRED_GAP
- *    − MIN_GAP): tight clumps stretch apart as the tier matures, while gaps
- *    already wider than the floor are kept verbatim (ratios preserved, never
- *    uniformed).
+ *  - SPAN grows with maturity: the tier claims f·(n−1)·PREFERRED_GAP of its
+ *    band, capped at the band, and never gives back span it already earned.
+ *  - SHAPE is preserved by SCALING the gaps to that span, not by flooring
+ *    them. This is the difference that matters, and getting it wrong is
+ *    what made this feature look broken: flooring maps every gap below the
+ *    floor onto the SAME number, and in a crowded tier that's all of them —
+ *    so three tight clusters separated by real chasms came out as one
+ *    perfectly even ladder, erasing the user's judgment. Scaling multiplies
+ *    every gap by one constant, so a chasm stays exactly N× its neighbours.
+ *  - A visible floor is then water-filled in (see waterFillGaps) so crowded
+ *    pairs still separate — but it is capped at HALF the average gap,
+ *    because demanding a large minimum inside a crowded band is itself a
+ *    recipe for uniformity: if every gap must be ≥ the average, every gap
+ *    IS the average.
  *  - The anchor is an INEQUALITY, not a pull: loved's top must sit at or above
  *    bandMin + f·W (→ pinned to 10.0 at maturity), disliked's bottom at or
  *    below bandMax − f·W (→ 1.0). Layouts already satisfying it don't move.
@@ -115,6 +161,7 @@ function settleTierScores(rows: OrderedRow[], tier: Tier): number[] {
 
   const { min: bandMin, max: bandMax } = tierRange(tier);
   const W = bandMax - bandMin;
+  const nGaps = n - 1;
 
   // Overflow fill: more rows than distinct 0.01 slots. Rounding here would
   // collapse neighbors into DUPLICATE scores — and every list in the app
@@ -133,61 +180,45 @@ function settleTierScores(rows: OrderedRow[], tier: Tier): number[] {
   if (n > bandCapacity(tier)) return uniformFill();
 
   const f = Math.min(1, (n - 1) / MATURITY_K);
-  const gapFloor = MIN_GAP + f * (PREFERRED_GAP - MIN_GAP);
 
-  // Floor the gaps; keep anything wider untouched (gap ratios survive).
-  // The one-grid-step tolerance is what keeps repeated settles idempotent:
-  // a gap this projection floored last pass, then rounded onto the 0.01
-  // grid while building the ladder, can sit a step under the floor — re-
-  // flooring it every pass would wiggle the layout forever.
-  const applyFloor = (fl: number): { gaps: number[]; span: number } => {
-    const gs: number[] = [];
-    let sp = 0;
-    for (let i = 0; i < n - 1; i++) {
-      const raw = Math.max(0, s[i] - s[i + 1]);
-      const g = raw >= fl - MIN_GAP - 1e-9 ? Math.max(raw, MIN_GAP) : fl;
-      gs.push(g);
-      sp += g;
-    }
-    return { gaps: gs, span: sp };
-  };
+  // ── 1. The span this tier should occupy ───────────────────────────
+  const rawGaps: number[] = [];
+  let rawSpan = 0;
+  for (let i = 0; i < nGaps; i++) {
+    const g = Math.max(0, s[i] - s[i + 1]);
+    rawGaps.push(g);
+    rawSpan += g;
+  }
+  const spanT = clamp(
+    Math.max(rawSpan, f * Math.min(W, nGaps * PREFERRED_GAP)),
+    nGaps * MIN_GAP,
+    W,
+  );
 
-  let { gaps, span } = applyFloor(gapFloor);
+  // ── 2. Scale to it — ratios preserved exactly ─────────────────────
+  const gaps = rawSpan <= 1e-9
+    ? new Array<number>(nGaps).fill(spanT / nGaps)   // every score identical
+    : rawGaps.map((g) => g * (spanT / rawSpan));
+
+  // ── 3. Lift crowded pairs to a visible floor, paid for in proportion ──
+  waterFillGaps(gaps, Math.max(MIN_GAP, Math.min(MIN_VISIBLE_GAP, (spanT / nGaps) * 0.5)));
+
+  // Quantize the gaps (not just the final positions) so the ladder this
+  // pass emits is exactly the ladder the next pass reads back.
+  let span = 0;
+  for (let i = 0; i < nGaps; i++) {
+    gaps[i] = Math.max(MIN_GAP, roundGrid(gaps[i]));
+    span += gaps[i];
+  }
   if (span > W + 1e-9) {
-    // The floored ladder can't fit. DEGRADE THE FLOOR toward MIN_GAP
-    // rather than compressing everything proportionally: the user's real
-    // gaps always fit (they came from in-band scores), so crowding should
-    // cost the aesthetic spacing — never the gap ratios. (The old
-    // proportional compression also wasn't a projection: each settle
-    // shrank the wide gaps a little more, and only the coarse 0.1 grid's
-    // rounding froze the decay. The 0.01 grid absorbs nothing, so the
-    // fitting floor must be found, not approximated.)
-    let lo = MIN_GAP;
-    let hi = gapFloor;
-    for (let iter = 0; iter < 40; iter++) {
-      const mid = (lo + hi) / 2;
-      if (applyFloor(mid).span > W + 1e-9) hi = mid;
-      else lo = mid;
-    }
-    // Quantize the found floor DOWN to the grid so a hair of pass-to-pass
-    // input wiggle can't flip it to a different value.
-    const fq = Math.max(MIN_GAP, Math.floor(lo * 100) / 100);
-    ({ gaps, span } = applyFloor(fq));
-    if (span > W + 1e-9) {
-      // Even MIN_GAP floors beside the verbatim wide gaps don't fit — the
-      // tier is at genuine capacity pressure (raw span ≈ the whole band
-      // plus tied rows). Snap to a GRID uniform fill: it depends only on
-      // (n, band), so settling the result again reproduces it exactly —
-      // proportional compression here would shave the wide gaps a little
-      // more on every settle instead of reaching a fixed point.
-      const fill = new Array<number>(n);
-      for (let i = 0; i < n; i++) fill[i] = roundGrid(bandMax - (i * W) / (n - 1));
-      for (let i = 1; i < n; i++) fill[i] = Math.min(fill[i], roundGrid(fill[i - 1] - MIN_GAP));
-      if (fill[n - 1] < bandMin) {
-        fill[n - 1] = bandMin;
-        for (let i = n - 2; i >= 0; i--) fill[i] = Math.max(fill[i], roundGrid(fill[i + 1] + MIN_GAP));
-      }
-      return fill;
+    // Grid rounding pushed the ladder a hair past the band — shave the
+    // widest gaps back a step at a time until it fits.
+    for (let guard = 0; span > W + 1e-9 && guard < nGaps * 4; guard++) {
+      let widest = 0;
+      for (let i = 1; i < nGaps; i++) if (gaps[i] > gaps[widest]) widest = i;
+      if (gaps[widest] <= MIN_GAP) break;
+      gaps[widest] = roundGrid(gaps[widest] - MIN_GAP);
+      span = roundGrid(span - MIN_GAP);
     }
   }
 
@@ -231,7 +262,18 @@ function settleTierScores(rows: OrderedRow[], tier: Tier): number[] {
       }
     }
   }
-  return out.map((v) => clamp(roundGrid(v), bandMin, bandMax));
+  const settled = out.map((v) => clamp(roundGrid(v), bandMin, bandMax));
+
+  // Idempotence guard. Everything above works in real numbers and then
+  // lands on the 0.01 grid, so a layout that is already correct can come
+  // back a few thousandths off and re-register as a change forever. A move
+  // smaller than half a grid step isn't a move — report the input, snapped
+  // to the grid so legacy off-grid scores still get regridded exactly once.
+  let moved = false;
+  for (let i = 0; i < n; i++) {
+    if (Math.abs(settled[i] - s[i]) > MIN_GAP / 2) { moved = true; break; }
+  }
+  return moved ? settled : s.map((v) => clamp(roundGrid(v), bandMin, bandMax));
 }
 
 /**
