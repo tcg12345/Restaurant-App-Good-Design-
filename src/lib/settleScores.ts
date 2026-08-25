@@ -63,7 +63,9 @@ export interface SettleOptions {
    *  incumbents (tie → adjacent under the pivot) and selects which tier(s)
    *  settle (its own, plus `previousScore`'s when re-rating across tiers). */
   justRatedId?: string;
-  /** The row's previous score when re-rating — the departed tier settles too. */
+  /** The score a row is leaving behind — its tier settles too. Set on a
+   *  re-rate that crosses tiers, and on a DELETE (where it is the only
+   *  hint there is, since the row is already gone from `all`). */
   previousScore?: number;
   /** Settle every tier in both categories (the Reorder page's save). */
   allTiers?: boolean;
@@ -126,6 +128,36 @@ function waterFillGaps(gaps: number[], floor: number): void {
       gaps[i] = gaps[i] < floor ? floor : floor + (gaps[i] - floor) * (1 - take);
     }
   }
+}
+
+/**
+ * Close the crater a departed rating leaves behind.
+ *
+ * Deleting a row — or re-rating it into a different tier — merges the two
+ * gaps that surrounded it into one, so the ladder keeps a double-width hole
+ * shaped by a restaurant that is no longer in the list. The constraint
+ * projection cannot fix this on its own and never will: to it, a wide gap
+ * is a wide gap, indistinguishable from a chasm the user meant. The repair
+ * has to happen here, at the one moment we still know which score left.
+ *
+ * The merged gap becomes max(gapAbove, gapBelow) — the larger of the two
+ * real separations survives, so a genuine chasm on one side of the departed
+ * row is kept, and only the room the row itself occupied is reclaimed.
+ * Everything below the hole lifts by that amount; the settle then re-spreads
+ * the shortened ladder as usual.
+ */
+function closeDepartedGap(rows: OrderedRow[], departed: number): OrderedRow[] {
+  const n = rows.length;
+  let j = -1;
+  for (let i = 0; i < n - 1; i++) {
+    if (rows[i].score >= departed && departed >= rows[i + 1].score) { j = i; break; }
+  }
+  if (j < 0) return rows; // it sat at an end — no two gaps merged
+  const merged = rows[j].score - rows[j + 1].score;
+  const target = Math.max(rows[j].score - departed, departed - rows[j + 1].score, MIN_GAP);
+  if (target >= merged - 1e-9) return rows; // nothing to reclaim
+  const lift = merged - target;
+  return rows.map((r, i) => (i > j ? { ...r, score: roundGrid(r.score + lift) } : r));
 }
 
 /**
@@ -294,8 +326,11 @@ export function settleScores(all: RestaurantRating[], opts: SettleOptions = {}):
     tiersToSettle.add('loved');
     tiersToSettle.add('fine');
     tiersToSettle.add('disliked');
-  } else if (justRated) {
-    tiersToSettle.add(tierOfScore(justRated.score));
+  } else if (justRated || typeof previousScore === 'number') {
+    // `previousScore` alone is a valid request: a DELETE has no just-rated
+    // row, only the score that left. Requiring justRated here is what made
+    // deleting a rating skip the settle entirely.
+    if (justRated) tiersToSettle.add(tierOfScore(justRated.score));
     if (typeof previousScore === 'number') tiersToSettle.add(tierOfScore(previousScore));
   } else {
     return [];
@@ -328,7 +363,15 @@ export function settleScores(all: RestaurantRating[], opts: SettleOptions = {}):
       .sort(compare)
       .map((r) => ({ restaurantId: r.restaurantId, score: r.score }));
     if (rows.length <= 1) continue;
-    const settled = settleTierScores(rows, tier);
+    // A score LEFT this tier (a delete, or a re-rate that moved the row to a
+    // different tier) — close the hole before laying the ladder out. Not for
+    // a same-tier re-rate: there the row is still here, just somewhere else,
+    // and the insert accounts for its own space.
+    const departedHere = typeof previousScore === 'number'
+      && tierOfScore(previousScore) === tier
+      && !(justRated && tierOfScore(justRated.score) === tier);
+    const laidOut = departedHere ? closeDepartedGap(rows, previousScore!) : rows;
+    const settled = settleTierScores(laidOut, tier);
     for (let i = 0; i < rows.length; i++) {
       // Epsilon compare (not grid equality): overflow fills emit unrounded
       // scores, and a float that equals the stored value exactly must not

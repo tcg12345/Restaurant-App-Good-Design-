@@ -333,6 +333,62 @@ describe('scoping: tiers and categories', () => {
     const all = [mk('a', 9.0), mk('b', 9.0)];
     expect(settleScores(all, {})).toEqual([]);
   });
+
+  it('previousScore ALONE settles that tier — the delete path has no just-rated row', () => {
+    // Deleting a rating used to skip the settle entirely (the tier picker
+    // required a just-rated row), so the hole it left never closed: the gap
+    // it sat in stayed double-width and, if it had been the tier's best,
+    // nothing pulled the new best back up toward 10.
+    // A MATURE tier, so the top anchor actually bites: deleting the 10 must
+    // pull the new best back up toward it. (An immature tier deliberately
+    // stays put — that is the soft-anchoring contract, not a bug.)
+    const full = Array.from({ length: 13 }, (_, i) => mk(`m${String(i).padStart(2, '0')}`, +(10 - i * 0.22).toFixed(2)));
+    const afterDelete = full.slice(1); // drop the 10
+    const changes = settleScores(afterDelete, { previousScore: 10 });
+    expect(changes.length).toBeGreaterThan(0);
+
+    const next = applySettleChanges(afterDelete, changes);
+    const rows = tierRows(next, 'loved');
+    // Order untouched, and the new best is pulled back up to the anchor.
+    expect(rows.map((r) => r.restaurantId)).toEqual(afterDelete.map((r) => r.restaurantId));
+    expect(rows[0].score).toBeGreaterThan(9.78);
+    // Still a strict, in-band ladder.
+    for (let i = 0; i < rows.length - 1; i++) {
+      expect(rows[i].score - rows[i + 1].score).toBeGreaterThanOrEqual(MIN_GAP - 1e-9);
+    }
+    expect(rows[0].score).toBeLessThanOrEqual(10);
+    expect(rows[rows.length - 1].score).toBeGreaterThanOrEqual(7);
+    // And it converges — settling the settled layout again does nothing.
+    expect(settleScores(next, { previousScore: 10 })).toEqual([]);
+  });
+
+  it('deleting from the MIDDLE closes the hole instead of leaving a double gap', () => {
+    const full = [mk('a', 10), mk('b', 9.4), mk('c', 8.8), mk('d', 8.2), mk('e', 7.6), mk('f', 7.0)];
+    const afterDelete = full.filter((r) => r.restaurantId !== 'c'); // was 8.8
+    const next = applySettleChanges(afterDelete, settleScores(afterDelete, { previousScore: 8.8 }));
+    const scores = tierRows(next, 'loved').map((r) => r.score);
+    const gaps: number[] = [];
+    for (let i = 0; i < scores.length - 1; i++) gaps.push(scores[i] - scores[i + 1]);
+    // Without the settle the b→d gap stays 1.2 while its neighbours sit at
+    // 0.6 — a crater where the deleted row used to be. After it, no gap is
+    // wildly out of step with the rest.
+    expect(Math.max(...gaps) / Math.min(...gaps)).toBeLessThan(1.5);
+  });
+
+  it('closing the hole keeps a real chasm that sat next to the deleted row', () => {
+    // b is one of a tight top trio; far below it, a separate group. Deleting
+    // b must reclaim only the 0.05 it occupied — NOT swallow the 1.2 chasm
+    // underneath it, which is the user's actual judgment.
+    const full = [mk('a', 9.30), mk('b', 9.25), mk('c', 8.05), mk('d', 8.00), mk('e', 7.95)];
+    const afterDelete = full.filter((r) => r.restaurantId !== 'b');
+    const next = applySettleChanges(afterDelete, settleScores(afterDelete, { previousScore: 9.25 }));
+    const by = Object.fromEntries(next.map((r) => [r.restaurantId, r.score]));
+    // The chasm survives, several times any gap inside the lower cluster.
+    const chasm = by.a - by.c;
+    const inner = by.c - by.d;
+    expect(chasm).toBeGreaterThan(1.0);
+    expect(chasm / inner).toBeGreaterThan(5);
+  });
 });
 
 /* ── Reorder support ───────────────────────────────────────────────────── */

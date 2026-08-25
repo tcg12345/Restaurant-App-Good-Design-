@@ -16,7 +16,7 @@ import { useAuth } from './AuthContext';
 import { useSignInModal } from './SignInModalContext';
 import { useToast } from './ToastContext';
 import { safeImage, localISODate } from '../lib/utils';
-import { applySettleChanges, type SettleChange } from '../lib/settleScores';
+import { applySettleChanges, settleScores, type SettleChange } from '../lib/settleScores';
 import { applyRatingSave } from '../lib/applyRatingSave';
 import { SCORE_UNLOCK_THRESHOLD } from '../lib/scoreUnlock';
 
@@ -2796,12 +2796,23 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     // Tombstone the restaurant so the load-time union can't resurrect it from a
     // stale cloud copy (which is what produced the broken, nameless cards).
     tombstone('restaurants', restaurantId);
-    setRatings((prev) => {
-      const next = prev.filter((r) => r.restaurantId !== restaurantId);
-      saveToStorage(STORAGE_KEY_RATINGS, next);
-      syncRatingsToCloud(next);
-      return next;
-    });
+    // Read/write through ratingsRef (not a functional setState) so the settle
+    // below sees the post-delete array, and so two deletes in one tick compose.
+    const removed = ratingsRef.current.find((r) => r.restaurantId === restaurantId);
+    const afterRemoval = ratingsRef.current.filter((r) => r.restaurantId !== restaurantId);
+    ratingsRef.current = afterRemoval;
+    setRatings(afterRemoval);
+    saveToStorage(STORAGE_KEY_RATINGS, afterRemoval);
+    syncRatingsToCloud(afterRemoval);
+    // A deleted rating leaves a hole the ladder was shaped around: the gap it
+    // sat in is now double-width, and if it was the tier's best the anchor
+    // that pulled the top toward 10.0 just walked out. Re-settle the tier it
+    // came from so the survivors close up and re-spread — the same treatment
+    // adding a rating gets. `previousScore` is the only handle we have here;
+    // the row itself is already gone from the array.
+    if (removed && removed.score > 0 && afterRemoval.length > 0) {
+      applySettledScores(settleScores(afterRemoval, { previousScore: removed.score }));
+    }
     // A deleted rating must also leave every list it was in — otherwise the
     // list keeps a dangling id that the reconciliation renders as an empty
     // "Location unavailable" card after reload.
@@ -2845,7 +2856,7 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         console.warn('[VisitHistory] Failed to delete visit records for', restaurantId);
       });
     }
-  }, [syncRatingsToCloud, syncListsToCloud, tombstone, syncVisitHistoryToCloud]);
+  }, [syncRatingsToCloud, syncListsToCloud, tombstone, syncVisitHistoryToCloud, applySettledScores]);
 
   // ── Legacy hotels purge ──
   // migrateRatings / migrateWishlist silently drop legacy hotel entries
