@@ -440,21 +440,36 @@ export async function searchNearbyRestaurants(
     return sortByDistance(lat, lng, deduped).slice(0, cap);
   }
 
-  // Broad area: pull from several angles in parallel so the result set
-  // isn't biased to whatever single query happens to like this area.
-  // Each query returns up to 20 places; together they typically yield
-  // 60-120 raw, which dedupes down to 40-90 unique food places before
-  // we rank by quality and slice to the cap.
-  const broadQueries = ['restaurants', 'best restaurants', 'top rated restaurants', 'popular restaurants'];
-
-  const [byPopularity, byDistance, ...textResults] = await Promise.all([
+  // Broad area: pull from several angles so the result set isn't biased to
+  // whatever single query happens to like this area.
+  //
+  // This runs in two waves rather than one. The first is the two nearby
+  // passes plus ONE text query; in a dense area that alone dedupes past the
+  // cap, and the three extra text queries it used to fire in parallel were
+  // billed searches whose results were then sliced away. The second wave
+  // only runs when the first underfills — a sparse or rural area, where the
+  // extra angles genuinely find places the first pass missed. Result
+  // quality is unchanged: whenever wave one couldn't fill the cap, wave two
+  // runs and the pool is exactly what it was before.
+  const [byPopularity, byDistance, firstText] = await Promise.all([
     nearbyRequest(lat, lng, radiusMeters, 'POPULARITY', undefined, signal),
     nearbyRequest(lat, lng, radiusMeters, 'DISTANCE', undefined, signal),
-    ...broadQueries.map((q) => textRequest(q, lat, lng, radiusMeters, hasLocation, undefined, signal)),
+    textRequest('restaurants', lat, lng, radiusMeters, hasLocation, undefined, signal),
   ]);
 
-  const all = [...byPopularity, ...byDistance, ...textResults.flat()];
-  const deduped = deduplicatePlaces(all).filter((p) => isFoodPlace(p.types) && !isVenuePlace(p));
+  const foodOnly = (list: PlaceResult[]) =>
+    deduplicatePlaces(list).filter((p) => isFoodPlace(p.types) && !isVenuePlace(p));
+
+  let deduped = foodOnly([...byPopularity, ...byDistance, ...firstText]);
+
+  if (deduped.length < cap) {
+    const extraQueries = ['best restaurants', 'top rated restaurants', 'popular restaurants'];
+    const extra = await Promise.all(
+      extraQueries.map((q) => textRequest(q, lat, lng, radiusMeters, hasLocation, undefined, signal)),
+    );
+    deduped = foodOnly([...byPopularity, ...byDistance, ...firstText, ...extra.flat()]);
+  }
+
   return sortByQuality(deduped).slice(0, cap);
 }
 
@@ -619,6 +634,69 @@ export function isFoodPlace(types: string[]): boolean {
   return types.some((t) => FOOD_TYPES.has(t));
 }
 
+/* ── Text-search memo ────────────────────────────────────────────────────
+ *
+ * A typeahead that backspaces to a prefix it already searched, two surfaces
+ * asking the same question, a picker reopened seconds later — all of these
+ * used to be fresh billed searches. Results for a given query in a given
+ * area do not move minute to minute, so a short-lived memo is safe (and
+ * well inside the caching window the Maps Platform terms allow).
+ */
+const TEXT_MEMO_TTL = 5 * 60 * 1000;
+const TEXT_MEMO_MAX = 120;
+/**
+ * How many food places the exact query must return before the broad
+ * `"<query> restaurant"` fallback is considered unnecessary.
+ *
+ * The default is 1, because the dominant caller is a typeahead resolving a
+ * NAME: type "jungsik" and the exact query returns Jungsik, alone and
+ * correct. Verified against the live API — the broad follow-up returned
+ * that same one place, so it was billed for nothing. One good match IS the
+ * answer to a name lookup.
+ *
+ * The recommendation engine is the exception and passes a higher bar: its
+ * queries are descriptive ("best $$ ramen in Austin, TX") and it wants pool
+ * depth, not the single best match, so a thin exact response there is worth
+ * widening. See gatherRecCandidates.
+ */
+const TEXT_EXACT_SUFFICIENT_DEFAULT = 1;
+export const TEXT_EXACT_SUFFICIENT_POOL = 5;
+const textSearchMemo = new Map<string, { places: PlaceResult[]; ts: number }>();
+
+function textMemoKey(
+  query: string,
+  lat: number | null | undefined,
+  lng: number | null | undefined,
+  radiusMeters: number,
+  restricted: boolean,
+): string {
+  // Coordinates quantized to ~1 km: a bias point that moved a few metres
+  // between keystrokes is the same search.
+  const at = lat != null && lng != null && Number.isFinite(lat) && Number.isFinite(lng)
+    ? `${lat.toFixed(2)},${lng.toFixed(2)}`
+    : 'nowhere';
+  return `${query.trim().toLowerCase()}|${at}|${radiusMeters}|${restricted ? 'r' : 'b'}`;
+}
+
+function readTextMemo(key: string): PlaceResult[] | null {
+  const hit = textSearchMemo.get(key);
+  if (!hit) return null;
+  if (Date.now() - hit.ts > TEXT_MEMO_TTL) {
+    textSearchMemo.delete(key);
+    return null;
+  }
+  return hit.places;
+}
+
+function writeTextMemo(key: string, places: PlaceResult[]): void {
+  // Insertion-ordered Map — dropping the first key evicts the oldest entry.
+  if (textSearchMemo.size >= TEXT_MEMO_MAX) {
+    const oldest = textSearchMemo.keys().next().value;
+    if (oldest !== undefined) textSearchMemo.delete(oldest);
+  }
+  textSearchMemo.set(key, { places, ts: Date.now() });
+}
+
 export async function searchPlacesByText(
   query: string,
   // null/undefined coords → search with NO location bias (query-only,
@@ -630,7 +708,19 @@ export async function searchPlacesByText(
   useRestriction = false,
   radiusOverride?: number,
   signal?: AbortSignal,
+  opts?: {
+    /** Skip the broad fallback once the exact query has returned at least
+     *  this many food places. Defaults to 1 — see
+     *  TEXT_EXACT_SUFFICIENT_DEFAULT. */
+    minExactResults?: number;
+  },
 ): Promise<PlaceResult[]> {
+  // A one-character query is never a real lookup — it's a typeahead that
+  // fired between keystrokes. Every call site debounces, but a debounce only
+  // collapses keystrokes inside its window; a pause after the first letter
+  // still bills a search. Guarding here covers all of them at once.
+  if (query.trim().length < 2) return [];
+
   // Backward compat: 4th arg can be locationName (string) or radiusMeters (number)
   let radiusMeters = 10000;
   let locationName: string | undefined;
@@ -671,25 +761,44 @@ export async function searchPlacesByText(
     'X-Goog-FieldMask': FIELDS,
   };
 
-  // Run both searches in parallel for speed
-  const [broadRes, exactRes] = await Promise.all([
-    fetch(`${BASE_URL}/places:searchText`, {
-      method: 'POST', headers, body: JSON.stringify(body), signal,
-    }).then((r) => r.json()).catch(() => ({ places: [] })),
-    fetch(`${BASE_URL}/places:searchText`, {
-      method: 'POST', headers, body: JSON.stringify(exactBody), signal,
-    }).then((r) => r.json()).catch(() => ({ places: [] })),
-  ]);
+  // Memo hit — a typeahead backspacing to a prefix it already searched, or
+  // two surfaces asking the same question, must not be billed twice.
+  const memoKey = textMemoKey(query, lat, lng, radiusMeters, shouldRestrict);
+  const memoed = readTextMemo(memoKey);
+  if (memoed) return memoed;
 
-  const broadPlaces = mapPlaces(broadRes.places || []);
+  const runQuery = (b: Record<string, unknown>) =>
+    fetch(`${BASE_URL}/places:searchText`, {
+      method: 'POST', headers, body: JSON.stringify(b), signal,
+    }).then((r) => r.json()).catch(() => ({ places: [] }));
+
+  // The exact query runs first and alone.
+  //
+  // These were two parallel requests — `{query} restaurant` and `{query}` —
+  // and every caller of this function paid for both. The raw query is the
+  // one that resolves a name ("Jungsik") and Google's text matching is fuzzy
+  // enough that it handles a descriptive query ("best ramen in Austin") too;
+  // the suffixed variant is a hedge for when the raw one comes back thin.
+  // So it's now a fallback rather than a duplicate: one billed request in
+  // the common case, two only when the first genuinely underdelivers.
+  const exactRes = await runQuery(exactBody);
   const exactPlaces = mapPlaces(exactRes.places || []);
-
-  // Filter exact results to only food-related places
   const foodExact = exactPlaces.filter((p) => isFoodPlace(p.types) && !isVenuePlace(p));
 
+  const sufficient = opts?.minExactResults ?? TEXT_EXACT_SUFFICIENT_DEFAULT;
+  if (foodExact.length >= sufficient) {
+    const merged = deduplicatePlaces(foodExact);
+    writeTextMemo(memoKey, merged);
+    return merged;
+  }
+
+  const broadRes = await runQuery(body);
+  const broadPlaces = mapPlaces(broadRes.places || []);
+
   // Merge: exact name matches first (higher relevance), then broad results
-  const merged = [...foodExact, ...broadPlaces];
-  return deduplicatePlaces(merged);
+  const merged = deduplicatePlaces([...foodExact, ...broadPlaces]);
+  writeTextMemo(memoKey, merged);
+  return merged;
 }
 
 /* ── Paginating text search (for /location's infinite scroll) ────────────── */
@@ -846,6 +955,51 @@ export async function getPlaceDetails(placeId: string): Promise<PlaceDetails> {
 
   placeDetailsCache.set(placeId, { data: details, ts: Date.now() });
   return details;
+}
+
+/* ── Name-only lookup ────────────────────────────────────────────────────
+ *
+ * `displayName` is a Pro-tier field; the moment a request also asks for
+ * rating / priceLevel / hours it becomes an Enterprise one (Google bills a
+ * request at the highest tier in its FieldMask). A caller that only needs
+ * the place's name for a page header should not pay Enterprise for it — and
+ * Pro's free monthly allowance is five times Enterprise's on top of the
+ * lower unit price.
+ */
+const NAME_FIELDS = 'id,displayName';
+const placeNameCache = new Map<string, string>();
+
+export async function getPlaceName(placeId: string): Promise<string | null> {
+  if (!placeId) return null;
+  const cachedName = placeNameCache.get(placeId);
+  if (cachedName !== undefined) return cachedName;
+  // A full details entry already holds the name — never pay twice.
+  const cachedDetails = placeDetailsCache.get(placeId);
+  if (cachedDetails && Date.now() - cachedDetails.ts < DETAIL_CACHE_TTL) {
+    return cachedDetails.data.name;
+  }
+  try {
+    const res = await fetch(`${BASE_URL}/places/${placeId}`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Goog-Api-Key': GOOGLE_PLACES_KEY,
+        'X-Goog-FieldMask': NAME_FIELDS,
+      },
+    });
+    if (!res.ok) {
+      console.error('[Places] getPlaceName error:', res.status, await res.text().catch(() => ''));
+      return null;
+    }
+    const p = await res.json();
+    const name: string | null = p.displayName?.text || null;
+    // Names don't change; cache for the session regardless of the details TTL.
+    if (name) placeNameCache.set(placeId, name);
+    return name;
+  } catch (err) {
+    console.error('[Places] getPlaceName exception:', err);
+    return null;
+  }
 }
 
 /**
@@ -1291,6 +1445,38 @@ interface BackfilledLocationData {
   hours?: string[];
 }
 
+/**
+ * What a caller already knows about a place, so the backfill doesn't buy it
+ * again.
+ *
+ * A `PlaceResult` straight out of a search ALREADY carries address
+ * components, coordinates and opening hours — they're in FIELDS, so the
+ * search request paid for them. Re-deriving them through getPlaceDetails
+ * costs a separate (Enterprise-tier, because of the hours) Place Details
+ * call per place, which is what a browse list of 141 rows used to do. When
+ * a caller hands us the row it's rendering, the only thing left to fetch is
+ * the Mapbox neighborhood — Google isn't called at all.
+ */
+export interface PlaceLocationSeed {
+  addressComponents?: AddressComponent[];
+  lat?: number;
+  lng?: number;
+  hours?: string[];
+}
+
+/** A seed only lets us skip Google if it covers everything getPlaceDetails
+ *  would have given this function. Partial seeds fall through to the real
+ *  call — a half-filled meta entry must not cache as though it were
+ *  complete. `hours: []` is a legitimate complete answer ("asked, none
+ *  published"); `undefined` is not. */
+function seedIsComplete(seed?: PlaceLocationSeed): seed is Required<PlaceLocationSeed> {
+  return !!seed
+    && !!seed.addressComponents?.length
+    && typeof seed.lat === 'number' && Number.isFinite(seed.lat)
+    && typeof seed.lng === 'number' && Number.isFinite(seed.lng)
+    && Array.isArray(seed.hours);
+}
+
 const locationInflight = new Map<string, Promise<BackfilledLocationData>>();
 
 async function fetchMapboxNeighborhood(lat: number, lng: number): Promise<string | undefined> {
@@ -1309,12 +1495,32 @@ async function fetchMapboxNeighborhood(lat: number, lng: number): Promise<string
   }
 }
 
-export function fetchLocationDataForPlace(placeId: string): Promise<BackfilledLocationData> {
+export function fetchLocationDataForPlace(
+  placeId: string,
+  /** Anything the caller already has (typically the PlaceResult it is
+   *  rendering). A complete seed skips the Google call entirely. */
+  seed?: PlaceLocationSeed,
+): Promise<BackfilledLocationData> {
   if (!placeId) return Promise.resolve({});
   const existing = locationInflight.get(placeId);
   if (existing) return existing;
   const p = (async () => {
     try {
+      // The seeded path: the caller's search already paid for these fields,
+      // so all that's missing is the neighborhood. NB every return here has
+      // the same shape as the fetched path below — a caller can't tell which
+      // one ran, and the inflight map may hand this result to a caller that
+      // passed no seed at all.
+      if (seedIsComplete(seed)) {
+        const neighborhood = await fetchMapboxNeighborhood(seed.lat, seed.lng);
+        return {
+          addressComponents: seed.addressComponents,
+          neighborhood,
+          lat: seed.lat,
+          lng: seed.lng,
+          hours: seed.hours,
+        };
+      }
       const details = await getPlaceDetails(placeId);
       const components = details.addressComponents;
       const lat = Number.isFinite(details.lat) ? details.lat : undefined;
@@ -1323,8 +1529,9 @@ export function fetchLocationDataForPlace(placeId: string): Promise<BackfilledLo
       if (lat != null && lng != null) {
         neighborhood = await fetchMapboxNeighborhood(lat, lng);
       }
-      // Hours come back from the same Places call (free), so include them
-      // here so the location backfill warms hours too.
+      // Hours ride along on this response. They are also what puts the call
+      // in the Enterprise tier — which is exactly why the seeded path above
+      // is worth taking whenever the caller can supply them.
       return { addressComponents: components, neighborhood, lat, lng, hours: details.hours ?? [] };
     } catch (err) {
       console.warn('[Places] backfill failed for', placeId, err);

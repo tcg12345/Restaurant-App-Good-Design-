@@ -3591,8 +3591,18 @@ const LocationListItem: React.FC<LocationListItemProps> = ({
         return;
       }
 
+      // `place` came out of a Places search, which already returned address
+      // components, coordinates and hours (they're in the search FieldMask).
+      // Handing them over as a seed means this row costs one Mapbox lookup
+      // instead of a billed Place Details call; an incomplete seed (a row
+      // reconstructed from somewhere thinner) falls through to the fetch.
       const { addressComponents, neighborhood, lat: ll, lng: lg, hours } =
-        await fetchLocationDataForPlace(place.id);
+        await fetchLocationDataForPlace(place.id, {
+          addressComponents: place.addressComponents,
+          lat: place.lat,
+          lng: place.lng,
+          hours: place.hours,
+        });
       if (cancelled) return;
       if (!addressComponents?.length && !neighborhood && ll == null && lg == null && hours == null) return;
       cacheRestaurantMeta({

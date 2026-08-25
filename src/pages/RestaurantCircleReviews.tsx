@@ -6,7 +6,7 @@ import { useHeaderFade } from '../lib/useHeaderFade';
 import { ArrowLeft, Loader2, Users } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useAuth } from '../contexts/AuthContext';
-import { getPlaceDetails } from '../lib/places';
+import { getPlaceName } from '../lib/places';
 import { FriendReviewSheet, FriendAvatar } from '../components/FriendReviewSheet';
 import {
   countsForCommunity,
@@ -97,7 +97,9 @@ export const RestaurantCircleReviews: React.FC = () => {
       // and the expert recommendations in parallel. Friend ratings need
       // a logged-in user; experts are public per restaurant.
       const [placeRes, friendsRes, expertsRes] = await Promise.all([
-        getPlaceDetails(id).catch(() => null),
+        // Header name only — a Pro-tier field mask, not the Enterprise
+        // details payload this page never reads.
+        getPlaceName(id).catch(() => null),
         user?.id
           ? getFriendsStats(user.id, id).catch(() => ({ avgScore: 0, totalRatings: 0, ratings: [] as CommunityRating[] }))
           : Promise.resolve({ avgScore: 0, totalRatings: 0, ratings: [] as CommunityRating[] }),
@@ -105,7 +107,7 @@ export const RestaurantCircleReviews: React.FC = () => {
       ]);
       if (cancelled) return;
 
-      if (placeRes) setName(placeRes.name);
+      if (placeRes) setName(placeRes);
 
       // Friends rows — fetch their profiles so we can show display
       // names + initials. Experts come pre-joined with name+username.
