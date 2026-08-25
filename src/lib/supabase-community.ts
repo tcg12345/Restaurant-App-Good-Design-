@@ -2,6 +2,7 @@
  * Community ratings & photos — shared data across all users.
  */
 import { supabase, supabaseConfigured } from './supabase';
+import { rankSuggestedProfiles } from './suggestions';
 import { reportClientError } from './error-reporting';
 import { buildRatingPayload, type ActivityStamp, type RatingPayloadData } from './ratingPayload';
 import type { HomeMeal } from '../contexts/ListsContext';
@@ -675,6 +676,81 @@ export async function getProfilesInArea(opts: {
     const { data, error } = await q;
     if (error) return [];
     return (data || []) as UserProfile[];
+  } catch { return []; }
+}
+
+/**
+ * People worth following, for a viewer whose feed would otherwise be empty.
+ *
+ * The rail that existed before this sourced from `getExpertProfiles()` —
+ * verified accounts only. On a young platform there are none, so "Suggested
+ * for you" could never show a single person, which is most of why a new
+ * account's feed sat empty with nowhere to go from it. This draws from every
+ * PUBLIC profile instead, and uses verification as a ranking boost rather
+ * than an entry requirement.
+ *
+ * Ranked by what makes someone worth following rather than by recency:
+ * verified first, then how much they have actually published (a profile with
+ * forty ratings is a feed; one with zero is a blank page), then followers as
+ * the tiebreak. `get_expert_stats` (migration 056) returns both counts for
+ * the whole candidate set in one round-trip.
+ *
+ * Excludes the viewer, everyone they already follow, and everyone they have
+ * a pending request to — a "Follow" button on someone you already asked to
+ * follow reads as broken.
+ */
+export interface SuggestedProfile extends UserProfile {
+  ratingCount: number;
+  followerCount: number;
+}
+
+/** How many public profiles to rank before slicing. Bounded so the stats
+ *  RPC stays one cheap call as the platform grows. */
+const SUGGESTION_POOL = 60;
+
+export async function getSuggestedProfiles(opts: {
+  viewerId: string | null;
+  /** Extra ids to leave out (e.g. people already shown elsewhere on screen). */
+  excludeUserIds?: string[];
+  limit?: number;
+}): Promise<SuggestedProfile[]> {
+  if (!supabaseConfigured) return [];
+  const { viewerId } = opts;
+  const limit = opts.limit ?? 10;
+  try {
+    const exclude = new Set<string>(opts.excludeUserIds ?? []);
+    if (viewerId) {
+      exclude.add(viewerId);
+      // Every edge the viewer OWNS — accepted (already following) and
+      // pending (already asked) alike. RLS exposes the caller's own rows,
+      // so this needs no elevated read.
+      const { data: edges } = await supabase.from('user_friends')
+        .select('friend_id').eq('user_id', viewerId);
+      for (const e of (edges || []) as Array<{ friend_id: unknown }>) {
+        exclude.add(String(e.friend_id));
+      }
+    }
+
+    let q = supabase.from('user_profiles').select('*').eq('is_public', true).limit(SUGGESTION_POOL);
+    if (exclude.size > 0) {
+      // Same manual formatting as getProfilesInArea — the JS builder won't
+      // take an array for `not(..., 'in', ...)`.
+      q = q.not('user_id', 'in', `(${[...exclude].map((id) => `"${id}"`).join(',')})`);
+    }
+    const { data, error } = await q;
+    if (error || !data) return [];
+    const profiles = (data as UserProfile[]).filter((p) => !exclude.has(p.user_id));
+    if (profiles.length === 0) return [];
+
+    const stats = await getExpertStats(profiles.map((p) => p.user_id));
+    const scored: SuggestedProfile[] = profiles.map((p) => ({
+      ...p,
+      ratingCount: stats[p.user_id]?.ratingCount ?? 0,
+      followerCount: stats[p.user_id]?.followerCount ?? 0,
+    }));
+    // Ordering lives in lib/suggestions so it can be tested without a
+    // Supabase mock — see rankSuggestedProfiles for why it ranks this way.
+    return rankSuggestedProfiles(scored, limit);
   } catch { return []; }
 }
 

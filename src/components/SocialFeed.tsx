@@ -21,11 +21,13 @@ import {
   getFriends, getFriendActivity, getProfilesByIds, getLikesForRatings,
   getCommentCounts, toggleLike, addComment, getComments, toggleCommentLike,
   getFriendsPublicHomeMeals, getFollowedExpertIds, getExpertProfiles,
-  followPublicAccount,
+  followPublicAccount, getSuggestedProfiles,
   activityTimestamp, isEditedActivity,
   type CommunityRating, type UserProfile, type ActivityComment, type FriendHomeMeal,
+  type SuggestedProfile,
 } from '../lib/supabase-community';
 import { listPosts, setPostLike, setPostSave, type PostRow, type PostRestaurantSnapshot } from '../lib/supabase-posts';
+import { SuggestedPeople } from './SuggestedPeople';
 import { mergeFeed, layoutFeed, type FeedEntry } from '../lib/feedEntry';
 import { getGuidesForFeed } from '../lib/supabase-guides';
 import { getMealCoverUrl } from '../lib/recipe-display';
@@ -271,12 +273,19 @@ const SuggestionsRail: React.FC<{
     if (ok) setFollowedIds((prev) => new Set(prev).add(target.user_id));
   }, [userId, followPending, followedIds]);
 
+  // Was getExpertProfiles() — verified accounts only, of which a young
+  // platform has none, so this rail rendered empty for every user on every
+  // visit. Same source as the mobile rail now: public profiles ranked by
+  // what they've published, with verification as a boost not a gate.
   useEffect(() => {
     let cancelled = false;
-    getExpertProfiles().then((profiles) => {
+    getSuggestedProfiles({
+      viewerId: userId,
+      excludeUserIds: [...friendIds],
+      limit: 5,
+    }).then((profiles) => {
       if (cancelled) return;
-      const filtered = profiles.filter((p) => p.user_id !== userId && !friendIds.has(p.user_id));
-      setSuggested(filtered.slice(0, 5));
+      setSuggested(profiles);
     });
     return () => { cancelled = true; };
   }, [userId, friendIds]);
@@ -546,6 +555,23 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
   // Friend IDs are reused by the right-side SuggestionsRail to exclude
   // already-followed accounts from "Suggested for you".
   const [friendIds, setFriendIds] = useState<Set<string>>(new Set());
+  // What a viewer with an empty circle sees instead of a dead end: people
+  // worth following, and the posts the wider community has made public.
+  // Loaded lazily — an account with a populated feed never pays for them.
+  const [suggestedPeople, setSuggestedPeople] = useState<SuggestedProfile[]>([]);
+  const [suggestedPosts, setSuggestedPosts] = useState<PostRow[]>([]);
+  const [suggestLoading, setSuggestLoading] = useState(false);
+  const suggestReqRef = useRef(0);
+  /**
+   * Sticky once the viewer follows someone from the rail.
+   *
+   * Following is the one action that makes `showSuggestions` false, so
+   * gating the rail on that alone would delete it under the user's finger
+   * the instant they used it — and someone setting up a new account wants
+   * to follow several people, not one. The rail stays for the rest of the
+   * session; their circle's content fills in underneath it.
+   */
+  const [followedFromRail, setFollowedFromRail] = useState(false);
   // Post-level overlays (open one at a time, controlled by the post card)
   const [openPostCommentsId, setOpenPostCommentsId] = useState<string | null>(null);
   const [sharePayload, setSharePayload] = useState<SharePayload | null>(null);
@@ -790,11 +816,25 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
   const postSource = activityFilter === 'friends' ? posts : activityFilter === 'recipes'
     ? posts.filter((p) => p.items.some((it) => it.recipe))
     : [];
-  const feedEntries = mergeFeed({
+  const circleEntries = mergeFeed({
     posts: postSource,
     ratings: ratingSource,
     homeMeals: mealSource,
   });
+  /**
+   * A brand-new account follows nobody, so the circle feed is empty and the
+   * home page is a sentence with nowhere to go. When that happens, fall back
+   * to what the wider community has published publicly — labelled as such,
+   * never passed off as your circle.
+   *
+   * Derived from `circleEntries`, NOT from the entries actually rendered:
+   * reading it off the rendered feed would make it flip false the moment the
+   * suggestions arrived, and the fallback would tear itself down.
+   */
+  const showSuggestions = activityFilter === 'friends' && !loading && circleEntries.length === 0;
+  const feedEntries = showSuggestions && suggestedPosts.length > 0
+    ? mergeFeed({ posts: suggestedPosts })
+    : circleEntries;
   const toFeedItem = (e: FeedEntry): FeedItem => (
     e.kind === 'post' ? { type: 'post', data: e.source.post!, sortTime: e.sortTime }
     : e.kind === 'rating' ? { type: 'rating', data: e.source.rating!, sortTime: e.sortTime }
@@ -1053,6 +1093,28 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
     if (activityFilter === 'experts' && !expertLoaded && !expertLoading) loadExperts();
   }, [activityFilter, expertLoaded, expertLoading, loadExperts]);
 
+  // Fill an empty circle. Runs only once the circle feed has resolved to
+  // genuinely empty, so a populated account never issues either query.
+  useEffect(() => {
+    if (!showSuggestions) return;
+    const seq = ++suggestReqRef.current;
+    setSuggestLoading(true);
+    (async () => {
+      const [people, publicPosts] = await Promise.all([
+        getSuggestedProfiles({ viewerId: userId, limit: 12 }),
+        // No `userIds` — the global window, which RLS already scopes to
+        // public posts (plus the viewer's own and their followed accounts').
+        listPosts({ viewerId: userId, limit: 12 }),
+      ]);
+      if (seq !== suggestReqRef.current) return;
+      setSuggestedPeople(people);
+      // Your own posts aren't a suggestion, and seeing them here would read
+      // as the app mistaking you for the community.
+      setSuggestedPosts((publicPosts || []).filter((p) => p.userId !== userId));
+      setSuggestLoading(false);
+    })();
+  }, [showSuggestions, userId]);
+
   // Header for the single stream. The only control is WHO you're looking
   // at — your circle or the verified people you follow. Desktop keeps it to
   // one compact row (title + live dot left, filter right); phone shows the
@@ -1215,6 +1277,17 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
       )}>
         <div className="xl:min-w-0">
       <SectionHeader />
+      {(showSuggestions || followedFromRail) && (
+        <div className="pt-5 pb-1">
+          <SuggestedPeople
+            people={suggestedPeople}
+            userId={userId}
+            onRequireSignIn={requireSignIn}
+            onFollowed={() => { setFollowedFromRail(true); loadFeed(); }}
+            loading={suggestLoading && suggestedPeople.length === 0}
+          />
+        </div>
+      )}
       {activityFilter === 'experts' && expertLoading ? (
         <ul>
           {[0, 1, 2].map((i) => (
@@ -1249,8 +1322,14 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
             />
           ) : (
             <div className="px-5 pt-8 flex flex-col items-start gap-2.5">
-              <p className="text-on-surface" style={{ fontSize: '16px', fontWeight: 700, lineHeight: 1.2, letterSpacing: '-0.028em' }}>Nothing from your circle yet</p>
-              <p className="text-on-surface/45 max-w-[280px]" style={{ fontSize: '13.5px', lineHeight: 1.5 }}>Follow friends and tastemakers to see where they're eating and cooking.</p>
+              <p className="text-on-surface" style={{ fontSize: '16px', fontWeight: 700, lineHeight: 1.2, letterSpacing: '-0.028em' }}>
+                {showSuggestions ? 'Your feed starts here' : 'Nothing from your circle yet'}
+              </p>
+              <p className="text-on-surface/45 max-w-[280px]" style={{ fontSize: '13.5px', lineHeight: 1.5 }}>
+                {showSuggestions
+                  ? 'Follow a few people above and their ratings, posts and cooking show up here.'
+                  : "Follow friends and tastemakers to see where they're eating and cooking."}
+              </p>
               <Link to="/circle" className="mt-3 inline-flex items-center gap-1 text-[13px] font-semibold text-primary hover:underline underline-offset-2">
                 Find people to follow
               </Link>
@@ -1258,6 +1337,20 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
           )}
         </>
       ) : (
+      <>
+      {/* Borrowed posts must never read as your circle's. The heading is the
+          whole difference between "the community is worth a look" and "these
+          are the people you follow". */}
+      {showSuggestions && (
+        <div className="px-5 pt-7 pb-1">
+          <h2 className="text-on-surface" style={{ fontSize: '18px', fontWeight: 700, lineHeight: 1.15, letterSpacing: '-0.022em' }}>
+            From the community
+          </h2>
+          <p className="mt-1.5 text-on-surface/45" style={{ fontSize: '12.5px', lineHeight: 1.35 }}>
+            Public posts from people across Gourmet Canvas.
+          </p>
+        </div>
+      )}
       <ul>
         {feedRows.map((row, rowIndex) => {
           if (row.kind === 'slot') {
@@ -1609,6 +1702,7 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
           );
         })}
       </ul>
+      </>
       )}
 
       {/* The end of the feed says so, and offers the one thing that makes
@@ -1616,7 +1710,9 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
       {feedItems.length > 0 && (
         <div className="px-5 pt-[26px] flex flex-col items-start gap-2.5">
           <p className="text-on-surface" style={{ fontSize: '16px', fontWeight: 700, lineHeight: 1.2, letterSpacing: '-0.028em' }}>
-            {activityFilter === 'experts' ? "That's everything from verified users" : "That's everything from your circle"}
+            {activityFilter === 'experts' ? "That's everything from verified users"
+              : showSuggestions ? 'Follow people to make this feed your own'
+              : "That's everything from your circle"}
           </p>
           <p className="text-on-surface/45 max-w-[280px]" style={{ fontSize: '13.5px', lineHeight: 1.5, textWrap: 'pretty' } as React.CSSProperties}>
             Follow a few more people, or switch to Verified to see critics and chefs.
