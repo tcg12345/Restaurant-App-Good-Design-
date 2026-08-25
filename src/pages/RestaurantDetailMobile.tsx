@@ -16,6 +16,7 @@ import { VerifiedBadge } from '../components/VerifiedBadge';
 import { CuisinePicker, EditableCuisineLine } from '../components/CuisinePicker';
 import { formatScore, scoreColor, scoreChipBg, scoreTint } from '../lib/score';
 import { useSettings } from '../contexts/SettingsContext';
+import { RatingDistributionSheet } from '../components/RatingDistributionSheet';
 import { ScoreBadge } from '../components/ScoreBadge';
 import { useRestaurantDetail, formatReviewCount, getTodayHours, getCuisineLabel } from './useRestaurantDetail';
 import { MichelinBadge } from '../components/MichelinBadge';
@@ -93,6 +94,7 @@ const MetaRow: React.FC<{ label: string; children: React.ReactNode }> = ({ label
 
 export const RestaurantDetailMobile: React.FC = () => {
   const { twoDecimalScores } = useSettings();
+  const [distOpen, setDistOpen] = useState(false);
   const {
     place, loading, error, navigate,
     photoIndex, setPhotoIndex,
@@ -712,6 +714,7 @@ export const RestaurantDetailMobile: React.FC = () => {
                   label="Everyone"
                   score={hasCommunity ? communityStats.avgScore : null}
                   meta={hasCommunity ? `${communityStats.totalRatings.toLocaleString()} ${communityStats.totalRatings === 1 ? 'rating' : 'ratings'}` : 'Be the first'}
+                  onClick={hasCommunity ? () => setDistOpen(true) : undefined}
                 />
                 <Disc
                   label="Friends"
@@ -1301,6 +1304,16 @@ export const RestaurantDetailMobile: React.FC = () => {
         current={cuisines}
         restaurantName={place?.name}
         pending={mySuggestion?.status === 'pending' ? mySuggestion.cuisine : undefined}
+      />
+
+      {/* What the "Everyone" average is actually made of. */}
+      <RatingDistributionSheet
+        open={distOpen}
+        onClose={() => setDistOpen(false)}
+        ratings={communityStats.ratings}
+        avgScore={communityStats.avgScore}
+        restaurantName={place?.name}
+        currentUserId={user?.id ?? null}
       />
 
     </div>

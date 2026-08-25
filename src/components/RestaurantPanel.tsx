@@ -62,6 +62,7 @@ import { MAPBOX_TOKEN } from '../lib/keys';
 import { RestaurantFeaturedReels } from './RestaurantFeaturedReels';
 import { PhotoGallery } from './PhotoGallery';
 import { useSettings } from '../contexts/SettingsContext';
+import { RatingDistributionSheet } from './RatingDistributionSheet';
 
 /* ── Snapshot the panel accepts ───────────────────────────────────────────
    We accept any object that quacks like a ReelRestaurantSnapshot so reels
@@ -130,14 +131,22 @@ const ScorePill: React.FC<{
   label: string;
   score: number;
   count: number;
-}> = ({ label, score, count }) => {
+  onClick?: () => void;
+}> = ({ label, score, count, onClick }) => {
   const { twoDecimalScores } = useSettings();
   const has = count > 0;
   // The tint and the ink come from the score itself, same tier palette
   // as every other surface — a column can't be "the good one".
   const unit = label === 'Experts' ? 'pick' : 'rating';
+  const Tag = onClick ? 'button' : 'div';
   return (
-    <div className="flex-1 min-w-0 flex flex-col items-center text-center">
+    <Tag
+      {...(onClick ? { type: 'button' as const, onClick } : {})}
+      className={cn(
+        'flex-1 min-w-0 flex flex-col items-center text-center',
+        onClick && 'active:opacity-70 transition-opacity',
+      )}
+    >
       <span
         className={cn(
           'w-[68px] h-[68px] rounded-full flex items-center justify-center tabular-nums',
@@ -151,7 +160,7 @@ const ScorePill: React.FC<{
       <span className={cn('mt-1', has ? 'text-on-surface/50' : 'text-on-surface/35')} style={{ fontSize: '11.5px' }}>
         {has ? `${count} ${unit}${count === 1 ? '' : 's'}` : 'None yet'}
       </span>
-    </div>
+    </Tag>
   );
 };
 
@@ -342,6 +351,8 @@ export const RestaurantPanelBody: React.FC<{
   // viewer when a thumb is tapped.
   const [communityPhotos, setCommunityPhotos] = useState<CommunityPhoto[]>([]);
   const [galleryOpen, setGalleryOpen] = useState(false);
+  // The breakdown behind the Community average (its own sheet, over this one).
+  const [distOpen, setDistOpen] = useState(false);
   const [galleryStart, setGalleryStart] = useState(0);
   // iOS WKWebView silently fails to render large base64 data: URLs — the
   // detail page converts them to blob URLs, but this panel (which fronts
@@ -668,6 +679,7 @@ export const RestaurantPanelBody: React.FC<{
             label="Community"
             score={community?.avg ?? 0}
             count={community?.count ?? 0}
+            onClick={(community?.count ?? 0) > 0 ? () => setDistOpen(true) : undefined}
           />
           <ScorePill
             label="Friends"
@@ -1094,6 +1106,16 @@ export const RestaurantPanelBody: React.FC<{
         />,
         document.body,
       )}
+
+      {/* What the Community average is actually made of. Portals itself. */}
+      <RatingDistributionSheet
+        open={distOpen}
+        onClose={() => setDistOpen(false)}
+        ratings={community?.ratings ?? []}
+        avgScore={community?.avg ?? 0}
+        restaurantName={snapshot.name}
+        currentUserId={currentUserId}
+      />
     </>
   );
 };

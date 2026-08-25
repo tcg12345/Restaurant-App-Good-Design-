@@ -25,7 +25,10 @@ export const Avatar: React.FC<{
   className?: string;
   /** Tint classes for the monogram. Defaults to the app's primary wash. */
   fallbackClassName?: string;
-}> = ({ src, name, size, letterSize, className, fallbackClassName }) => {
+  /** Inline tint for the monogram — for the hue-per-user monograms
+   *  (lib/avatar.avatarHue) that classes can't express. */
+  fallbackStyle?: React.CSSProperties;
+}> = ({ src, name, size, letterSize, className, fallbackClassName, fallbackStyle }) => {
   const [broken, setBroken] = useState(false);
   // A fresh upload replaces the URL; clear the error latch so the new one
   // gets its own chance to load.
@@ -37,10 +40,10 @@ export const Avatar: React.FC<{
     <div
       className={cn(
         'rounded-full overflow-hidden flex items-center justify-center flex-none',
-        !showPhoto && (fallbackClassName || 'bg-primary/[0.12]'),
+        !showPhoto && !fallbackStyle && (fallbackClassName || 'bg-primary/[0.12]'),
         className,
       )}
-      style={{ width: size, height: size }}
+      style={{ width: size, height: size, ...(!showPhoto ? fallbackStyle : undefined) }}
     >
       {showPhoto ? (
         <img
@@ -52,7 +55,7 @@ export const Avatar: React.FC<{
         />
       ) : (
         <span
-          className={cn(!fallbackClassName && 'text-primary')}
+          className={cn(!fallbackClassName && !fallbackStyle && 'text-primary')}
           style={{
             fontSize: letterSize ?? Math.round(size * 0.4),
             fontWeight: 700,
