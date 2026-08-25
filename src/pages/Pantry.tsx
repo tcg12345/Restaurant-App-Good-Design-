@@ -1396,7 +1396,7 @@ const ListDetailView: React.FC<{
   onBack: () => void;
 }> = ({ list, viewMode, onViewModeChange, onBack }) => {
   const { ratings, getRestaurantInfo, removeFromList, removeFromWishlistInList, openAddRestaurantModal, deleteList, wishlist, removeFromWishlist, addToList, setListRating, getListRating, getRecipes, openAddRecipeModal, openHomeMealModal, removeRecipe, removeRecipeFromCookedList, updateRecipe, restaurantMeta, scoresUnlocked } = useLists();
-  const { phoneMode } = useSettings();
+  const { phoneMode, twoDecimalScores } = useSettings();
   const { user } = useAuth();
   const { showToast } = useToast();
   const navigate = useNavigate();
@@ -2080,7 +2080,7 @@ const ListDetailView: React.FC<{
                   {listStats.avg !== null && scoresUnlocked && (
                     <>
                       <span className="text-on-surface/25 mx-1.5">·</span>
-                      <span>Avg <span className="font-bold text-on-surface">{listStats.avg.toFixed(1)}</span></span>
+                      <span>Avg <span className="font-bold text-on-surface">{listStats.avg.toFixed(twoDecimalScores ? 2 : 1)}</span></span>
                     </>
                   )}
                 </p>
@@ -3684,7 +3684,7 @@ const HomeCookingTab: React.FC<{
   // button + duplicate header to avoid two layers of chrome.
   hideHeader?: boolean;
 }> = ({ meals, onUpdateMeal, onDeleteMeal, onOpenModal, onBack, selectedMealId, onSelectMeal, hideHeader = false }) => {
-  const { phoneMode } = useSettings();
+  const { phoneMode, twoDecimalScores } = useSettings();
   const { user } = useAuth();
   const { showToast } = useToast();
   const navigate = useNavigate();
@@ -3975,7 +3975,7 @@ const HomeCookingTab: React.FC<{
                 <>
                   <div className="flex items-baseline">
                     <span className={cn("text-4xl font-serif font-bold tabular-nums", scoreColor(selectedMeal.score))}>
-                      {selectedMeal.score.toFixed(1)}
+                      {selectedMeal.score.toFixed(twoDecimalScores ? 2 : 1)}
                     </span>
                     <span className="text-xs text-on-surface/35 font-medium ml-1">/ 10</span>
                   </div>
@@ -4546,7 +4546,7 @@ const HomeCookingTab: React.FC<{
                   {visibleAvg !== null && (
                     <>
                       <span className="text-on-surface/25 mx-1.5">·</span>
-                      <span>Avg <span className="font-bold text-on-surface">{visibleAvg.toFixed(1)}</span></span>
+                      <span>Avg <span className="font-bold text-on-surface">{visibleAvg.toFixed(twoDecimalScores ? 2 : 1)}</span></span>
                     </>
                   )}
                 </p>
@@ -5673,7 +5673,7 @@ export const Pantry: React.FC = () => {
   // landing card grid — drops into the existing rated-list rendering.
   const [showAllRated, setShowAllRated] = useState(false);
   const [createTripFromList, setCreateTripFromList] = useState(false);
-  const { phoneMode, setHideBottomNav } = useSettings();
+  const { phoneMode, setHideBottomNav, twoDecimalScores } = useSettings();
   const { user } = useAuth();
   const { setOverride: setPageAddAction } = usePageAddAction();
 
@@ -6696,7 +6696,7 @@ export const Pantry: React.FC = () => {
                     </p>
                     {filteredRatings.length > 0 && scoresUnlocked && (
                       <p className="text-xs text-on-surface/40">
-                        Avg: <span className="font-bold text-on-surface">{(filteredRatings.reduce((sum, r) => sum + r.score, 0) / filteredRatings.length).toFixed(1)}</span>/10
+                        Avg: <span className="font-bold text-on-surface">{(filteredRatings.reduce((sum, r) => sum + r.score, 0) / filteredRatings.length).toFixed(twoDecimalScores ? 2 : 1)}</span>/10
                       </p>
                     )}
                   </div>
@@ -6833,7 +6833,7 @@ export const Pantry: React.FC = () => {
                         {filteredRatings.length > 0 && scoresUnlocked && (
                           <>
                             <span className="text-on-surface/25 mx-1.5">·</span>
-                            <span>Avg <span className="font-bold text-on-surface">{(filteredRatings.reduce((sum, r) => sum + r.score, 0) / filteredRatings.length).toFixed(1)}</span></span>
+                            <span>Avg <span className="font-bold text-on-surface">{(filteredRatings.reduce((sum, r) => sum + r.score, 0) / filteredRatings.length).toFixed(twoDecimalScores ? 2 : 1)}</span></span>
                           </>
                         )}
                       </p>

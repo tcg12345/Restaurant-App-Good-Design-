@@ -31,7 +31,8 @@ import { RestaurantFeaturedReels } from '../components/RestaurantFeaturedReels';
 import { YourReviewComments } from '../components/YourReviewComments';
 import { Link } from 'react-router-dom';
 import { useBottomSheet } from '../lib/useBottomSheet';
-import { scoreHex } from '../lib/score';
+import { formatScore, scoreHex } from '../lib/score';
+import { useSettings } from '../contexts/SettingsContext';
 import { LoadingSkeleton, LoadingSkeletonList } from '../components/LoadingSkeleton';
 import { getNextOpenLabel, restaurantLocalNow } from '../lib/hours';
 import 'mapbox-gl/dist/mapbox-gl.css';
@@ -65,6 +66,7 @@ const CARD = 'bg-white border border-on-surface/[0.07] rounded-2xl';
 const H2 = 'font-serif font-bold text-[22px] tracking-[-0.02em] text-on-surface';
 
 export const RestaurantDetailDesktop: React.FC = () => {
+  const { twoDecimalScores } = useSettings();
   const {
     place, michelin, loading, error, navigate,
     photoIndex, setPhotoIndex,
@@ -200,16 +202,19 @@ export const RestaurantDetailDesktop: React.FC = () => {
     badgeScore == null ? null : (
       <div className="flex flex-col items-center gap-2 flex-shrink-0">
         <div
-          className="w-[84px] h-[84px] rounded-full grid place-items-center font-serif font-bold text-[31px] text-white tabular-nums tracking-[-0.02em]"
+          className={cn(
+            'w-[84px] h-[84px] rounded-full grid place-items-center font-serif font-bold text-white tabular-nums tracking-[-0.02em]',
+            twoDecimalScores ? 'text-[26px]' : 'text-[31px]',
+          )}
           style={{
             background: scoreColor(badgeScore),
             boxShadow: `0 10px 26px ${scoreColor(badgeScore)}59, inset 0 0 0 1.5px rgba(255,255,255,0.3)`,
           }}
-          aria-label={badgeIsPersonal ? `Your rating ${badgeScore.toFixed(1)}` : `Community rating ${badgeScore.toFixed(1)}`}
+          aria-label={badgeIsPersonal ? `Your rating ${formatScore(badgeScore, twoDecimalScores)}` : `Community rating ${formatScore(badgeScore, twoDecimalScores)}`}
         >
           {badgeIsPersonal && !scoresUnlocked
             ? <span className="text-[15px] leading-tight text-center px-2">{TIER_LABELS[tierOfScore(badgeScore)]}</span>
-            : badgeScore.toFixed(1)}
+            : formatScore(badgeScore, twoDecimalScores)}
         </div>
         <div className={cn(
           'text-[11px] font-bold uppercase tracking-[0.12em]',
@@ -432,9 +437,9 @@ export const RestaurantDetailDesktop: React.FC = () => {
                 <div className={cn('flex flex-col items-center gap-2.5 py-5 px-4', bordered && 'border-l border-on-surface/[0.06]')}>
                   <div className="text-[11px] font-bold uppercase tracking-[0.18em] text-on-surface/40">{label}</div>
                   {score != null ? (
-                    <div className="w-[52px] h-[52px] rounded-full grid place-items-center font-serif font-bold text-xl text-white tabular-nums"
+                    <div className={cn('w-[52px] h-[52px] rounded-full grid place-items-center font-serif font-bold text-white tabular-nums', twoDecimalScores ? 'text-base' : 'text-xl')}
                       style={{ background: scoreColor(score), boxShadow: 'inset 0 0 0 1.5px rgba(255,255,255,0.22)' }}>
-                      {score.toFixed(1)}
+                      {formatScore(score, twoDecimalScores)}
                     </div>
                   ) : (
                     <div className="w-[52px] h-[52px] rounded-full grid place-items-center bg-on-surface/[0.03]" style={{ boxShadow: 'inset 0 0 0 1.5px rgba(30,27,26,0.08)' }}>
@@ -613,7 +618,7 @@ export const RestaurantDetailDesktop: React.FC = () => {
                             <div className="mt-2 flex items-baseline gap-1.5">
                               {scoresUnlocked ? (
                                 <>
-                                  <span className="font-serif font-bold text-[38px] leading-none tabular-nums" style={{ color: scoreColor(myRating.score) }}>{myRating.score.toFixed(1)}</span>
+                                  <span className="font-serif font-bold text-[38px] leading-none tabular-nums" style={{ color: scoreColor(myRating.score) }}>{formatScore(myRating.score, twoDecimalScores)}</span>
                                   <span className="text-base font-semibold text-on-surface/40">/ 10</span>
                                 </>
                               ) : (

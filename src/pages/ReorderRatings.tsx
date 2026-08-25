@@ -6,6 +6,7 @@ import { useLists } from '../contexts/ListsContext';
 import { settleScores, normalizeScores, tierOfScore } from '../lib/settleScores';
 
 import { SCORE_TIER_HEX } from '../lib/score';
+import { useSettings } from '../contexts/SettingsContext';
 
 interface RatedItem {
   restaurantId: string;
@@ -26,6 +27,7 @@ const ReorderItem: React.FC<{
 }> = ({ item, originalScore, onDragEnd }) => {
   const controls = useDragControls();
   const { scoresUnlocked: reorderScoresUnlocked } = useLists();
+  const { twoDecimalScores } = useSettings();
   const changed = originalScore !== undefined && originalScore !== item.score;
 
   return (
@@ -70,9 +72,11 @@ const ReorderItem: React.FC<{
               initial={changed ? { scale: 1.3, color: SCORE_TIER_HEX.mid } : false}
               animate={{ scale: 1, color: changed ? SCORE_TIER_HEX.mid : '#1a1a1a' }}
               transition={{ type: 'spring', damping: 15, stiffness: 300 }}
-              className="text-base font-bold tabular-nums min-w-[2rem] text-right"
+              className={twoDecimalScores
+                ? 'text-[14px] font-bold tabular-nums min-w-[2.6rem] text-right'
+                : 'text-base font-bold tabular-nums min-w-[2rem] text-right'}
             >
-              {item.score.toFixed(1)}
+              {item.score.toFixed(twoDecimalScores ? 2 : 1)}
             </motion.span>
             <span className="text-xs text-on-surface/30 font-medium">/10</span>
           </>

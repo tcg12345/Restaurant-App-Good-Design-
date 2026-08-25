@@ -14,7 +14,8 @@ import { FriendReviewSheet, FriendAvatar } from '../components/FriendReviewSheet
 import { SCORE_UNLOCK_THRESHOLD } from '../lib/scoreUnlock';
 import { VerifiedBadge } from '../components/VerifiedBadge';
 import { CuisinePicker, EditableCuisineLine } from '../components/CuisinePicker';
-import { scoreColor, scoreChipBg, scoreTint } from '../lib/score';
+import { formatScore, scoreColor, scoreChipBg, scoreTint } from '../lib/score';
+import { useSettings } from '../contexts/SettingsContext';
 import { ScoreBadge } from '../components/ScoreBadge';
 import { useRestaurantDetail, formatReviewCount, getTodayHours, getCuisineLabel } from './useRestaurantDetail';
 import { MichelinBadge } from '../components/MichelinBadge';
@@ -91,6 +92,7 @@ const MetaRow: React.FC<{ label: string; children: React.ReactNode }> = ({ label
 );
 
 export const RestaurantDetailMobile: React.FC = () => {
+  const { twoDecimalScores } = useSettings();
   const {
     place, loading, error, navigate,
     photoIndex, setPhotoIndex,
@@ -681,7 +683,7 @@ export const RestaurantDetailMobile: React.FC = () => {
                   )}
                   style={{ fontSize: '24px', fontWeight: 700, letterSpacing: '-0.01em' }}
                 >
-                  {score != null ? score.toFixed(1) : '—'}
+                  {score != null ? formatScore(score, twoDecimalScores) : '—'}
                 </span>
                 <span className="mt-3 text-on-surface" style={{ fontSize: '14px', fontWeight: 700 }}>{label}</span>
                 <span className={cn('mt-1.5', score != null ? 'text-on-surface/50' : 'text-on-surface/35')} style={{ fontSize: '13px' }}>{meta}</span>
@@ -830,7 +832,7 @@ export const RestaurantDetailMobile: React.FC = () => {
                         {scoresUnlocked ? (
                           <>
                             <span className={scoreColor(myRating.score)} style={{ fontSize: '40px', fontWeight: 700, lineHeight: 1, letterSpacing: '-0.045em' }}>
-                              {myRating.score.toFixed(1)}
+                              {formatScore(myRating.score, twoDecimalScores)}
                             </span>
                             <span className="text-on-surface/45" style={{ fontSize: '15px' }}>/ 10</span>
                           </>

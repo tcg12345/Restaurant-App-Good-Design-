@@ -33,7 +33,7 @@ export const TopListPage: React.FC = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
   const { ratings, scoresUnlocked } = useLists();
-  const { phoneMode } = useSettings();
+  const { phoneMode, twoDecimalScores } = useSettings();
 
   const config = useMemo(() => parseTopListKey(decodeURIComponent(listKey)), [listKey]);
   const list = useMemo(
@@ -100,7 +100,7 @@ export const TopListPage: React.FC = () => {
                   'rounded-md border px-1.5 py-0.5 text-[12.5px] font-bold tabular-nums',
                   scoreBadgeBg(list.avg), scoreColor(list.avg),
                 )}>
-                  {list.avg.toFixed(1)} avg
+                  {list.avg.toFixed(twoDecimalScores ? 2 : 1)} avg
                 </span>
               </>
             )}

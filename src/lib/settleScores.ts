@@ -17,21 +17,28 @@
  *    where they were placed; as a tier matures (MATURITY_K), its layout
  *    contracts toward a full spread — the top of "loved" drifts to 10.0, the
  *    bottom of "disliked" to 1.0 — decompressing the crowded end for real.
- *  - MIN GAP 0.1: adjacent tier-mates always end at least one display step
- *    apart (until a tier exceeds the band's 0.1-grid capacity).
+ *  - MIN GAP 0.01: adjacent tier-mates always end at least one storage step
+ *    apart (until a tier exceeds the band's 0.01-grid capacity). Scores are
+ *    STORED at two decimals so the ranking is strict — no two restaurants
+ *    tie — even when the 1-decimal display rounds neighbours together.
+ *    Whether the second decimal is SHOWN is a display preference
+ *    (SettingsContext.twoDecimalScores); it exists either way.
  *
  * Stability: the settle is a constraint PROJECTION (gap floors + anchor
  * inequalities), not a continuous pull — a layout that already satisfies the
  * constraints is a fixed point, so repeated settles are idempotent up to
- * 0.1-grid dust. Settles run only on score-changing events and touch only
+ * 0.01-grid dust. Settles run only on score-changing events and touch only
  * the affected tier(s).
  */
 
 import type { RestaurantRating } from '../contexts/ListsContext';
 import { tierRange, type Tier } from './headToHeadRating';
 
-/** Minimum displayable gap between adjacent tier-mates (one 0.1 grid step). */
-export const MIN_GAP = 0.1;
+/** Minimum gap between adjacent tier-mates — one step of the 0.01 STORAGE
+ *  grid. Ratings are ranked, and a ranking with ties isn't one: two
+ *  restaurants may display the same rounded 8.3, but underneath one is
+ *  always strictly higher. */
+export const MIN_GAP = 0.01;
 /** Spacing a mature tier relaxes toward. 3.0 band / 0.3 = 10 gaps, so a tier
  *  reaches full spread right around the same count it reaches maturity. */
 export const PREFERRED_GAP = 0.3;
@@ -59,17 +66,22 @@ export interface SettleOptions {
   explicitOrder?: string[];
 }
 
-/** Band membership by score, tolerant of float dust on the 0.1 grid. */
+/** Band membership by score, tolerant of float dust on the 0.01 grid.
+ *  The half-step (0.005) tolerance matters at the band seams: the H2H
+ *  strict-bound nudge can put a score at 6.99 — deliberately BELOW the
+ *  loved band — and that must classify as fine, while a float-dusted
+ *  6.999999999 that means 7.0 must stay loved. */
 export function tierOfScore(score: number): Tier {
-  if (score >= 6.95) return 'loved';
-  if (score >= 3.95) return 'fine';
+  if (score >= 6.995) return 'loved';
+  if (score >= 3.995) return 'fine';
   return 'disliked';
 }
 
-const round1 = (v: number): number => Math.round(v * 10) / 10;
+/** Quantize to the 0.01 storage grid. */
+const roundGrid = (v: number): number => Math.round(v * 100) / 100;
 const clamp = (v: number, lo: number, hi: number): number => Math.max(lo, Math.min(hi, v));
 
-/** Distinct 0.1-grid slots available in a tier band (31 loved / 30 fine / 30 disliked). */
+/** Distinct 0.01-grid slots available in a tier band (301 loved / 291 fine / 291 disliked). */
 function bandCapacity(tier: Tier): number {
   const { min, max } = tierRange(tier);
   return Math.round((max - min) / MIN_GAP) + 1;
@@ -94,17 +106,17 @@ interface OrderedRow {
  *    below bandMax − f·W (→ 1.0). Layouts already satisfying it don't move.
  *
  * Returns the new score per index: order-preserving, band-contained,
- * 0.1-grid, min-gap enforced.
+ * 0.01-grid, min-gap enforced.
  */
 function settleTierScores(rows: OrderedRow[], tier: Tier): number[] {
   const n = rows.length;
   const s = rows.map((r) => r.score);
-  if (n <= 1) return s.map(round1);
+  if (n <= 1) return s.map(roundGrid);
 
   const { min: bandMin, max: bandMax } = tierRange(tier);
   const W = bandMax - bandMin;
 
-  // Overflow fill: more rows than distinct 0.1 slots. Rounding here would
+  // Overflow fill: more rows than distinct 0.01 slots. Rounding here would
   // collapse neighbors into DUPLICATE scores — and every list in the app
   // sorts by score, where ties fall back to array order (the just-rated row
   // sits at the array head), so the settled order scrambled on display: a
@@ -124,19 +136,59 @@ function settleTierScores(rows: OrderedRow[], tier: Tier): number[] {
   const gapFloor = MIN_GAP + f * (PREFERRED_GAP - MIN_GAP);
 
   // Floor the gaps; keep anything wider untouched (gap ratios survive).
-  const gaps: number[] = [];
-  let span = 0;
-  for (let i = 0; i < n - 1; i++) {
-    const g = Math.max(Math.max(0, s[i] - s[i + 1]), gapFloor);
-    gaps.push(g);
-    span += g;
-  }
+  // The one-grid-step tolerance is what keeps repeated settles idempotent:
+  // a gap this projection floored last pass, then rounded onto the 0.01
+  // grid while building the ladder, can sit a step under the floor — re-
+  // flooring it every pass would wiggle the layout forever.
+  const applyFloor = (fl: number): { gaps: number[]; span: number } => {
+    const gs: number[] = [];
+    let sp = 0;
+    for (let i = 0; i < n - 1; i++) {
+      const raw = Math.max(0, s[i] - s[i + 1]);
+      const g = raw >= fl - MIN_GAP - 1e-9 ? Math.max(raw, MIN_GAP) : fl;
+      gs.push(g);
+      sp += g;
+    }
+    return { gaps: gs, span: sp };
+  };
+
+  let { gaps, span } = applyFloor(gapFloor);
   if (span > W + 1e-9) {
-    // The floored ladder can't fit — compress proportionally (ratios kept).
-    const k = W / span;
-    for (let i = 0; i < gaps.length; i++) gaps[i] *= k;
-    span = W;
-    if (gaps.some((g) => g < MIN_GAP - 1e-9)) return uniformFill();
+    // The floored ladder can't fit. DEGRADE THE FLOOR toward MIN_GAP
+    // rather than compressing everything proportionally: the user's real
+    // gaps always fit (they came from in-band scores), so crowding should
+    // cost the aesthetic spacing — never the gap ratios. (The old
+    // proportional compression also wasn't a projection: each settle
+    // shrank the wide gaps a little more, and only the coarse 0.1 grid's
+    // rounding froze the decay. The 0.01 grid absorbs nothing, so the
+    // fitting floor must be found, not approximated.)
+    let lo = MIN_GAP;
+    let hi = gapFloor;
+    for (let iter = 0; iter < 40; iter++) {
+      const mid = (lo + hi) / 2;
+      if (applyFloor(mid).span > W + 1e-9) hi = mid;
+      else lo = mid;
+    }
+    // Quantize the found floor DOWN to the grid so a hair of pass-to-pass
+    // input wiggle can't flip it to a different value.
+    const fq = Math.max(MIN_GAP, Math.floor(lo * 100) / 100);
+    ({ gaps, span } = applyFloor(fq));
+    if (span > W + 1e-9) {
+      // Even MIN_GAP floors beside the verbatim wide gaps don't fit — the
+      // tier is at genuine capacity pressure (raw span ≈ the whole band
+      // plus tied rows). Snap to a GRID uniform fill: it depends only on
+      // (n, band), so settling the result again reproduces it exactly —
+      // proportional compression here would shave the wide gaps a little
+      // more on every settle instead of reaching a fixed point.
+      const fill = new Array<number>(n);
+      for (let i = 0; i < n; i++) fill[i] = roundGrid(bandMax - (i * W) / (n - 1));
+      for (let i = 1; i < n; i++) fill[i] = Math.min(fill[i], roundGrid(fill[i - 1] - MIN_GAP));
+      if (fill[n - 1] < bandMin) {
+        fill[n - 1] = bandMin;
+        for (let i = n - 2; i >= 0; i--) fill[i] = Math.max(fill[i], roundGrid(fill[i + 1] + MIN_GAP));
+      }
+      return fill;
+    }
   }
 
   const out = new Array<number>(n).fill(0);
@@ -144,42 +196,42 @@ function settleTierScores(rows: OrderedRow[], tier: Tier): number[] {
     // Bottom-anchored: the worst rating must reach down toward the band
     // floor as the tier matures.
     const bottomReq = bandMax - f * W;
-    const bottom = clamp(round1(Math.min(s[n - 1], bottomReq)), bandMin, round1(bandMax - span));
+    const bottom = clamp(roundGrid(Math.min(s[n - 1], bottomReq)), bandMin, roundGrid(bandMax - span));
     out[n - 1] = Math.max(bottom, bandMin);
     let cum = 0;
     for (let i = n - 2; i >= 0; i--) {
       cum += gaps[i];
-      out[i] = Math.max(round1(out[n - 1] + cum), round1(out[i + 1] + MIN_GAP));
+      out[i] = Math.max(roundGrid(out[n - 1] + cum), roundGrid(out[i + 1] + MIN_GAP));
     }
     // Rounding drift can poke the head above the ceiling — push it back
-    // while keeping the 0.1 ladder (capacity guarantees the fit).
+    // while keeping the grid ladder (capacity guarantees the fit).
     if (out[0] > bandMax) {
       out[0] = bandMax;
       for (let i = 1; i < n - 1; i++) {
-        out[i] = Math.min(out[i], round1(out[i - 1] - MIN_GAP));
+        out[i] = Math.min(out[i], roundGrid(out[i - 1] - MIN_GAP));
       }
     }
   } else {
     // Top-anchored: loved's best must reach up toward 10 as the tier
     // matures; fine has no anchor pull (containment + gaps only).
     const topReq = tier === 'loved' ? bandMin + f * W : bandMin;
-    const top = clamp(round1(Math.max(s[0], topReq)), round1(bandMin + span), bandMax);
+    const top = clamp(roundGrid(Math.max(s[0], topReq)), roundGrid(bandMin + span), bandMax);
     out[0] = Math.min(top, bandMax);
     let cum = 0;
     for (let i = 1; i < n; i++) {
       cum += gaps[i - 1];
-      out[i] = Math.min(round1(out[0] - cum), round1(out[i - 1] - MIN_GAP));
+      out[i] = Math.min(roundGrid(out[0] - cum), roundGrid(out[i - 1] - MIN_GAP));
     }
     // Rounding drift can nudge the tail below the band floor — lift it back
-    // while keeping the 0.1 ladder (capacity guarantees the fit).
+    // while keeping the grid ladder (capacity guarantees the fit).
     if (out[n - 1] < bandMin) {
       out[n - 1] = bandMin;
       for (let i = n - 2; i >= 1; i--) {
-        out[i] = Math.max(out[i], round1(out[i + 1] + MIN_GAP));
+        out[i] = Math.max(out[i], roundGrid(out[i + 1] + MIN_GAP));
       }
     }
   }
-  return out.map((v) => clamp(round1(v), bandMin, bandMax));
+  return out.map((v) => clamp(roundGrid(v), bandMin, bandMax));
 }
 
 /**
@@ -236,7 +288,7 @@ export function settleScores(all: RestaurantRating[], opts: SettleOptions = {}):
     if (rows.length <= 1) continue;
     const settled = settleTierScores(rows, tier);
     for (let i = 0; i < rows.length; i++) {
-      // Epsilon compare (not round1 equality): overflow fills emit unrounded
+      // Epsilon compare (not grid equality): overflow fills emit unrounded
       // scores, and a float that equals the stored value exactly must not
       // re-register as a change on every settle.
       if (Math.abs(settled[i] - rows[i].score) > 1e-9) {
@@ -259,7 +311,7 @@ export function settleScores(all: RestaurantRating[], opts: SettleOptions = {}):
  *  - The tier stretches toward a full spread as it matures: loved's top
  *    drifts to 10.0, disliked's bottom to 1.0, span grows toward
  *    min(band, (n−1)·PREFERRED_GAP).
- *  - 0.1 grid, MIN_GAP enforced while the band has capacity; beyond
+ *  - 0.01 grid, MIN_GAP enforced while the band has capacity; beyond
  *    capacity a uniform fill with rounded duplicates is unavoidable.
  */
 export function normalizeScores(
@@ -294,7 +346,7 @@ export function normalizeScores(
 
     let out: number[];
     if (n > bandCapacity(tier)) {
-      // More rows than 0.1 slots — uniform fill. Unrounded so the scores
+      // More rows than 0.01 slots — uniform fill. Unrounded so the scores
       // stay strictly descending (see settleTierScores.uniformFill).
       out = rows.map((_, i) => bandMax - (i * W) / (n - 1));
     } else {
@@ -322,21 +374,21 @@ export function normalizeScores(
         const u = i / (n - 1);
         const q = currentSpan > 1e-9 ? (s0 - r.score) / currentSpan : u;
         const pos = 0.6 * q + 0.4 * u;
-        return round1(top - spanT * pos);
+        return roundGrid(top - spanT * pos);
       });
       // Grid ladder: strictly descending by ≥ MIN_GAP, inside the band.
       out[0] = clamp(out[0], bandMin, bandMax);
       for (let i = 1; i < n; i++) {
-        out[i] = Math.min(out[i], round1(out[i - 1] - MIN_GAP));
+        out[i] = Math.min(out[i], roundGrid(out[i - 1] - MIN_GAP));
       }
       if (out[n - 1] < bandMin) {
         out[n - 1] = bandMin;
         for (let i = n - 2; i >= 0; i--) {
-          out[i] = Math.max(out[i], round1(out[i + 1] + MIN_GAP));
+          out[i] = Math.max(out[i], roundGrid(out[i + 1] + MIN_GAP));
         }
         out[0] = Math.min(out[0], bandMax);
       }
-      out = out.map((v) => clamp(round1(v), bandMin, bandMax));
+      out = out.map((v) => clamp(roundGrid(v), bandMin, bandMax));
     }
 
     for (let i = 0; i < n; i++) {

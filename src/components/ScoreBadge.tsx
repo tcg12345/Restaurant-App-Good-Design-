@@ -1,7 +1,8 @@
 import React from 'react';
 import { cn } from '../lib/utils';
-import { scoreBadgeBg, scoreColor, SCORE_TIER_HEX } from '../lib/score';
+import { formatScore, scoreBadgeBg, scoreColor, SCORE_TIER_HEX } from '../lib/score';
 import { tierOfScore } from '../lib/settleScores';
+import { useSettings } from '../contexts/SettingsContext';
 
 /** Sentiment-tier dot color for a score (loved/fine/disliked bands). */
 const tierDotHex = (score: number): string => {
@@ -23,13 +24,18 @@ export const ScoreBadge: React.FC<{
   size?: 'xs' | 'sm' | 'md' | 'lg' | 'xl';
   className?: string;
 }> = ({ rating, size = 'md', className }) => {
+  const { twoDecimalScores } = useSettings();
   if (!rating || rating <= 0) return null;
+  // The two-decimal preference applies from `sm` up; `xs` (a 28px disc)
+  // can't fit four significant characters and stays one-decimal.
+  const twoDp = twoDecimalScores && size !== 'xs';
   const dims =
     size === 'xs' ? 'w-7 h-7 text-[11px]'
-    : size === 'sm' ? 'w-9 h-9 text-sm'
-    : size === 'lg' ? 'w-12 h-12 text-base'
-    : size === 'xl' ? 'w-14 h-14 text-lg'
-    : 'w-10 h-10 text-sm';
+    : size === 'sm' ? (twoDp ? 'w-9 h-9 text-[11.5px]' : 'w-9 h-9 text-sm')
+    : size === 'lg' ? (twoDp ? 'w-12 h-12 text-[14px]' : 'w-12 h-12 text-base')
+    : size === 'xl' ? (twoDp ? 'w-14 h-14 text-base' : 'w-14 h-14 text-lg')
+    : (twoDp ? 'w-10 h-10 text-[12px]' : 'w-10 h-10 text-sm');
+  const label = formatScore(rating, twoDp);
   return (
     <div
       className={cn(
@@ -39,9 +45,9 @@ export const ScoreBadge: React.FC<{
         scoreColor(rating),
         className,
       )}
-      aria-label={`Score ${rating.toFixed(1)}`}
+      aria-label={`Score ${label}`}
     >
-      {rating.toFixed(1)}
+      {label}
     </div>
   );
 };

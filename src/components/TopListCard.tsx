@@ -18,6 +18,7 @@ import { Link } from 'react-router-dom';
 import { ChevronRight } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { topListKindLabel, type TopList } from '../lib/topLists';
+import { useSettings } from '../contexts/SettingsContext';
 
 /** Deterministic tint for a coverless list — same list, same colour, every
  *  render, so the grid doesn't reshuffle its own palette on each visit. */
@@ -40,6 +41,7 @@ export const TopListCard: React.FC<{
   /** Hide the numbers when the user hasn't unlocked their own scores. */
   scoresUnlocked: boolean;
 }> = ({ list, scoresUnlocked }) => {
+  const { twoDecimalScores } = useSettings();
   const leader = list.all[0];
   const cover = list.all.find((r) => r.image)?.image;
   return (
@@ -65,7 +67,7 @@ export const TopListCard: React.FC<{
             className="absolute top-2.5 right-2.5 rounded-full bg-black/50 backdrop-blur-md text-white px-2.5 py-[7px] tabular-nums"
             style={{ fontSize: '12px', fontWeight: 700 }}
           >
-            {list.avg.toFixed(1)}
+            {list.avg.toFixed(twoDecimalScores ? 2 : 1)}
           </span>
         )}
         <span className="absolute left-3.5 right-3.5 bottom-3">

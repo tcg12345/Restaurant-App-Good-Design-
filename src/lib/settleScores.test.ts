@@ -50,6 +50,8 @@ function makeRng(seed: number): () => number {
 }
 
 const round1 = (v: number) => Math.round(v * 10) / 10;
+/** The 0.01 storage grid — see settleScores.MIN_GAP. */
+const roundGrid = (v: number) => Math.round(v * 100) / 100;
 
 /** Rows of one category+tier, in settle order (score desc, id asc). */
 function tierRows(all: RestaurantRating[], tier: Tier): RestaurantRating[] {
@@ -87,7 +89,7 @@ describe('settleScores invariants', () => {
     }
   });
 
-  it('enforces the minimum 0.1 gap between adjacent tier-mates', () => {
+  it('enforces the minimum storage-grid gap between adjacent tier-mates', () => {
     const all = [mk('a', 9.1), mk('b', 9.1), mk('c', 9.1), mk('d', 9.0), mk('e', 9.0)];
     const next = settleAndApply(all, { justRatedId: 'e' });
     const rows = tierRows(next, 'loved');
@@ -96,13 +98,13 @@ describe('settleScores invariants', () => {
     }
   });
 
-  it('separates an all-equal tier into a strict 0.1 ladder', () => {
+  it('separates an all-equal tier into a strict grid ladder', () => {
     const all = ['a', 'b', 'c', 'd', 'e'].map((id) => mk(id, 8.0));
     const next = settleAndApply(all, { justRatedId: 'e' });
     const rows = tierRows(next, 'loved');
     const scores = rows.map((r) => r.score);
     for (let i = 0; i < scores.length - 1; i++) {
-      expect(round1(scores[i] - scores[i + 1])).toBeGreaterThanOrEqual(MIN_GAP);
+      expect(roundGrid(scores[i] - scores[i + 1])).toBeGreaterThanOrEqual(MIN_GAP);
     }
     expect(new Set(scores).size).toBe(scores.length);
   });
@@ -117,7 +119,7 @@ describe('settleScores invariants', () => {
     const nw = next.find((r) => r.restaurantId === 'new')!;
     expect(inc.score).toBeGreaterThan(nw.score);
     // Adjacent with minimal separation — the gap floor scales gently with
-    // tier maturity (0.1 → 0.3), so at n=4 the pair sits ~0.2 apart.
+    // tier maturity (0.01 → 0.3), so at n=4 the pair sits ~0.1 apart.
     expect(round1(inc.score - nw.score)).toBeLessThanOrEqual(0.2);
   });
 });
@@ -343,12 +345,16 @@ describe('placementOrder', () => {
     expect(order).toEqual(['a', 'b', 'new', 'c']);
   });
 
-  it("THE crowded case: beating the 9.7 in a 0.1 gap shifts the block DOWN, never inverts", () => {
+  it("THE crowded case: beating the 9.7 in a 0.1 gap lands BETWEEN neighbours, never inverts", () => {
     const all = [mk('r10', 10), mk('r99', 9.9), mk('r98', 9.8), mk('r97', 9.7), mk('r96', 9.6)];
     const st = runSearch(all, 9.7);
     const final = computeFinalScore(st);
-    // The raw score collides with the beaten neighbor — that's the trap.
-    expect(final).toBe(9.7);
+    // On the 0.01 storage grid the 9.7–9.8 midpoint is representable, so
+    // the old collision trap (final === 9.7, needing the nudge + explicit
+    // order to avoid an inversion) simply doesn't occur: the new score is
+    // strictly between its neighbours from the start.
+    expect(final).toBeGreaterThan(9.7);
+    expect(final).toBeLessThan(9.8);
     const order = placementOrder(st, 'new', final);
     const next = settleAndApply([mk('new', final), ...all], {
       justRatedId: 'new',
@@ -358,10 +364,9 @@ describe('placementOrder', () => {
     // Order faithful to the comparisons: new sits between r98 and r97 …
     expect(score('r98')).toBeGreaterThan(score('new'));
     expect(score('new')).toBeGreaterThan(score('r97'));
-    // … and the block below shifted down to make room (no crowding).
-    expect(score('r97')).toBeLessThanOrEqual(9.6);
+    // … with every neighbour at least a grid step apart (no crowding).
     expect(score('r97') - score('r96')).toBeGreaterThanOrEqual(MIN_GAP - 1e-9);
-    // Everything stays distinct on the 0.1 grid.
+    // Everything stays distinct on the storage grid.
     const sorted = [...next].sort((a, b) => b.score - a.score).map((r) => r.score);
     for (let i = 1; i < sorted.length; i++) {
       expect(sorted[i - 1] - sorted[i]).toBeGreaterThanOrEqual(MIN_GAP - 1e-9);
@@ -473,11 +478,12 @@ describe('equal-score block insertion', () => {
     expect(sorted).toEqual(['a', 'b', 'e', 'c', 'd']);
   });
 
-  it('overflow: a mid-block insert stays mid-block and scores are STRICTLY descending', () => {
-    // 40 loved rows — past the 31-slot 0.1 grid. The old uniform fill
-    // rounded to duplicate scores, so display sorts (stable, with the
-    // just-rated row at the array head) showed the new row at the TOP of
-    // its equal run instead of where the comparisons placed it.
+  it('capacity pressure: a mid-block insert stays mid-block and scores are STRICTLY descending', () => {
+    // 40 loved rows whose raw span already covers the whole band, plus a
+    // tied insert — the case where the aesthetic gap floor can't fit even
+    // after degrading to MIN_GAP. (On the old 0.1 grid this overflowed the
+    // 31-slot band outright and the uniform fill rounded neighbours into
+    // duplicate scores, scrambling display sorts.)
     const all = Array.from({ length: 40 }, (_, i) => mk(`r${String(i).padStart(2, '0')}`, round1(10 - (i * 3) / 39)));
     const order = all.map((r) => r.restaurantId);
     order.splice(20, 0, 'new'); // placed between r19 and r20

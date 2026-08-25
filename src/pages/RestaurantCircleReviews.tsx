@@ -77,7 +77,7 @@ export const RestaurantCircleReviews: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { user } = useAuth();
-  const { phoneMode } = useSettings();
+  const { phoneMode, twoDecimalScores } = useSettings();
   // Mobile top bar dissolves with scroll, Discover-style.
   const headerFade = useHeaderFade({ enabled: phoneMode, windowScroll: true });
 
@@ -228,7 +228,7 @@ export const RestaurantCircleReviews: React.FC = () => {
             {friends.length > 0 && (
               <div className="pt-[22px] flex items-end gap-3.5">
                 <span className="text-primary" style={{ fontSize: '44px', fontWeight: 700, lineHeight: 1, letterSpacing: '-0.045em' }}>
-                  {friendsAvg > 0 ? friendsAvg.toFixed(1) : '—'}
+                  {friendsAvg > 0 ? friendsAvg.toFixed(twoDecimalScores ? 2 : 1) : '—'}
                 </span>
                 <div className="pb-[5px] min-w-0">
                   <p className="text-on-surface/45" style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.14em', textTransform: 'uppercase' }}>

@@ -3,7 +3,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import {
   ArrowLeft, AtSign, AlertTriangle, BadgeCheck, Camera, Check, ChevronRight, Globe,
   LifeBuoy, Loader2, Lock, LogOut, Mail, MapPin, Moon, Shield, Sparkles,
-  SquarePen, Sun, Trash2, Upload, UploadCloud, User, Utensils, X,
+  SquarePen, Star, Sun, Trash2, Upload, UploadCloud, User, Utensils, X,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useAuth } from '../contexts/AuthContext';
@@ -113,7 +113,7 @@ export const SettingsPage: React.FC = () => {
   const location = useLocation();
   const { profile, user, signOut, refreshProfile, isAdmin } = useAuth();
   const listsCtx = useLists();
-  const { darkMode, toggleDarkMode } = useSettings();
+  const { darkMode, toggleDarkMode, twoDecimalScores, toggleTwoDecimalScores } = useSettings();
 
   // ── Push-in sub-page ─────────────────────────────────────────────
   // `subPage` keeps the content mounted through the slide-out; `subOpen`
@@ -365,6 +365,16 @@ export const SettingsPage: React.FC = () => {
             on: darkMode,
             press: toggleDarkMode,
           },
+          {
+            icon: <Star size={17} strokeWidth={1.9} />,
+            title: 'Precise scores',
+            sub: twoDecimalScores
+              ? 'Showing two decimals — 8.37, not 8.4'
+              : 'Scores round to one decimal — rankings stay exact underneath',
+            toggle: true,
+            on: twoDecimalScores,
+            press: toggleTwoDecimalScores,
+          },
         ],
       },
       isAdmin ? {
@@ -405,7 +415,7 @@ export const SettingsPage: React.FC = () => {
       .map((s) => ({ ...s, rows: q ? s.rows.filter((r) => `${r.title} ${r.sub}`.toLowerCase().includes(q)) : s.rows }))
       .filter((s) => s.rows.length > 0);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [query, profile?.is_public, profile?.is_verified, darkMode, isAdmin, pendingUploads]);
+  }, [query, profile?.is_public, profile?.is_verified, darkMode, twoDecimalScores, isAdmin, pendingUploads]);
 
   const subTitle = subPage === 'edit' ? 'Edit profile' : 'Account';
 

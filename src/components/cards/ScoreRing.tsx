@@ -1,6 +1,7 @@
 import React from 'react';
-import { scoreTintStyle, SCORE_TIER_HEX } from '../../lib/score';
+import { formatScore, scoreTintStyle, SCORE_TIER_HEX } from '../../lib/score';
 import { tierOfScore } from '../../lib/settleScores';
+import { useSettings } from '../../contexts/SettingsContext';
 
 /** Sentiment-tier dot color for a score (loved/fine/disliked bands). */
 const tierDotHex = (score: number): string => {
@@ -28,7 +29,11 @@ export const ScoreRing: React.FC<{ score?: number; size?: number; onPhoto?: bool
   locked = false,
   className,
 }) => {
+  const { twoDecimalScores } = useSettings();
   if (score === undefined || score === null || score <= 0) return null;
+  // Two-decimal display needs a ring big enough for four characters —
+  // below 40px the disc stays one-decimal whatever the preference says.
+  const twoDp = twoDecimalScores && size >= 40;
   if (locked) {
     return (
       <div
@@ -63,10 +68,11 @@ export const ScoreRing: React.FC<{ score?: number; size?: number; onPhoto?: bool
   // tint fill + ring + readable text, all adapting in dark mode.
   const pack = scoreTintStyle(score);
   const tier = { bg: pack.background, ring: pack.ring, text: pack.color };
+  const label = formatScore(score, twoDp);
   return (
     <div
       className={className}
-      aria-label={`Score ${score.toFixed(1)}`}
+      aria-label={`Score ${label}`}
       style={{
         width: size,
         height: size,
@@ -81,13 +87,15 @@ export const ScoreRing: React.FC<{ score?: number; size?: number; onPhoto?: bool
         justifyContent: 'center',
         fontFamily: 'var(--font-serif)',
         fontWeight: 700,
-        fontSize: Math.round(size * 0.34),
+        // A fourth character needs a slightly smaller face to sit inside
+        // the same disc.
+        fontSize: Math.round(size * (twoDp ? 0.28 : 0.34)),
         fontVariantNumeric: 'tabular-nums',
         flexShrink: 0,
         letterSpacing: '-0.01em',
       }}
     >
-      {score.toFixed(1)}
+      {label}
     </div>
   );
 };

@@ -18,6 +18,21 @@ export type ScoreTier = 'high' | 'mid' | 'low';
 
 export const scoreTier = (s: number): ScoreTier => (s >= 8 ? 'high' : s >= 5 ? 'mid' : 'low');
 
+/**
+ * Format a score for display. Scores are STORED at two decimals — the 0.01
+ * grid is what keeps the ranking strict, see settleScores.MIN_GAP — and
+ * `twoDecimals` (SettingsContext.twoDecimalScores) chooses whether the
+ * display shows that full precision (8.37) or rounds to one decimal (8.4).
+ *
+ * Callers in DENSE chrome — map markers, tiny chips, truncated meta lines —
+ * should keep passing nothing/false and stay one-decimal regardless of the
+ * setting: four significant characters don't fit a 28px disc. The setting
+ * is for the prominent surfaces (hero discs, list rows, profile stats).
+ */
+export function formatScore(score: number, twoDecimals = false): string {
+  return score.toFixed(twoDecimals ? 2 : 1);
+}
+
 /** Literal hexes mirroring the index.css tokens — ONLY for contexts CSS
  *  variables can't reach (Mapbox GL paint, canvas, motion color tweens).
  *  DOM styles should use `scoreSolid` / the utility classes instead. */

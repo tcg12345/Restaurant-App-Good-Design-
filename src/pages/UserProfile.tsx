@@ -81,7 +81,7 @@ export const UserProfile: React.FC = () => {
   const { requireSignIn } = useSignInModal();
   const { reels } = useReels();
   const { posts } = usePosts();
-  const { phoneMode } = useSettings();
+  const { phoneMode, twoDecimalScores } = useSettings();
   const { restaurantMeta, toggleWishlist, isWishlisted } = useLists();
   const userId = user?.id ?? null;
 
@@ -1428,7 +1428,7 @@ export const UserProfile: React.FC = () => {
           <div className="mt-3 flex items-center gap-3.5">
             <div className="flex-none flex flex-col gap-1.5">
               <span className={cn('font-serif text-[25px] font-bold leading-none tracking-[-0.04em]', scoreColor(tasteStats.avg))}>
-                {tasteStats.avg.toFixed(1)}
+                {tasteStats.avg.toFixed(twoDecimalScores ? 2 : 1)}
               </span>
               <span className="text-[11px] text-ink-3">avg score</span>
             </div>

@@ -38,7 +38,7 @@ import { useBlobPhotos } from '../lib/useBlobPhotos';
 import 'mapbox-gl/dist/mapbox-gl.css';
 import { cn, parseVisitDate } from '../lib/utils';
 import { VerifiedBadge } from './VerifiedBadge';
-import { scoreColor, scoreTint } from '../lib/score';
+import { formatScore, scoreColor, scoreTint } from '../lib/score';
 import { GlassButton } from '../lib/glass-buttons';
 import { useLists } from '../contexts/ListsContext';
 import {
@@ -61,6 +61,7 @@ import { openExternalUrl } from '../lib/external-links';
 import { MAPBOX_TOKEN } from '../lib/keys';
 import { RestaurantFeaturedReels } from './RestaurantFeaturedReels';
 import { PhotoGallery } from './PhotoGallery';
+import { useSettings } from '../contexts/SettingsContext';
 
 /* ── Snapshot the panel accepts ───────────────────────────────────────────
    We accept any object that quacks like a ReelRestaurantSnapshot so reels
@@ -130,6 +131,7 @@ const ScorePill: React.FC<{
   score: number;
   count: number;
 }> = ({ label, score, count }) => {
+  const { twoDecimalScores } = useSettings();
   const has = count > 0;
   // The tint and the ink come from the score itself, same tier palette
   // as every other surface — a column can't be "the good one".
@@ -141,9 +143,9 @@ const ScorePill: React.FC<{
           'w-[68px] h-[68px] rounded-full flex items-center justify-center tabular-nums',
           has ? scoreTint(score) : 'bg-on-surface/[0.06] text-on-surface/30',
         )}
-        style={{ fontSize: '23px', fontWeight: 700, letterSpacing: '-0.01em' }}
+        style={{ fontSize: twoDecimalScores && has ? '20px' : '23px', fontWeight: 700, letterSpacing: '-0.01em' }}
       >
-        {has ? score.toFixed(1) : '—'}
+        {has ? formatScore(score, twoDecimalScores) : '—'}
       </span>
       <span className="mt-2.5 text-on-surface" style={{ fontSize: '13px', fontWeight: 700 }}>{label}</span>
       <span className={cn('mt-1', has ? 'text-on-surface/50' : 'text-on-surface/35')} style={{ fontSize: '11.5px' }}>
@@ -287,6 +289,7 @@ export const RestaurantPanelBody: React.FC<{
    *  re-implementing the rest of the body. */
   headSlot?: React.ReactNode;
 }> = ({ snapshot, onClose, currentUserId, scrollElRef, glassSuspended, noHero, topChrome, headSlot }) => {
+  const { twoDecimalScores } = useSettings();
   const {
     getRating,
     isWishlisted,
@@ -783,9 +786,9 @@ export const RestaurantPanelBody: React.FC<{
               <div className="flex items-center gap-4">
                 <span
                   className={cn('flex-none w-[64px] h-[64px] rounded-full flex items-center justify-center tabular-nums', scoreTint(myRating.score))}
-                  style={{ fontSize: '22px', fontWeight: 700, letterSpacing: '-0.01em' }}
+                  style={{ fontSize: twoDecimalScores ? '19px' : '22px', fontWeight: 700, letterSpacing: '-0.01em' }}
                 >
-                  {myRating.score.toFixed(1)}
+                  {formatScore(myRating.score, twoDecimalScores)}
                 </span>
                 <div className="flex-1 min-w-0">
                   {myRating.visitDate && (

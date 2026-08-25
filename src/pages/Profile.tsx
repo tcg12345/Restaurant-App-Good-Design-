@@ -650,7 +650,7 @@ export const Profile: React.FC = () => {
       void refreshMyGuides();
     }
   };
-  const { phoneMode, darkMode, toggleDarkMode } = useSettings();
+  const { phoneMode, darkMode, toggleDarkMode, twoDecimalScores } = useSettings();
   const [activeTab, setActiveTab] = useState<'rated' | 'posts' | 'reels' | 'guides'>('rated');
   const [cuisineSort, setCuisineSort] = useState<'count' | 'alpha'>('count');
   const [editListsOpen, setEditListsOpen] = useState(false);
@@ -1214,7 +1214,7 @@ export const Profile: React.FC = () => {
                     </span>
                     {scoresUnlocked ? (
                       <span className={cn('flex-none rounded-full px-3.5 py-2.5 tabular-nums', scoreTint(numericScore(topOverall.score)))} style={{ fontSize: '16px', fontWeight: 700, letterSpacing: '-0.02em' }}>
-                        {numericScore(topOverall.score).toFixed(1)}
+                        {numericScore(topOverall.score).toFixed(twoDecimalScores ? 2 : 1)}
                       </span>
                     ) : (
                       <span className="flex-none w-11 h-11 rounded-full bg-on-surface/[0.06] text-on-surface/40 flex items-center justify-center" aria-label="Score hidden until you rate more places">
@@ -1232,7 +1232,7 @@ export const Profile: React.FC = () => {
               <div className="mt-6 grid grid-cols-3 gap-2.5">
                 {([
                   [String(ratings.length), `Place${ratings.length === 1 ? '' : 's'} rated`, false],
-                  [scoresUnlocked && overallAvg > 0 ? overallAvg.toFixed(1) : '—', 'Your average', true],
+                  [scoresUnlocked && overallAvg > 0 ? overallAvg.toFixed(twoDecimalScores ? 2 : 1) : '—', 'Your average', true],
                   [String(visibleLists.length), `Top list${visibleLists.length === 1 ? '' : 's'}`, false],
                 ] as const).map(([value, label, accent]) => (
                   <div key={label} className={cn('flex flex-col items-start gap-2 rounded-[20px] px-3.5 py-4', accent ? 'bg-primary/10' : 'bg-on-surface/[0.05]')}>
@@ -1354,7 +1354,7 @@ export const Profile: React.FC = () => {
                         </span>
                         {scoresUnlocked ? (
                           <span className={cn('flex-none rounded-full px-[11px] py-2 tabular-nums', scoreTint(numericScore(r.score)))} style={{ fontSize: '13.5px', fontWeight: 700 }}>
-                            {numericScore(r.score).toFixed(1)}
+                            {numericScore(r.score).toFixed(twoDecimalScores ? 2 : 1)}
                           </span>
                         ) : (
                           <span className="flex-none w-8 h-8 rounded-full bg-on-surface/[0.06] text-on-surface/40 flex items-center justify-center" aria-label="Score hidden until you rate more places">

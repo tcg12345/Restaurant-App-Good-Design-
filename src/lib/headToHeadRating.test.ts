@@ -300,7 +300,7 @@ describe('bias budget', () => {
     const withHighPeer = computeFinalScore({ ...base, similarity: [0.9, 0, 0] });
     expect(withoutPeers).toBeCloseTo(8.0, 6); // midpoint of the skipped envelope
     expect(withHighPeer).toBeGreaterThan(withoutPeers); // pulled up toward 9.0
-    expect(withHighPeer).toBeCloseTo(8.3, 6); // 0.75*8 + 0.25*9 = 8.25 → 8.3
+    expect(withHighPeer).toBeCloseTo(8.25, 6); // 0.75*8 + 0.25*9, exact on the 0.01 grid
   });
 });
 
@@ -453,12 +453,14 @@ describe('tie handling', () => {
   });
 
   it('applies the strict-bound nudge when a comparison beats the only peer', () => {
-    // Single candidate at the tier floor; "comparison wins" → score spills to 6.9.
+    // Single candidate at the tier floor; "comparison wins" → the score
+    // spills one 0.01 grid step below it, to 6.99 (which tierOfScore
+    // classifies as fine — deliberately outside the loved band).
     const ratings = [mk('only', 7.0)];
     let state = initH2H(ratings, 'loved', 'none', undefined, undefined, BIG_BUDGET);
     state = applyChoice(state, false);
     expect(isComplete(state)).toBe(true);
-    expect(computeFinalScore(state)).toBeCloseTo(6.9, 6);
+    expect(computeFinalScore(state)).toBeCloseTo(6.99, 6);
   });
 });
 
@@ -704,6 +706,6 @@ describe('demo: NYC sushi restaurant gets similar NYC opponents first', () => {
     expect(opponents.slice(0, 2).every((id) => id.startsWith('nyc'))).toBe(true);
     // And the placement is still globally exact.
     expect(state.lo).toBeGreaterThan(state.hi);
-    expect(computeFinalScore(state)).toBeCloseTo(8.8, 6); // between 8.6 and 8.9
+    expect(computeFinalScore(state)).toBeCloseTo(8.75, 6); // the 8.6–8.9 midpoint, exact on the 0.01 grid
   });
 });

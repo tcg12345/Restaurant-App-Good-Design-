@@ -135,8 +135,11 @@ function parseJSON(text: string): ParsedRestaurant[] {
 
 /** Clamp an imported score onto the app's 0–10 scale — community_ratings
  *  has a CHECK (score <= 10), so an out-of-range value silently failed to
- *  publish while still saving a broken local rating. */
-const clampScore = (n: number): number => Math.min(10, Math.max(0, n));
+ *  publish while still saving a broken local rating. Also quantized to the
+ *  0.01 storage grid (settleScores.MIN_GAP): a Beli 4.3★ doubles to a clean
+ *  8.6, but an arbitrary CSV can carry 8.6666667, and imports skip the
+ *  settle pass that would otherwise regrid it. */
+const clampScore = (n: number): number => Math.round(Math.min(10, Math.max(0, n)) * 100) / 100;
 
 async function findGooglePlace(
   restaurant: ParsedRestaurant,

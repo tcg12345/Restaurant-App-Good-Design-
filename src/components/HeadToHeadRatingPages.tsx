@@ -25,6 +25,7 @@ import {
   placementOrder,
 } from '../lib/headToHeadRating';
 import { relevanceHint, type SimilarityInput } from '../lib/restaurantSimilarity';
+import { useSettings } from '../contexts/SettingsContext';
 
 /** The new restaurant being placed. Carries optional geo/locality/tags so the
  *  head-to-head engine can score relevance; only name/cuisine/price/address are
@@ -523,6 +524,7 @@ const InlineResult: React.FC<{
   onUse: () => void;
   onRedo: () => void;
 }> = ({ state, ratings, excludeId, scoresUnlocked, settledScore, onUse, onRedo }) => {
+  const { twoDecimalScores } = useSettings();
   const raw = computeFinalScore(state);
   const target = settledScore ?? raw;
   const rebalanced = settledScore !== undefined && settledScore !== raw;
@@ -608,8 +610,8 @@ const InlineResult: React.FC<{
             )}
           >
             <div className="text-center">
-              <div className={cn("text-[44px] leading-none font-serif font-bold tabular-nums", scoreClr)}>
-                {display.toFixed(1)}
+              <div className={cn('leading-none font-serif font-bold tabular-nums', twoDecimalScores ? 'text-[36px]' : 'text-[44px]', scoreClr)}>
+                {display.toFixed(twoDecimalScores ? 2 : 1)}
               </div>
               <div className="text-[8px] font-bold uppercase tracking-widest text-on-surface/30 mt-1">out of 10</div>
             </div>

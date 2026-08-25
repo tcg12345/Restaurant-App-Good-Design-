@@ -22,6 +22,14 @@ interface SettingsContextType {
   darkMode: boolean;
   toggleDarkMode: () => void;
   setDarkMode: (on: boolean) => void;
+  /** Show scores at their full two-decimal storage precision (8.37) in the
+   *  PROMINENT score surfaces — hero discs, list rows, profile stats.
+   *  Off (the default) rounds display to one decimal (8.4). Dense chrome
+   *  (map markers, tiny chips) stays one-decimal regardless — see
+   *  lib/score.formatScore. Ratings are STORED at two decimals either way
+   *  (settleScores.MIN_GAP), so flipping this loses nothing. */
+  twoDecimalScores: boolean;
+  toggleTwoDecimalScores: () => void;
 }
 
 const SettingsContext = createContext<SettingsContextType>({
@@ -34,11 +42,14 @@ const SettingsContext = createContext<SettingsContextType>({
   darkMode: false,
   toggleDarkMode: () => {},
   setDarkMode: () => {},
+  twoDecimalScores: false,
+  toggleTwoDecimalScores: () => {},
 });
 
 export const useSettings = () => useContext(SettingsContext);
 
 const DARK_MODE_KEY = 'gourmad-dark-mode';
+const SCORE_DECIMALS_KEY = 'gourmad-score-decimals';
 
 /** Detect a Capacitor-wrapped native runtime. Returns false on the
  *  plain web app and during SSR. */
@@ -63,6 +74,12 @@ function loadDarkMode(): boolean {
     // prefers-color-scheme so the app's first run is always the light
     // editorial palette.
     return localStorage.getItem(DARK_MODE_KEY) === '1';
+  } catch { return false; }
+}
+
+function loadTwoDecimalScores(): boolean {
+  try {
+    return localStorage.getItem(SCORE_DECIMALS_KEY) === '2';
   } catch { return false; }
 }
 
@@ -104,8 +121,16 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     setDarkModeState((prev) => !prev);
   }, []);
 
+  const [twoDecimalScores, setTwoDecimalScores] = useState<boolean>(() => loadTwoDecimalScores());
+  useEffect(() => {
+    try { localStorage.setItem(SCORE_DECIMALS_KEY, twoDecimalScores ? '2' : '1'); } catch {}
+  }, [twoDecimalScores]);
+  const toggleTwoDecimalScores = useCallback(() => {
+    setTwoDecimalScores((prev) => !prev);
+  }, []);
+
   return (
-    <SettingsContext.Provider value={{ phoneMode, isNative, hideBottomNav, setHideBottomNav, keyboardOpen, setKeyboardOpen, darkMode, toggleDarkMode, setDarkMode }}>
+    <SettingsContext.Provider value={{ phoneMode, isNative, hideBottomNav, setHideBottomNav, keyboardOpen, setKeyboardOpen, darkMode, toggleDarkMode, setDarkMode, twoDecimalScores, toggleTwoDecimalScores }}>
       {children}
     </SettingsContext.Provider>
   );

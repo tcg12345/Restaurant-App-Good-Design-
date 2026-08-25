@@ -260,19 +260,21 @@ export function initH2H(
 }
 
 /** Init a tie-break H2H session: candidates are only the restaurants whose
- *  rounded score matches `targetScore`, and bounds are the neighbouring
- *  ratings' scores so the search can refine the final score slightly above
- *  or below the tied group. Returns null if there are no tied candidates —
- *  the caller should just save with the slider score in that case. */
+ *  score matches `targetScore` exactly on the 0.01 storage grid, and bounds
+ *  are the neighbouring ratings' scores so the search can refine the final
+ *  score slightly above or below the tied group. Returns null if there are
+ *  no tied candidates — the caller should just save with the slider score
+ *  in that case. (A slider score that lands BETWEEN two stored 0.01-grid
+ *  neighbours isn't a tie: the order is already strict without asking.) */
 export function initH2HTieBreak(
   allRatings: RestaurantRating[],
   targetScore: number,
   excludeId?: string,
 ): H2HState | null {
-  const targetRounded = round1(targetScore);
+  const targetRounded = roundGrid(targetScore);
   const others = allRatings.filter((r) => r.restaurantId !== excludeId);
   const tiedRaw = others
-    .filter((r) => round1(r.score) === targetRounded)
+    .filter((r) => roundGrid(r.score) === targetRounded)
     .sort((a, b) => b.score - a.score || byId(a.restaurantId, b.restaurantId));
   if (tiedRaw.length === 0) return null;
   const candidates = tiedRaw.map(ratingToCandidate);
@@ -282,8 +284,8 @@ export function initH2HTieBreak(
   // final score above or below the tied group when the user clearly beat
   // or lost to all of them.
   const sortedDesc = [...others].sort((a, b) => b.score - a.score);
-  const higher = sortedDesc.filter((r) => round1(r.score) > targetRounded);
-  const lower = sortedDesc.filter((r) => round1(r.score) < targetRounded);
+  const higher = sortedDesc.filter((r) => roundGrid(r.score) > targetRounded);
+  const lower = sortedDesc.filter((r) => roundGrid(r.score) < targetRounded);
   const upperBound = higher.length > 0 ? higher[higher.length - 1].score : 10;
   const lowerBound = lower.length > 0 ? lower[0].score : 0;
 
@@ -625,8 +627,11 @@ function clamp(v: number, lo: number, hi: number): number {
   return Math.max(lo, Math.min(hi, v));
 }
 
-function round1(v: number): number {
-  return Math.round(v * 10) / 10;
+/** Quantize to the 0.01 storage grid (see settleScores.MIN_GAP — scores are
+ *  stored at two decimals so rankings never tie; display rounding is a
+ *  separate, user-facing preference). */
+function roundGrid(v: number): number {
+  return Math.round(v * 100) / 100;
 }
 
 export function computeFinalScore(state: H2HState): number {
@@ -638,7 +643,7 @@ export function computeFinalScore(state: H2HState): number {
     state.tiedScores.length > 0
   ) {
     const avg = state.tiedScores.reduce((s, x) => s + x, 0) / state.tiedScores.length;
-    return clamp(round1(avg), 0, 10);
+    return clamp(roundGrid(avg), 0, 10);
   }
 
   // Tied/skipped candidates remain between real comparison bounds: anchor
@@ -662,18 +667,19 @@ export function computeFinalScore(state: H2HState): number {
     const boundHi = Math.max(state.lowerBound, state.upperBound);
     raw = clamp(raw, boundLo, boundHi);
   }
-  let rounded = round1(raw);
+  let rounded = roundGrid(raw);
 
   // Strict-bound nudge: when a bound came from a real comparison the user
   // told us the new restaurant is strictly above/below that score. If the
   // average rounded right onto the bound it would tie with that comparison
-  // and sort against the H2H result — push it off by 0.1 in the correct
-  // direction. Allow spill outside the tier (e.g. a "loved" rating that
-  // lost to everything can land at 6.9) because that's the honest outcome.
+  // and sort against the H2H result — push it off by one 0.01 grid step in
+  // the correct direction. Allow spill outside the tier (e.g. a "loved"
+  // rating that lost to everything can land at 6.99, which classifies as
+  // fine — see tierOfScore) because that's the honest outcome.
   if (state.upperBoundFromComparison && rounded >= state.upperBound) {
-    rounded = round1(state.upperBound - 0.1);
+    rounded = roundGrid(state.upperBound - 0.01);
   } else if (state.lowerBoundFromComparison && rounded <= state.lowerBound) {
-    rounded = round1(state.lowerBound + 0.1);
+    rounded = roundGrid(state.lowerBound + 0.01);
   }
 
   return clamp(rounded, 0, 10);

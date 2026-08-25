@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { Heart, MessageCircle, X } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useAuth } from '../contexts/AuthContext';
+import { useSettings } from '../contexts/SettingsContext';
 import { mergeRefs, useBottomSheet } from '../lib/useBottomSheet';
 import {
   getLikesForRatings, getCommentCounts, toggleLike,
@@ -61,6 +62,7 @@ export const FriendReviewSheet: React.FC<FriendReviewSheetProps> = ({
 }) => {
   const navigate = useNavigate();
   const { user } = useAuth();
+  const { twoDecimalScores } = useSettings();
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const { dragProps, sheetRef } = useBottomSheet(!!rating, onClose, scrollRef);
   const [liked, setLiked] = useState(false);
@@ -144,7 +146,7 @@ export const FriendReviewSheet: React.FC<FriendReviewSheetProps> = ({
 
         <div className="mt-5 flex items-end gap-3">
           <span className="text-primary" style={{ fontSize: '40px', fontWeight: 700, lineHeight: 1, letterSpacing: '-0.045em' }}>
-            {score.toFixed(1)}
+            {score.toFixed(twoDecimalScores ? 2 : 1)}
           </span>
           <span className="text-on-surface/45 pb-[5px]" style={{ fontSize: '13.5px' }}>out of 10</span>
           <span className="flex-1" />
