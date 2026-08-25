@@ -22,6 +22,7 @@ import { supabase } from '../lib/supabase';
 import { cn, parseVisitDate } from '../lib/utils';
 import { GlassButton } from '../lib/glass-buttons';
 import { VerifiedBadge } from '../components/VerifiedBadge';
+import { Avatar } from '../components/Avatar';
 import { useUnifiedCreatePicker } from '../components/useUnifiedComposer';
 import { OwnScoreBadge, ScoreBadge } from '../components/ScoreBadge';
 import { scoreColor, scoreTint, scoreSolid } from '../lib/score';
@@ -931,11 +932,7 @@ export const Profile: React.FC = () => {
             everything-else is two grids fighting over the same block. */}
         <div className="flex items-center gap-[18px]">
           <div className="relative flex-none">
-            <div className="w-[84px] h-[84px] rounded-full bg-primary/[0.12] flex items-center justify-center">
-              <span className="text-primary" style={{ fontSize: '34px', fontWeight: 700, lineHeight: 1, letterSpacing: '-0.03em' }}>
-                {displayName.charAt(0).toUpperCase()}
-              </span>
-            </div>
+            <Avatar src={profile?.avatar_url} name={displayName} size={84} letterSize={34} />
             {profile?.is_verified && (
               <div className="absolute -bottom-0.5 -right-0.5 w-7 h-7 rounded-full bg-surface ring-[3px] ring-surface flex items-center justify-center">
                 <VerifiedBadge size={24} />

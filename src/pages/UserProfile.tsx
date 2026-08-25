@@ -858,15 +858,19 @@ export const UserProfile: React.FC = () => {
             {/* avatar + identity */}
             <div className="flex flex-col items-start">
               <div
-                className="relative w-[100px] h-[100px] rounded-full grid place-items-center mb-5"
+                className="relative w-[100px] h-[100px] rounded-full grid place-items-center mb-5 overflow-hidden"
                 style={{
                   background: 'linear-gradient(150deg, color-mix(in srgb, var(--color-primary) 14%, var(--color-paper)), color-mix(in srgb, var(--color-primary) 7%, var(--color-paper)))',
                   boxShadow: 'inset 0 0 0 1px color-mix(in srgb, var(--color-primary) 10%, transparent)',
                 }}
               >
-                <span className="font-serif font-bold text-[46px] leading-none text-primary">
-                  {profile.display_name.charAt(0).toUpperCase()}
-                </span>
+                {profile.avatar_url ? (
+                  <img src={profile.avatar_url} alt="" referrerPolicy="no-referrer" className="absolute inset-0 w-full h-full object-cover" />
+                ) : (
+                  <span className="font-serif font-bold text-[46px] leading-none text-primary">
+                    {profile.display_name.charAt(0).toUpperCase()}
+                  </span>
+                )}
               </div>
 
               <h1 className="font-serif text-[32px] font-bold leading-none tracking-[-0.02em] text-on-surface max-w-full truncate">
@@ -1299,8 +1303,10 @@ export const UserProfile: React.FC = () => {
             )}
             aria-hidden={!scrolled || undefined}
           >
-            <span className="flex-none w-[26px] h-[26px] rounded-full bg-primary/[0.13] text-primary flex items-center justify-center font-serif font-bold text-[12px]">
-              {profile.display_name.charAt(0).toUpperCase()}
+            <span className="relative flex-none w-[26px] h-[26px] rounded-full overflow-hidden bg-primary/[0.13] text-primary flex items-center justify-center font-serif font-bold text-[12px]">
+              {profile.avatar_url ? (
+                <img src={profile.avatar_url} alt="" referrerPolicy="no-referrer" className="absolute inset-0 w-full h-full object-cover" />
+              ) : profile.display_name.charAt(0).toUpperCase()}
             </span>
             <span className="min-w-0 font-serif font-bold text-[15px] tracking-[-0.025em] text-on-surface truncate">
               {profile.display_name}
@@ -1330,12 +1336,16 @@ export const UserProfile: React.FC = () => {
       {/* Identity — one compact band, left-aligned */}
       <div className="px-5 pt-2 flex items-center gap-3.5">
         <div
-          className="flex-none w-[66px] h-[66px] rounded-full grid place-items-center"
+          className="relative flex-none w-[66px] h-[66px] rounded-full grid place-items-center overflow-hidden"
           style={{ background: 'linear-gradient(150deg, color-mix(in srgb, var(--color-primary) 14%, var(--color-paper)), color-mix(in srgb, var(--color-primary) 7%, var(--color-paper)))', boxShadow: 'inset 0 0 0 1px color-mix(in srgb, var(--color-primary) 10%, transparent)' }}
         >
-          <span className="font-serif font-bold text-[27px] leading-none text-primary">
-            {profile.display_name.charAt(0).toUpperCase()}
-          </span>
+          {profile.avatar_url ? (
+            <img src={profile.avatar_url} alt="" referrerPolicy="no-referrer" className="absolute inset-0 w-full h-full object-cover" />
+          ) : (
+            <span className="font-serif font-bold text-[27px] leading-none text-primary">
+              {profile.display_name.charAt(0).toUpperCase()}
+            </span>
+          )}
         </div>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-1.5">

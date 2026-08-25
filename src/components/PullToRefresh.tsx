@@ -1,4 +1,5 @@
-import { useEffect, useRef, type FC } from 'react';
+import { useEffect, useRef, useState, type FC } from 'react';
+import { subscribeOverlay } from '../lib/overlay-registry';
 
 /**
  * Instagram-style pull-to-refresh for the phone layout.
@@ -10,9 +11,17 @@ import { useEffect, useRef, type FC } from 'react';
  * — a soft refresh with no full page reload / loading flash.
  *
  * It only engages when the gesture starts at the top of the *document* scroller
- * (not inside an inner overflow-y container), which keeps it off modals,
- * bottom-sheets and inner scroll lists automatically. `enabled` is turned off
- * on routes where a vertical drag means something else (reels, map, messages…).
+ * (not inside an inner overflow-y container) AND no overlay is open. `enabled`
+ * is turned off on routes where a vertical drag means something else (reels,
+ * map, messages…).
+ *
+ * The overlay check is not redundant with the inner-scroller one. A sheet's
+ * list only counts as an inner scroller once it actually overflows, so a
+ * comment popup with two comments in it looks exactly like the page to that
+ * test — and the body is scroll-locked underneath, so `scrollTop()` reads 0
+ * and every guard passes. Pulling down on the sheet fired a page refresh.
+ * Standing down on the same signal the swipe-back gesture uses is the fix:
+ * while a sheet owns the screen, a downward drag is the sheet's to interpret.
  */
 const THRESHOLD = 68; // px of (resisted) pull needed to trigger a refresh
 const MAX_PULL = 96; // visual cap so the bubble never wanders too far down
@@ -33,8 +42,12 @@ export const PullToRefresh: FC<Props> = ({ enabled, onRefresh }) => {
   const onRefreshRef = useRef(onRefresh);
   onRefreshRef.current = onRefresh;
 
+  // Any open sheet/modal parks the gesture entirely — see the note above.
+  const [overlayOpen, setOverlayOpen] = useState(false);
+  useEffect(() => subscribeOverlay(setOverlayOpen), []);
+
   useEffect(() => {
-    if (!enabled) return;
+    if (!enabled || overlayOpen) return;
     const bubble = bubbleRef.current;
     const ring = ringRef.current;
     if (!bubble || !ring) return;
@@ -167,7 +180,7 @@ export const PullToRefresh: FC<Props> = ({ enabled, onRefresh }) => {
       window.removeEventListener('touchend', onEnd);
       window.removeEventListener('touchcancel', onEnd);
     };
-  }, [enabled]);
+  }, [enabled, overlayOpen]);
 
   return (
     <div

@@ -23,22 +23,47 @@ interface GuidesRailProps {
   onCreate: () => void;
 }
 
-/** The dashed tile that starts a guide of your own. */
-const BuildYourOwn: React.FC<{ onCreate: () => void; wide?: boolean }> = ({ onCreate, wide }) => (
+/** The dashed tile that starts a guide of your own — the trailing card in a
+ *  populated rail. Centred, not bottom-aligned: the guide cards beside it
+ *  push their text to the bottom because a photograph fills the space above
+ *  it, and this one has no photograph, so the same alignment just read as a
+ *  card whose image failed to load. */
+const BuildYourOwn: React.FC<{ onCreate: () => void }> = ({ onCreate }) => (
   <button
     type="button"
     onClick={onCreate}
-    className={cn(
-      'flex-none h-[116px] rounded-[22px] border border-dashed border-on-surface/25 flex flex-col items-start justify-end gap-2 p-3.5 text-left active:bg-on-surface/[0.05] transition-colors',
-      wide ? 'w-[172px]' : 'w-[150px]',
-    )}
+    className="flex-none w-[132px] h-[116px] rounded-[22px] border border-dashed border-on-surface/25 flex flex-col items-center justify-center gap-2 px-3 text-center active:bg-on-surface/[0.05] transition-colors"
   >
     <span className="w-[30px] h-[30px] rounded-full bg-primary/10 text-primary flex items-center justify-center">
       <Plus size={15} strokeWidth={2.1} />
     </span>
-    <span className="text-on-surface" style={{ fontSize: '14px', fontWeight: 700, lineHeight: 1.15, letterSpacing: '-0.025em' }}>
+    <span className="text-on-surface" style={{ fontSize: '13px', fontWeight: 700, lineHeight: 1.15, letterSpacing: '-0.02em' }}>
       Build your own
     </span>
+  </button>
+);
+
+/** No guides yet — a lone 172px dashed tile in a scroll rail reads as a
+ *  card that failed to load, so the invitation takes the full column and
+ *  says what a guide is instead. */
+const GuidesEmpty: React.FC<{ onCreate: () => void }> = ({ onCreate }) => (
+  <button
+    type="button"
+    onClick={onCreate}
+    className="w-full flex items-center gap-3.5 rounded-[20px] border border-dashed border-on-surface/25 px-4 py-4 text-left active:bg-on-surface/[0.05] transition-colors"
+  >
+    <span className="flex-none w-11 h-11 rounded-full bg-primary/10 text-primary flex items-center justify-center">
+      <Plus size={19} strokeWidth={2.1} />
+    </span>
+    <span className="min-w-0 flex-1">
+      <span className="block text-on-surface" style={{ fontSize: '14.5px', fontWeight: 700, lineHeight: 1.2, letterSpacing: '-0.022em' }}>
+        Build your own
+      </span>
+      <span className="mt-1 block text-on-surface/45" style={{ fontSize: '12.5px', lineHeight: 1.35 }}>
+        Collect a few favourites into a list worth sharing.
+      </span>
+    </span>
+    <ChevronRight size={16} className="flex-none text-on-surface/30" />
   </button>
 );
 
@@ -64,9 +89,12 @@ export const GuidesRail: React.FC<GuidesRailProps> = ({ guides, authors, onBrows
       </button>
     </div>
 
+    {guides.length === 0 ? (
+      <div className="mt-4 px-5">
+        <GuidesEmpty onCreate={onCreate} />
+      </div>
+    ) : (
     <div className="mt-4 flex gap-2.5 overflow-x-auto no-scrollbar snap-x scroll-px-5 px-5">
-      {guides.length === 0 && <BuildYourOwn onCreate={onCreate} wide />}
-
       {guides.map((g) => {
         const author = authors[g.userId];
         const authorName = author?.display_name || author?.username || 'someone';
@@ -107,7 +135,8 @@ export const GuidesRail: React.FC<GuidesRailProps> = ({ guides, authors, onBrows
         );
       })}
 
-      {guides.length > 0 && <BuildYourOwn onCreate={onCreate} />}
+      <BuildYourOwn onCreate={onCreate} />
     </div>
+    )}
   </section>
 );

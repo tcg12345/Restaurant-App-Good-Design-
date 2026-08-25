@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import {
-  ArrowLeft, AtSign, AlertTriangle, BadgeCheck, Check, ChevronRight, Globe,
+  ArrowLeft, AtSign, AlertTriangle, BadgeCheck, Camera, Check, ChevronRight, Globe,
   LifeBuoy, Loader2, Lock, LogOut, Mail, MapPin, Moon, Shield, Sparkles,
   SquarePen, Sun, Trash2, Upload, UploadCloud, User, Utensils, X,
 } from 'lucide-react';
@@ -10,6 +10,8 @@ import { useAuth } from '../contexts/AuthContext';
 import { useLists } from '../contexts/ListsContext';
 import { useSettings } from '../contexts/SettingsContext';
 import { saveProfile } from '../lib/supabase-community';
+import { processPhoto } from '../lib/images';
+import { Avatar } from '../components/Avatar';
 import { deleteAccount, clearLocalAppData } from '../lib/supabase-account';
 import { geocodePlace } from '../components/HomeLocationBar';
 import { supabase } from '../lib/supabase';
@@ -40,7 +42,7 @@ type SubPage = 'edit' | 'account';
  *  partial save can tell the user exactly what didn't stick. */
 const PROFILE_FIELD_LABELS: Record<string, string> = {
   home_city: 'home city', home_lat: 'home city', home_lng: 'home city',
-  bio: 'bio', is_public: 'account visibility',
+  bio: 'bio', is_public: 'account visibility', avatar_url: 'profile photo',
 };
 
 /** One settings row: 38px icon tile, serif title over a muted sub, then a
@@ -143,11 +145,18 @@ export const SettingsPage: React.FC = () => {
   const [editError, setEditError] = useState('');
   const [editSaving, setEditSaving] = useState(false);
   const [editSuccess, setEditSuccess] = useState(false);
+  // Profile photo. `editAvatar` holds the URL that will be saved — the
+  // upload runs on pick (so the user sees the real image, not a local
+  // preview that might fail later), and Save just writes the URL.
+  const [editAvatar, setEditAvatar] = useState<string | null>(profile?.avatar_url ?? null);
+  const [avatarBusy, setAvatarBusy] = useState(false);
+  const avatarInputRef = useRef<HTMLInputElement>(null);
   const resetEditFields = () => {
     setEditName(profile?.display_name || '');
     setEditUsername(profile?.username || '');
     setEditBio(profile?.bio || '');
     setEditHomeCity(profile?.home_city || '');
+    setEditAvatar(profile?.avatar_url ?? null);
     setEditError('');
     setEditSuccess(false);
   };
@@ -155,7 +164,24 @@ export const SettingsPage: React.FC = () => {
     editName !== (profile?.display_name || '') ||
     editUsername !== (profile?.username || '') ||
     editBio !== (profile?.bio || '') ||
-    editHomeCity !== (profile?.home_city || '');
+    editHomeCity !== (profile?.home_city || '') ||
+    editAvatar !== (profile?.avatar_url ?? null);
+
+  const handlePickAvatar = async (file: File | undefined) => {
+    if (!file) return;
+    setAvatarBusy(true);
+    setEditError('');
+    try {
+      // 512px square-ish at a higher quality than feed photos: an avatar is
+      // rendered small almost everywhere, but it's also the one image that
+      // gets blown up to 84px+ on a profile header.
+      const url = await processPhoto(file, { maxDim: 512, quality: 0.8 });
+      setEditAvatar(url);
+    } catch {
+      setEditError("That image couldn't be read. Try another photo.");
+    }
+    setAvatarBusy(false);
+  };
 
   // The Profile page's Edit button deep-links straight to the sub-page.
   const consumedState = useRef(false);
@@ -197,7 +223,7 @@ export const SettingsPage: React.FC = () => {
         };
       }
     }
-    const result = await saveProfile(user.id, editName.trim(), editUsername.trim(), editBio.trim(), undefined, homeBase);
+    const result = await saveProfile(user.id, editName.trim(), editUsername.trim(), editBio.trim(), undefined, homeBase, editAvatar);
     if (result.success) {
       // saveProfile drops a column this database doesn't know rather than
       // failing the whole write. The row saved, but those fields didn't —
@@ -493,12 +519,56 @@ export const SettingsPage: React.FC = () => {
             {subPage === 'edit' && (
               <div className="flex flex-col gap-5">
                 <div className="flex items-center gap-4">
-                  <div className="flex-none w-16 h-16 rounded-full bg-primary/[0.12] text-primary flex items-center justify-center font-serif font-bold text-[25px] tracking-[-0.03em]">
-                    {(displayName[0] || 'G').toUpperCase()}
-                  </div>
+                  {/* The avatar IS the button — tapping the photo to change
+                      it is what every other app trains, so a separate
+                      "change photo" control beside it would be redundant
+                      chrome. The camera chip marks it as editable. */}
+                  <button
+                    type="button"
+                    onClick={() => avatarInputRef.current?.click()}
+                    disabled={avatarBusy}
+                    aria-label={editAvatar ? 'Change profile photo' : 'Add a profile photo'}
+                    className="relative flex-none rounded-full active:scale-95 transition-transform disabled:opacity-60"
+                  >
+                    <Avatar
+                      src={editAvatar}
+                      name={displayName || 'G'}
+                      size={64}
+                      letterSize={25}
+                    />
+                    <span className="absolute -bottom-0.5 -right-0.5 w-[26px] h-[26px] rounded-full bg-primary text-white ring-[3px] ring-surface flex items-center justify-center">
+                      {avatarBusy ? <Loader2 size={13} className="animate-spin" /> : <Camera size={13} strokeWidth={2.2} />}
+                    </span>
+                  </button>
+                  <input
+                    ref={avatarInputRef}
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={(e) => { void handlePickAvatar(e.target.files?.[0]); e.target.value = ''; }}
+                  />
                   <div className="min-w-0">
                     <p className="font-serif font-bold text-[15px] tracking-[-0.02em] text-on-surface truncate">{displayName}</p>
                     <p className="mt-1 text-[12px] text-on-surface/50 truncate">@{username}</p>
+                    <div className="mt-1.5 flex items-center gap-3">
+                      <button
+                        type="button"
+                        onClick={() => avatarInputRef.current?.click()}
+                        disabled={avatarBusy}
+                        className="text-[12.5px] font-semibold text-primary active:opacity-70 transition-opacity disabled:opacity-50"
+                      >
+                        {avatarBusy ? 'Uploading…' : editAvatar ? 'Change photo' : 'Add photo'}
+                      </button>
+                      {editAvatar && !avatarBusy && (
+                        <button
+                          type="button"
+                          onClick={() => setEditAvatar(null)}
+                          className="text-[12.5px] font-semibold text-on-surface/45 active:opacity-70 transition-opacity"
+                        >
+                          Remove
+                        </button>
+                      )}
+                    </div>
                   </div>
                 </div>
 

@@ -478,6 +478,10 @@ export interface UserProfile {
   /** Onboarding palette-test answers (migration 059) — written by
    *  lib/taste-quiz.ts, blended into recommendations as cold-start priors. */
   taste_profile?: unknown;
+  /** Public URL of the user's profile photo (migration 074), living in the
+   *  same `photos` bucket as every other user image. Null/absent means the
+   *  generated monogram is the avatar — see components/Avatar.tsx. */
+  avatar_url?: string | null;
 }
 
 /** Optional home-base extras for {@link saveProfile}. Pass any subset; only
@@ -553,6 +557,7 @@ export async function isUsernameTaken(username: string, excludeUserId?: string):
  */
 const OPTIONAL_PROFILE_COLUMNS = new Set([
   'home_city', 'home_lat', 'home_lng', 'bio', 'is_public', 'taste_profile',
+  'avatar_url',
 ]);
 
 /**
@@ -585,6 +590,9 @@ export async function saveProfile(
   bio?: string,
   isPublic?: boolean,
   homeBase?: SaveProfileHomeBase,
+  /** Public URL of the profile photo, or null to clear it back to the
+   *  monogram. Leave undefined to keep whatever is already stored. */
+  avatarUrl?: string | null,
 ): Promise<{ success: boolean; error?: string; droppedColumns?: string[] }> {
   if (!supabaseConfigured || !userId) return { success: false, error: 'Not configured' };
   try {
@@ -594,6 +602,7 @@ export async function saveProfile(
     };
     if (bio !== undefined) payload.bio = bio;
     if (isPublic !== undefined) payload.is_public = isPublic;
+    if (avatarUrl !== undefined) payload.avatar_url = avatarUrl;
     // is_verified / verified_status are never written here — verification
     // is granted via the approve RPC, and the status line goes through
     // saveVerifiedStatusLine (supabase-verification.ts).
