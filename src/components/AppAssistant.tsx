@@ -54,6 +54,7 @@ import type { HomeMeal } from '../contexts/ListsContext';
 import type { ScoredPlace } from '../lib/recommendations';
 import type { ChatFilters, UserContext } from '../lib/location-chat-client';
 import { isSearchTakeoverOpen, subscribeSearchTakeover } from '../lib/search-takeover';
+import { subscribeOverlay } from '../lib/overlay-registry';
 
 /* ── Route gating ─────────────────────────────────────────────────
    Pages where mounting the assistant FAB would clash with the
@@ -373,14 +374,25 @@ export const AppAssistant: React.FC = () => {
   useEffect(() => subscribeSearchTakeover(setTakeoverOpen), []);
   const onSearchMap = settings.phoneMode && location.pathname === '/search';
 
+  // A real bottom sheet (comment popup, location picker, …) owning the
+  // screen — the FAB stands down so it doesn't float over the sheet's
+  // composer.
+  //
+  // This reads the ref-counted overlay registry, NOT hideBottomNav, and
+  // the difference is load-bearing: the assistant's own chat panel sets
+  // hideBottomNav on itself while it's up. Gating on that made the
+  // assistant eat itself — tap the FAB, the chat opens, the chat hides the
+  // nav, this gate goes true, AppAssistant returns null, LocationChat
+  // unmounts and its `open` state dies with it. The FAB just flashed.
+  // Sheets built on useBottomSheet push the registry; the chat doesn't.
+  const [overlayOpen, setOverlayOpen] = useState(false);
+  useEffect(() => subscribeOverlay(setOverlayOpen), []);
+
   // Gate by route + auth — assistant lives only inside the signed-in app.
-  // hideBottomNav means a sheet owns the bottom of the screen (comment
-  // popups, the location picker) — the FAB stands down with the nav so it
-  // doesn't float over the sheet's composer.
   const hidden = !auth.isSignedIn || !auth.profileComplete
     || shouldHideAssistant(location.pathname, settings.phoneMode)
     || (onSearchMap && !takeoverOpen)
-    || (settings.phoneMode && settings.hideBottomNav);
+    || (settings.phoneMode && overlayOpen);
 
   /* ── Build the fallback user context for the system prompt (pages
        can publish a richer one — see below) ─────────────────────── */
