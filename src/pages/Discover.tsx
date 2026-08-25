@@ -22,7 +22,7 @@ import { getGuidesForFeed, getGuideSaveCounts, type Guide as GuideRow } from '..
 import { GuidesBrowser, type BrowseGuide } from '../components/GuidesBrowser';
 import { GuidesRail } from '../components/GuidesRail';
 import { useGuideCreator } from '../contexts/GuideCreatorContext';
-import { searchNearbyRestaurants, searchPlacesByText, searchPlacesByTextPaged, priceLevelToString, extractCityState, CUISINE_TYPES, type PlaceResult } from '../lib/places';
+import { searchNearbyRestaurants, searchPlacesByText, searchPlacesByTextPaged, priceLevelToString, extractCityState, CUISINE_TYPES, TEXT_EXACT_SUFFICIENT_POOL, type PlaceResult } from '../lib/places';
 import { getRestaurantGeoBatch, saveRestaurantGeo } from '../lib/restaurant-geo';
 import {
   buildTasteProfile,
@@ -216,11 +216,15 @@ const tabDataCache: {
   expertProfiles: Record<string, UserProfile>;
   coordsLookedUp: Record<string, boolean>;
   discoverPlaces: PlaceResult[];
+  /** The same pool BEFORE the client-side hours filter + sort. Kept so
+   *  toggling a client-side filter can re-derive `discoverPlaces` instead
+   *  of re-running the (billed) Places search that produced it. */
+  discoverPlacesRaw: PlaceResult[];
   discoverLoaded: boolean;
   friendRecipes: FriendHomeMeal[];
   recipeAuthorProfiles: Record<string, UserProfile>;
   friendRecipesLoaded: boolean;
-} = { userId: null, tabDataLoaded: false, myRatings: [], friendRatings: [], expertRatings: [], friendProfiles: {}, expertProfiles: {}, coordsLookedUp: {}, discoverPlaces: [], discoverLoaded: false, friendRecipes: [], recipeAuthorProfiles: {}, friendRecipesLoaded: false };
+} = { userId: null, tabDataLoaded: false, myRatings: [], friendRatings: [], expertRatings: [], friendProfiles: {}, expertProfiles: {}, coordsLookedUp: {}, discoverPlaces: [], discoverPlacesRaw: [], discoverLoaded: false, friendRecipes: [], recipeAuthorProfiles: {}, friendRecipesLoaded: false };
 
 // Module-level cache of Mapbox Directions API results. Keyed by rounded
 // origin → destination so the same anchor + restaurant pair only ever
@@ -791,6 +795,21 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, sear
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [darkMode]);
   const [places, setPlaces] = useState<PlaceResult[]>(() => tabDataCache.discoverPlaces);
+  /**
+   * The current Discover pool as it came back from Google, before the
+   * client-side hours filter and sort.
+   *
+   * `places` holds the FILTERED result, so it can't be re-filtered: once an
+   * hours filter has removed a row, nothing in `places` can bring it back.
+   * Keeping the raw pool lets the purely client-side controls (sort, the
+   * hours filter) re-derive their output locally. `priceClientSide` records
+   * whether the pool's price filtering happened here or server-side, so the
+   * re-derive passes getFilteredPlaces the same price argument its fetch did.
+   */
+  const discoverRawRef = useRef<{ places: PlaceResult[]; priceClientSide: boolean }>({
+    places: tabDataCache.discoverPlacesRaw,
+    priceClientSide: false,
+  });
   // Where the Discover pool was fetched from + the radius it covered —
   // the rec engine's distance term anchors here so the ranking doesn't
   // reshuffle as the user pans the map between searches.
@@ -1427,7 +1446,10 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, sear
     const radiusMeters = recRadiusMiles * 1609.34;
     const results = await Promise.all(
       queryStrs.map((q) =>
-        searchPlacesByText(q, lat, lng, homeLocation.label, /* useRestriction */ true, radiusMeters)
+        // Rec pool: widen on a thin exact response (see the rec engine's
+        // matching call in gatherRecCandidates).
+        searchPlacesByText(q, lat, lng, homeLocation.label, /* useRestriction */ true, radiusMeters,
+          undefined, { minExactResults: TEXT_EXACT_SUFFICIENT_POOL })
           .catch(() => [] as PlaceResult[])
       ),
     );
@@ -1747,7 +1769,8 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, sear
         const fbRadius = recRadiusMiles * 1609.34;
         const [nearby, best] = await Promise.all([
           searchNearbyRestaurants(fbLat, fbLng, fbRadius).catch(() => [] as PlaceResult[]),
-          searchPlacesByText('best restaurants', fbLat, fbLng, homeLocation.label, true, fbRadius).catch(() => [] as PlaceResult[]),
+          searchPlacesByText('best restaurants', fbLat, fbLng, homeLocation.label, true, fbRadius,
+            undefined, { minExactResults: TEXT_EXACT_SUFFICIENT_POOL }).catch(() => [] as PlaceResult[]),
         ]);
         const all = [...nearby, ...best];
         const seenIds = new Set<string>();
@@ -2251,6 +2274,8 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, sear
       const sorted = getFilteredPlaces(merged, filtersRef.current.sortBy, 0); // price already filtered server-side
       if (placesReqRef.current !== req) return; // a newer search superseded this one
       setScoreAnchor({ lat: center.lat, lng: center.lng, radiusM: radius });
+      discoverRawRef.current = { places: merged, priceClientSide: false };
+      tabDataCache.discoverPlacesRaw = merged;
       setPlaces(sorted);
       syncMarkers(sorted);
       // Add expert overlay markers in the visible area
@@ -2263,6 +2288,33 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, sear
       if (placesReqRef.current === req) setIsSearching(false);
     }
   }, [syncMarkers, getFilteredPlaces, mergeMichelinResults]);
+
+  /**
+   * Re-derive the visible Discover pool from the raw one, with no network
+   * call.
+   *
+   * Sort order and the hours filter are computed entirely client-side inside
+   * getFilteredPlaces — the pool already carries each place's opening hours
+   * (they're in the search FieldMask). These controls used to call
+   * fetchNearby(), which re-ran the whole billed Places search and came back
+   * with the same places in the same order.
+   *
+   * `override` is required because filtersRef is synced from state in an
+   * effect: on the tick where a toggle fires, the ref still holds the OLD
+   * value, so the new one has to be threaded in by hand.
+   */
+  const reapplyDiscoverFilters = useCallback((override?: Partial<typeof filtersRef.current>) => {
+    if (override) filtersRef.current = { ...filtersRef.current, ...override };
+    const raw = discoverRawRef.current;
+    // No pool yet (cold tab, or the very first render before any search) —
+    // fall back to fetching so a toggle is never a no-op.
+    if (raw.places.length === 0) { fetchNearbyRef.current?.(); return; }
+    const priceArg = raw.priceClientSide ? filtersRef.current.selectedPrice : 0;
+    const next = getFilteredPlaces(raw.places, filtersRef.current.sortBy, priceArg);
+    setPlaces(next);
+    syncMarkers(next);
+    tabDataCache.discoverPlaces = next;
+  }, [getFilteredPlaces, syncMarkers]);
 
   // Keep refs in sync for use in quick filter handler
   fetchNearbyRef.current = fetchNearby;
@@ -2379,6 +2431,8 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, sear
       const filtered = getFilteredPlaces(merged, filtersRef.current.sortBy, filtersRef.current.selectedPrice);
       if (placesReqRef.current !== req) return; // a newer search superseded this one
       setScoreAnchor({ lat, lng, radiusM: searchRadius });
+      discoverRawRef.current = { places: merged, priceClientSide: true };
+      tabDataCache.discoverPlacesRaw = merged;
       setPlaces(filtered);
       syncMarkers(filtered);
 
@@ -2474,6 +2528,8 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, sear
     setSelectedMarker(null);
     setReferenceLocation(null);
     setSearchLocationBias(null);
+    discoverRawRef.current = { places: plain, priceClientSide: true };
+    tabDataCache.discoverPlacesRaw = plain;
     setPlaces(plain);
     tabDataCache.discoverPlaces = plain;
     syncMarkers(plain);
@@ -4416,8 +4472,11 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, sear
                 prominent: hoursFilter.openNow,
                 icon: <Clock size={13} strokeWidth={2.2} />,
                 onClick: () => {
-                  setHoursFilter({ ...hoursFilter, openNow: !hoursFilter.openNow });
-                  if (mapMode === 'discover') fetchNearby(selectedCuisines);
+                  const nextHours = { ...hoursFilter, openNow: !hoursFilter.openNow };
+                  setHoursFilter(nextHours);
+                  // Purely client-side: the pool already carries hours, so
+                  // re-derive rather than re-running the Places search.
+                  if (mapMode === 'discover') reapplyDiscoverFilters({ hoursFilter: nextHours });
                 },
               },
               ...(mapMode === 'discover' ? [
@@ -4428,8 +4487,10 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, sear
                   prominent: sortBy === 'rating',
                   icon: <Star size={13} strokeWidth={2.2} />,
                   onClick: () => {
-                    setSortBy(sortBy === 'rating' ? 'recommended' : 'rating');
-                    fetchNearby(selectedCuisines);
+                    const nextSort = sortBy === 'rating' ? 'recommended' : 'rating';
+                    setSortBy(nextSort);
+                    // Sorting is client-side too — same pool, different order.
+                    reapplyDiscoverFilters({ sortBy: nextSort });
                   },
                 },
                 ...['Italian', 'Japanese', 'Mexican'].map((c) => ({

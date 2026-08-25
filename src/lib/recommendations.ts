@@ -1,5 +1,5 @@
 import type { PlaceResult } from './places';
-import { extractCityState, CUISINE_TYPES, searchPlacesByText, searchPlacesByTextPaged, isFoodPlace, isLodgingPlace, isVenuePlace } from './places';
+import { extractCityState, CUISINE_TYPES, searchPlacesByText, searchPlacesByTextPaged, isFoodPlace, isLodgingPlace, isVenuePlace, TEXT_EXACT_SUFFICIENT_POOL } from './places';
 import type { CommunityRating } from './supabase-community';
 import {
   getExpertRatings,
@@ -1163,6 +1163,12 @@ export async function gatherRecCandidates(
               opts.target.label || undefined,
               /* useRestriction */ true,
               opts.radiusMeters,
+              undefined,
+              // Recs want POOL DEPTH, not the single best match: a thin
+              // exact response here (a niche cuisine in a small city) is
+              // worth widening with the broad phrasing. Typeaheads take the
+              // opposite default — see TEXT_EXACT_SUFFICIENT_DEFAULT.
+              { minExactResults: TEXT_EXACT_SUFFICIENT_POOL },
             ).catch(() => [] as PlaceResult[]),
       ),
     ),
