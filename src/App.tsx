@@ -27,6 +27,7 @@ import { PullToRefresh } from './components/PullToRefresh';
 import { SwipeBackContainer } from './components/SwipeBackContainer';
 import { ScrollRestoration } from './components/ScrollRestoration';
 import { KEEP_ALIVE_PATHS } from './lib/keep-alive';
+import { useHomeLocation } from './contexts/HomeLocationContext';
 import { recordNavEntry, backTargetFor, isTabRootLocation } from './lib/nav-stack';
 import { Sidebar } from './components/Sidebar';
 import { AnimatePresence, motion, type Variants } from 'motion/react';
@@ -241,10 +242,23 @@ const AppContent: React.FC = () => {
   const isReelsPage = location.pathname === '/reels';
   const isFocusedReel = location.pathname.startsWith('/r/');
   const showBottomNav = !['/messages', '/reorder', '/location', '/location/map', '/map', '/create', '/recipes-for-you', '/circle', '/settings'].includes(location.pathname) && !location.pathname.startsWith('/restaurant/') && !location.pathname.startsWith('/user/') && !location.pathname.startsWith('/recipe/') && !location.pathname.startsWith('/meal/') && !location.pathname.startsWith('/review/') && !location.pathname.startsWith('/activity') && !location.pathname.startsWith('/guides/') && !isFocusedReel;
-  const { isSignedIn, isGuest, continueAsGuest, loading, profileComplete, profileError, profileLoading, needsPasswordSetup } = useAuth();
+  const { isSignedIn, isGuest, continueAsGuest, loading, profile, profileComplete, profileError, profileLoading, needsPasswordSetup } = useAuth();
   // How the pre-auth taste flow was left this session — 'signup' carries the
   // "save your taste profile" framing into the Auth screen it hands off to.
   const [preauthExited, setPreauthExited] = React.useState<null | 'signup' | 'signin'>(null);
+  // Reinstall / second-device backstop: the profile knows their home city,
+  // but nothing ever read those columns back into the location the app
+  // actually resolves from. Without this a returning user on a new phone
+  // gets the GPS prompt and, on denial, New York.
+  const homeLocationCtx = useHomeLocation();
+  const hydrateHome = homeLocationCtx?.hydrateFromProfile;
+  const profileCity = profile?.home_city;
+  const profileLat = profile?.home_lat;
+  const profileLng = profile?.home_lng;
+  React.useEffect(() => {
+    if (!profileCity || !hydrateHome) return;
+    hydrateHome(profileCity, profileLat, profileLng);
+  }, [profileCity, profileLat, profileLng, hydrateHome]);
   const isDesktop = useIsDesktop();
   // Sidebar mode: real desktop viewport. Guests get the sidebar too so they
   // can navigate the app (it renders a "Sign in" affordance instead of a

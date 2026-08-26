@@ -18,7 +18,7 @@ import { useToast } from './ToastContext';
 import { safeImage, localISODate } from '../lib/utils';
 import { applySettleChanges, settleScores, type SettleChange } from '../lib/settleScores';
 import { applyRatingSave } from '../lib/applyRatingSave';
-import { SCORE_UNLOCK_THRESHOLD } from '../lib/scoreUnlock';
+import { SCORE_UNLOCK_THRESHOLD, scoresUnlocked, rankAmong } from '../lib/scoreUnlock';
 
 /* ── Types ── */
 
@@ -2743,7 +2743,19 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     showToast(
       wasRated ? 'Rating updated' : 'Added to rated restaurants',
       {
-        subtitle: `${rating.name} · ${settledSelf.score.toFixed(1)} / 10${wasWishlisted ? ' · removed from wishlist' : ''}${otherChanged.length > 0 ? ' · nearby ratings adjusted' : ''}`,
+        // Below the unlock threshold every other surface in the app hides
+        // the number — badges, rings, Profile, Pantry, Reorder, the reveal
+        // card. This toast printed it anyway, on the same tap that told
+        // the user scores unlock later, which made the whole gate read as
+        // arbitrary. Rank is the more useful thing to say regardless.
+        subtitle: `${rating.name} · ${
+          scoresUnlocked(next.length)
+            ? `${settledSelf.score.toFixed(1)} / 10`
+            : (() => {
+                const { rank, total } = rankAmong(next, settledSelf.score, settledSelf.restaurantId);
+                return `#${rank} of ${total}`;
+              })()
+        }${wasWishlisted ? ' · removed from wishlist' : ''}${otherChanged.length > 0 ? ' · nearby ratings adjusted' : ''}`,
         variant: wasRated ? 'rating-updated' : 'rated',
       },
     );
@@ -3372,7 +3384,7 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
 
   return (
     <ListsContext.Provider value={{
-      ratings, scoresUnlocked: ratings.length >= SCORE_UNLOCK_THRESHOLD,
+      ratings, scoresUnlocked: scoresUnlocked(ratings.length),
       rateRestaurant, updateRating, applySettledScores, removeRating, getRating, deleteVisit,
       pendingPhotoUploadCount, retryPendingPhotoUploads,
       lists, createList, deleteList, renameList, addToList, removeFromList, addToWishlistInList, removeFromWishlistInList, getListsForRestaurant, setListRating, getListRating,

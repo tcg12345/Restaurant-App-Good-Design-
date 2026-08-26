@@ -40,6 +40,13 @@ export interface TasteProfile {
   topCities: string[];
   topCity: string | null;                    // first element of topCities, or null
   highRatedCount: number;
+  /** Total ratings with a real score — every rating is taste evidence,
+   *  good or bad. Drives the scorer's `ramp`. */
+  scoreN: number;
+  /** How much the stated quiz answers still count, 1 → 0 as real ratings
+   *  accumulate. Exposed so the scorer can weigh stated taste without
+   *  recomputing it. */
+  quizMass: number;
   ratedIds: Set<string>;
   wishlistedIds: Set<string>;
   recentlyViewedIds: Set<string>;
@@ -182,12 +189,51 @@ function splitCuisines(raw: string): string[] {
  *  this pure module never imports the storage layer. */
 export interface TasteQuizSignals {
   cuisines?: string[];
-  /** Stated spending comfort, price tiers 1–4. */
+  /** Legacy flat shape — stated spending comfort, tiers 1–4, in selection
+   *  order. Still read (see quizPriceTiers) so rows written before the
+   *  primary/secondary split keep working. */
   prices?: number[];
+  /** "A normal night out" — the dominant tier. A single dominant tier is
+   *  what crosses priceDist's concentration threshold; a flat multi-select
+   *  does not. */
+  pricePrimary?: number;
+  /** "…and when I'm celebrating" — optional, half the weight. */
+  priceSecondary?: number;
+  /** Cuisines the user would rather skip → negative priors. */
+  avoidCuisines?: string[];
+  /** Stated home city label → city affinity seed. */
+  city?: string;
+  /** Dietary preference keys → positive tag priors (DIETARY_TAG_PRIORS). */
+  dietary?: string[];
   /** Atmosphere option id from the quiz ('intimate' | 'vibrant' |
    *  'minimalist' | 'rustic') — mapped onto rating-tag priors below. */
   atmosphere?: string;
 }
+
+/**
+ * The stated price tiers as [primary, secondary?].
+ *
+ * Reads the primary/secondary fields when present and falls back to the
+ * legacy flat `prices` array — taking prices[0] as primary and prices[1]
+ * as secondary — so existing taste_profile rows need no migration.
+ */
+export function quizPriceTiers(quiz?: TasteQuizSignals | null): number[] {
+  if (!quiz) return [];
+  if (typeof quiz.pricePrimary === 'number') {
+    return typeof quiz.priceSecondary === 'number'
+      ? [quiz.pricePrimary, quiz.priceSecondary]
+      : [quiz.pricePrimary];
+  }
+  return quiz.prices ?? [];
+}
+
+/** Dietary answer → the ALL_TAGS tokens it implies. Same invariant as
+ *  ATMOSPHERE_TAG_PRIORS: exact tokens only, or the prior matches nothing. */
+const DIETARY_TAG_PRIORS: Record<string, string[]> = {
+  vegetarian: ['Good Vegetarian Options'],
+  vegan: ['Good Vegetarian Options', 'Healthy Options'],
+  healthy: ['Healthy Options', 'Fresh Ingredients'],
+};
 
 /** Quiz atmosphere answers → the rating tags they imply. Values MUST be
  *  tokens from RatingShared.ALL_TAGS — tagScore is keyed by exactly what
@@ -309,7 +355,18 @@ export function buildTasteProfile(
   // quiz makes ("helps us curate") only holds if the answers count. The
   // prior fades as real ratings accumulate (gone by 8): a stated preference
   // is a hint; an actual scored visit is evidence.
-  const quizMass = Math.max(0, 1 - scoreN / 8);
+  // Zero unless the quiz was actually answered. This value used to be read
+  // only inside `quiz?.field` guards, so a phantom mass on an unanswered
+  // quiz was harmless; now that `ramp` weighs it, an unanswered quiz must
+  // contribute nothing rather than 0.875 of imaginary stated taste.
+  const quizAnswered = !!quiz && (
+    (quiz.cuisines?.length ?? 0) > 0
+    || quizPriceTiers(quiz).length > 0
+    || !!quiz.atmosphere
+    || (quiz.avoidCuisines?.length ?? 0) > 0
+    || (quiz.dietary?.length ?? 0) > 0
+  );
+  const quizMass = quizAnswered ? Math.max(0, 1 - scoreN / 8) : 0;
   if (quizMass > 0 && quiz?.cuisines) {
     for (const label of quiz.cuisines) {
       for (const token of splitCuisines(label)) {
@@ -319,23 +376,90 @@ export function buildTasteProfile(
       }
     }
   }
-  // Stated price comfort seeds BOTH price structures: priceScore (drives
-  // topPrices and the cuisine×price queries) and priceMass/pricedPositiveN
-  // (drives priceDist, which is what actually gates the price-restricted
-  // candidate queries and the price-fit term). Without the pseudo-count the
-  // confidence factor is 0/(0+6) and a stated "$$$$" changes nothing — the
-  // exact cold-start gap this prior exists to close. 4 pseudo-observations
-  // at zero ratings puts a SINGLE stated tier just over the restriction
-  // threshold (concentration 0.4 ≥ 0.35) while a multi-tier answer stays a
-  // soft hint; both fade on the same schedule as the cuisine prior.
-  if (quizMass > 0 && quiz?.prices && quiz.prices.length > 0) {
-    for (const tier of quiz.prices) {
-      if (tier >= 1 && tier <= 4) {
-        priceScore[tier] = (priceScore[tier] || 0) + 2 * quizMass;
-        priceMass[tier - 1] += 2 * quizMass;
+  /**
+   * Stated price comfort, seeded as a PRIMARY tier plus an optional
+   * secondary ("a normal night out", "and when I'm celebrating").
+   *
+   * It feeds three structures: priceScore (drives topPrices and the
+   * cuisine×price queries), priceMass (drives priceDist's shape), and
+   * pricedPositiveN (drives priceDist's CONFIDENCE). Without the
+   * pseudo-count the confidence factor is 0/(0+6) and a stated "$$$$"
+   * changes nothing.
+   *
+   * The pseudo-count is per NAMED TIER, not a flat constant, and that is
+   * load-bearing arithmetic. concentration = (1 − sigma/1.5) × n/(n+6)
+   * must clear 0.35 to switch on the price-restricted Places query:
+   *   one tier   → sigma 0,     n=4 → 1.000 × 0.400 = 0.400  ✓
+   *   two tiers  → sigma 0.471, n=8 → 0.686 × 0.571 = 0.392  ✓
+   * A flat seed of 4 (or 6) leaves the two-tier case at 0.267 (0.343) —
+   * under the bar for the most natural human answer. More stated
+   * information earning more confidence is also the principled reading.
+   * Both cases are pinned by tests; do not tune this by hand.
+   */
+  const statedTiers = quizPriceTiers(quiz).filter((t) => t >= 1 && t <= 4);
+  // Two or fewer tiers is a dominant answer (2× primary, 1× secondary).
+  // A legacy row naming three or four is the user saying "anywhere" — give
+  // those equal weight so the distribution stays wide and honest.
+  const dominant = statedTiers.length <= 2;
+  const primaryTier = dominant ? statedTiers[0] : undefined;
+  const secondaryTier = dominant ? statedTiers[1] : undefined;
+  if (quizMass > 0) {
+    for (let i = 0; i < statedTiers.length; i++) {
+      const tier = statedTiers[i];
+      const weight = dominant ? (i === 0 ? 2 : 1) : 1;
+      priceScore[tier] = (priceScore[tier] || 0) + weight * quizMass;
+      priceMass[tier - 1] += weight * quizMass;
+      pricedPositiveN += 4 * quizMass;
+    }
+  }
+  /**
+   * Cuisine × price PAIRS — the heaviest term in DEFAULT_WEIGHTS (1.8) and
+   * the driver of buildCandidateQueries' first and highest-priority tier.
+   *
+   * Nothing used to write a pair key from the quiz: cuisines and prices
+   * were collected as two independent bags, so topPairs was empty for
+   * every quiz-only profile and Tier 1 emitted no queries at all. Asking
+   * both on one screen is what makes this signal exist.
+   */
+  if (quizMass > 0 && quiz?.cuisines && primaryTier !== undefined) {
+    for (const label of quiz.cuisines) {
+      for (const token of splitCuisines(label)) {
+        for (const [tier, weight] of [[primaryTier, 2], [secondaryTier, 1]] as const) {
+          if (tier === undefined || tier < 1 || tier > 4) continue;
+          const key = `${token}|${tier}`;
+          pairScore[key] = (pairScore[key] || 0) + weight * quizMass;
+        }
       }
     }
-    pricedPositiveN += 4 * quizMass;
+  }
+  /**
+   * "Anything you'd rather skip?" — negative cuisine priors, symmetrical
+   * to the positive seed above. This is what makes DEFAULT_WEIGHTS'
+   * negativeMult (1.5) reachable at cold start; before this, a negative
+   * cuisineScore could only come from an actual low-scored rating.
+   */
+  if (quizMass > 0 && quiz?.avoidCuisines) {
+    for (const label of quiz.avoidCuisines) {
+      for (const token of splitCuisines(label)) {
+        cuisineScore[token] = (cuisineScore[token] || 0) - 2 * quizMass;
+      }
+    }
+  }
+  // Dietary answers ride in as positive tag priors. Same invariant as
+  // ATMOSPHERE_TAG_PRIORS: exact ALL_TAGS tokens only.
+  if (quizMass > 0 && quiz?.dietary) {
+    for (const key of quiz.dietary) {
+      for (const tag of DIETARY_TAG_PRIORS[key] ?? []) {
+        tagScore[tag] = (tagScore[tag] || 0) + 1.2 * quizMass;
+      }
+    }
+  }
+  // The stated home city seeds city affinity, which is otherwise only ever
+  // derived from the addresses of places the user already rated — i.e.
+  // empty for exactly the cold-start profile that needs it most.
+  if (quizMass > 0 && quiz?.city) {
+    const token = extractCityState(quiz.city, quiz.city);
+    if (token) cityScore[token] = (cityScore[token] || 0) + 3;
   }
   // Atmosphere lands as tag priors, so a fresh account's topTags aren't
   // empty and getTagSimilarRestaurants has something to match on. 1.5 per
@@ -346,10 +470,24 @@ export function buildTasteProfile(
     }
   }
 
+  /**
+   * Built-in list name → the rating tag it implies.
+   *
+   * Values MUST be tokens from RatingShared.ALL_TAGS, the same invariant
+   * ATMOSPHERE_TAG_PRIORS states above — tagScore is keyed by exactly what
+   * raters pick, and topTags becomes the query for
+   * getTagSimilarRestaurants. Three of these used to be invented labels
+   * ('Date Night', 'Cocktails', 'Hidden Gem'); none exists in ALL_TAGS, so
+   * no rating could carry them and no community row could match. They
+   * occupied topTags slots, sent tag-similarity looking for nothing, and
+   * inflated tagMax — diluting every legitimate tag affinity.
+   *
+   * 'Hidden Gems' has no entry because ALL_TAGS has no hidden-gem token.
+   * Inventing one here would just recreate the bug.
+   */
   const LIST_TAG_MAP: Record<string, string> = {
-    'Date Nights': 'Date Night',
-    'Best Cocktails': 'Cocktails',
-    'Hidden Gems': 'Hidden Gem',
+    'Date Nights': 'Special Occasion',
+    'Best Cocktails': 'Great Cocktails',
     'Quick Bites': 'Quick Bite',
   };
   for (const list of lists) {
@@ -469,6 +607,8 @@ export function buildTasteProfile(
     topCities,
     topCity: topCities[0] ?? null,
     highRatedCount,
+    scoreN,
+    quizMass,
     ratedIds,
     wishlistedIds,
     recentlyViewedIds,
@@ -818,7 +958,26 @@ export function scoreCandidates(
   // Taste terms ramp in as the user rates (0 ratings → pure quality/social,
   // 3+ high ratings → full personalization) instead of the old binary
   // cold-start cliff at exactly 3.
-  const ramp = clamp(profile.highRatedCount / 3, 0, 1);
+  /**
+   * How far the taste terms (cuisine, price, pair, tagOverlap) are open.
+   *
+   * This used to be `highRatedCount / 3` — ratings of 8.0+ only — which
+   * meant a user who answered the entire quiz and rated nothing had ALL
+   * FOUR taste terms multiplied by zero, and none of their reason chips
+   * could render. "Built from your answers" was a top-rated-nearby list.
+   *
+   * Two changes. Stated taste now counts as half a slot (1.5 of the 3
+   * needed), so a complete quiz opens the gate to 0.5 — weaker than a
+   * rating the user actually gave, but not nothing. And the counter is
+   * `scoreN` (any rating) rather than `highRatedCount`, because quizMass
+   * also decays on scoreN: keyed differently, the priors evaporated
+   * BEFORE the machinery consuming them switched on, leaving a user with
+   * eight mediocre ratings more taste-blind than a user with none. It
+   * also makes negativeMult reachable — a run of low scores is real
+   * evidence about what someone dislikes, and it used to be computed and
+   * then discarded until they finally loved something.
+   */
+  const ramp = clamp((profile.scoreN + 1.5 * profile.quizMass) / 3, 0, 1);
 
   const friendSim = buildFriendSimilarity(profile, signals);
 

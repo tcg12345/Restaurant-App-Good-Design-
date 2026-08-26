@@ -1190,6 +1190,10 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, sear
   const setHomeLocation = useCallback((loc: HomeLocation | null) => {
     if (loc && homeLocationCtx) homeLocationCtx.setLocation(loc);
   }, [homeLocationCtx]);
+  // Session-only, for the denied-permission fallback — see the resolver.
+  const setHomeLocationTransient = useCallback((loc: HomeLocation) => {
+    homeLocationCtx?.setLocationTransient(loc);
+  }, [homeLocationCtx]);
   // Brief fade overlay applied while the feed refetches after a location swap.
   const [homeLocationRefreshing, setHomeLocationRefreshing] = useState(false);
   // Watch location changes (from this page OR the sticky DesktopHeader chip)
@@ -1541,46 +1545,47 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, sear
     return () => { cancelled = true; };
   }, [mode, userId, homeLocation?.label, userPreferences.topTags]);
 
-  // Resolve the home-page location on mount. Preferred source is the device's
-  // GPS; when permission is denied (or geolocation is unavailable) we fall
-  // back to the last explicit selection from localStorage, and then to NYC.
+  /**
+   * Resolve the home-page location on mount.
+   *
+   * Order is: an explicit pick from localStorage (which HomeLocationContext
+   * has usually already hydrated, so this effect rarely runs at all), then
+   * GPS, then New York. The docblock here used to claim GPS came first —
+   * it never did, and the contradiction survived two readings of this file.
+   *
+   * The NYC fallback is deliberately NOT persisted. It used to be, via
+   * setHomeLocation → HomeLocationContext's localStorage write, which meant
+   * one dismissed permission dialog pinned a Chicago user to New York
+   * forever: the effect early-returns whenever a location exists, so GPS
+   * was never retried on any later launch. Holding it in state only keeps
+   * the next launch honest.
+   *
+   * GPS goes through getCurrentHomeLocation() rather than a raw
+   * getCurrentPosition call. That wrapper exists because iOS WKWebView
+   * hangs indefinitely on high-accuracy requests indoors and does not
+   * honour the native timeout; calling the bare API here reintroduced
+   * exactly the failure it was written to fix.
+   */
   useEffect(() => {
     if (mode !== 'home' || homeLocation) return;
     let cancelled = false;
-    // If the user has already picked (or previously GPS-resolved) a
-    // location, restore it on mount and skip the GPS request entirely —
-    // otherwise navigating back to the home page would silently overwrite
-    // their explicit pick with their current location.
     const last = loadLastSelectedLocation();
     if (last) {
       setHomeLocation(last);
       return;
     }
-    const setFromFallback = () => {
+    (async () => {
+      const loc = await getCurrentHomeLocation().catch(() => null);
       if (cancelled) return;
-      setHomeLocation({ label: 'New York, NY', lat: 40.7128, lng: -74.006 });
-    };
-    if (typeof navigator !== 'undefined' && navigator.geolocation) {
-      navigator.geolocation.getCurrentPosition(
-        async (pos) => {
-          if (cancelled) return;
-          const { latitude: lat, longitude: lng } = pos.coords;
-          const label = await reverseGeocode(lat, lng);
-          if (cancelled) return;
-          const loc = { label, lat, lng };
-          setHomeLocation(loc);
-          // Persist the GPS-resolved address to the same localStorage slot
-          // the picker uses, so other surfaces (restaurant detail distance,
-          // map default centre, etc.) can read the precise origin instead
-          // of falling back to a stale city-level label.
-          saveLastSelectedLocation(loc);
-        },
-        () => setFromFallback(),
-        { maximumAge: 5 * 60 * 1000, timeout: 15000, enableHighAccuracy: true },
-      );
-    } else {
-      setFromFallback();
-    }
+      if (loc) {
+        // A real fix on the user's device — persist it so every other
+        // surface (detail-page distance, map centre) shares the origin.
+        setHomeLocation(loc);
+        saveLastSelectedLocation(loc);
+        return;
+      }
+      setHomeLocationTransient({ label: 'New York, NY', lat: 40.7128, lng: -74.006 });
+    })();
     return () => {
       cancelled = true;
     };

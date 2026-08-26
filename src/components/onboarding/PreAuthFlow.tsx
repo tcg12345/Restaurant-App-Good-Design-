@@ -4,6 +4,7 @@ import { Star } from 'lucide-react';
 import * as OB from './OnboardingKit';
 import { TastePillGrid, AtmosphereGrid, TASTE_CUISINES, TASTE_PRICES } from './TasteSteps';
 import { CityAutocomplete } from '../CityAutocomplete';
+import { saveLastSelectedLocation } from '../HomeLocationBar';
 import { saveTasteQuiz } from '../../lib/taste-quiz';
 import { savePreauthCity, markPreauthDone } from '../../lib/preauth';
 import { logOnboardingEvent } from '../../lib/onboarding-events';
@@ -59,10 +60,15 @@ export async function fetchTastePreview(
   answers: { cuisines: string[]; prices: number[]; atmosphere: string | null },
   city: HomeLocation,
 ): Promise<ScoredPlace[]> {
+  // Same signal shape the flow persists — otherwise the preview would rank
+  // by different rules than the app the user is about to sign up for.
   const profile = buildTasteProfile([], [], [], [], {
     cuisines: answers.cuisines,
     prices: answers.prices,
+    pricePrimary: answers.prices[0],
+    priceSecondary: answers.prices[1],
     atmosphere: answers.atmosphere ?? undefined,
+    city: city.label,
   });
   const queries = buildCandidateQueries(profile, city).slice(0, 3);
   const batches = await Promise.all(queries.map((q) =>
@@ -141,11 +147,18 @@ export const PreAuthFlow: React.FC<{
   /** Persist answers to the local mirror (no user yet) — ProfileSetup
    *  reads them back after signup and stamps the row. */
   const persistAnswers = () => {
-    if (cuisineSel.length === 0 && priceSel.length === 0 && !atmosphere) return;
+    if (cuisineSel.length === 0 && priceSel.length === 0 && !atmosphere && !cityGeo) return;
     void saveTasteQuiz(undefined, {
       cuisines: cuisineSel,
+      // Both shapes: the flat array for anything still reading it, and the
+      // primary/secondary split the pair + price priors actually want. The
+      // step is still a multi-select, so the first pick is the primary —
+      // the merged cuisine × spend screen will state it explicitly.
       prices: priceSel,
+      pricePrimary: priceSel[0],
+      priceSecondary: priceSel[1],
       atmosphere: atmosphere ?? undefined,
+      city: cityGeo?.label,
       completedAt: Date.now(),
     });
   };
@@ -174,6 +187,13 @@ export const PreAuthFlow: React.FC<{
   const advanceFromCity = () => {
     if (cityGeo) {
       savePreauthCity(cityGeo);
+      // ALSO write the key the app genuinely resolves from. The pre-auth
+      // city used to dead-end: it reached the profile row, and nothing
+      // ever read those columns back into the map or the rec target — so
+      // a user who typed "Austin", confirmed "Austin" and saw an Austin
+      // preview landed on Discover showing New York.
+      saveLastSelectedLocation(cityGeo);
+      logOnboardingEvent('location_resolved');
       go('preview');
     } else {
       // No city, no preview to show — the gate still explains itself.

@@ -12,6 +12,7 @@ import {
 import type { PlaceResult } from './places';
 import type { RestaurantRating, WishlistItem } from '../contexts/ListsContext';
 import type { CommunityRating } from './supabase-community';
+import { ALL_TAGS } from '../components/RatingShared';
 
 /* ── Fixtures ──────────────────────────────────────────────────────────── */
 
@@ -237,7 +238,10 @@ describe('scoreCandidates', () => {
   });
 
   it('Bayesian quality: 4.6★ × 1000 reviews outranks 5.0★ × 3 reviews', () => {
-    const p = profileFrom([]); // cold start → quality/popularity only
+    // A profile with NO ratings and NO quiz: nothing personal to rank on,
+    // so quality/popularity decide. (A quiz-ANSWERED cold start is a
+    // different case — see 'a quiz-only profile can rank' below.)
+    const p = profileFrom([]);
     const out = scoreCandidates(
       [
         place({ id: 'proven', rating: 4.6, userRatingCount: 1000, types: [] }),
@@ -249,6 +253,113 @@ describe('scoreCandidates', () => {
       RADIUS,
     );
     expect(out[0].id).toBe('proven');
+  });
+
+  it('a quiz-only profile can RANK, not just retrieve', () => {
+    // The bug this pins: every taste term lived behind `ramp`, which only
+    // opened on ratings >= 8. A user who answered the whole quiz and rated
+    // nothing had cuisine/price/pair/tagOverlap all multiplied by zero, so
+    // "built from your answers" was a top-rated-nearby list and not one
+    // taste chip could render.
+    const quizOnly = buildTasteProfile([], [], [], [], {
+      cuisines: ['Italian'], pricePrimary: 2, atmosphere: 'intimate',
+    });
+    expect(quizOnly.quizMass).toBe(1);
+
+    const out = scoreCandidates(
+      [
+        // Weaker on paper, but exactly what they asked for.
+        place({ id: 'match', rating: 4.3, userRatingCount: 300, types: ['italian_restaurant'], priceLevel: 2 }),
+        place({ id: 'generic', rating: 4.6, userRatingCount: 900, types: ['american_restaurant'], priceLevel: 4 }),
+      ],
+      quizOnly, emptySignals(), TARGET, RADIUS,
+    );
+    const match = out.find((p) => p.id === 'match')!;
+    expect(match.reasons?.length).toBeGreaterThan(0);
+    // A taste-derived chip, not a star count.
+    expect(match.reasons!.some((r) => /Top cuisine|sweet spot|price range|Your vibe/.test(r))).toBe(true);
+  });
+
+  it('stated taste is worth HALF a slot — a real rating still outweighs it', () => {
+    const quizOnly = buildTasteProfile([], [], [], [], { cuisines: ['Italian'], pricePrimary: 2 });
+    // ramp = (scoreN + 1.5 * quizMass) / 3 = (0 + 1.5) / 3
+    expect(quizOnly.scoreN).toBe(0);
+    expect(quizOnly.quizMass).toBe(1);
+    // Three ratings take it the whole way, quiz or no quiz.
+    const rated = buildTasteProfile(
+      [0, 1, 2].map((i) => rating({ restaurantId: `r${i}`, cuisine: 'Italian', score: 9 })),
+      [], [], [],
+    );
+    expect(rated.scoreN).toBe(3);
+  });
+
+  it('an UNANSWERED quiz contributes no stated taste', () => {
+    // quizMass is computed unconditionally; it must not leak into the
+    // ranking gate as imaginary evidence when nothing was answered.
+    expect(buildTasteProfile([], [], [], []).quizMass).toBe(0);
+    expect(buildTasteProfile([], [], [], [], {}).quizMass).toBe(0);
+    expect(buildTasteProfile([], [], [], [], { cuisines: [] }).quizMass).toBe(0);
+  });
+
+  it('the quiz seeds pairScore, so query Tier 1 is no longer dead', () => {
+    // pairScore carries the heaviest weight in the system (1.8) and drives
+    // buildCandidateQueries' first tier. Nothing used to write a pair key
+    // from the quiz, so topPairs was empty for every quiz-only profile.
+    const p = buildTasteProfile([], [], [], [], {
+      cuisines: ['Italian', 'Japanese'], pricePrimary: 3, priceSecondary: 4,
+    });
+    expect(p.topPairs.length).toBeGreaterThan(0);
+    expect(p.topPairs).toContainEqual({ cuisine: 'Italian', price: 3 });
+    // Primary outweighs secondary.
+    expect(p.pairScore['Italian|3']).toBeGreaterThan(p.pairScore['Italian|4']);
+
+    const queries = buildCandidateQueries(p, { label: 'Austin, TX', lat: 0, lng: 0 });
+    expect(queries.some((q) => /Italian/i.test(q.text) && /\$\$\$/.test(q.text))).toBe(true);
+  });
+
+  it('the price seed clears the restriction threshold for one AND two tiers', () => {
+    // Load-bearing arithmetic: concentration must reach 0.35 to switch on
+    // the price-restricted Places query. A flat pseudo-count leaves the
+    // two-tier answer — the most natural human response — under the bar.
+    const one = buildTasteProfile([], [], [], [], { pricePrimary: 4 });
+    expect(one.priceDist!.concentration).toBeGreaterThanOrEqual(0.35);
+
+    const two = buildTasteProfile([], [], [], [], { pricePrimary: 3, priceSecondary: 4 });
+    expect(two.priceDist!.concentration).toBeGreaterThanOrEqual(0.35);
+
+    // But naming everything is a statement of flexibility, not a demand.
+    const flexible = buildTasteProfile([], [], [], [], { prices: [1, 2, 3, 4] });
+    expect(flexible.priceDist!.concentration).toBeLessThan(0.35);
+  });
+
+  it('reads the legacy flat prices array (no row migration)', () => {
+    const legacy = buildTasteProfile([], [], [], [], { cuisines: ['Thai'], prices: [3, 4] });
+    const modern = buildTasteProfile([], [], [], [], { cuisines: ['Thai'], pricePrimary: 3, priceSecondary: 4 });
+    expect(legacy.pairScore).toEqual(modern.pairScore);
+    expect(legacy.priceDist!.concentration).toBeCloseTo(modern.priceDist!.concentration, 6);
+  });
+
+  it('“rather skip” makes negativeMult reachable at cold start', () => {
+    const p = buildTasteProfile([], [], [], [], {
+      cuisines: ['Italian'], pricePrimary: 2, avoidCuisines: ['Seafood'],
+    });
+    expect(p.cuisineScore['Seafood']).toBeLessThan(0);
+    expect(p.topCuisines).not.toContain('Seafood');
+  });
+
+  it('every LIST_TAG_MAP tag is a real ALL_TAGS token', () => {
+    // A near-miss label scores nothing: no rating can carry it, no
+    // community row can match it, and it still dilutes tagMax.
+    const p = buildTasteProfile([], [], [
+      { id: 'l1', name: 'Date Nights', emoji: '', restaurantIds: ['a'], wishlistIds: [], createdAt: 0 },
+      { id: 'l2', name: 'Best Cocktails', emoji: '', restaurantIds: ['b'], wishlistIds: [], createdAt: 0 },
+      { id: 'l3', name: 'Quick Bites', emoji: '', restaurantIds: ['c'], wishlistIds: [], createdAt: 0 },
+    ], []);
+    for (const tag of Object.keys(p.tagScore)) {
+      expect(ALL_TAGS).toContain(tag);
+    }
+    expect(p.tagScore['Special Occasion']).toBeGreaterThan(0);
+    expect(p.tagScore['Great Cocktails']).toBeGreaterThan(0);
   });
 
   it('a like-minded friend’s rave lifts more than a taste-opposite friend’s', () => {

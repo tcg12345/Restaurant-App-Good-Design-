@@ -21,6 +21,14 @@ export interface HomeLocationContextValue {
   /** Subscribers can bump this nonce when the picker selects the same
    *  coords but a more specific label, etc. */
   setLocation: (loc: HomeLocation) => void;
+  /** Set the location for this session WITHOUT writing it to storage.
+   *  For guesses the app made on the user's behalf — a denied-permission
+   *  fallback is not a choice, and persisting it makes the guess
+   *  permanent, since the resolver skips GPS whenever a location exists. */
+  setLocationTransient: (loc: HomeLocation) => void;
+  /** Seed this device from the signed-in profile's home city when local
+   *  storage has nothing. No-op when a local pick already exists. */
+  hydrateFromProfile: (city: string, lat?: number | null, lng?: number | null) => void;
   useCurrent: () => Promise<void>;
 }
 
@@ -30,6 +38,25 @@ export function HomeLocationProvider({ children }: { children: React.ReactNode }
   const [location, setLocationState] = useState<HomeLocation | null>(() => loadLastSelectedLocation());
 
   const setLocation = useCallback((loc: HomeLocation) => {
+    setLocationState(loc);
+    saveLastSelectedLocation(loc);
+  }, []);
+
+  const setLocationTransient = useCallback((loc: HomeLocation) => {
+    setLocationState(loc);
+  }, []);
+
+  /**
+   * Backstop for reinstalls and second devices: the profile knows the
+   * user's home city (they gave it during signup) but this device's
+   * localStorage is empty, and nothing else ever reads those columns back.
+   * Without this, a returning user on a new phone gets the GPS prompt and,
+   * on denial, New York — while their real city sits in the database.
+   */
+  const hydrateFromProfile = useCallback((city: string, lat?: number | null, lng?: number | null) => {
+    if (loadLastSelectedLocation()) return;
+    if (!city || typeof lat !== 'number' || typeof lng !== 'number') return;
+    const loc = { label: city, lat, lng };
     setLocationState(loc);
     saveLastSelectedLocation(loc);
   }, []);
@@ -53,7 +80,7 @@ export function HomeLocationProvider({ children }: { children: React.ReactNode }
   }, []);
 
   return (
-    <HomeLocationContext.Provider value={{ location, setLocation, useCurrent }}>
+    <HomeLocationContext.Provider value={{ location, setLocation, setLocationTransient, hydrateFromProfile, useCurrent }}>
       {children}
     </HomeLocationContext.Provider>
   );

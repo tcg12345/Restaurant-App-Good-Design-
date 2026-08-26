@@ -18,16 +18,34 @@ export interface TasteQuizAnswers {
   /** Display-cased cuisine labels ("Italian") — the same tokens rating
    *  cuisines use, so recommendations can credit them directly. */
   cuisines?: string[];
-  /** Stated spending comfort, Google price tiers 1–4 ($–$$$$). Seeds the
-   *  price prior + priceDist so a $$$$ palate gets $$$$ recommendations
-   *  before any rating exists. */
+  /** Legacy flat shape — stated spending comfort, Google price tiers 1–4,
+   *  in selection order. Still written by the current multi-select step and
+   *  still read (quizPriceTiers takes [0] as primary, [1] as secondary), so
+   *  no row needs migrating. */
   prices?: number[];
+  /** "A normal night out" — the dominant tier. A single dominant tier is
+   *  what crosses priceDist's concentration threshold and switches on the
+   *  price-restricted Places query; a flat multi-select does not. */
+  pricePrimary?: number;
+  /** "…and when I'm celebrating" — optional, half the primary's weight. */
+  priceSecondary?: number;
+  /** Cuisines to steer AWAY from → negative priors (negativeMult). */
+  avoidCuisines?: string[];
+  /** Dietary preference keys → positive ALL_TAGS priors. Preferences, not
+   *  health data: keep it optional and keep the vocabulary coarse. */
+  dietary?: string[];
+  /** Stated home city label → seeds city affinity, which is otherwise only
+   *  ever derived from the addresses of already-rated places. */
+  city?: string;
   /** Legacy — the frequency question was cut (nothing ever consumed it). */
   frequency?: string;
   completedAt?: number;
 }
 
 const LOCAL_KEY = 'gourmad-taste-quiz';
+
+const isTier = (v: unknown): v is number =>
+  typeof v === 'number' && Number.isInteger(v) && v >= 1 && v <= 4;
 
 function sanitize(raw: unknown): TasteQuizAnswers | null {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
@@ -39,12 +57,25 @@ function sanitize(raw: unknown): TasteQuizAnswers | null {
     prices: Array.isArray(o.prices)
       ? o.prices.filter((n): n is number => typeof n === 'number' && Number.isInteger(n) && n >= 1 && n <= 4)
       : undefined,
+    pricePrimary: isTier(o.pricePrimary) ? o.pricePrimary : undefined,
+    priceSecondary: isTier(o.priceSecondary) ? o.priceSecondary : undefined,
+    avoidCuisines: Array.isArray(o.avoidCuisines)
+      ? o.avoidCuisines.filter((c): c is string => typeof c === 'string')
+      : undefined,
+    dietary: Array.isArray(o.dietary)
+      ? o.dietary.filter((c): c is string => typeof c === 'string')
+      : undefined,
+    city: typeof o.city === 'string' ? o.city : undefined,
     frequency: typeof o.frequency === 'string' ? o.frequency : undefined,
     completedAt: typeof o.completedAt === 'number' ? o.completedAt : undefined,
   };
   const hasAnything = answers.atmosphere || answers.flavor || answers.frequency
     || (answers.cuisines && answers.cuisines.length > 0)
-    || (answers.prices && answers.prices.length > 0);
+    || (answers.prices && answers.prices.length > 0)
+    || answers.pricePrimary !== undefined
+    || (answers.avoidCuisines && answers.avoidCuisines.length > 0)
+    || (answers.dietary && answers.dietary.length > 0)
+    || !!answers.city;
   return hasAnything ? answers : null;
 }
 

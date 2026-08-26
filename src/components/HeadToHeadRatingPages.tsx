@@ -47,11 +47,7 @@ export interface H2HNewRestaurant {
  *  the same rule the settle pass applies to a just-rated row without an
  *  explicit H2H order (slider saves), so the displayed rank matches what
  *  actually persists. */
-export function rankAmong(ratings: RestaurantRating[], score: number, excludeId?: string): { rank: number; total: number } {
-  const others = ratings.filter((r) => r.restaurantId !== excludeId);
-  const rank = 1 + others.filter((r) => r.score >= score).length;
-  return { rank, total: others.length + 1 };
-}
+export { rankAmong } from '../lib/scoreUnlock';
 
 /* ── Shared motion vocabulary — one easing so the flow feels like a single
    piece of hardware, not a stack of pages. ── */
@@ -565,9 +561,15 @@ const InlineResult: React.FC<{
     };
   }, [state, ratings, excludeId, raw]);
   const firstEver = total === 1;
-  const [display, setDisplay] = useState(0);
+  // Zero comparisons means the band was empty and computeFinalScore
+  // returned its midpoint — a constant, not a result. The copy below says
+  // so honestly; a 700ms count-up dial over it does not, so skip straight
+  // to the value.
+  const uncomputed = comparisonsMade(state) === 0;
+  const [display, setDisplay] = useState(uncomputed ? target : 0);
   useEffect(() => {
     if (!scoresUnlocked) return;
+    if (uncomputed) { setDisplay(target); return; }
     const duration = 700;
     const start = performance.now();
     let raf = 0;
@@ -579,7 +581,7 @@ const InlineResult: React.FC<{
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [target, scoresUnlocked]);
+  }, [target, scoresUnlocked, uncomputed]);
 
   const scoreClr = scoreColorLight(target);
   const scoreBg = scoreBgGradient(target);
