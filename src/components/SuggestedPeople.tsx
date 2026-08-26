@@ -89,7 +89,10 @@ export const SuggestedPeople: React.FC<{
    *  the newly-followed person's content without a reload. */
   onFollowed?: () => void;
   loading?: boolean;
-}> = ({ people, userId, onRequireSignIn, onFollowed, loading }) => {
+  /** Cards only, no section heading — for hosts (onboarding) that supply
+   *  their own question-style header above the rail. */
+  bare?: boolean;
+}> = ({ people, userId, onRequireSignIn, onFollowed, loading, bare }) => {
   const [states, setStates] = useState<Record<string, FollowState>>({});
 
   const handleFollow = useCallback(async (p: SuggestedProfile) => {
@@ -112,18 +115,22 @@ export const SuggestedPeople: React.FC<{
     if (ok && p.is_public) onFollowed?.();
   }, [userId, states, onRequireSignIn, onFollowed]);
 
+  const header = bare ? null : (
+    <div className="px-5">
+      <h2 className="text-on-surface" style={{ fontSize: '18px', fontWeight: 700, lineHeight: 1.15, letterSpacing: '-0.022em' }}>
+        People to follow
+      </h2>
+      <p className="mt-1.5 text-on-surface/45" style={{ fontSize: '12.5px', lineHeight: 1.35 }}>
+        Their ratings and posts land in your feed.
+      </p>
+    </div>
+  );
+
   if (loading) {
     return (
       <section>
-        <div className="px-5">
-          <h2 className="text-on-surface" style={{ fontSize: '18px', fontWeight: 700, lineHeight: 1.15, letterSpacing: '-0.022em' }}>
-            People to follow
-          </h2>
-          <p className="mt-1.5 text-on-surface/45" style={{ fontSize: '12.5px', lineHeight: 1.35 }}>
-            Their ratings and posts land in your feed.
-          </p>
-        </div>
-        <div className="mt-4 flex gap-2.5 overflow-hidden px-5">
+        {header}
+        <div className={cn('flex gap-2.5 overflow-hidden px-5', !bare && 'mt-4')}>
           {[0, 1, 2].map((i) => (
             <div key={i} className="flex-none w-[148px] h-[168px] rounded-[22px] bg-on-surface/[0.05] animate-pulse" />
           ))}
@@ -136,15 +143,8 @@ export const SuggestedPeople: React.FC<{
 
   return (
     <section>
-      <div className="px-5">
-        <h2 className="text-on-surface" style={{ fontSize: '18px', fontWeight: 700, lineHeight: 1.15, letterSpacing: '-0.022em' }}>
-          People to follow
-        </h2>
-        <p className="mt-1.5 text-on-surface/45" style={{ fontSize: '12.5px', lineHeight: 1.35 }}>
-          Their ratings and posts land in your feed.
-        </p>
-      </div>
-      <div className="mt-4 flex gap-2.5 overflow-x-auto no-scrollbar snap-x scroll-px-5 px-5">
+      {header}
+      <div className={cn('flex gap-2.5 overflow-x-auto no-scrollbar snap-x scroll-px-5 px-5', !bare && 'mt-4')}>
         {people.map((p) => (
           <PersonCard
             key={p.user_id}

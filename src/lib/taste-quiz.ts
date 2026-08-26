@@ -12,10 +12,17 @@ import { supabase, supabaseConfigured } from './supabase';
 
 export interface TasteQuizAnswers {
   atmosphere?: string;
+  /** Legacy — the flavor question was cut (nothing ever consumed it). Old
+   *  rows still carry it; new writes don't. */
   flavor?: string;
   /** Display-cased cuisine labels ("Italian") — the same tokens rating
    *  cuisines use, so recommendations can credit them directly. */
   cuisines?: string[];
+  /** Stated spending comfort, Google price tiers 1–4 ($–$$$$). Seeds the
+   *  price prior + priceDist so a $$$$ palate gets $$$$ recommendations
+   *  before any rating exists. */
+  prices?: number[];
+  /** Legacy — the frequency question was cut (nothing ever consumed it). */
   frequency?: string;
   completedAt?: number;
 }
@@ -29,10 +36,15 @@ function sanitize(raw: unknown): TasteQuizAnswers | null {
     atmosphere: typeof o.atmosphere === 'string' ? o.atmosphere : undefined,
     flavor: typeof o.flavor === 'string' ? o.flavor : undefined,
     cuisines: Array.isArray(o.cuisines) ? o.cuisines.filter((c): c is string => typeof c === 'string') : undefined,
+    prices: Array.isArray(o.prices)
+      ? o.prices.filter((n): n is number => typeof n === 'number' && Number.isInteger(n) && n >= 1 && n <= 4)
+      : undefined,
     frequency: typeof o.frequency === 'string' ? o.frequency : undefined,
     completedAt: typeof o.completedAt === 'number' ? o.completedAt : undefined,
   };
-  const hasAnything = answers.atmosphere || answers.flavor || answers.frequency || (answers.cuisines && answers.cuisines.length > 0);
+  const hasAnything = answers.atmosphere || answers.flavor || answers.frequency
+    || (answers.cuisines && answers.cuisines.length > 0)
+    || (answers.prices && answers.prices.length > 0);
   return hasAnything ? answers : null;
 }
 

@@ -126,6 +126,47 @@ describe('buildTasteProfile', () => {
     expect(seasoned.cuisineScore['Italian'] ?? 0).toBe(0);
   });
 
+  it('stated price comfort seeds priceDist so a $$$$ palate restricts on day one', () => {
+    // Zero ratings + a single stated tier: the pseudo-observations must put
+    // concentration over the 0.35 query-restriction threshold — this is the
+    // whole point of asking the question.
+    const fresh = buildTasteProfile([], [], [], [], { prices: [4] });
+    expect(fresh.priceDist).toBeDefined();
+    expect(fresh.priceDist!.concentration).toBeGreaterThanOrEqual(0.35);
+    expect(fresh.topPrices).toContain(4);
+    // A spread answer stays a soft hint, not a hard opinion.
+    const spread = buildTasteProfile([], [], [], [], { prices: [1, 2, 3, 4] });
+    expect(spread.priceDist!.concentration).toBeLessThan(0.35);
+  });
+
+  it('stated price NEVER triggers the hard price band — that needs real history', () => {
+    // The band gates on dist.n >= 8; the quiz contributes 4 pseudo-counts.
+    const fresh = buildTasteProfile([], [], [], [], { prices: [4] });
+    expect(fresh.priceDist!.n).toBeLessThan(8);
+  });
+
+  it('the price prior fades once real spending exists', () => {
+    const seasoned = buildTasteProfile(
+      Array.from({ length: 10 }, (_, i) => rating({ restaurantId: `r${i}`, cuisine: 'Thai', score: 8, price: '$' })),
+      [], [], [],
+      { prices: [4] },
+    );
+    // Ten real $ ratings, prior gone: tier 4 holds no stated mass anymore.
+    expect(seasoned.priceDist!.share[3]).toBe(0);
+    expect(seasoned.topPrices).not.toContain(4);
+  });
+
+  it('the atmosphere answer lands as priors on REAL rating tags', () => {
+    const fresh = buildTasteProfile([], [], [], [], { atmosphere: 'intimate' });
+    // Tags must be tokens raters actually pick (ALL_TAGS) or the prior
+    // matches nothing in the community.
+    expect(fresh.topTags).toEqual(expect.arrayContaining(['Intimate', 'Romantic']));
+    expect(fresh.tagScore['Intimate']).toBeGreaterThan(0);
+    // Unknown/legacy answer ids contribute nothing rather than throwing.
+    const legacy = buildTasteProfile([], [], [], [], { atmosphere: 'umami' });
+    expect(legacy.topTags).toEqual([]);
+  });
+
   it('clear low scores go negative', () => {
     const p = profileFrom([
       rating({ restaurantId: 'good', cuisine: 'Thai', score: 9 }),

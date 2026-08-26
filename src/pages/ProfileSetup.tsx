@@ -130,8 +130,11 @@ export const ProfileSetup: React.FC = () => {
       if (availability === 'taken') { setError('That username is already taken'); return; }
       setSubmitting(true);
       const res = await persistProfile();
-      if (res.ok) await refreshProfile();
-      else setError(friendlyError(res.error));
+      if (res.ok) {
+        // Same routing as the mobile done screen — land on the taste quiz.
+        navigate('/onboarding');
+        await refreshProfile();
+      } else setError(friendlyError(res.error));
       setSubmitting(false);
     };
     const handleSubmitThenVerify = async () => {
@@ -310,7 +313,12 @@ export const ProfileSetup: React.FC = () => {
             Welcome aboard, <span style={{ color: OB.TERRA, fontWeight: 600 }}>{handle}</span>. Your canvas is ready — let's find something worth the trip.
           </p>
           <div style={{ marginTop: 'auto', paddingTop: 34, width: '100%' }}>
-            <OB.PrimaryButton onClick={() => { void refreshProfile(); }}>Start exploring</OB.PrimaryButton>
+            {/* Route into the taste onboarding BEFORE the profile refresh
+                lands: App holds this screen until profileComplete flips, and
+                when the routes mount they mount at /onboarding. (The quiz
+                was a finished page nothing ever navigated to — this line is
+                what finally puts users through it.) */}
+            <OB.PrimaryButton onClick={() => { navigate('/onboarding'); void refreshProfile(); }}>Start exploring</OB.PrimaryButton>
           </div>
         </motion.div>
       </OB.OnboardingScreen>

@@ -182,7 +182,23 @@ function splitCuisines(raw: string): string[] {
  *  this pure module never imports the storage layer. */
 export interface TasteQuizSignals {
   cuisines?: string[];
+  /** Stated spending comfort, price tiers 1–4. */
+  prices?: number[];
+  /** Atmosphere option id from the quiz ('intimate' | 'vibrant' |
+   *  'minimalist' | 'rustic') — mapped onto rating-tag priors below. */
+  atmosphere?: string;
 }
+
+/** Quiz atmosphere answers → the rating tags they imply. Values MUST be
+ *  tokens from RatingShared.ALL_TAGS — tagScore is keyed by exactly what
+ *  raters pick, and topTags feeds getTagSimilarRestaurants, so an invented
+ *  label here would be a prior on a tag nobody has ever applied. */
+const ATMOSPHERE_TAG_PRIORS: Record<string, string[]> = {
+  intimate: ['Intimate', 'Romantic', 'Cozy Atmosphere'],
+  vibrant: ['Lively Energy', 'Hip & Trendy'],
+  minimalist: ['Quiet & Peaceful', 'Charming Decor'],
+  rustic: ['Cozy Atmosphere', 'Charming Decor'],
+};
 
 export function buildTasteProfile(
   ratings: RestaurantRating[],
@@ -301,6 +317,32 @@ export function buildTasteProfile(
         // than an enthusiastic real rating (~3).
         cuisineScore[token] = (cuisineScore[token] || 0) + 2 * quizMass;
       }
+    }
+  }
+  // Stated price comfort seeds BOTH price structures: priceScore (drives
+  // topPrices and the cuisine×price queries) and priceMass/pricedPositiveN
+  // (drives priceDist, which is what actually gates the price-restricted
+  // candidate queries and the price-fit term). Without the pseudo-count the
+  // confidence factor is 0/(0+6) and a stated "$$$$" changes nothing — the
+  // exact cold-start gap this prior exists to close. 4 pseudo-observations
+  // at zero ratings puts a SINGLE stated tier just over the restriction
+  // threshold (concentration 0.4 ≥ 0.35) while a multi-tier answer stays a
+  // soft hint; both fade on the same schedule as the cuisine prior.
+  if (quizMass > 0 && quiz?.prices && quiz.prices.length > 0) {
+    for (const tier of quiz.prices) {
+      if (tier >= 1 && tier <= 4) {
+        priceScore[tier] = (priceScore[tier] || 0) + 2 * quizMass;
+        priceMass[tier - 1] += 2 * quizMass;
+      }
+    }
+    pricedPositiveN += 4 * quizMass;
+  }
+  // Atmosphere lands as tag priors, so a fresh account's topTags aren't
+  // empty and getTagSimilarRestaurants has something to match on. 1.5 per
+  // tag ≈ what two positively-weighted tagged ratings would contribute.
+  if (quizMass > 0 && quiz?.atmosphere) {
+    for (const tag of ATMOSPHERE_TAG_PRIORS[quiz.atmosphere] ?? []) {
+      tagScore[tag] = (tagScore[tag] || 0) + 1.5 * quizMass;
     }
   }
 
