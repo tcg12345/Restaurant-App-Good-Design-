@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { tokenizeCSV } from './ImportRestaurants';
+import { tokenizeCSV } from './restaurant-import';
 
 describe('tokenizeCSV', () => {
   it('parses plain rows and trims blank lines', () => {

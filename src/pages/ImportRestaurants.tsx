@@ -9,164 +9,14 @@ import { ScoreBadge } from '../components/ScoreBadge';
 import { useLists, type RestaurantRating, type RestaurantMeta } from '../contexts/ListsContext';
 import { useAuth } from '../contexts/AuthContext';
 import { useSignInModal } from '../contexts/SignInModalContext';
-import { searchPlacesByText, priceLevelToString, type PlaceResult } from '../lib/places';
+import { priceLevelToString } from '../lib/places';
 import { loadLastSelectedLocation } from '../components/HomeLocationBar';
-import { extractRestaurantsFromCaptures, prepareScreenshotTiles } from '../lib/import-restaurants-client';
-import { extractFramesFromRecording } from '../lib/video-frames';
-
-interface ParsedRestaurant {
-  name: string;
-  address: string;
-  city: string;
-  cuisine: string;
-  rating: number | null;
-  notes: string;
-  dateVisited: string;
-  priceRange: number;
-  isWishlist: boolean;
-}
-
-interface ImportResult {
-  restaurant: ParsedRestaurant;
-  /** 'updated' — the place was already rated with a DIFFERENT score, so the
-   *  import corrected the score in place (a re-run heals earlier drift). */
-  status: 'pending' | 'searching' | 'found' | 'updated' | 'not_found' | 'skipped' | 'no_data' | 'error';
-  placeResult?: PlaceResult;
-  error?: string;
-}
-
-/**
- * Tokenize a whole CSV document into rows of fields. A real state machine
- * over the raw text — quoted fields may contain commas, "" escaped quotes,
- * and embedded newlines (the old line-splitting parser corrupted every row
- * after a multiline note). Handles CRLF and a missing trailing newline.
- * Blank lines are dropped.
- */
-export function tokenizeCSV(text: string): string[][] {
-  const rows: string[][] = [];
-  let row: string[] = [];
-  let field = '';
-  let inQuotes = false;
-  for (let i = 0; i < text.length; i++) {
-    const ch = text[i];
-    if (inQuotes) {
-      if (ch === '"') {
-        if (text[i + 1] === '"') { field += '"'; i++; } // "" = escaped quote
-        else inQuotes = false;
-      } else {
-        field += ch;
-      }
-      continue;
-    }
-    if (ch === '"') { inQuotes = true; continue; }
-    if (ch === ',') { row.push(field); field = ''; continue; }
-    if (ch === '\n' || ch === '\r') {
-      if (ch === '\r' && text[i + 1] === '\n') i++;
-      row.push(field);
-      rows.push(row);
-      field = '';
-      row = [];
-      continue;
-    }
-    field += ch;
-  }
-  if (field.length > 0 || row.length > 0) { row.push(field); rows.push(row); }
-  return rows.filter((r) => r.some((f) => f.trim() !== ''));
-}
-
-function parseCSV(text: string): ParsedRestaurant[] {
-  const rows = tokenizeCSV(text);
-  if (rows.length < 2) return [];
-
-  const headers = rows[0].map((h) => h.trim().toLowerCase());
-
-  const nameIdx = headers.findIndex((h) => h.includes('name'));
-  const addressIdx = headers.findIndex((h) => h.includes('address'));
-  const cityIdx = headers.findIndex((h) => h.includes('city'));
-  const cuisineIdx = headers.findIndex((h) => h.includes('cuisine'));
-  const ratingIdx = headers.findIndex((h) => h.includes('rating') || h.includes('score'));
-  const notesIdx = headers.findIndex((h) => h.includes('note'));
-  const dateIdx = headers.findIndex((h) => h.includes('date') || h.includes('visited'));
-  const priceIdx = headers.findIndex((h) => h.includes('price'));
-  const wishlistIdx = headers.findIndex((h) => h.includes('wishlist'));
-
-  if (nameIdx === -1) return [];
-
-  return rows.slice(1).map((fields) => {
-    const at = (idx: number) => (idx >= 0 ? (fields[idx] || '').trim() : '');
-
-    const priceRaw = at(priceIdx);
-    const priceRange = priceRaw.includes('$') ? priceRaw.replace(/[^$]/g, '').length : (parseInt(priceRaw) || 0);
-
-    const ratingRaw = at(ratingIdx);
-    const rating = ratingRaw ? parseFloat(ratingRaw) : null;
-
-    return {
-      name: at(nameIdx),
-      address: at(addressIdx),
-      city: at(cityIdx),
-      cuisine: at(cuisineIdx),
-      rating: rating !== null && !isNaN(rating) ? rating : null,
-      notes: at(notesIdx),
-      dateVisited: at(dateIdx),
-      priceRange: Math.min(priceRange, 4),
-      isWishlist: ['true', '1', 'yes'].includes(at(wishlistIdx).toLowerCase()),
-    };
-  }).filter((r) => r.name);
-}
-
-function parseJSON(text: string): ParsedRestaurant[] {
-  try {
-    const data = JSON.parse(text);
-    const arr = Array.isArray(data) ? data : data.restaurants || data.data || [];
-    return arr.filter((r: any) => r.name).map((r: any) => ({
-      name: r.name || '',
-      address: r.address || '',
-      city: r.city || r.location || '',
-      cuisine: r.cuisine || r.type || '',
-      rating: r.rating != null ? parseFloat(r.rating) : (r.score != null ? parseFloat(r.score) : null),
-      notes: r.notes || r.review || '',
-      dateVisited: r.dateVisited || r.date_visited || r.date || '',
-      priceRange: typeof r.priceRange === 'number' ? r.priceRange : (typeof r.price_range === 'number' ? r.price_range : (r.price ? String(r.price).replace(/[^$]/g, '').length : 0)),
-      isWishlist: !!(r.is_wishlist || r.isWishlist || r.wishlist),
-    }));
-  } catch { return []; }
-}
-
-/** Clamp an imported score onto the app's 0–10 scale — community_ratings
- *  has a CHECK (score <= 10), so an out-of-range value silently failed to
- *  publish while still saving a broken local rating. Also quantized to the
- *  0.01 storage grid (settleScores.MIN_GAP): a Beli 4.3★ doubles to a clean
- *  8.6, but an arbitrary CSV can carry 8.6666667, and imports skip the
- *  settle pass that would otherwise regrid it. */
-const clampScore = (n: number): number => Math.round(Math.min(10, Math.max(0, n)) * 100) / 100;
-
-async function findGooglePlace(
-  restaurant: ParsedRestaurant,
-  homeBias: { lat: number; lng: number } | null,
-): Promise<PlaceResult | null> {
-  const query = `${restaurant.name} ${restaurant.city || restaurant.address}`.trim();
-  // Rows carrying a city/address are located by the QUERY TEXT — no
-  // coordinate bias, so a home bias can't drag a "Rome trip" CSV toward a
-  // same-named place near home. Name-only rows get the home-location bias.
-  // Never (0,0): that anchored every match to Null Island, letting a
-  // same-named restaurant in the wrong city win.
-  const bias = restaurant.city || restaurant.address ? null : homeBias;
-  try {
-    const results = await searchPlacesByText(query, bias?.lat ?? null, bias?.lng ?? null);
-    return results.length > 0 ? results[0] : null;
-  } catch {
-    try {
-      const results = await searchPlacesByText(`${restaurant.name} restaurant`, homeBias?.lat ?? null, homeBias?.lng ?? null);
-      return results.length > 0 ? results[0] : null;
-    } catch { return null; }
-  }
-}
-
-/** Max screenshots per AI read — 6 shots × up to 4 tiles fills one call. */
-const MAX_SCREENSHOTS = 6;
-/** Max screen recordings per read — each extracts to many frames. */
-const MAX_RECORDINGS = 2;
+import {
+  parseImportFile, readCapturesToRows, runRestaurantImport,
+  looksLikeFivePointScale, scaleToTen, clampScore,
+  MAX_SCREENSHOTS,
+  type ParsedRestaurant, type ImportRow,
+} from '../lib/restaurant-import';
 
 export const ImportRestaurants: React.FC = () => {
   const navigate = useNavigate();
@@ -180,7 +30,7 @@ export const ImportRestaurants: React.FC = () => {
   const screenshotInputRef = useRef<HTMLInputElement>(null);
 
   const [parsedRestaurants, setParsedRestaurants] = useState<ParsedRestaurant[]>([]);
-  const [importResults, setImportResults] = useState<ImportResult[]>([]);
+  const [importResults, setImportResults] = useState<ImportRow[]>([]);
   const [fileName, setFileName] = useState('');
   const [parseError, setParseError] = useState('');
   const [isRunning, setIsRunning] = useState(false);
@@ -208,8 +58,7 @@ export const ImportRestaurants: React.FC = () => {
     setFileName(label);
     setParsedRestaurants(parsed);
     setImportResults(parsed.map((r) => ({ restaurant: r, status: 'pending' as const })));
-    const parsedRatings = parsed.map((r) => r.rating).filter((n): n is number => n !== null);
-    setScalePrompt(parsedRatings.length > 0 && Math.max(...parsedRatings) <= 5);
+    setScalePrompt(looksLikeFivePointScale(parsed));
   };
 
   // ── Capture path: pick or drop screenshots and/or a screen recording →
@@ -217,69 +66,27 @@ export const ImportRestaurants: React.FC = () => {
   //    still frames covering the scroll (video-frames.ts); from there both
   //    kinds flow through the same tiling + extraction pipeline.
   const readCaptures = async (picked: File[]) => {
-    const images = picked.filter((f) => f.type.startsWith('image/')).slice(0, MAX_SCREENSHOTS);
-    const videos = picked.filter((f) => f.type.startsWith('video/')).slice(0, MAX_RECORDINGS);
-    if (images.length === 0 && videos.length === 0) return;
+    if (picked.length === 0) return;
+    // The Settings page can be reached signed-out; the vision read needs a
+    // user (the edge function enforces it too). The wizard's caller is
+    // provably signed in and states no gate — which is why the gate lives
+    // at the call site rather than inside readCapturesToRows.
     if (!isSignedIn) { requireSignIn('Sign in to import from screenshots'); return; }
-
     setParseError('');
     setParsedRestaurants([]);
     setImportResults([]);
     setIsDone(false);
     setAiReading(true);
     setReadingStage('');
-    try {
-      // Each capture becomes 1–4 overlapping high-resolution tiles so
-      // small row text (Beli's decimal score circles especially) stays
-      // legible to the vision model; the extractor dedupes the overlap.
-      const tileGroups: string[][] = [];
-      for (const f of images) tileGroups.push(await prepareScreenshotTiles(f));
-      for (const v of videos) {
-        setReadingStage('Scanning your recording…');
-        const frames = await extractFramesFromRecording(v, (p) => {
-          setReadingStage(`Scanning your recording… ${Math.round(p * 100)}%`);
-        });
-        for (const frame of frames) tileGroups.push(await prepareScreenshotTiles(frame));
-      }
-      setShotPreviews(tileGroups.map((t) => t[0]));
-      const result = await extractRestaurantsFromCaptures(tileGroups, {
-        onBatchProgress: (i, total) => {
-          setReadingStage(total > 1 ? `Reading part ${i + 1} of ${total}…` : '');
-        },
-      });
-      if (!result.ok || !result.restaurants) {
-        setParseError(result.error || "Couldn't read those captures. Try again with clearer ones.");
-        return;
-      }
-      const labelParts = [
-        images.length > 0 ? `${images.length} screenshot${images.length === 1 ? '' : 's'}` : '',
-        videos.length > 0 ? `${videos.length === 1 ? 'a screen recording' : `${videos.length} screen recordings`}` : '',
-      ].filter(Boolean);
-      acceptParsed(
-        result.restaurants.map((r) => ({
-          name: r.name,
-          address: '',
-          city: r.city || '',
-          cuisine: r.cuisine || '',
-          rating: r.score ?? null,
-          notes: r.notes || '',
-          dateVisited: '',
-          priceRange: 0,
-          isWishlist: !!r.wishlist,
-        })),
-        labelParts.join(' + '),
-      );
-    } catch (err) {
-      setParseError(
-        err instanceof Error && err.message
-          ? err.message
-          : "Couldn't read one of those files. Use JPG/PNG screenshots or an MP4/MOV recording and try again.",
-      );
-    } finally {
-      setAiReading(false);
-      setReadingStage('');
-      setShotPreviews([]);
-    }
+    const result = await readCapturesToRows(picked, {
+      onStage: setReadingStage,
+      onPreviews: setShotPreviews,
+    });
+    setAiReading(false);
+    setReadingStage('');
+    setShotPreviews([]);
+    if (result.ok === false) { if (result.error) setParseError(result.error); return; }
+    acceptParsed(result.rows, result.label);
   };
 
   const handleScreenshots = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -318,21 +125,9 @@ export const ImportRestaurants: React.FC = () => {
 
     const reader = new FileReader();
     reader.onload = (ev) => {
-      const text = ev.target?.result as string;
-      let parsed: ParsedRestaurant[] = [];
-
-      if (file.name.endsWith('.json')) {
-        parsed = parseJSON(text);
-      } else {
-        parsed = parseCSV(text);
-      }
-
-      if (parsed.length === 0) {
-        setParseError('Could not parse any restaurants. Make sure your file has a "name" column (CSV) or "name" field (JSON).');
-        return;
-      }
-
-      acceptParsed(parsed, file.name);
+      const { rows, error } = parseImportFile(file.name, ev.target?.result as string);
+      if (error) { setParseError(error); return; }
+      acceptParsed(rows, file.name);
     };
     reader.readAsText(file);
   };
@@ -340,10 +135,11 @@ export const ImportRestaurants: React.FC = () => {
   const applyScale = (double: boolean) => {
     setScalePrompt(false);
     if (!double) return;
-    const scale = (r: ParsedRestaurant): ParsedRestaurant =>
-      r.rating !== null ? { ...r, rating: clampScore(r.rating * 2) } : r;
-    setParsedRestaurants((prev) => prev.map(scale));
-    setImportResults((prev) => prev.map((item) => ({ ...item, restaurant: scale(item.restaurant) })));
+    setParsedRestaurants((prev) => scaleToTen(prev));
+    setImportResults((prev) => {
+      const scaled = scaleToTen(prev.map((r) => r.restaurant));
+      return prev.map((item, i) => ({ ...item, restaurant: scaled[i] }));
+    });
   };
 
   const stats = {
@@ -359,87 +155,23 @@ export const ImportRestaurants: React.FC = () => {
   const runImport = async () => {
     setIsRunning(true);
     abortRef.current = false;
-    // Current rating per place id — lets a re-run CORRECT a score that
-    // drifted (or was mistyped) instead of skipping it, while preserving
-    // the rating's notes, photos, lists and visit history.
-    const ratingByPlaceId = new Map<string, RestaurantRating>(ratings.map((r) => [r.restaurantId, r]));
     const home = loadLastSelectedLocation();
-    const homeBias = home && Number.isFinite(home.lat) && Number.isFinite(home.lng)
-      ? { lat: home.lat, lng: home.lng }
-      : null;
-
-    for (let i = 0; i < importResults.length; i++) {
-      if (abortRef.current) break;
-      const restaurant = importResults[i].restaurant;
-
-      // Nothing to import for this row (no rating, no wishlist flag) —
-      // say so honestly instead of burning a search and marking it green.
-      if (!restaurant.isWishlist && restaurant.rating === null) {
-        setImportResults((prev) => { const next = [...prev]; next[i] = { ...next[i], status: 'no_data' }; return next; });
-        continue;
-      }
-
-      setImportResults((prev) => { const next = [...prev]; next[i] = { ...next[i], status: 'searching' }; return next; });
-      if (i > 0) await new Promise((resolve) => setTimeout(resolve, 300));
-
-      try {
-        const place = await findGooglePlace(restaurant, homeBias);
-        if (!place) { setImportResults((prev) => { const next = [...prev]; next[i] = { ...next[i], status: 'not_found' }; return next; }); continue; }
-        // Already rated (or imported earlier in this run) — never duplicate.
-        // A wishlist row is also skipped when the place is already on the
-        // wishlist; a RATING for a place that's only wishlisted still
-        // imports (that's an upgrade, not a duplicate).
-        const isDuplicate = existingIds.has(place.id)
-          || (restaurant.isWishlist && existingWishlistIds.has(place.id));
-        if (isDuplicate) {
-          // Same place, different score → correct the score in place (keep
-          // the rating's notes / photos / lists / history). This is what
-          // lets re-running an import fix earlier drift or misreads.
-          const existing = ratingByPlaceId.get(place.id);
-          const importedScore = restaurant.rating !== null ? clampScore(restaurant.rating) : null;
-          if (!restaurant.isWishlist && importedScore !== null && existing && existing.score !== importedScore) {
-            rateRestaurant({ ...existing, score: importedScore, ratingMethod: 'import' }, { skipSettle: true });
-            ratingByPlaceId.set(place.id, { ...existing, score: importedScore });
-            setImportResults((prev) => { const next = [...prev]; next[i] = { ...next[i], status: 'updated', placeResult: place }; return next; });
-          } else {
-            setImportResults((prev) => { const next = [...prev]; next[i] = { ...next[i], status: 'skipped', placeResult: place }; return next; });
-          }
-          continue;
-        }
-
-        const price = priceLevelToString(restaurant.priceRange || place.priceLevel);
-        const meta: RestaurantMeta = { id: place.id, name: place.name, image: place.photoUrl || '', cuisine: restaurant.cuisine, price, address: place.address || restaurant.address };
-        cacheRestaurantMeta(meta);
-
-        if (restaurant.isWishlist) {
-          addToWishlist({
-            restaurantId: place.id, name: place.name, image: place.photoUrl || '',
-            cuisine: restaurant.cuisine, price, address: place.address || restaurant.address,
-            notes: restaurant.notes, listIds: [], addedAt: Date.now() - (importResults.length - i),
-          });
-          existingWishlistIds.add(place.id);
-        } else if (restaurant.rating !== null) {
-          rateRestaurant({
-            restaurantId: place.id, name: place.name, image: place.photoUrl || '',
-            cuisine: restaurant.cuisine, price, address: place.address || restaurant.address,
-            score: clampScore(restaurant.rating), notes: restaurant.notes, visitDate: restaurant.dateVisited || '',
-            wouldReturn: true, tags: [], photos: [], listIds: [], friendIds: [],
-            ratingMethod: 'import',
-            createdAt: Date.now() - (importResults.length - i),
-            // Imported scores are transcriptions of ratings the user already
-            // made elsewhere — they must land EXACTLY as shown. The settle
-            // engine (which nudges tier-mates on every save) reshuffled the
-            // whole batch during bulk imports.
-          }, { skipSettle: true });
-        }
-        existingIds.add(place.id);
-
-        setImportResults((prev) => { const next = [...prev]; next[i] = { ...next[i], status: 'found', placeResult: place }; return next; });
-      } catch (err) {
-        setImportResults((prev) => { const next = [...prev]; next[i] = { ...next[i], status: 'error', error: String(err) }; return next; });
-      }
-    }
-
+    await runRestaurantImport(importResults.map((r) => r.restaurant), {
+      rateRestaurant, addToWishlist, cacheRestaurantMeta,
+      existingRatings: ratings,
+      existingWishlistIds: wishlist.map((w) => w.restaurantId),
+      homeBias: home && Number.isFinite(home.lat) && Number.isFinite(home.lng)
+        ? { lat: home.lat, lng: home.lng }
+        : null,
+      // One toast per imported row said nothing the summary below doesn't.
+      silent: true,
+      isAborted: () => abortRef.current,
+      onRow: (i, patch) => setImportResults((prev) => {
+        const next = [...prev];
+        next[i] = { ...next[i], ...patch };
+        return next;
+      }),
+    });
     setIsRunning(false);
     setIsDone(true);
   };

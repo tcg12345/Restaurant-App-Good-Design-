@@ -392,7 +392,7 @@ interface ListsContextValue {
    *  of a head-to-head — it carries the search's exact placement through the
    *  settle pass, so a score collision with a bracketing neighbor can't
    *  invert the order the user just decided. */
-  rateRestaurant: (rating: RestaurantRating, options?: { isNewVisit?: boolean; settleOrder?: string[]; skipSettle?: boolean }) => void;
+  rateRestaurant: (rating: RestaurantRating, options?: { isNewVisit?: boolean; settleOrder?: string[]; skipSettle?: boolean; shareToFeed?: boolean; silent?: boolean }) => void;
   updateRating: (restaurantId: string, rating: Partial<RestaurantRating>) => void;
   /** Apply a batch of settle-engine score changes in one persist/sync pass
    *  (the Reorder page's save). Each changed row is republished to the
@@ -2543,7 +2543,7 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     removeCommunityPhotos(uid, restaurantId);
   }, []);
 
-  const rateRestaurant = useCallback((rating: RestaurantRating, options?: { isNewVisit?: boolean; settleOrder?: string[]; skipSettle?: boolean; shareToFeed?: boolean }) => {
+  const rateRestaurant = useCallback((rating: RestaurantRating, options?: { isNewVisit?: boolean; settleOrder?: string[]; skipSettle?: boolean; shareToFeed?: boolean; silent?: boolean }) => {
     // When `isNewVisit` is true the caller is logging a brand-new
     // visit on top of an existing rating, and the previously-current
     // record needs to be pushed into visit history. When it's false
@@ -2740,6 +2740,11 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     // they move to Storage right away instead of waiting for the next
     // boot/foreground trigger. Self-guarding no-op when nothing's pending.
     window.setTimeout(retryPendingPhotoUploads, 100);
+    // A bulk import saves N rows back to back. The app holds ONE toast slot,
+    // so this doesn't stack — it re-keys the same toast per row and
+    // re-renders every consumer beneath the provider, saying nothing the
+    // import's own summary doesn't already say.
+    if (options?.silent) return;
     showToast(
       wasRated ? 'Rating updated' : 'Added to rated restaurants',
       {
