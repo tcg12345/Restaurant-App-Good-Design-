@@ -62,7 +62,7 @@ interface AuthContextType {
    *  on the verify-first signup path so the app keeps showing the
    *  choose-password screen (needsPasswordSetup) instead of jumping
    *  straight into profile setup. */
-  verifyEmailCode: (email: string, code: string, expectPasswordSetup?: boolean) => Promise<{ error: string | null; passwordSetupNeeded?: boolean }>;
+  verifyEmailCode: (email: string, code: string, expectPasswordSetup?: boolean, setupMode?: 'signup' | 'recovery') => Promise<{ error: string | null; passwordSetupNeeded?: boolean }>;
   /** Re-send the signup verification email (code + link). */
   resendVerificationCode: (email: string) => Promise<{ error: string | null }>;
   /** True while a verified-by-code signup still needs its password chosen —
@@ -411,33 +411,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, []);
 
-  // After an OTP verification the caller may need to know whether the
-  // just-signed-in account already has a password (has_password RPC,
-  // migration 049), so the email-first signup path doesn't force a
-  // choose-password screen — which would RESET a returning user's password —
-  // onto an account that already has one. Fails SAFE: on any RPC error we
-  // return true ("assume it has a password") so we never overwrite silently.
-  const accountHasPassword = useCallback(async (): Promise<boolean> => {
-    if (!supabaseConfigured) return true;
-    try {
-      const { data, error } = await withTimeout(
-        Promise.resolve(supabase.rpc('has_password')),
-        8000,
-        'has_password',
-      );
-      if (error) return true;
-      return data !== false;
-    } catch {
-      return true;
-    }
-  }, []);
-
-  const verifyEmailCode = useCallback(async (email: string, code: string, expectPasswordSetup = false) => {
+  const verifyEmailCode = useCallback(async (
+    email: string,
+    code: string,
+    expectPasswordSetup = false,
+    // 'signup' = first password on a new account; 'recovery' = the rescue
+    // path setting a real password on an account stranded without one.
+    setupMode: 'signup' | 'recovery' = 'signup',
+  ) => {
     if (!supabaseConfigured) return { error: 'Authentication is not configured' };
     // Raise the flag BEFORE the session lands: onAuthStateChange fires inside
     // verifyOtp, and App must already know to hold the Auth screen for the
     // choose-password step (otherwise ProfileSetup flashes in).
-    if (expectPasswordSetup) markNeedsPassword(true);
+    if (expectPasswordSetup) markNeedsPassword(true, setupMode);
     const attempt = (type: 'email' | 'signup') =>
       withTimeout(
         supabase.auth.verifyOtp({ email, token: code.trim(), type }),
@@ -453,16 +439,23 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         if (expectPasswordSetup) markNeedsPassword(false);
         return { error: error.message };
       }
-      // Verified — the session now exists. On the signup path we assumed a
-      // NEW (passwordless) account. If it actually already has a password
-      // (checkEmailExists returned a false 'no', or the accounts raced), do
-      // NOT force a password reset: clear the flag and sign in normally.
+      // Verified — the session now exists, and the caller-requested password
+      // setup ALWAYS happens. This used to consult a has_password RPC and
+      // skip the screen when it answered true, "failing safe" to true on any
+      // error. Two problems, verified against the live project: the RPC was
+      // never created (migration 049's function is absent), so the error
+      // path made EVERY signup skip password creation; and the RPC's SQL
+      // couldn't work anyway, because GoTrue stamps a random encrypted_
+      // password at OTP creation (a never-verified, never-signed-in account
+      // carries a non-empty hash), so "has a password" is indistinguishable
+      // from "OTP-created" server-side. Net effect: months of email signups
+      // that could never sign back in.
+      //
+      // Forcing setup is also the SAFE direction: everyone on this path just
+      // proved control of the inbox by typing the emailed code — exactly the
+      // bar password recovery requires — so setting a password here can
+      // never hand the account to someone the recovery flow wouldn't.
       if (expectPasswordSetup) {
-        const hasPassword = await accountHasPassword();
-        if (hasPassword) {
-          markNeedsPassword(false);
-          return { error: null, passwordSetupNeeded: false };
-        }
         return { error: null, passwordSetupNeeded: true };
       }
       return { error: null };
@@ -470,7 +463,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (expectPasswordSetup) markNeedsPassword(false);
       return { error: 'Verification took too long. Check your connection and try again.' };
     }
-  }, [markNeedsPassword, accountHasPassword]);
+  }, [markNeedsPassword]);
 
   const completePasswordSetup = useCallback(async (password: string) => {
     if (!supabaseConfigured) return { error: 'Authentication is not configured' };

@@ -178,6 +178,9 @@ type SharedProps = {
   // ── Forgot password ──
   onForgotPassword: () => void;
   resetSending: boolean;
+  /** Send a 6-digit sign-in code instead of a password (the rescue path). */
+  onEmailCodeSignIn: () => void;
+  codeSending: boolean;
   /** Set after a reset email goes out ("We emailed a link to …"). */
   resetNotice: string;
   /** Signup = first password after code verification; recovery = new
@@ -266,6 +269,7 @@ const StepPassword: React.FC<SharedProps> = ({
   email, password, setPassword, showPassword, setShowPassword,
   submitting, error, onSignIn, onBack,
   onForgotPassword, resetSending, resetNotice,
+  onEmailCodeSignIn, codeSending,
 }) => (
   <div className="space-y-4">
     <header>
@@ -308,7 +312,15 @@ const StepPassword: React.FC<SharedProps> = ({
         />
       </div>
 
-      <div className="flex items-center justify-end">
+      <div className="flex items-center justify-between">
+        <button
+          type="button"
+          onClick={onEmailCodeSignIn}
+          disabled={codeSending}
+          className="text-sm text-primary font-medium hover:underline cursor-pointer disabled:opacity-60 disabled:no-underline"
+        >
+          {codeSending ? 'Sending code…' : 'Email me a sign-in code'}
+        </button>
         <button
           type="button"
           onClick={onForgotPassword}
@@ -551,7 +563,13 @@ export const Auth: React.FC<{ onBrowseAsGuest?: () => void }> = ({ onBrowseAsGue
   const [verifyNotice, setVerifyNotice] = useState('');
   // Which flow the code screen is confirming: a verify-first signup (then
   // choose a password) or a legacy account whose email was never confirmed.
-  const [verifyFor, setVerifyFor] = useState<'signup' | 'unconfirmed'>('signup');
+  // 'rescue' = "Email me a sign-in code" from the password screen: an
+  // EXISTING account signing in by code, then setting a real password. This
+  // is the way back in for accounts the old signup flow stranded without one
+  // (see verifyEmailCode) — and it doubles as a forgot-password path that
+  // stays inside the app instead of bouncing through an emailed link.
+  const [verifyFor, setVerifyFor] = useState<'signup' | 'unconfirmed' | 'rescue'>('signup');
+  const [codeSending, setCodeSending] = useState(false);
 
   // Resend cooldown ticker
   React.useEffect(() => {
@@ -658,23 +676,42 @@ export const Auth: React.FC<{ onBrowseAsGuest?: () => void }> = ({ onBrowseAsGue
     else setResetNotice(`We emailed a password-reset link to ${email}. Open it to choose a new password.`);
   }, [email, resetSending, requestPasswordReset]);
 
+  const handleEmailCodeSignIn = useCallback(async () => {
+    if (codeSending) return;
+    setError('');
+    setCodeSending(true);
+    // The account exists (this screen is only reached when checkEmailExists
+    // said 'yes'), so signInWithOtp just sends a sign-in code; the
+    // shouldCreateUser flag in startEmailSignup is a no-op here.
+    const { error: sendErr } = await startEmailSignup(email);
+    setCodeSending(false);
+    if (sendErr) { setError(sendErr); return; }
+    setCode('');
+    setVerifyFor('rescue');
+    setVerifyNotice('We sent a 6-digit sign-in code to');
+    setResendIn(60);
+    setStep('verify');
+  }, [email, codeSending, startEmailSignup]);
+
   const handleVerify = useCallback(async () => {
     setError('');
     if (code.length !== 6) { setError('Enter the 6-digit code from your email'); return; }
     setSubmitting(true);
-    const { error: err, passwordSetupNeeded } = await verifyEmailCode(email, code, verifyFor === 'signup');
+    // Both the signup path and the rescue path end in the choose-password
+    // screen: signup because the just-created account has none, rescue
+    // because the person either lost theirs or never got one (the old flow's
+    // skip bug). Typing the emailed code is the same proof of ownership the
+    // recovery flow demands, so setting a password here is always safe.
+    const expectSetup = verifyFor === 'signup' || verifyFor === 'rescue';
+    const { error: err, passwordSetupNeeded } = await verifyEmailCode(
+      email, code, expectSetup, verifyFor === 'rescue' ? 'recovery' : 'signup');
     if (err) {
       setError(/expired|invalid|token/i.test(err) ? 'That code is invalid or expired — tap resend for a new one.' : err);
-    } else if (verifyFor === 'signup' && passwordSetupNeeded !== false) {
-      // Verified and the account has no password yet — choose one. When the
-      // account already had a password (passwordSetupNeeded === false), we
-      // skip this: the session has landed and onAuthStateChange swaps to the
-      // app, instead of overwriting the returning user's password.
+    } else if (expectSetup && passwordSetupNeeded !== false) {
       setPassword('');
       setStep('setpassword');
     }
-    // 'unconfirmed' (or an already-passworded signup): the session lands and
-    // onAuthStateChange swaps to the app.
+    // 'unconfirmed': the session lands and onAuthStateChange swaps to the app.
     setSubmitting(false);
   }, [email, code, verifyFor, verifyEmailCode]);
 
@@ -682,7 +719,7 @@ export const Auth: React.FC<{ onBrowseAsGuest?: () => void }> = ({ onBrowseAsGue
     if (resendIn > 0) return;
     setError('');
     setResendIn(60);
-    const { error: err } = verifyFor === 'signup'
+    const { error: err } = verifyFor !== 'unconfirmed'
       ? await startEmailSignup(email)
       : await resendVerificationCode(email);
     if (err) setError(err);
@@ -710,6 +747,8 @@ export const Auth: React.FC<{ onBrowseAsGuest?: () => void }> = ({ onBrowseAsGue
     oauthPending,
     onForgotPassword: () => { void handleForgotPassword(); },
     resetSending, resetNotice, passwordSetupMode,
+    onEmailCodeSignIn: () => { void handleEmailCodeSignIn(); },
+    codeSending,
     onBrowseAsGuest,
     code, setCode,
     onVerify: handleVerify,
@@ -822,7 +861,16 @@ export const Auth: React.FC<{ onBrowseAsGuest?: () => void }> = ({ onBrowseAsGue
               rightSlot={<EyeToggle shown={showPassword} onClick={() => setShowPassword(!showPassword)} />}
               onSubmit={handleSignIn}
             />
-            <div className="flex items-center justify-end" style={{ marginTop: 16 }}>
+            <div className="flex items-center justify-between" style={{ marginTop: 16 }}>
+              <button
+                type="button"
+                onClick={() => { void handleEmailCodeSignIn(); }}
+                disabled={codeSending}
+                style={{ fontSize: 14.5, color: codeSending ? 'var(--ob-label)' : OB.TERRA, fontWeight: 600 }}
+                className="cursor-pointer bg-transparent border-none p-0 disabled:cursor-default"
+              >
+                {codeSending ? 'Sending code…' : 'Email me a sign-in code'}
+              </button>
               <button
                 type="button"
                 onClick={() => { void handleForgotPassword(); }}
