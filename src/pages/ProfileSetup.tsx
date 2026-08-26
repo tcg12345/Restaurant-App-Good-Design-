@@ -16,16 +16,18 @@ import {
   TASTE_CUISINES, TASTE_PRICES,
 } from '../components/onboarding/TasteSteps';
 import { AddRestaurantModal } from '../components/AddRestaurantModal';
+import { ImportStep, importFooter, useOnboardingImport } from '../components/onboarding/ImportStep';
+import { loadLastSelectedLocation } from '../components/HomeLocationBar';
 import { saveTasteQuiz, getTasteQuiz } from '../lib/taste-quiz';
 import { getPreauthCity } from '../lib/preauth';
 import { logOnboardingEvent } from '../lib/onboarding-events';
 
 type StepKey =
-  | 'name' | 'handle' | 'city' | 'visibility'
+  | 'name' | 'handle' | 'city'
   // Taste + first-actions steps — one wizard, one progress bar, instead of
   // the separate /onboarding page these lived on. The profile row persists
   // on leaving 'visibility', so a bail-out mid-taste still keeps the account.
-  | 'cuisines' | 'prices' | 'atmosphere' | 'follow' | 'rate';
+  | 'cuisines' | 'prices' | 'atmosphere' | 'import' | 'follow' | 'rate';
 
 /**
  * Save failures are shown verbatim to someone in the middle of creating an
@@ -105,6 +107,22 @@ export const ProfileSetup: React.FC = () => {
   // The profile row saves once, on leaving 'visibility' — backing up and
   // coming forward again must not re-await a geocode + write.
   const [profileSaved, setProfileSaved] = useState(false);
+  /**
+   * Frozen when the user LEAVES the import step, never derived from
+   * ratings.length. `pStep` is a positional index into `steps`, so removing
+   * an entry is only safe while the user stands BEFORE it — a live
+   * derivation could shrink the array out from under someone already on
+   * 'rate', leaving steps[pStep] undefined and a blank screen.
+   */
+  const [skipRate, setSkipRate] = useState(false);
+  const importState = useOnboardingImport((() => {
+    if (homeGeo) return { lat: homeGeo.lat, lng: homeGeo.lng };
+    if (typeof profile?.home_lat === 'number' && typeof profile?.home_lng === 'number') {
+      return { lat: profile.home_lat, lng: profile.home_lng };
+    }
+    const last = loadLastSelectedLocation();
+    return last ? { lat: last.lat, lng: last.lng } : null;
+  })());
 
   useEffect(() => { logOnboardingEvent('wizard_start', user?.id); }, [user?.id]);
 
@@ -292,14 +310,21 @@ export const ProfileSetup: React.FC = () => {
     && ((preauth.answers.cuisines?.length ?? 0) > 0
       || (preauth.answers.prices?.length ?? 0) > 0
       || !!preauth.answers.atmosphere);
+  // Visibility is no longer its own step — it rides on 'handle' as a
+  // toggle. Asking a user with zero content who may see it is abstract,
+  // and it cost a whole screen at the point the flow can least afford one.
+  //
+  // Import sits AFTER the profile row persists (on leaving 'handle'), so a
+  // step that can run 60 seconds never risks the account, and the row
+  // exists before any rating publishes.
   const steps: StepKey[] = [
     ...(seed.nameFromProvider ? [] : ['name' as const]),
     'handle' as const,
     ...(preauth.city && !profile?.home_city ? [] : ['city' as const]),
-    'visibility' as const,
     ...(hasPreauthTaste ? [] : (['cuisines', 'prices', 'atmosphere'] as const)),
+    'import' as const,
     'follow' as const,
-    'rate' as const,
+    ...(skipRate ? [] : ['rate' as const]),
   ];
   const provider = (user?.app_metadata?.provider as string) || 'email';
   const offset = provider === 'email' ? 1 : 0; // create-account was "step 1" for email signups
@@ -338,12 +363,24 @@ export const ProfileSetup: React.FC = () => {
       if (!usernameValid) { setError('Username must be 3+ letters, numbers, or underscores'); return; }
       if (availability === 'taken') { setError('That username is already taken'); return; }
     }
-    // The profile row saves HERE, not at the wizard's end: the taste steps
-    // are skippable garnish, and someone who bails during them must still
-    // have an account with a name and handle. (App keeps showing this
-    // wizard regardless — profileComplete only flips on the refreshProfile
-    // the done screen fires.)
-    if (stepKey === 'visibility' && !profileSaved) {
+    if (stepKey === 'import') {
+      // Someone who brought a ladder over doesn't need to be taught how to
+      // build one — branch past the manual rate step rather than stacking
+      // it. Only real ratings count: a wishlist-only import leaves them
+      // with no scores, and the rate step is what fixes that.
+      setSkipRate(importState.ratedCount > 0);
+      logOnboardingEvent(
+        importState.ratedCount > 0 ? 'wizard_import_done' : 'wizard_import_skipped',
+        user?.id,
+      );
+    }
+    // The profile row saves HERE, on leaving the identity step, not at the
+    // wizard's end: everything after is skippable, and someone who bails
+    // during import or the taste steps must still have a working account
+    // with a name and handle. (App keeps showing this wizard regardless —
+    // profileComplete only flips on the refreshProfile the done screen
+    // fires.)
+    if (stepKey === 'handle' && !profileSaved) {
       void (async () => {
         setSubmitting(true);
         const res = await persistProfile();
@@ -450,6 +487,40 @@ export const ProfileSetup: React.FC = () => {
                   </div>
                   {error && <OB.ErrorRow>{error}</OB.ErrorRow>}
                 </div>
+                {/* Visibility used to be a whole screen of its own. Asking
+                    someone with zero content who may see it is abstract, and
+                    the answer is better collected at the first publish — but
+                    it stays visible here as one line, because a social app
+                    silently defaulting this would be worse than a screen. */}
+                <div
+                  className="flex items-center justify-between rounded-2xl"
+                  style={{ marginTop: 22, padding: '13px 16px', background: 'var(--ob-card)', border: '1.5px solid var(--ob-border)' }}
+                >
+                  <span className="min-w-0 flex-1" style={{ paddingRight: 12 }}>
+                    <span className="block" style={{ fontSize: 14.5, fontWeight: 600, color: 'var(--ob-ink)' }}>
+                      {isPublic ? 'Public account' : 'Private account'}
+                    </span>
+                    <span className="block" style={{ fontSize: 12, marginTop: 2, lineHeight: 1.35, color: 'var(--ob-label)' }}>
+                      {isPublic
+                        ? 'Anyone can follow you and see your ratings.'
+                        : 'Only people you approve can see your activity.'}
+                    </span>
+                  </span>
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={isPublic}
+                    aria-label={isPublic ? 'Make account private' : 'Make account public'}
+                    onClick={() => { setIsPublic(!isPublic); setVisibilityTouched(true); }}
+                    className="flex-none relative rounded-full transition-colors"
+                    style={{ width: 46, height: 28, background: isPublic ? OB.TERRA : 'var(--ob-border)' }}
+                  >
+                    <span
+                      className="absolute rounded-full bg-white transition-all"
+                      style={{ top: 3, left: isPublic ? 21 : 3, width: 22, height: 22, boxShadow: '0 1px 3px rgba(0,0,0,0.2)' }}
+                    />
+                  </button>
+                </div>
               </div>
             )}
 
@@ -463,20 +534,6 @@ export const ProfileSetup: React.FC = () => {
                 <div style={{ marginTop: 32 }}>
                   <OB.FieldLabel>Home city</OB.FieldLabel>
                   <CityAutocomplete value={homeCity} onChange={(v) => { setHomeCity(v); setHomeGeo(null); }} onPick={setHomeGeo} onSubmit={next} />
-                </div>
-              </div>
-            )}
-
-            {stepKey === 'visibility' && (
-              <div className="flex flex-1 flex-col">
-                <div style={{ marginTop: 46 }}>
-                  <OB.Eyebrow>Visibility</OB.Eyebrow>
-                  <div style={{ marginTop: 13 }}><OB.Title size={33}>Public or private?</OB.Title></div>
-                  <OB.Subtitle>You're always in control of who sees your activity.</OB.Subtitle>
-                </div>
-                <div className="flex flex-col gap-3" style={{ marginTop: 28 }}>
-                  <OB.RadioCard selected={isPublic} onClick={() => { setIsPublic(true); setVisibilityTouched(true); }} title="Public" description="Anyone can follow you and see your reviews." />
-                  <OB.RadioCard selected={!isPublic} onClick={() => { setIsPublic(false); setVisibilityTouched(true); }} title="Private" description="Only people you approve can see your activity." />
                 </div>
               </div>
             )}
@@ -531,6 +588,19 @@ export const ProfileSetup: React.FC = () => {
               </div>
             )}
 
+            {stepKey === 'import' && (
+              <div className="flex flex-1 flex-col">
+                <div style={{ marginTop: 46 }}>
+                  <OB.Eyebrow>Your ratings</OB.Eyebrow>
+                  <div style={{ marginTop: 13 }}><OB.Title size={33}>Already rank restaurants somewhere?</OB.Title></div>
+                  <OB.Subtitle>Screenshot your Beli list and we'll read every place and every score — your rankings start where you left off.</OB.Subtitle>
+                </div>
+                <div style={{ marginTop: 26 }}>
+                  <ImportStep state={importState} />
+                </div>
+              </div>
+            )}
+
             {stepKey === 'follow' && (
               <div className="flex flex-1 flex-col">
                 <div style={{ marginTop: 46 }}>
@@ -561,18 +631,32 @@ export const ProfileSetup: React.FC = () => {
 
         <div style={{ paddingTop: 26 }}>
           {error && stepKey !== 'handle' && <div style={{ marginBottom: 12 }}><OB.ErrorRow>{error}</OB.ErrorRow></div>}
-          <OB.PrimaryButton onClick={next} loading={submitting} trailing={isLast ? 'check' : 'arrow'}>
-            {isLast ? 'Finish setup' : stepKey === 'visibility' ? 'Save & continue' : 'Continue'}
-          </OB.PrimaryButton>
+          {(() => {
+            // The import step drives its own footer (its label and action
+            // change per phase); every other step shares the wizard's.
+            const f = stepKey === 'import'
+              ? importFooter(importState, next)
+              : {
+                  label: isLast ? 'Finish setup' : stepKey === 'handle' ? 'Save & continue' : 'Continue',
+                  onClick: next,
+                  loading: submitting,
+                  trailing: (isLast ? 'check' : 'arrow') as 'check' | 'arrow' | 'none',
+                };
+            return (
+              <OB.PrimaryButton onClick={f.onClick} loading={f.loading} trailing={f.trailing}>
+                {f.label}
+              </OB.PrimaryButton>
+            );
+          })()}
           {stepKey === 'city' && (
             <div style={{ marginTop: 4 }}>
               <OB.GhostButton onClick={() => { setHomeCity(''); setHomeGeo(null); setError(''); setPStep((p) => p + 1); }}>Skip for now</OB.GhostButton>
             </div>
           )}
-          {stepKey === 'visibility' && (
+          {stepKey === 'handle' && (
             <div style={{ marginTop: 4 }}>
               {/* Verification lives on the last PROFILE step — it saves the
-                  row and opens the request form, skipping the taste steps. */}
+                  row and opens the request form, skipping everything after. */}
               <OB.GhostButton onClick={() => { void finishThenVerify(); }}>
                 Are you a chef, critic, or creator? Request verification
               </OB.GhostButton>
