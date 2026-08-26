@@ -7,7 +7,7 @@ import { CityAutocomplete } from '../CityAutocomplete';
 import { saveLastSelectedLocation } from '../HomeLocationBar';
 import { saveTasteQuiz } from '../../lib/taste-quiz';
 import { savePreauthCity, markPreauthDone } from '../../lib/preauth';
-import { logOnboardingEvent } from '../../lib/onboarding-events';
+import { logOnboardingEvent, markOnboardingStep } from '../../lib/onboarding-events';
 import {
   buildTasteProfile, buildCandidateQueries, scoreCandidates,
   type CandidateSignals, type ScoredPlace, type RecCandidate,
@@ -140,6 +140,8 @@ export const PreAuthFlow: React.FC<{
   const [preview, setPreview] = useState<ScoredPlace[] | null>(null);
 
   useEffect(() => { logOnboardingEvent('preauth_start'); }, []);
+  // Which screen an abandon would be attributed to.
+  useEffect(() => { markOnboardingStep(`preauth_${step}`); }, [step]);
 
   const idx = ORDER.indexOf(step);
   const go = (next: PreStep) => {
@@ -170,6 +172,8 @@ export const PreAuthFlow: React.FC<{
   const leave = (mode: 'signup' | 'signin' | 'guest') => {
     persistAnswers();
     markPreauthDone();
+    // Left on purpose — not an abandon. The wizard re-registers on mount.
+    markOnboardingStep(null);
     logOnboardingEvent(`preauth_gate_${mode}`);
     if (mode === 'guest') onBrowseAsGuest?.();
     else onExit(mode);

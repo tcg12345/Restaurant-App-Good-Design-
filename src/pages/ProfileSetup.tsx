@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { User, ArrowLeft, ArrowRight, Loader2 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
@@ -20,7 +20,7 @@ import { ImportStep, importFooter, useOnboardingImport } from '../components/onb
 import { loadLastSelectedLocation } from '../components/HomeLocationBar';
 import { saveTasteQuiz, getTasteQuiz } from '../lib/taste-quiz';
 import { getPreauthCity } from '../lib/preauth';
-import { logOnboardingEvent } from '../lib/onboarding-events';
+import { logOnboardingEvent, markOnboardingStep } from '../lib/onboarding-events';
 
 type StepKey =
   | 'name' | 'handle' | 'city'
@@ -125,6 +125,16 @@ export const ProfileSetup: React.FC = () => {
   })());
 
   useEffect(() => { logOnboardingEvent('wizard_start', user?.id); }, [user?.id]);
+  // Which step an abandon is attributed to. Read through a ref because the
+  // desktop layout returns before `steps` is computed, and a hook below
+  // that return would change the hook count on a breakpoint resize.
+  // Effects run after render, so the ref is already current; pStep and
+  // screen cover every transition. `screen === 'done'` clears it —
+  // finishing is not leaving.
+  const stepKeyRef = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    markOnboardingStep(screen === 'done' ? null : `wizard_${stepKeyRef.current ?? 'start'}`, user?.id);
+  }, [screen, pStep, user?.id]);
 
   const handle = '@' + (username.toLowerCase() || 'username');
   const usernameValid = username.trim().length >= 3 && /^[a-zA-Z0-9_]+$/.test(username);
@@ -330,7 +340,9 @@ export const ProfileSetup: React.FC = () => {
   const offset = provider === 'email' ? 1 : 0; // create-account was "step 1" for email signups
   const total = offset + steps.length;
   const stepKey = steps[pStep];
+  stepKeyRef.current = stepKey;
   const isLast = pStep === steps.length - 1;
+
 
   /** Save the taste answers. Runs on leaving 'atmosphere' and again when
    *  the wizard ends — an upsert either way, so backing up and re-answering
