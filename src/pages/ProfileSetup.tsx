@@ -16,7 +16,9 @@ import {
   TASTE_CUISINES, TASTE_PRICES,
 } from '../components/onboarding/TasteSteps';
 import { AddRestaurantModal } from '../components/AddRestaurantModal';
-import { saveTasteQuiz } from '../lib/taste-quiz';
+import { saveTasteQuiz, getTasteQuiz } from '../lib/taste-quiz';
+import { getPreauthCity } from '../lib/preauth';
+import { logOnboardingEvent } from '../lib/onboarding-events';
 
 type StepKey =
   | 'name' | 'handle' | 'city' | 'visibility'
@@ -73,8 +75,10 @@ export const ProfileSetup: React.FC = () => {
   // Existing row first, identity-provider seed second, defaults last.
   const [displayName, setDisplayName] = useState(profile?.display_name || seed.name);
   const [username, setUsername] = useState(profile?.username || seed.username);
-  const [homeCity, setHomeCity] = useState(profile?.home_city || '');
-  const [homeGeo, setHomeGeo] = useState<HomeLocation | null>(null);
+  // Existing row first, then the city picked during the pre-auth flow.
+  const preauthCity = getPreauthCity();
+  const [homeCity, setHomeCity] = useState(profile?.home_city || preauthCity?.label || '');
+  const [homeGeo, setHomeGeo] = useState<HomeLocation | null>(profile?.home_city ? null : preauthCity);
   const [isPublic, setIsPublic] = useState(profile?.is_public ?? true);
   // Only persist visibility when the user explicitly chose it here (or the
   // account has no row yet) — otherwise an untouched default would flip an
@@ -87,12 +91,22 @@ export const ProfileSetup: React.FC = () => {
   const [pStep, setPStep] = useState(0);
   const [screen, setScreen] = useState<'wizard' | 'done'>('wizard');
   // Taste answers (the wizard's cold-start priors — see TasteSteps.tsx).
-  const [cuisineSel, setCuisineSel] = useState<string[]>([]);
-  const [priceSel, setPriceSel] = useState<number[]>([]);
-  const [atmosphere, setAtmosphere] = useState<string | null>(null);
+  // Seeded from the pre-auth flow's local mirror when it ran: those
+  // questions were already answered before the account existed, so the
+  // wizard skips them and this state carries the answers to the profile
+  // row once it exists.
+  const [preauth] = useState(() => ({
+    answers: getTasteQuiz(null),
+    city: getPreauthCity(),
+  }));
+  const [cuisineSel, setCuisineSel] = useState<string[]>(preauth.answers?.cuisines ?? []);
+  const [priceSel, setPriceSel] = useState<number[]>(preauth.answers?.prices ?? []);
+  const [atmosphere, setAtmosphere] = useState<string | null>(preauth.answers?.atmosphere ?? null);
   // The profile row saves once, on leaving 'visibility' — backing up and
   // coming forward again must not re-await a geocode + write.
   const [profileSaved, setProfileSaved] = useState(false);
+
+  useEffect(() => { logOnboardingEvent('wizard_start', user?.id); }, [user?.id]);
 
   const handle = '@' + (username.toLowerCase() || 'username');
   const usernameValid = username.trim().length >= 3 && /^[a-zA-Z0-9_]+$/.test(username);
@@ -270,9 +284,23 @@ export const ProfileSetup: React.FC = () => {
   }
 
   /* ── Mobile cream/terracotta wizard ──────────────────────────────────── */
-  const steps: StepKey[] = seed.nameFromProvider
-    ? ['handle', 'city', 'visibility', 'cuisines', 'prices', 'atmosphere', 'follow', 'rate']
-    : ['name', 'handle', 'city', 'visibility', 'cuisines', 'prices', 'atmosphere', 'follow', 'rate'];
+  // Questions the pre-auth flow already asked are not asked again: its
+  // answers arrived seeded into state above, and re-asking would read as
+  // the app forgetting them. OAuth users who skipped straight to signup
+  // (no pre-auth answers) still get the full set.
+  const hasPreauthTaste = !!preauth.answers
+    && ((preauth.answers.cuisines?.length ?? 0) > 0
+      || (preauth.answers.prices?.length ?? 0) > 0
+      || !!preauth.answers.atmosphere);
+  const steps: StepKey[] = [
+    ...(seed.nameFromProvider ? [] : ['name' as const]),
+    'handle' as const,
+    ...(preauth.city && !profile?.home_city ? [] : ['city' as const]),
+    'visibility' as const,
+    ...(hasPreauthTaste ? [] : (['cuisines', 'prices', 'atmosphere'] as const)),
+    'follow' as const,
+    'rate' as const,
+  ];
   const provider = (user?.app_metadata?.provider as string) || 'email';
   const offset = provider === 'email' ? 1 : 0; // create-account was "step 1" for email signups
   const total = offset + steps.length;
@@ -320,13 +348,21 @@ export const ProfileSetup: React.FC = () => {
         setSubmitting(true);
         const res = await persistProfile();
         setSubmitting(false);
-        if (res.ok) { setProfileSaved(true); setPStep((p) => p + 1); }
+        if (res.ok) {
+          setProfileSaved(true);
+          // The row exists now — stamp pre-auth taste answers onto it
+          // immediately. When the taste steps run in-wizard this happens
+          // again on their Continue; saveTasteQuiz is an upsert either way.
+          persistTaste();
+          logOnboardingEvent('wizard_profile_saved', user?.id);
+          setPStep((p) => p + 1);
+        }
         else setError(friendlyError(res.error));
       })();
       return;
     }
     if (stepKey === 'atmosphere') persistTaste();
-    if (isLast) { persistTaste(); setScreen('done'); return; }
+    if (isLast) { persistTaste(); logOnboardingEvent('wizard_done', user?.id); setScreen('done'); return; }
     setPStep((p) => p + 1);
   };
 

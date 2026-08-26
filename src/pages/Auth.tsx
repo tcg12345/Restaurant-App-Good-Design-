@@ -1,10 +1,11 @@
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { ArrowLeft, ArrowRight, Eye, EyeOff, Loader2, Lock, Mail, Check } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { PRIVACY_URL, TERMS_URL, openExternalUrl } from '../lib/external-links';
 import { cn } from '../lib/utils';
 import { AuthShell, useDesktopAuthLayout } from '../components/AuthShell';
+import { logOnboardingEvent } from '../lib/onboarding-events';
 // Mobile uses the new cream/terracotta onboarding kit; desktop keeps the
 // original split-screen AuthShell design below.
 import * as OB from '../components/onboarding/OnboardingKit';
@@ -181,6 +182,8 @@ type SharedProps = {
   /** Send a 6-digit sign-in code instead of a password (the rescue path). */
   onEmailCodeSignIn: () => void;
   codeSending: boolean;
+  /** "Save your taste profile" framing on the email step (pre-auth flow). */
+  saveTaste?: boolean;
   /** Set after a reset email goes out ("We emailed a link to …"). */
   resetNotice: string;
   /** Signup = first password after code verification; recovery = new
@@ -201,14 +204,17 @@ type SharedProps = {
 
 const StepEmail: React.FC<SharedProps> = ({
   email, setEmail, submitting, error, onEmailContinue, onOAuth, oauthPending, onBrowseAsGuest,
+  saveTaste,
 }) => (
   <div className="space-y-4">
     <header>
       <h1 className="font-serif font-bold text-3xl xl:text-4xl tracking-tight leading-[1.05] text-on-surface mb-2">
-        Welcome to Gourmet&nbsp;Canvas
+        {saveTaste ? 'Save your taste profile' : <>Welcome to Gourmet&nbsp;Canvas</>}
       </h1>
       <p className="text-sm text-on-surface/55 font-light leading-relaxed max-w-md">
-        Sign in or create an account — we'll figure out which one based on your email.
+        {saveTaste
+          ? 'Create a free account to keep your picks and start rating — or sign in.'
+          : "Sign in or create an account — we'll figure out which one based on your email."}
       </p>
     </header>
 
@@ -534,7 +540,13 @@ const StepVerify: React.FC<SharedProps> = ({
 );
 
 // ── Main page ────────────────────────────────────────────────────────────
-export const Auth: React.FC<{ onBrowseAsGuest?: () => void }> = ({ onBrowseAsGuest }) => {
+export const Auth: React.FC<{
+  onBrowseAsGuest?: () => void;
+  /** True when arriving from the pre-auth taste flow's "Save my taste
+   *  profile" CTA — the email step then speaks to what they just built
+   *  instead of a generic welcome. */
+  saveTasteFraming?: boolean;
+}> = ({ onBrowseAsGuest, saveTasteFraming }) => {
   const {
     signIn, signInWithOAuth, checkEmailExists,
     startEmailSignup, verifyEmailCode, resendVerificationCode,
@@ -542,6 +554,7 @@ export const Auth: React.FC<{ onBrowseAsGuest?: () => void }> = ({ onBrowseAsGue
     requestPasswordReset, isSignedIn, user,
   } = useAuth();
   const useDesktopLayout = useDesktopAuthLayout();
+  useEffect(() => { logOnboardingEvent('auth_shown'); }, []);
 
   // A relaunch mid-signup (code verified, password not yet chosen) reopens
   // straight on the choose-password step.
@@ -749,6 +762,7 @@ export const Auth: React.FC<{ onBrowseAsGuest?: () => void }> = ({ onBrowseAsGue
     resetSending, resetNotice, passwordSetupMode,
     onEmailCodeSignIn: () => { void handleEmailCodeSignIn(); },
     codeSending,
+    saveTaste: saveTasteFraming,
     onBrowseAsGuest,
     code, setCode,
     onVerify: handleVerify,
@@ -809,8 +823,17 @@ export const Auth: React.FC<{ onBrowseAsGuest?: () => void }> = ({ onBrowseAsGue
         <FadeStep stepKey="email">
           <OB.BrandMark size={54} />
           <div style={{ marginTop: 24 }}>
-            <OB.Title>Welcome to<br />Gourmet Canvas</OB.Title>
-            <OB.Subtitle>Enter your email — we'll sign you in, or set you up if you're new.</OB.Subtitle>
+            {saveTasteFraming ? (
+              <>
+                <OB.Title>Save your<br />taste profile</OB.Title>
+                <OB.Subtitle>Create a free account to keep your picks and start rating — or sign in.</OB.Subtitle>
+              </>
+            ) : (
+              <>
+                <OB.Title>Welcome to<br />Gourmet Canvas</OB.Title>
+                <OB.Subtitle>Enter your email — we'll sign you in, or set you up if you're new.</OB.Subtitle>
+              </>
+            )}
           </div>
           <form onSubmit={(e) => { e.preventDefault(); handleEmailContinue(); }} style={{ marginTop: 28 }}>
             <OB.FieldLabel>Email</OB.FieldLabel>

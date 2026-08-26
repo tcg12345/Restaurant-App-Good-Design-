@@ -49,6 +49,8 @@ import { RecipesForYou } from './pages/RecipesForYou';
 import { GuideDetail } from './pages/GuideDetail';
 import { GuideEdit } from './pages/GuideEdit';
 import { Auth } from './pages/Auth';
+import { PreAuthFlow } from './components/onboarding/PreAuthFlow';
+import { isPreauthDone } from './lib/preauth';
 import { ImportRestaurants } from './pages/ImportRestaurants';
 import { ProfileSetup } from './pages/ProfileSetup';
 import { UserProfile } from './pages/UserProfile';
@@ -240,6 +242,9 @@ const AppContent: React.FC = () => {
   const isFocusedReel = location.pathname.startsWith('/r/');
   const showBottomNav = !['/messages', '/reorder', '/location', '/location/map', '/map', '/create', '/recipes-for-you', '/circle', '/settings'].includes(location.pathname) && !location.pathname.startsWith('/restaurant/') && !location.pathname.startsWith('/user/') && !location.pathname.startsWith('/recipe/') && !location.pathname.startsWith('/meal/') && !location.pathname.startsWith('/review/') && !location.pathname.startsWith('/activity') && !location.pathname.startsWith('/guides/') && !isFocusedReel;
   const { isSignedIn, isGuest, continueAsGuest, loading, profileComplete, profileError, profileLoading, needsPasswordSetup } = useAuth();
+  // How the pre-auth taste flow was left this session — 'signup' carries the
+  // "save your taste profile" framing into the Auth screen it hands off to.
+  const [preauthExited, setPreauthExited] = React.useState<null | 'signup' | 'signin'>(null);
   const isDesktop = useIsDesktop();
   // Sidebar mode: real desktop viewport. Guests get the sidebar too so they
   // can navigate the app (it renders a "Sign in" affordance instead of a
@@ -295,11 +300,23 @@ const AppContent: React.FC = () => {
   // (needsPasswordSetup): the session already exists, but Auth stays up
   // on its choose-password step until it's set.
   if ((!isSignedIn && !isGuest) || (isSignedIn && needsPasswordSetup)) {
+    // Fresh installs meet the taste questions BEFORE the account gate — the
+    // signup ask lands after the personalized preview, framed as saving
+    // what was just built. One-shot per device (isPreauthDone); leaving the
+    // flow in any direction (signup, sign-in, guest) marks it done, so
+    // returning users and mid-signup relaunches (needsPasswordSetup) go
+    // straight to Auth as before.
+    const showPreauth = !isSignedIn && !preauthExited && !isPreauthDone();
     return (
       <div className="min-h-screen bg-surface selection:bg-primary/20 selection:text-primary">
         <Routes location={location}>
           <Route path="/import" element={<ImportRestaurants />} />
-          <Route path="*" element={<Auth onBrowseAsGuest={continueAsGuest} />} />
+          <Route
+            path="*"
+            element={showPreauth
+              ? <PreAuthFlow onExit={(mode) => setPreauthExited(mode)} onBrowseAsGuest={continueAsGuest} />
+              : <Auth onBrowseAsGuest={continueAsGuest} saveTasteFraming={preauthExited === 'signup'} />}
+          />
         </Routes>
       </div>
     );

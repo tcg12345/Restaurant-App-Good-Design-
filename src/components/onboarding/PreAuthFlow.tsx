@@ -1,0 +1,348 @@
+import React, { useEffect, useState } from 'react';
+import { motion } from 'motion/react';
+import { Star } from 'lucide-react';
+import * as OB from './OnboardingKit';
+import { TastePillGrid, AtmosphereGrid, TASTE_CUISINES, TASTE_PRICES } from './TasteSteps';
+import { CityAutocomplete } from '../CityAutocomplete';
+import { saveTasteQuiz } from '../../lib/taste-quiz';
+import { savePreauthCity, markPreauthDone } from '../../lib/preauth';
+import { logOnboardingEvent } from '../../lib/onboarding-events';
+import {
+  buildTasteProfile, buildCandidateQueries, scoreCandidates,
+  type CandidateSignals, type ScoredPlace, type RecCandidate,
+} from '../../lib/recommendations';
+import {
+  searchPlacesByText, searchPlacesByTextPaged, isFoodPlace, isVenuePlace,
+  priceLevelToString, TEXT_EXACT_SUFFICIENT_POOL, type PlaceResult,
+} from '../../lib/places';
+import { cuisineLabel } from '../../lib/cuisine';
+import type { HomeLocation } from '../HomeLocationBar';
+
+/**
+ * The pre-auth onboarding: taste questions BEFORE the account gate, with a
+ * personalized preview as the payoff, so the signup ask arrives after the
+ * app has shown what it can do — "save your taste profile", not "create an
+ * account to find out".
+ *
+ * Everything collected here is device-local (lib/taste-quiz's local mirror
+ * plus lib/preauth) and flows into the post-signup wizard: ProfileSetup
+ * reads the answers, skips the questions already answered, prefills the
+ * city, and stamps the profile row once it exists.
+ *
+ * The preview runs the REAL cold-start recommendation path — the quiz-
+ * seeded taste profile through buildCandidateQueries and scoreCandidates —
+ * not a canned list. What they see is what the app will actually do with
+ * their answers, which is the only honest version of this screen.
+ *
+ * Escapes on the first and last screens: returning users go straight to
+ * sign-in, and "Browse without an account" stays reachable (App Store
+ * 5.1.1(v)). Leaving in any direction marks the flow done for this device.
+ */
+
+type PreStep = 'welcome' | 'cuisines' | 'prices' | 'atmosphere' | 'city' | 'preview';
+const ORDER: PreStep[] = ['welcome', 'cuisines', 'prices', 'atmosphere', 'city', 'preview'];
+
+const emptySignals = (): CandidateSignals => ({
+  expertUserIds: new Set(),
+  followedExpertIds: new Set(),
+  friendUserIds: new Set(),
+  communityByRestaurant: new Map(),
+  expertRecRestaurantIds: new Set(),
+});
+
+const PREVIEW_RADIUS_M = 12_000;
+
+/** Cold-start preview: quiz answers → taste profile → candidate queries →
+ *  live search → scorer. At most 3 billed text searches, behind the search
+ *  memo. Exported for reuse/tests. */
+export async function fetchTastePreview(
+  answers: { cuisines: string[]; prices: number[]; atmosphere: string | null },
+  city: HomeLocation,
+): Promise<ScoredPlace[]> {
+  const profile = buildTasteProfile([], [], [], [], {
+    cuisines: answers.cuisines,
+    prices: answers.prices,
+    atmosphere: answers.atmosphere ?? undefined,
+  });
+  const queries = buildCandidateQueries(profile, city).slice(0, 3);
+  const batches = await Promise.all(queries.map((q) =>
+    q.priceLevels && q.priceLevels.length > 0
+      ? searchPlacesByTextPaged(q.text, {
+          lat: city.lat, lng: city.lng, radiusMeters: PREVIEW_RADIUS_M,
+          useRestriction: true, priceLevels: q.priceLevels,
+        }).then((page) => page.places).catch(() => [] as PlaceResult[])
+      : searchPlacesByText(q.text, city.lat, city.lng, city.label, true, PREVIEW_RADIUS_M,
+          undefined, { minExactResults: TEXT_EXACT_SUFFICIENT_POOL })
+          .catch(() => [] as PlaceResult[]),
+  ));
+  const seen = new Set<string>();
+  const pool: RecCandidate[] = [];
+  for (const p of batches.flat()) {
+    if (seen.has(p.id)) continue;
+    seen.add(p.id);
+    // Light quality floor — the preview is a first impression, and a 3.4★
+    // with nine reviews makes the "made for your taste" claim ring false.
+    if (!isFoodPlace(p.types) || isVenuePlace(p)) continue;
+    if ((p.rating || 0) < 4.0 || (p.userRatingCount || 0) < 25) continue;
+    pool.push(p);
+  }
+  return scoreCandidates(pool, profile, emptySignals(), city, PREVIEW_RADIUS_M, { limit: 6 });
+}
+
+const PreviewCard: React.FC<{ place: ScoredPlace }> = ({ place }) => {
+  const sub = [cuisineLabel(place), priceLevelToString(place.priceLevel)].filter(Boolean).join(' · ');
+  const why = place.reasons?.[0];
+  return (
+    <div className="rounded-2xl" style={{ padding: '13px 16px', background: 'var(--ob-card)', border: '1.5px solid var(--ob-border)' }}>
+      <div className="flex items-center gap-3">
+        <span className="flex-1 min-w-0">
+          <span className="block truncate font-serif font-bold" style={{ fontSize: 15.5, lineHeight: 1.2, color: 'var(--ob-ink)' }}>{place.name}</span>
+          <span className="block truncate" style={{ fontSize: 12.5, marginTop: 3, color: 'var(--ob-label)' }}>{sub}</span>
+        </span>
+        {place.rating > 0 && (
+          <span className="flex-none inline-flex items-center gap-1" style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--ob-ink)' }}>
+            <Star size={12} fill="currentColor" strokeWidth={0} style={{ color: OB.TERRA }} />
+            {place.rating.toFixed(1)}
+          </span>
+        )}
+      </div>
+      {why && (
+        <span className="mt-2 inline-block rounded-full" style={{ padding: '4px 10px', fontSize: 11.5, fontWeight: 600, color: OB.TERRA, background: 'color-mix(in srgb, var(--ob-terra) 10%, transparent)' }}>
+          {why}
+        </span>
+      )}
+    </div>
+  );
+};
+
+export const PreAuthFlow: React.FC<{
+  /** Leave for the Auth screen — 'signup' framed as saving the profile,
+   *  'signin' for the returning-user escape. */
+  onExit: (mode: 'signup' | 'signin') => void;
+  onBrowseAsGuest?: () => void;
+}> = ({ onExit, onBrowseAsGuest }) => {
+  const [step, setStep] = useState<PreStep>('welcome');
+  const [cuisineSel, setCuisineSel] = useState<string[]>([]);
+  const [priceSel, setPriceSel] = useState<number[]>([]);
+  const [atmosphere, setAtmosphere] = useState<string | null>(null);
+  const [cityText, setCityText] = useState('');
+  const [cityGeo, setCityGeo] = useState<HomeLocation | null>(null);
+  const [preview, setPreview] = useState<ScoredPlace[] | null>(null);
+
+  useEffect(() => { logOnboardingEvent('preauth_start'); }, []);
+
+  const idx = ORDER.indexOf(step);
+  const go = (next: PreStep) => {
+    logOnboardingEvent(`preauth_${step}_done`);
+    setStep(next);
+  };
+  const back = () => { if (idx > 0) setStep(ORDER[idx - 1]); };
+
+  /** Persist answers to the local mirror (no user yet) — ProfileSetup
+   *  reads them back after signup and stamps the row. */
+  const persistAnswers = () => {
+    if (cuisineSel.length === 0 && priceSel.length === 0 && !atmosphere) return;
+    void saveTasteQuiz(undefined, {
+      cuisines: cuisineSel,
+      prices: priceSel,
+      atmosphere: atmosphere ?? undefined,
+      completedAt: Date.now(),
+    });
+  };
+
+  const leave = (mode: 'signup' | 'signin' | 'guest') => {
+    persistAnswers();
+    markPreauthDone();
+    logOnboardingEvent(`preauth_gate_${mode}`);
+    if (mode === 'guest') onBrowseAsGuest?.();
+    else onExit(mode);
+  };
+
+  // Preview data — fires when the step is reached with a real city.
+  useEffect(() => {
+    if (step !== 'preview' || !cityGeo || preview !== null) return;
+    let cancelled = false;
+    fetchTastePreview({ cuisines: cuisineSel, prices: priceSel, atmosphere }, cityGeo)
+      .then((places) => {
+        if (cancelled) return;
+        setPreview(places);
+        if (places.length > 0) logOnboardingEvent('preauth_preview_shown');
+      });
+    return () => { cancelled = true; };
+  }, [step, cityGeo, preview, cuisineSel, priceSel, atmosphere]);
+
+  const advanceFromCity = () => {
+    if (cityGeo) {
+      savePreauthCity(cityGeo);
+      go('preview');
+    } else {
+      // No city, no preview to show — the gate still explains itself.
+      persistAnswers();
+      go('preview');
+    }
+  };
+
+  return (
+    <OB.OnboardingScreen>
+      {step !== 'welcome' && (
+        <OB.ProgressHeader step={idx} total={ORDER.length - 1} onBack={back} />
+      )}
+      {/* Keyed div, no AnimatePresence — entrance plays per step and nothing
+          gates on an exit animation completing. */}
+      <motion.div
+        key={step}
+        initial={{ opacity: 0, x: 16 }}
+        animate={{ opacity: 1, x: 0 }}
+        transition={{ duration: 0.24, ease: [0.22, 1, 0.36, 1] }}
+        className="flex flex-1 flex-col"
+      >
+        {step === 'welcome' && (
+          <div className="flex flex-1 flex-col">
+            <div style={{ marginTop: 40 }}><OB.BrandMark size={54} /></div>
+            <div style={{ marginTop: 26 }}>
+              <OB.Title size={34}>Find your next favorite table</OB.Title>
+              <OB.Subtitle>Answer three quick questions and we'll show you where to eat — before you sign up for anything.</OB.Subtitle>
+            </div>
+            <div style={{ marginTop: 'auto', paddingTop: 30 }}>
+              <OB.PrimaryButton onClick={() => go('cuisines')}>Get started</OB.PrimaryButton>
+              <div style={{ marginTop: 4 }}>
+                <OB.GhostButton onClick={() => leave('signin')}>Already have an account? Sign in</OB.GhostButton>
+              </div>
+              {onBrowseAsGuest && (
+                <div style={{ marginTop: 0 }}>
+                  <OB.GhostButton onClick={() => leave('guest')}>Browse without an account</OB.GhostButton>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {step === 'cuisines' && (
+          <div className="flex flex-1 flex-col">
+            <div style={{ marginTop: 42 }}>
+              <OB.Eyebrow>Your taste</OB.Eyebrow>
+              <div style={{ marginTop: 13 }}><OB.Title size={33}>Which cuisines do you love?</OB.Title></div>
+              <OB.Subtitle>Pick a few — your first recommendations start here.</OB.Subtitle>
+            </div>
+            <div style={{ marginTop: 26 }}>
+              <TastePillGrid
+                options={TASTE_CUISINES.map((c) => ({ id: c, label: c }))}
+                selected={cuisineSel}
+                onToggle={(id) => setCuisineSel((prev) => prev.includes(id) ? prev.filter((c) => c !== id) : [...prev, id])}
+              />
+            </div>
+            <div style={{ marginTop: 'auto', paddingTop: 24 }}>
+              <OB.PrimaryButton onClick={() => go('prices')}>Continue</OB.PrimaryButton>
+            </div>
+          </div>
+        )}
+
+        {step === 'prices' && (
+          <div className="flex flex-1 flex-col">
+            <div style={{ marginTop: 42 }}>
+              <OB.Eyebrow>Your taste</OB.Eyebrow>
+              <div style={{ marginTop: 13 }}><OB.Title size={33}>What do you usually spend?</OB.Title></div>
+              <OB.Subtitle>So a special-occasion palate gets special-occasion picks.</OB.Subtitle>
+            </div>
+            <div style={{ marginTop: 26 }}>
+              <TastePillGrid
+                options={TASTE_PRICES.map((t) => ({ id: String(t.tier), label: t.label, sub: t.sub }))}
+                selected={priceSel.map(String)}
+                onToggle={(id) => {
+                  const tier = Number(id);
+                  setPriceSel((prev) => prev.includes(tier) ? prev.filter((t) => t !== tier) : [...prev, tier]);
+                }}
+              />
+            </div>
+            <div style={{ marginTop: 'auto', paddingTop: 24 }}>
+              <OB.PrimaryButton onClick={() => go('atmosphere')}>Continue</OB.PrimaryButton>
+            </div>
+          </div>
+        )}
+
+        {step === 'atmosphere' && (
+          <div className="flex flex-1 flex-col">
+            <div style={{ marginTop: 42 }}>
+              <OB.Eyebrow>Your taste</OB.Eyebrow>
+              <div style={{ marginTop: 13 }}><OB.Title size={33}>Your ideal atmosphere?</OB.Title></div>
+              <OB.Subtitle>The room matters as much as the plate.</OB.Subtitle>
+            </div>
+            <div style={{ marginTop: 22 }}>
+              <AtmosphereGrid selected={atmosphere} onSelect={setAtmosphere} />
+            </div>
+            <div style={{ marginTop: 'auto', paddingTop: 24 }}>
+              <OB.PrimaryButton onClick={() => go('city')}>Continue</OB.PrimaryButton>
+            </div>
+          </div>
+        )}
+
+        {step === 'city' && (
+          <div className="flex flex-1 flex-col">
+            <div style={{ marginTop: 42 }}>
+              <OB.Eyebrow>Location</OB.Eyebrow>
+              <div style={{ marginTop: 13 }}><OB.Title size={33}>Where do you eat?</OB.Title></div>
+              <OB.Subtitle>We'll pull your first picks from here.</OB.Subtitle>
+            </div>
+            <div style={{ marginTop: 26 }}>
+              <OB.FieldLabel>City</OB.FieldLabel>
+              <CityAutocomplete
+                value={cityText}
+                onChange={(v) => { setCityText(v); setCityGeo(null); }}
+                onPick={(loc) => { setCityText(loc.label); setCityGeo(loc); }}
+                onSubmit={advanceFromCity}
+              />
+            </div>
+            <div style={{ marginTop: 'auto', paddingTop: 24 }}>
+              <OB.PrimaryButton onClick={advanceFromCity}>{cityGeo ? 'Show my picks' : 'Continue'}</OB.PrimaryButton>
+              <div style={{ marginTop: 4 }}>
+                <OB.GhostButton onClick={() => { persistAnswers(); go('preview'); }}>Skip for now</OB.GhostButton>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {step === 'preview' && (
+          <div className="flex flex-1 flex-col">
+            <div style={{ marginTop: 42 }}>
+              <OB.Eyebrow>Made for you</OB.Eyebrow>
+              <div style={{ marginTop: 13 }}>
+                <OB.Title size={33}>{cityGeo ? 'Your first picks' : 'Your taste profile is ready'}</OB.Title>
+              </div>
+              <OB.Subtitle>
+                {cityGeo
+                  ? `Near ${cityGeo.label.split(',')[0]} — built from your answers.`
+                  : 'Save it and we’ll surface tables that fit it, wherever you are.'}
+              </OB.Subtitle>
+            </div>
+            {cityGeo && (
+              <div className="flex flex-col gap-2.5" style={{ marginTop: 22 }}>
+                {preview === null ? (
+                  [0, 1, 2].map((i) => (
+                    <div key={i} className="animate-pulse rounded-2xl" style={{ height: 74, background: 'var(--ob-divider)' }} />
+                  ))
+                ) : preview.length > 0 ? (
+                  preview.slice(0, 4).map((p) => <PreviewCard key={p.id} place={p} />)
+                ) : (
+                  <p style={{ fontSize: 14, lineHeight: 1.5, color: 'var(--ob-label)' }}>
+                    We couldn't pull picks for that area just now — your taste profile is saved and ready either way.
+                  </p>
+                )}
+              </div>
+            )}
+            <div style={{ marginTop: 'auto', paddingTop: 26 }}>
+              <OB.PrimaryButton onClick={() => leave('signup')} trailing="check">Save my taste profile</OB.PrimaryButton>
+              <div style={{ marginTop: 4 }}>
+                <OB.GhostButton onClick={() => leave('signin')}>Already have an account? Sign in</OB.GhostButton>
+              </div>
+              {onBrowseAsGuest && (
+                <div style={{ marginTop: 0 }}>
+                  <OB.GhostButton onClick={() => leave('guest')}>Browse without an account</OB.GhostButton>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+      </motion.div>
+    </OB.OnboardingScreen>
+  );
+};
