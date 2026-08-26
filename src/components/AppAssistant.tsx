@@ -62,7 +62,6 @@ import { subscribeOverlay } from '../lib/overlay-registry';
    screen reels, and import flows are excluded. */
 const HIDE_ON_PATHS = new Set<string>([
   '/auth',
-  '/onboarding',
   '/import',
   '/profile-setup',
   // Messages: the FAB sits right on top of the composer / quick-share
@@ -89,7 +88,7 @@ function shouldHideAssistant(pathname: string, isPhone: boolean): boolean {
      this returns true. Phone-mode-only because desktop sidebars
      don't collide with the FAB. ─────────────────────────────── */
 const HIDE_BOTTOM_NAV_PATHS = new Set<string>([
-  '/onboarding', '/messages', '/reorder', '/location', '/location/map', '/map', '/create',
+  '/messages', '/reorder', '/location', '/location/map', '/map', '/create',
 ]);
 
 function routeShowsBottomNav(pathname: string): boolean {

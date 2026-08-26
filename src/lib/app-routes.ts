@@ -32,7 +32,6 @@ const ROUTE_PATTERNS: string[] = [
   '/pantry/recommended',
   '/restaurant/:id',
   '/restaurant/:id/circle',
-  '/onboarding',
   '/import',
   '/reorder',
   '/recipes-for-you',

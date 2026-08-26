@@ -21,7 +21,6 @@ import { SearchMain } from './pages/SearchMain';
 import { Reels } from './pages/Reels';
 import { Activity } from './pages/Activity';
 import { RestaurantDetail } from './pages/RestaurantDetail';
-import { Onboarding } from './pages/Onboarding';
 import { Create } from './pages/Create';
 import { BottomNav } from './components/BottomNav';
 import { PullToRefresh } from './components/PullToRefresh';
@@ -239,7 +238,7 @@ const AppContent: React.FC = () => {
   const isMapPage = location.pathname === '/map';
   const isReelsPage = location.pathname === '/reels';
   const isFocusedReel = location.pathname.startsWith('/r/');
-  const showBottomNav = !['/onboarding', '/messages', '/reorder', '/location', '/location/map', '/map', '/create', '/recipes-for-you', '/circle', '/settings'].includes(location.pathname) && !location.pathname.startsWith('/restaurant/') && !location.pathname.startsWith('/user/') && !location.pathname.startsWith('/recipe/') && !location.pathname.startsWith('/meal/') && !location.pathname.startsWith('/review/') && !location.pathname.startsWith('/activity') && !location.pathname.startsWith('/guides/') && !isFocusedReel;
+  const showBottomNav = !['/messages', '/reorder', '/location', '/location/map', '/map', '/create', '/recipes-for-you', '/circle', '/settings'].includes(location.pathname) && !location.pathname.startsWith('/restaurant/') && !location.pathname.startsWith('/user/') && !location.pathname.startsWith('/recipe/') && !location.pathname.startsWith('/meal/') && !location.pathname.startsWith('/review/') && !location.pathname.startsWith('/activity') && !location.pathname.startsWith('/guides/') && !isFocusedReel;
   const { isSignedIn, isGuest, continueAsGuest, loading, profileComplete, profileError, profileLoading, needsPasswordSetup } = useAuth();
   const isDesktop = useIsDesktop();
   // Sidebar mode: real desktop viewport. Guests get the sidebar too so they
@@ -499,7 +498,6 @@ const AppContent: React.FC = () => {
           <Route path="/pantry/recommended" element={<RequireAuthRoute reason="Sign in for your recommendations"><RecommendedForYou /></RequireAuthRoute>} />
           <Route path="/restaurant/:id" element={<RestaurantDetail />} />
           <Route path="/restaurant/:id/circle" element={<RestaurantCircleReviews />} />
-          <Route path="/onboarding" element={<Onboarding />} />
           <Route path="/import" element={<ImportRestaurants />} />
           <Route path="/reorder" element={<RequireAuthRoute reason="Sign in to reorder your ratings"><ReorderRatings /></RequireAuthRoute>} />
           <Route path="/recipes-for-you" element={<RecipesForYou />} />
@@ -574,7 +572,7 @@ const AppContent: React.FC = () => {
   // (reels/map panning, the messages thread, the create overlay, onboarding).
   const allowPullToRefresh =
     !isReelsPage && !isFocusedReel && !isMapPage &&
-    !['/messages', '/create', '/onboarding', '/location/map', '/search'].includes(location.pathname);
+    !['/messages', '/create', '/location/map', '/search'].includes(location.pathname);
   // Edge swipe-back is allowed wherever a back destination exists, except on
   // routes that own horizontal/vertical gestures. Pure bottom-nav tab roots
   // are NOT swipeable (you never swipe between tabs), but tab *sub-views*
@@ -586,7 +584,7 @@ const AppContent: React.FC = () => {
   const isTabRoot = isTabRootLocation(location.pathname, location.search);
   const allowSwipeBack =
     backTarget !== null && !isReelsPage && !isFocusedReel && !isMapPage && !isTabRoot &&
-    !['/create', '/onboarding', '/location/map'].includes(location.pathname);
+    !['/create', '/location/map'].includes(location.pathname);
   return (
     <div className="min-h-screen bg-surface selection:bg-primary/20 selection:text-primary">
       <ScrollRestoration />

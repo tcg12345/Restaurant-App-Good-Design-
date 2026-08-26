@@ -11,8 +11,19 @@ import { AuthShell, useDesktopAuthLayout } from '../components/AuthShell';
 // Mobile uses the new cream/terracotta onboarding wizard; desktop keeps the
 // original single-form AuthShell design.
 import * as OB from '../components/onboarding/OnboardingKit';
+import {
+  TastePillGrid, AtmosphereGrid, FollowRail, RatePlacesStep,
+  TASTE_CUISINES, TASTE_PRICES,
+} from '../components/onboarding/TasteSteps';
+import { AddRestaurantModal } from '../components/AddRestaurantModal';
+import { saveTasteQuiz } from '../lib/taste-quiz';
 
-type StepKey = 'name' | 'handle' | 'city' | 'visibility';
+type StepKey =
+  | 'name' | 'handle' | 'city' | 'visibility'
+  // Taste + first-actions steps — one wizard, one progress bar, instead of
+  // the separate /onboarding page these lived on. The profile row persists
+  // on leaving 'visibility', so a bail-out mid-taste still keeps the account.
+  | 'cuisines' | 'prices' | 'atmosphere' | 'follow' | 'rate';
 
 /**
  * Save failures are shown verbatim to someone in the middle of creating an
@@ -75,6 +86,13 @@ export const ProfileSetup: React.FC = () => {
   // Mobile wizard state (unused by desktop, but hooks must be unconditional).
   const [pStep, setPStep] = useState(0);
   const [screen, setScreen] = useState<'wizard' | 'done'>('wizard');
+  // Taste answers (the wizard's cold-start priors — see TasteSteps.tsx).
+  const [cuisineSel, setCuisineSel] = useState<string[]>([]);
+  const [priceSel, setPriceSel] = useState<number[]>([]);
+  const [atmosphere, setAtmosphere] = useState<string | null>(null);
+  // The profile row saves once, on leaving 'visibility' — backing up and
+  // coming forward again must not re-await a geocode + write.
+  const [profileSaved, setProfileSaved] = useState(false);
 
   const handle = '@' + (username.toLowerCase() || 'username');
   const usernameValid = username.trim().length >= 3 && /^[a-zA-Z0-9_]+$/.test(username);
@@ -130,11 +148,11 @@ export const ProfileSetup: React.FC = () => {
       if (availability === 'taken') { setError('That username is already taken'); return; }
       setSubmitting(true);
       const res = await persistProfile();
-      if (res.ok) {
-        // Same routing as the mobile done screen — land on the taste quiz.
-        navigate('/onboarding');
-        await refreshProfile();
-      } else setError(friendlyError(res.error));
+      // Desktop goes straight into the app: the taste steps are part of the
+      // MOBILE wizard (the product's real signup surface). A desktop signup
+      // just starts with default priors until they rate.
+      if (res.ok) await refreshProfile();
+      else setError(friendlyError(res.error));
       setSubmitting(false);
     };
     const handleSubmitThenVerify = async () => {
@@ -253,22 +271,26 @@ export const ProfileSetup: React.FC = () => {
 
   /* ── Mobile cream/terracotta wizard ──────────────────────────────────── */
   const steps: StepKey[] = seed.nameFromProvider
-    ? ['handle', 'city', 'visibility']
-    : ['name', 'handle', 'city', 'visibility'];
+    ? ['handle', 'city', 'visibility', 'cuisines', 'prices', 'atmosphere', 'follow', 'rate']
+    : ['name', 'handle', 'city', 'visibility', 'cuisines', 'prices', 'atmosphere', 'follow', 'rate'];
   const provider = (user?.app_metadata?.provider as string) || 'email';
   const offset = provider === 'email' ? 1 : 0; // create-account was "step 1" for email signups
   const total = offset + steps.length;
   const stepKey = steps[pStep];
   const isLast = pStep === steps.length - 1;
 
-  const finish = async () => {
-    setSubmitting(true);
-    setError('');
-    const res = await persistProfile();
-    setSubmitting(false);
-    if (res.ok) setScreen('done');
-    else setError(friendlyError(res.error));
-  };
+  /** Save the taste answers. Runs on leaving 'atmosphere' and again when
+   *  the wizard ends — an upsert either way, so backing up and re-answering
+   *  just refreshes the row. Empty answers write nothing. */
+  const persistTaste = useCallback(() => {
+    if (cuisineSel.length === 0 && priceSel.length === 0 && !atmosphere) return;
+    void saveTasteQuiz(user?.id, {
+      cuisines: cuisineSel,
+      prices: priceSel,
+      atmosphere: atmosphere ?? undefined,
+      completedAt: Date.now(),
+    });
+  }, [user?.id, cuisineSel, priceSel, atmosphere]);
 
   const finishThenVerify = async () => {
     setSubmitting(true);
@@ -288,7 +310,23 @@ export const ProfileSetup: React.FC = () => {
       if (!usernameValid) { setError('Username must be 3+ letters, numbers, or underscores'); return; }
       if (availability === 'taken') { setError('That username is already taken'); return; }
     }
-    if (isLast) { void finish(); return; }
+    // The profile row saves HERE, not at the wizard's end: the taste steps
+    // are skippable garnish, and someone who bails during them must still
+    // have an account with a name and handle. (App keeps showing this
+    // wizard regardless — profileComplete only flips on the refreshProfile
+    // the done screen fires.)
+    if (stepKey === 'visibility' && !profileSaved) {
+      void (async () => {
+        setSubmitting(true);
+        const res = await persistProfile();
+        setSubmitting(false);
+        if (res.ok) { setProfileSaved(true); setPStep((p) => p + 1); }
+        else setError(friendlyError(res.error));
+      })();
+      return;
+    }
+    if (stepKey === 'atmosphere') persistTaste();
+    if (isLast) { persistTaste(); setScreen('done'); return; }
     setPStep((p) => p + 1);
   };
 
@@ -313,12 +351,7 @@ export const ProfileSetup: React.FC = () => {
             Welcome aboard, <span style={{ color: OB.TERRA, fontWeight: 600 }}>{handle}</span>. Your canvas is ready — let's find something worth the trip.
           </p>
           <div style={{ marginTop: 'auto', paddingTop: 34, width: '100%' }}>
-            {/* Route into the taste onboarding BEFORE the profile refresh
-                lands: App holds this screen until profileComplete flips, and
-                when the routes mount they mount at /onboarding. (The quiz
-                was a finished page nothing ever navigated to — this line is
-                what finally puts users through it.) */}
-            <OB.PrimaryButton onClick={() => { navigate('/onboarding'); void refreshProfile(); }}>Start exploring</OB.PrimaryButton>
+            <OB.PrimaryButton onClick={() => { void refreshProfile(); }}>Start exploring</OB.PrimaryButton>
           </div>
         </motion.div>
       </OB.OnboardingScreen>
@@ -411,23 +444,99 @@ export const ProfileSetup: React.FC = () => {
                 </div>
               </div>
             )}
+
+            {stepKey === 'cuisines' && (
+              <div className="flex flex-1 flex-col">
+                <div style={{ marginTop: 46 }}>
+                  <OB.Eyebrow>Your taste</OB.Eyebrow>
+                  <div style={{ marginTop: 13 }}><OB.Title size={33}>Which cuisines do you love?</OB.Title></div>
+                  <OB.Subtitle>Pick a few — your first recommendations start here.</OB.Subtitle>
+                </div>
+                <div style={{ marginTop: 28 }}>
+                  <TastePillGrid
+                    options={TASTE_CUISINES.map((c) => ({ id: c, label: c }))}
+                    selected={cuisineSel}
+                    onToggle={(id) => setCuisineSel((prev) => prev.includes(id) ? prev.filter((c) => c !== id) : [...prev, id])}
+                  />
+                </div>
+              </div>
+            )}
+
+            {stepKey === 'prices' && (
+              <div className="flex flex-1 flex-col">
+                <div style={{ marginTop: 46 }}>
+                  <OB.Eyebrow>Your taste</OB.Eyebrow>
+                  <div style={{ marginTop: 13 }}><OB.Title size={33}>What do you usually spend?</OB.Title></div>
+                  <OB.Subtitle>So a special-occasion palate gets special-occasion picks.</OB.Subtitle>
+                </div>
+                <div style={{ marginTop: 28 }}>
+                  <TastePillGrid
+                    options={TASTE_PRICES.map((t) => ({ id: String(t.tier), label: t.label, sub: t.sub }))}
+                    selected={priceSel.map(String)}
+                    onToggle={(id) => {
+                      const tier = Number(id);
+                      setPriceSel((prev) => prev.includes(tier) ? prev.filter((t) => t !== tier) : [...prev, tier]);
+                    }}
+                  />
+                </div>
+              </div>
+            )}
+
+            {stepKey === 'atmosphere' && (
+              <div className="flex flex-1 flex-col">
+                <div style={{ marginTop: 46 }}>
+                  <OB.Eyebrow>Your taste</OB.Eyebrow>
+                  <div style={{ marginTop: 13 }}><OB.Title size={33}>Your ideal atmosphere?</OB.Title></div>
+                  <OB.Subtitle>The room matters as much as the plate.</OB.Subtitle>
+                </div>
+                <div style={{ marginTop: 24 }}>
+                  <AtmosphereGrid selected={atmosphere} onSelect={setAtmosphere} />
+                </div>
+              </div>
+            )}
+
+            {stepKey === 'follow' && (
+              <div className="flex flex-1 flex-col">
+                <div style={{ marginTop: 46 }}>
+                  <OB.Eyebrow>Your circle</OB.Eyebrow>
+                  <div style={{ marginTop: 13 }}><OB.Title size={33}>Follow a few tastemakers</OB.Title></div>
+                  <OB.Subtitle>Their ratings, posts, and cooking fill your feed from day one.</OB.Subtitle>
+                </div>
+                <div style={{ marginTop: 24 }}>
+                  <FollowRail />
+                </div>
+              </div>
+            )}
+
+            {stepKey === 'rate' && (
+              <div className="flex flex-1 flex-col">
+                <div style={{ marginTop: 46 }}>
+                  <OB.Eyebrow>First ratings</OB.Eyebrow>
+                  <div style={{ marginTop: 13 }}><OB.Title size={33}>Rate places you've been</OB.Title></div>
+                  <OB.Subtitle>A few real ratings teach us your taste better than any quiz.</OB.Subtitle>
+                </div>
+                <div style={{ marginTop: 20 }}>
+                  <RatePlacesStep />
+                </div>
+              </div>
+            )}
           </motion.div>
         </AnimatePresence>
 
         <div style={{ paddingTop: 26 }}>
           {error && stepKey !== 'handle' && <div style={{ marginBottom: 12 }}><OB.ErrorRow>{error}</OB.ErrorRow></div>}
           <OB.PrimaryButton onClick={next} loading={submitting} trailing={isLast ? 'check' : 'arrow'}>
-            {isLast ? 'Finish setup' : 'Continue'}
+            {isLast ? 'Finish setup' : stepKey === 'visibility' ? 'Save & continue' : 'Continue'}
           </OB.PrimaryButton>
           {stepKey === 'city' && (
             <div style={{ marginTop: 4 }}>
               <OB.GhostButton onClick={() => { setHomeCity(''); setHomeGeo(null); setError(''); setPStep((p) => p + 1); }}>Skip for now</OB.GhostButton>
             </div>
           )}
-          {isLast && (
+          {stepKey === 'visibility' && (
             <div style={{ marginTop: 4 }}>
-              {/* Subtle verification entry — finishes setup, then opens the
-                  request form instead of the done screen. */}
+              {/* Verification lives on the last PROFILE step — it saves the
+                  row and opens the request form, skipping the taste steps. */}
               <OB.GhostButton onClick={() => { void finishThenVerify(); }}>
                 Are you a chef, critic, or creator? Request verification
               </OB.GhostButton>
@@ -435,6 +544,10 @@ export const ProfileSetup: React.FC = () => {
           )}
         </div>
       </div>
+      {/* The rate step opens the app's real rating flow. App's own modal
+          instance isn't mounted while this wizard shows (ProfileSetup
+          renders before the main branch), so the wizard hosts one. */}
+      <AddRestaurantModal />
     </OB.OnboardingScreen>
   );
 };

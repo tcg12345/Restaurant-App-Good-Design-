@@ -1,7 +1,7 @@
 import { supabase, supabaseConfigured } from './supabase';
 
 /**
- * Persistence for the onboarding palette test (src/pages/Onboarding.tsx).
+ * Persistence for the signup wizard's taste steps (components/onboarding/TasteSteps.tsx).
  *
  * Answers land in two places: a localStorage mirror (instant reads, works
  * for guests, survives until the profile refetch catches up) and
