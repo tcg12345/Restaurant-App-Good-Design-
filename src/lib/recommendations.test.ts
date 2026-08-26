@@ -276,8 +276,11 @@ describe('scoreCandidates', () => {
     );
     const match = out.find((p) => p.id === 'match')!;
     expect(match.reasons?.length).toBeGreaterThan(0);
-    // A taste-derived chip, not a star count.
-    expect(match.reasons!.some((r) => /Top cuisine|sweet spot|price range|Your vibe/.test(r))).toBe(true);
+    // A chip derived from what they told us, not from Google's crowd.
+    expect(match.tasteReasons?.length).toBeGreaterThan(0);
+    expect(match.tasteReasons!.some((r) => /Top cuisine|sweet spot|price range|Your vibe/.test(r))).toBe(true);
+    // And nothing that merely reports a star count counts as taste.
+    expect(match.tasteReasons!.some((r) => /★/.test(r))).toBe(false);
   });
 
   it('stated taste is worth HALF a slot — a real rating still outweighs it', () => {

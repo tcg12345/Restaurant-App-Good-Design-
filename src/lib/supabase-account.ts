@@ -54,6 +54,12 @@ const APP_STORAGE_PREFIXES = ['gourmad-', 'lp-chat-', 'gourmet-canvas-'];
  *  it to reload as the new user). */
 const APP_STORAGE_KEYS = [SIGNED_URL_CACHE_LS_KEY];
 
+/** Device-scoped keys that survive every purge. `gourmad-preauth-done`
+ *  records that this DEVICE has already been through first-launch
+ *  onboarding — it is not any user's data, and dropping it re-walls a
+ *  returning user with a flow they already completed. */
+const DEVICE_SCOPED_KEYS = ['gourmad-preauth-done'];
+
 /**
  * Drop every app-owned localStorage key (ratings cache, home meals,
  * chats, AI conversations, recents, drafts, signed-URL cache…). Called on
@@ -66,6 +72,7 @@ export function clearLocalAppData(): void {
     const doomed: string[] = [];
     for (let i = 0; i < localStorage.length; i++) {
       const key = localStorage.key(i);
+      if (key && DEVICE_SCOPED_KEYS.includes(key)) continue;
       if (key && (APP_STORAGE_PREFIXES.some((p) => key.startsWith(p)) || APP_STORAGE_KEYS.includes(key))) {
         doomed.push(key);
       }

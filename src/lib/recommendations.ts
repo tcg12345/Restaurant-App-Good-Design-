@@ -133,6 +133,12 @@ export interface ScoredPlace extends RecCandidate {
   /** Human-readable "why this" chips, strongest factor first (≤3). Absent on
    *  legacy call sites that fabricate ScoredPlace literals. */
   reasons?: string[];
+  /** The subset of `reasons` derived from the user's OWN stated or rated
+   *  taste, strongest first — as opposed to Google's crowd, Michelin, or
+   *  the community. A surface claiming "built from your answers" should
+   *  lead with one of these; when it's empty, it has no such claim to
+   *  make. Also the `rec_chip_rate` honesty metric. */
+  tasteReasons?: string[];
   /** Beli-style prediction of the score THIS user would give the place, on
    *  their own 0–10 scale (one decimal, floor 5.0). Replaces the old match %. */
   predicted?: number;
@@ -1020,7 +1026,7 @@ export function scoreCandidates(
     let personalFit = 0;
     let genericQuality = 0;
     const sources: ScoredPlace['sources'] = ['google'];
-    const reasons: Array<{ w: number; label: string }> = [];
+  const reasons: Array<{ w: number; label: string; taste?: boolean }> = [];
 
     // ── Taste match ──
     if (ramp > 0) {
@@ -1036,7 +1042,7 @@ export function scoreCandidates(
       const cA = cARaw > 0 ? cARaw * crossPriceScale : cARaw;
       const cTerm = W.cuisine * (cA < 0 ? cA * W.negativeMult : cA) * ramp;
       personalFit += cTerm;
-      if (cA >= 0.35 && cuisine) reasons.push({ w: cTerm, label: `Top cuisine: ${cuisine}` });
+      if (cA >= 0.35 && cuisine) reasons.push({ w: cTerm, taste: true, label: `Top cuisine: ${cuisine}` });
 
       // Price fit from the user's actual spend distribution: reward tiers
       // holding real mass, charge a concentration-scaled slope for straying
@@ -1056,13 +1062,13 @@ export function scoreCandidates(
       }
       const pTerm = wPrice * pA * ramp;
       personalFit += pTerm;
-      if (pA >= 0.35 && price > 0) reasons.push({ w: pTerm, label: `In your price range (${'$'.repeat(price)})` });
+      if (pA >= 0.35 && price > 0) reasons.push({ w: pTerm, taste: true, label: `In your price range (${'$'.repeat(price)})` });
 
       const prA = aff(cuisine && price > 0 ? profile.pairScore[`${cuisine}|${price}`] : undefined, pairMax);
       const prTerm = W.pair * (prA < 0 ? prA * W.negativeMult : prA) * ramp;
       personalFit += prTerm;
       if (prA >= 0.5 && cuisine && price > 0) {
-        reasons.push({ w: prTerm, label: `Your sweet spot: ${'$'.repeat(price)} ${cuisine}` });
+        reasons.push({ w: prTerm, taste: true, label: `Your sweet spot: ${'$'.repeat(price)} ${cuisine}` });
       }
 
       // Tag overlap — community tags on this place vs tags the user hands out.
@@ -1082,7 +1088,7 @@ export function scoreCandidates(
         sources.push('tagSimilar');
         matchedTags.sort((x, y) => y.a - x.a);
         if (tTerm >= 0.3) {
-          reasons.push({ w: tTerm, label: `Your vibe: ${matchedTags.slice(0, 2).map((m) => m.t).join(', ')}` });
+          reasons.push({ w: tTerm, taste: true, label: `Your vibe: ${matchedTags.slice(0, 2).map((m) => m.t).join(', ')}` });
         }
       }
     }
@@ -1261,6 +1267,7 @@ export function scoreCandidates(
       recScore: score,
       sources,
       reasons: reasons.slice(0, 3).map((r) => r.label),
+      tasteReasons: reasons.filter((r) => r.taste).map((r) => r.label),
       predicted,
     });
   }

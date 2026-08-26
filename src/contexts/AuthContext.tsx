@@ -216,7 +216,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     // raising the guest flag (clearLocalAppData drops gourmad-* keys, which
     // includes GUEST_MODE_KEY — so clear first, then set it), so a guest never
     // sees the prior account's ratings / meals / cached private-bucket URLs.
-    clearLocalAppData();
+    //
+    // ONLY when there actually was one. The purge matches every `gourmad-`
+    // key, which now includes what the pre-auth onboarding just collected —
+    // so on a fresh install, where there is no prior account to protect
+    // against, it did nothing but destroy the taste answers, the city and
+    // the "flow already done" flag the user produced seconds earlier. The
+    // guest then landed on New York and got re-quizzed on next launch.
+    let hadPriorUser = false;
+    try { hadPriorUser = !!localStorage.getItem(ACTIVE_USER_KEY); } catch { /* storage unavailable */ }
+    if (hadPriorUser) clearLocalAppData();
     try { localStorage.setItem(GUEST_MODE_KEY, '1'); } catch { /* storage unavailable */ }
     setIsGuest(true);
   }, []);

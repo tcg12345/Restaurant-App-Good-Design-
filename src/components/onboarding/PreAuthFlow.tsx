@@ -97,7 +97,11 @@ export async function fetchTastePreview(
 
 const PreviewCard: React.FC<{ place: ScoredPlace }> = ({ place }) => {
   const sub = [cuisineLabel(place), priceLevelToString(place.priceLevel)].filter(Boolean).join(' · ');
-  const why = place.reasons?.[0];
+  // This screen's headline is "built from your answers", so lead with a
+  // reason that actually came from them. Google's star count is true but
+  // says nothing about the person — leading with it is how the old preview
+  // made a personalization claim it couldn't support.
+  const why = place.tasteReasons?.[0] ?? place.reasons?.[0];
   return (
     <div className="rounded-2xl" style={{ padding: '13px 16px', background: 'var(--ob-card)', border: '1.5px solid var(--ob-border)' }}>
       <div className="flex items-center gap-3">
