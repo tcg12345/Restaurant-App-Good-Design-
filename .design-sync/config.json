@@ -1,0 +1,130 @@
+{
+  "projectId": "e98e9e74-33c9-4ba3-abec-68c57d093107",
+  "pkg": "gourmet-canvas",
+  "globalName": "GourmetCanvas",
+  "shape": "package",
+  "srcDir": "src",
+  "tsconfig": "tsconfig.json",
+  "buildCmd": "npm run build",
+  "cssEntry": ".design-sync/app.css",
+  "extraFonts": [
+    "public/fonts/fonts.css"
+  ],
+  "componentSrcMap": {
+    "GlassSurface": "src/lib/glass-buttons.tsx",
+    "GlassButton": "src/lib/glass-buttons.tsx",
+    "GlassGroup": "src/lib/glass-buttons.tsx",
+    "GlassChipRow": "src/lib/glass-buttons.tsx",
+    "ScoreBadge": "src/components/ScoreBadge.tsx",
+    "OwnScoreBadge": "src/components/ScoreBadge.tsx",
+    "ScoreRing": "src/components/cards/ScoreRing.tsx",
+    "Avatar": "src/components/Avatar.tsx",
+    "VerifiedBadge": "src/components/VerifiedBadge.tsx",
+    "MichelinMark": "src/components/MichelinBadge.tsx",
+    "MichelinBadge": "src/components/MichelinBadge.tsx",
+    "EmptyState": "src/components/EmptyState.tsx",
+    "Collapse": "src/components/Collapse.tsx",
+    "LoadingSkeleton": "src/components/LoadingSkeleton.tsx",
+    "LoadingSkeletonList": "src/components/LoadingSkeleton.tsx",
+    "SearchField": "src/components/SearchField.tsx",
+    "CardActionMenu": "src/components/CardActionMenu.tsx",
+    "TimeWheelPicker": "src/components/WheelPicker.tsx",
+    "NumberWheelPicker": "src/components/WheelPicker.tsx",
+    "FilterSection": "src/components/filterPrimitives.tsx",
+    "PillRow": "src/components/filterPrimitives.tsx",
+    "Pill": "src/components/filterPrimitives.tsx",
+    "Segment": "src/components/filterPrimitives.tsx",
+    "SegmentItem": "src/components/filterPrimitives.tsx",
+    "RangeSlider": "src/components/filterPrimitives.tsx",
+    "FilterDrillRow": "src/components/filterPrimitives.tsx",
+    "FilterOptionList": "src/components/filterPrimitives.tsx",
+    "FilterCheckRow": "src/components/filterPrimitives.tsx",
+    "FilterDrillSection": "src/components/filterPrimitives.tsx",
+    "HoursFilterSection": "src/components/filterPrimitives.tsx",
+    "Calendar": "src/components/RatingShared.tsx"
+  },
+  "dtsPropsFor": {
+    "GlassSurface": "children: React.ReactNode",
+    "GlassButton": "style?: React.CSSProperties;\n  /** Readability only — namespaced per instance before it reaches the registry. */\n  id: string;\n  onClick: () => void;\n  className?: string;\n  /** Mirrored to `aria-pressed` — a toggle must say so in the web fallback. */\n  pressed?: boolean;\n  /** Stand the native glass down and let the web fallback carry the look —\n   *  for buttons riding a finger-driven transform, where the async native\n   *  mirror visibly trails. */\n  suspended?: boolean;\n  children: React.ReactNode;\n  /** SF Symbol drawn inside the glass. */\n  symbol: string;\n  /** Set to make it a pill with a word on it instead of a circle with a glyph. */\n  title?: string;\n  titleStyle?: 'chip' | 'field';\n  role?: 'button' | 'chip';\n  prominent?: boolean;\n  label: string;\n  badge?: string;\n  badgeTone?: 'primary' | 'danger';\n  disabled?: boolean;",
+    "GlassGroup": "id: string;\n  className?: string;\n  itemClassName?: string;\n  items: Array<{\n    id: string;\n    onClick: () => void;\n    /** What actually renders in a browser — the native layer draws its own glyph from `symbol`. */\n    icon: React.ReactNode;\n    /** SF Symbol name for the native iOS 26 glass layer. Invisible on web. */\n    symbol: string;\n    /** Accessibility label. */\n    label: string;\n    /** Text shown beside the glyph (native layer only). */\n    title?: string;\n    titleStyle?: 'chip' | 'field';\n    role?: 'button' | 'chip';\n    /** Native prominent (tinted-lens) glass. Renders nothing on web. */\n    prominent?: boolean;\n    /** Fill for prominent glass (native only): 'primary' accent, 'label', or 'white'. */\n    tint?: 'label' | 'primary' | 'white';\n    /** Small badge on the region, e.g. an unread count (native layer only). */\n    badge?: string;\n    badgeTone?: 'primary' | 'danger';\n    disabled?: boolean;\n  }>;",
+    "GlassChipRow": "id: string;\n  className?: string;\n  items: Array<{\n    id: string;\n    /** SF Symbol for the native capsule. Omit for text-only chips. */\n    symbol?: string;\n    title: string;\n    /** Chosen — prominent (tinted) glass with white on it. */\n    prominent?: boolean;\n    label?: string;\n    onClick: () => void;\n    /** Web fallback icon. */\n    icon?: React.ReactNode;\n  }>;",
+    "ScoreBadge": "rating: number;\n  size?: 'xs' | 'sm' | 'md' | 'lg' | 'xl';\n  className?: string;",
+    "OwnScoreBadge": "rating: number;\n  unlocked: boolean;\n  size?: 'xs' | 'sm' | 'md' | 'lg' | 'xl';\n  className?: string;",
+    "ScoreRing": "score?: number; size?: number; onPhoto?: boolean; locked?: boolean; className?: string",
+    "Avatar": "/** Public URL of the profile photo; null/undefined → monogram. */\n  src?: string | null;\n  /** Display name — supplies the monogram letter. */\n  name: string;\n  /** Rendered size in px (square). */\n  size: number;\n  /** Font size for the monogram letter; defaults to ~40% of `size`. */\n  letterSize?: number;\n  className?: string;\n  /** Tint classes for the monogram. Defaults to the app's primary wash. */\n  fallbackClassName?: string;\n  /** Inline tint for the monogram — for the hue-per-user monograms\n   *  (lib/avatar.avatarHue) that classes can't express. */\n  fallbackStyle?: React.CSSProperties;",
+    "VerifiedBadge": "size?: number;\n  className?: string;\n  inline?: boolean;\n  /** Override the seal fill for dark/photo contexts; defaults to brand primary. */\n  fill?: string;",
+    "MichelinMark": "michelin: {\n    name: string;\n    city: string;\n    country: string;\n    /** Michelin stars: 1, 2, or 3 for starred restaurants; 0 otherwise. */\n    stars: 0 | 1 | 2 | 3;\n    /** True for Bib Gourmand entries (good value, no stars). */\n    bibGourmand: boolean;\n    /** True for \"Selected\" entries (in the Guide, no star/bib distinction). */\n    selected: boolean;\n    /** Price tier 1-4 (count of currency symbols in the source). */\n    priceTier: number;\n    /** Cuisine string, possibly comma-separated (\"Modern Cuisine, Creative\"). */\n    cuisine: string;\n    /** Michelin Guide page URL — the value real call sites pass as MichelinBadge's href. */\n    guideUrl: string;\n    /** Awarded a Michelin Green Star (sustainability). MichelinBadge renders a green leaf for it. */\n    greenStar: boolean;\n    /** Source coordinates (present for all current records). */\n    lat: number;\n    lng: number;\n  };\n  size?: number;\n  className?: string;",
+    "MichelinBadge": "michelin: {\n    name: string;\n    city: string;\n    country: string;\n    /** Michelin stars: 1, 2, or 3 for starred restaurants; 0 otherwise. */\n    stars: 0 | 1 | 2 | 3;\n    /** True for Bib Gourmand entries (good value, no stars). */\n    bibGourmand: boolean;\n    /** True for \"Selected\" entries (in the Guide, no star/bib distinction). */\n    selected: boolean;\n    /** Price tier 1-4 (count of currency symbols in the source). */\n    priceTier: number;\n    /** Cuisine string, possibly comma-separated (\"Modern Cuisine, Creative\"). */\n    cuisine: string;\n    /** Michelin Guide page URL — the value real call sites pass as MichelinBadge's href. */\n    guideUrl: string;\n    /** Awarded a Michelin Green Star (sustainability). MichelinBadge renders a green leaf for it. */\n    greenStar: boolean;\n    /** Source coordinates (present for all current records). */\n    lat: number;\n    lng: number;\n  };\n  /** sm = compact inline (mobile header), md = roomier (desktop header). */\n  size?: 'sm' | 'md';\n  /** Renders as a link to the Michelin Guide page with an external-link\n   *  affordance. Without it, a static label (for cards that are already links). */\n  href?: string;\n  className?: string;",
+    "EmptyState": "icon: React.ReactNode;\n  heading: string;\n  description?: string;\n  action?: { label: string; onClick: () => void };\n  className?: string;",
+    "Collapse": "open: boolean;\n  children: React.ReactNode;\n  /** Applied to the grid wrapper — margins and the like belong here. */\n  className?: string;",
+    "LoadingSkeleton": "variant?: 'card' | 'list-item' | 'avatar' | 'text';\n  className?: string;",
+    "LoadingSkeletonList": "count: number;\n  variant?: 'card' | 'list-item' | 'avatar' | 'text';\n  className?: string;\n  itemClassName?: string;",
+    "SearchField": "value: string;\n  onChange: (v: string) => void;\n  placeholder?: string;\n  /** `plain` in a list, `floating` over the map. */\n  variant?: 'plain' | 'floating';\n  autoFocus?: boolean;\n  inputRef?: React.Ref<HTMLInputElement>;\n  /** Enter submits — the Search tab runs a query rather than filtering. */\n  onSubmit?: () => void;\n  onFocus?: () => void;\n  onBlur?: () => void;\n  className?: string;\n  'aria-label'?: string;\n  /** A field that is really a button: tapping it goes somewhere that has a\n   *  real one. Keeps the material and the metrics so the two read as the\n   *  same object across the transition. */\n  readOnly?: boolean;\n  onPress?: () => void;\n  /** Set to let the native glass layer take the field over on iOS 26. */\n  glassId?: string;\n  /** A touch taller — the map chrome's primary field. */\n  tall?: boolean;\n  /** SF Symbol for the native field's leading glyph (default magnifier). */\n  glassSymbol?: string;\n  /** Web leading icon to match `glassSymbol` (default the magnifier). */\n  leadingIcon?: React.ReactNode;",
+    "CardActionMenu": "rect: DOMRect;\n  actions: Array<{\n    label: string;\n    icon: React.ReactNode;\n    onClick: () => void;\n    danger?: boolean;\n  }>;\n  onClose: () => void;",
+    "TimeWheelPicker": "isOpen: boolean;\n  onClose: () => void;\n  onConfirm: (hours: number, minutes: number) => void;\n  initialHours: number;\n  initialMinutes: number;\n  title: string;",
+    "NumberWheelPicker": "isOpen: boolean;\n  onClose: () => void;\n  onConfirm: (value: number) => void;\n  initialValue: number;\n  min?: number;\n  max?: number;\n  title: string;\n  unitLabel?: string;",
+    "FilterSection": "label: React.ReactNode;\n  value?: React.ReactNode;\n  isSet?: boolean;\n  sub?: React.ReactNode;\n  children: React.ReactNode;",
+    "PillRow": "children: React.ReactNode",
+    "Pill": "active?: boolean;\n  sm?: boolean;\n  tone?: 'teal';\n  onClick: () => void;\n  children: React.ReactNode;",
+    "Segment": "tone?: 'teal'; children: React.ReactNode",
+    "SegmentItem": "active?: boolean;\n  onClick: () => void;\n  children: React.ReactNode;",
+    "RangeSlider": "min: number;\n  max: number;\n  step?: number;\n  value: [number, number];\n  onChange: (v: [number, number]) => void;\n  ariaLabelMin?: string;\n  ariaLabelMax?: string;",
+    "FilterDrillRow": "/** Stable id for this filter's sub-page (unique within the sheet). */\n  id: string;\n  label: string;\n  /** Current-selection summary shown on the right (\"Italian +2\"). */\n  value?: string;\n  isSet?: boolean;\n  /** The sub-page content. */\n  children: React.ReactNode;\n  /** The rule, shown under the sub-page's title. */\n  subtitle?: string;\n  /** Clears this filter from the sub-page's own header. */\n  onClear?: () => void;",
+    "FilterOptionList": "options: { value: string; label: string; /** How many of your places this option would keep. */ meta?: string }[];\n  selected: string[];\n  onToggle: (value: string) => void;\n  multiple?: boolean;\n  searchable?: boolean;\n  searchPlaceholder?: string;",
+    "FilterCheckRow": "label: string;\n  meta?: string;\n  active: boolean;\n  onToggle: () => void;\n  /** Optional glyph before the label (Michelin's stars / bib). */\n  leading?: React.ReactNode;",
+    "FilterDrillSection": "id: string;\n  label: string;\n  options: { value: string; label: string; /** How many of your places this option would keep. */ meta?: string }[];\n  selected: string[];\n  onToggle: (value: string) => void;\n  multiple?: boolean;\n  searchable?: boolean;\n  searchPlaceholder?: string;\n  /** Summary when nothing is selected. */\n  emptyLabel?: string;\n  /** How many of your places each option would keep, by option value. */\n  counts?: Record<string, number>;\n  /** Noun for the count line — \"place\", \"recipe\". */\n  countNoun?: string;",
+    "HoursFilterSection": "value: { meals: Array<'breakfast' | 'lunch' | 'dinner'>; openNow: boolean };\n  onChange: (next: { meals: Array<'breakfast' | 'lunch' | 'dinner'>; openNow: boolean }) => void;\n  label?: string;",
+    "Calendar": "value: string; // YYYY-MM-DD\n  onChange: (date: string) => void;\n  onClear?: () => void;"
+  },
+  "overrides": {
+    "CardActionMenu": {
+      "cardMode": "single",
+      "primaryStory": "OnAReelTile",
+      "viewport": "900x700"
+    },
+    "TimeWheelPicker": {
+      "cardMode": "single",
+      "primaryStory": "PrepTime",
+      "viewport": "900x700"
+    },
+    "NumberWheelPicker": {
+      "cardMode": "single",
+      "primaryStory": "Servings",
+      "viewport": "900x700"
+    },
+    "ScoreRing": {
+      "cardMode": "column"
+    },
+    "Avatar": {
+      "cardMode": "column"
+    },
+    "Calendar": {
+      "cardMode": "column"
+    },
+    "Collapse": {
+      "cardMode": "column"
+    },
+    "LoadingSkeleton": {
+      "cardMode": "column"
+    },
+    "LoadingSkeletonList": {
+      "cardMode": "column"
+    },
+    "MichelinBadge": {
+      "cardMode": "column"
+    },
+    "MichelinMark": {
+      "cardMode": "column"
+    },
+    "OwnScoreBadge": {
+      "cardMode": "column"
+    },
+    "SearchField": {
+      "cardMode": "column"
+    },
+    "VerifiedBadge": {
+      "cardMode": "column"
+    }
+  },
+  "readmeHeader": ".design-sync/conventions.md"
+}
