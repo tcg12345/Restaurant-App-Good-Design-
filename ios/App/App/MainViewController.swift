@@ -15,9 +15,10 @@ class MainViewController: CAPBridgeViewController {
     // (window, view, web view, scroll view) with the app's own background and
     // keeping the web view opaque means there's no black layer left to peek
     // through. Trait-aware, and the trait itself is driven by the app's own
-    // dark-mode toggle: the AppTheme plugin below overrides the window's
-    // interface style whenever the user flips the in-app switch, so these
-    // colors follow the app theme, not the OS appearance.
+    // theme: the AppTheme plugin below overrides the window's interface
+    // style to match the web app, so these colors follow the app theme —
+    // which starts as the OS appearance and follows the in-app switch from
+    // there.
     private let appBackground = UIColor { traits in
         traits.userInterfaceStyle == .dark
             ? UIColor(red: 30.0 / 255.0, green: 30.0 / 255.0, blue: 32.0 / 255.0, alpha: 1.0)   // #1e1e20
@@ -68,12 +69,15 @@ class MainViewController: CAPBridgeViewController {
     }
 }
 
-// The web app's dark mode is a manual toggle (a `.dark` class on <html>),
-// deliberately independent of the OS appearance. This plugin lets JS flip
-// the native window's interface style to match, which re-resolves every
-// trait-aware UIColor (the backgrounds above), the keyboard appearance and
-// the default status-bar style in one shot — so native chrome can never
-// disagree with the page theme.
+// The web app's dark mode (a `.dark` class on <html>) starts out matching
+// the OS appearance on a fresh install, and can then be steered away from it
+// by the in-app toggle. This plugin lets JS flip the native window's
+// interface style to match, which re-resolves every trait-aware UIColor (the
+// backgrounds above), the keyboard appearance and the default status-bar
+// style in one shot — so native chrome can never disagree with the page
+// theme. Note the override is only applied once JS asks: a cold launch
+// leaves the window on the OS appearance, which is what lets the web view
+// read the real system setting via prefers-color-scheme.
 //
 // Lives in this file on purpose: MainViewController.swift is already a
 // member of the App target, so no Xcode project edits are needed.

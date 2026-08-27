@@ -156,6 +156,13 @@
   flex: 1;
   min-height: 0;
   overflow-y: auto;
+  /* Explicit, because `overflow-y: auto` alone leaves overflow-x computing
+     to `auto` rather than `visible` — a non-visible value on one axis
+     forces the other off `visible`. That made the step body a sideways
+     scroller nobody asked for: one over-wide child and the whole step
+     could be dragged left, header staying put. Anything too wide is a bug
+     to fix in that child, never a thing to pan around. */
+  overflow-x: hidden;
   -webkit-overflow-scrolling: touch;
   overscroll-behavior: contain;
   padding: 22px 20px 0;
@@ -166,6 +173,14 @@
 
 .gcx-stack {
   display: grid;
+  /* minmax(0, 1fr), not the implicit `auto`: an auto track is sized to its
+     widest item's max-content, so one long restaurant name ("Pavyllon
+     Monte-Carlo, un restaurant de Yannick Alléno") stretched the track
+     past the sheet and took every sibling — the segmented tabs, the search
+     pill — out with it. Capped at 0 the track can't exceed the container,
+     which is also what finally lets the rows' text-overflow fire: a name
+     only ellipsizes once something constrains the box it sits in. */
+  grid-template-columns: minmax(0, 1fr);
   gap: 28px;
 }
 
@@ -249,7 +264,10 @@
 
 .gcx-type-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  /* minmax(0, …), not a bare 1fr: `1fr` means minmax(auto, 1fr), and that
+     auto floor is the track's min-content — so on a 320px phone the two
+     cards refused to shrink and pushed the step wider than the sheet. */
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: 10px;
 }
 
@@ -257,6 +275,7 @@
   display: flex;
   align-items: center;
   gap: 10px;
+  min-width: 0;
   text-align: left;
   padding: 13px 12px;
   background: var(--gcx-card);
@@ -392,6 +411,7 @@
   border: 1px solid var(--gcx-hairline);
   border-radius: 14px;
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 20px;
   animation: gcxStepIn 0.3s var(--ease-out-strong) both;
 }
@@ -436,6 +456,7 @@
   padding: 3px;
   background: var(--gcx-chip);
   border-radius: 999px;
+  min-width: 0;
 }
 
 .gcx-seg-btn {
@@ -446,6 +467,12 @@
   font-weight: 620;
   color: #6f6a61;
   white-space: nowrap;
+  /* Only engages on the narrowest phones or at large system text sizes —
+     but without it these three labels set a floor the pill can't go under,
+     and the tab row becomes the thing that overflows. */
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
   transition: background 0.18s ease, color 0.18s ease, box-shadow 0.18s ease;
 }
 
@@ -453,6 +480,85 @@
   background: var(--gcx-card);
   color: var(--gcx-ink);
   box-shadow: 0 1px 3px rgba(29, 26, 22, 0.1);
+}
+
+/* ── Suggested from your own places ─────────────────────────────────
+   Sits above the source tabs: the answer first, the tabs as "or find your
+   own". Tinted rather than bordered so it reads as a different KIND of
+   list than the picker below it, without becoming a second card the eye
+   has to parse. */
+.gcx-sugg {
+  background: var(--gcx-chip);
+  border-radius: 16px;
+  padding: 14px 14px 6px;
+  min-width: 0;
+}
+
+.gcx-sugg-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 4px;
+}
+
+.gcx-sugg-titles {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.gcx-sugg-kicker {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--gcx-secondary);
+}
+
+/* Says WHAT was matched on ("Your best Italian · west village"), because a
+   wrong suggestion should read as a wrong reading of the title rather than
+   the app being broken. */
+.gcx-sugg-sub {
+  font-size: 12.5px;
+  line-height: 1.35;
+  color: var(--gcx-faint);
+}
+
+.gcx-sugg-addall {
+  flex-shrink: 0;
+  height: 30px;
+  padding: 0 13px;
+  border-radius: 999px;
+  background: var(--gcx-ink);
+  color: var(--gcx-bg);
+  font-size: 12.5px;
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+.gcx-sugg .gcx-row { padding: 11px 0; }
+.gcx-sugg .gcx-row { border-bottom-color: rgba(29, 26, 22, 0.07); }
+
+/* Why this one is here — the reason chips under the name. */
+.gcx-sugg-why {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 4px;
+  min-width: 0;
+}
+
+.gcx-sugg-chip {
+  font-size: 10.5px;
+  font-weight: 650;
+  line-height: 1;
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: var(--gcx-card);
+  color: var(--gcx-secondary);
+  white-space: nowrap;
 }
 
 /* ── Search pill ────────────────────────────────────────────────── */
@@ -500,13 +606,16 @@
 
 /* ── Pick rows ──────────────────────────────────────────────────── */
 
-.gcx-rows { display: flex; flex-direction: column; }
+.gcx-rows { display: flex; flex-direction: column; min-width: 0; }
 
 .gcx-row {
   display: flex;
   align-items: center;
   gap: 12px;
   width: 100%;
+  /* A flex item's default min-width is auto — its content's min size. The
+     row would rather grow than let its name truncate unless told otherwise. */
+  min-width: 0;
   padding: 13px 2px;
   text-align: left;
   border-bottom: 1px solid var(--gcx-hairline);
@@ -770,9 +879,17 @@
 
 /* ── Entry cards (arrange) ──────────────────────────────────────── */
 
-.gcx-cards { display: grid; gap: 10px; }
+.gcx-cards {
+  display: grid;
+  /* minmax(0, 1fr) for the same reason as .gcx-stack: an implicit auto
+     track sizes to max-content, so one long entry name widens the column
+     past the sheet and nothing inside it ever truncates. */
+  grid-template-columns: minmax(0, 1fr);
+  gap: 10px;
+}
 
 .gcx-card {
+  min-width: 0;
   background: var(--gcx-card);
   border: 1px solid var(--gcx-hairline-strong);
   border-radius: 14px;
@@ -790,6 +907,7 @@
   align-items: center;
   gap: 10px;
   padding: 12px;
+  min-width: 0;
 }
 
 .gcx-grip {
@@ -885,13 +1003,14 @@
   border-radius: 0 0 13px 13px;
   padding: 16px 14px;
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 18px;
   animation: gcxStepIn 0.26s var(--ease-out-strong) both;
 }
 
 .gcx-expand-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: 14px;
 }
 
@@ -1337,7 +1456,8 @@
 
 .gcx-detail-card .gcx-hint { margin-top: 9px; }
 
-.gcx-detail-fields { display: grid; gap: 20px; }
+.gcx-detail-fields { display: grid;
+  grid-template-columns: minmax(0, 1fr); gap: 20px; }
 
 /* Score slider with a big serif readout. */
 .gcx-dscore {

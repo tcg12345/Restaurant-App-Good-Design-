@@ -477,6 +477,23 @@ export const AppAssistant: React.FC = () => {
        that used to be computed and then dropped on the floor. ────── */
   const userContext = pageContext?.userContext ?? fallbackUserContext;
   const knownPlaces = pageContext?.knownPlaces ?? fallbackKnownPlaces;
+
+  /* ── What the chat's recommendation cards need about the user ──
+     The user's own score turns a suggestion into "you gave this an 8.4",
+     and wishlist membership is what fills the card's bookmark —
+     onToggleWishlist can flip it but can't say which way it points. */
+  const myRestaurantScores = useMemo(() => {
+    const m: Record<string, number> = {};
+    for (const r of lists.ratings) {
+      if (typeof r.score === 'number' && r.score > 0) m[r.restaurantId] = r.score;
+    }
+    return m;
+  }, [lists.ratings]);
+
+  const savedRestaurantIds = useMemo(
+    () => new Set(lists.wishlist.map((w) => w.restaurantId)),
+    [lists.wishlist],
+  );
   const chatRecipesAll = pageContext?.recipes ?? fallbackRecipesAll;
 
   /* ── Community recipes cache + lazy loader ───────────────────────
@@ -998,6 +1015,8 @@ export const AppAssistant: React.FC = () => {
       onOpenAddRestaurantModal={handleOpenAddRestaurantModal}
       onOpenAddToListModal={handleOpenAddToListModal}
       onToggleWishlist={handleToggleWishlist}
+      savedRestaurantIds={savedRestaurantIds}
+      myRestaurantScores={myRestaurantScores}
       onOpenAddRecipeModal={handleOpenAddRecipeModal}
       onOpenAddPostModal={handleOpenAddPostModal}
       onOpenAddReelModal={handleOpenAddReelModal}

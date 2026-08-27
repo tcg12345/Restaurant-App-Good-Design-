@@ -1,7 +1,7 @@
 import React, { useState, useRef, useCallback, useEffect, useMemo, useLayoutEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate, useLocation, Link } from 'react-router-dom';
-import { motion, AnimatePresence, useMotionValue, useTransform, animate } from 'motion/react';
+import { motion, AnimatePresence, useMotionValue, useMotionTemplate, useTransform, animate } from 'motion/react';
 import { Search, Star, Plus, Navigation, RotateCw, SlidersHorizontal, Users, MapPinned, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, ArrowRight, Layers, X, Box, Square, Loader2, ArrowUpDown, UtensilsCrossed, DollarSign, Check, Clock, Sparkles, MapPin, ChevronsUp, Eye, Map as MapIcon, ChefHat, BookOpen, ImageOff, RefreshCw, Footprints, Tag, Bookmark, MessageCircle, BadgeCheck } from 'lucide-react';
 import mapboxgl, { type Marker as MapboxMarker } from 'mapbox-gl';
 import { attachMapErrorFallback } from '../lib/map-error';
@@ -1161,6 +1161,12 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, sear
      grabber reading as one page. Lowering plays it backwards — the
      backdrop thins and the map re-emerges. */
   const backdropOpacity = useTransform(sheetY, [CHROME_BOTTOM, CHROME_BOTTOM + 140], [1, 0]);
+  // The lift under the sheet's top edge fades out over that same stretch.
+  // Fully raised the sheet rests on ground of its own colour, and a 50px
+  // black blur cast upward onto it is not a shadow any more — it's a dark
+  // band ruled across the page exactly where the two surfaces meet.
+  const sheetShadowAlpha = useTransform(sheetY, [CHROME_BOTTOM, CHROME_BOTTOM + 140], [0, 0.1]);
+  const sheetShadow = useMotionTemplate`0 -20px 50px rgba(0, 0, 0, ${sheetShadowAlpha})`;
   // The grabber melts away over the same stretch: fully raised, the sheet
   // meets the chrome with the header first — no bar, no blank strip.
   const handleHeight = useTransform(sheetY, [CHROME_BOTTOM, CHROME_BOTTOM + 120], [0, 34]);
@@ -4971,7 +4977,13 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, sear
           Below the sheet in z; the chrome floats above both. */}
       {searchTab && (
         <motion.div
-          className="absolute inset-0 z-[35] bg-surface/[0.92] backdrop-blur-2xl pointer-events-none"
+          // Opaque bg-surface, matching the sheet exactly. At 92% the map
+          // tinted this band, so the raised state was two near-whites with
+          // a seam at the sheet's edge instead of one page. (The frosted
+          // blur went with it: behind a fully opaque fill backdrop-filter
+          // renders nothing, so it was only paying for a compositing
+          // layer.) The fade in/out still carries the melt.
+          className="absolute inset-0 z-[35] bg-surface pointer-events-none"
           style={{ opacity: backdropOpacity }}
           aria-hidden
         />
@@ -4984,7 +4996,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, sear
       {!isDesktopMapMode && (
       <motion.div
         ref={sheetRef}
-        style={{ y: sheetY, height: FULL_HEIGHT }}
+        style={{ y: sheetY, height: FULL_HEIGHT, ...(searchTab ? { boxShadow: sheetShadow } : null) }}
         className={cn(
           // NB: the white top hairline (frosted-glass edge) is applied only to
           // the glass sheet states below — NOT the home full state. On the home
@@ -4992,7 +5004,11 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, sear
           // there rendered as a stray grayish line across the very top in dark
           // mode (only `bg-white`, not `border-white`, is remapped to the dark
           // paper token).
-          "absolute bottom-0 left-0 right-0 shadow-[0_-20px_50px_rgba(0,0,0,0.1)] flex flex-col will-change-transform",
+          "absolute bottom-0 left-0 right-0 flex flex-col will-change-transform",
+          // Every other surface keeps the static lift — there the sheet
+          // really is floating over a map. The Search tab drives it from
+          // sheetY instead (see `sheetShadow`).
+          !searchTab && "shadow-[0_-20px_50px_rgba(0,0,0,0.1)]",
           // In the desktop sidebar layout the sheet must stay BELOW the
           // fixed nav rail (z-30): its z-index competes globally (every
           // ancestor is z-auto), so z-40 painted the page over the rail's

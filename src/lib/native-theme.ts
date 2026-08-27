@@ -1,8 +1,9 @@
 /**
- * Keeps the native iOS chrome in lockstep with the app's manual dark-mode
- * toggle (SettingsContext flips a `.dark` class — it deliberately does NOT
- * follow the OS appearance, so without this the status bar and native
- * surfaces would key off the wrong theme whenever the two disagree):
+ * Keeps the native iOS chrome in lockstep with the app's theme
+ * (SettingsContext flips a `.dark` class). A fresh install starts on the OS
+ * appearance, but the Settings toggle can then diverge from it — so without
+ * this the status bar and native surfaces would key off the wrong theme
+ * whenever the two disagree:
  *
  *   - Status bar text: explicit StatusBar.setStyle, so it's readable on
  *     the cream page in light mode and the near-black page in dark mode.

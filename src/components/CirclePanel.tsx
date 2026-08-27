@@ -12,7 +12,7 @@
  *   - 'page'     → renders inline as the body of the /circle route on
  *                  mobile, no animation, no close button.
  */
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import { Search, X, Plus, ArrowLeft, Check, Loader2, UserPlus, Heart, MessageCircle, Bell, Utensils, ChevronDown } from 'lucide-react';
@@ -34,6 +34,8 @@ import { SearchField } from './SearchField';
 import { GlassButton } from '../lib/glass-buttons';
 import { scoreTintStyle } from '../lib/score';
 import { displayCuisine } from '../lib/cuisine';
+import { readViewCache, writeViewCache } from '../lib/view-cache';
+import { SKELETON_PULSE } from './LoadingSkeleton';
 
 type Tab = 'activity' | 'alerts';
 type TimeBucket = 'today' | 'week' | 'earlier';
@@ -82,6 +84,61 @@ const formatCount = (n: number) => n >= 1000 ? `${(n / 1000).toFixed(1)}k` : Str
 // of the panel's rows use.
 const isoOf = (ms: number) => (ms ? new Date(ms).toISOString() : '');
 
+/* ── First-paint snapshot ──
+   Everything above the fold on the Activity tab, cached per user so a
+   return visit paints the real rail and the real feed on frame one and
+   refreshes underneath, instead of holding a skeleton for two round
+   trips. `CIRCLE_CACHE` is the storage name; the shape is the payload. */
+const CIRCLE_CACHE = 'circle';
+
+interface CircleSnapshot {
+  friends: FriendInfo[];
+  profiles: Record<string, UserProfile>;
+  activity: CommunityRating[];
+  followedIds: string[];
+  followerIds: string[];
+}
+
+/* The friends rail, drawn in pulse — same 14pt discs and caption widths
+   the real rail lands on, so nothing shifts when it does. */
+const RailSkeleton: React.FC = () => (
+  <div className="flex items-start gap-4 pt-4 overflow-hidden" aria-hidden="true">
+    {Array.from({ length: 5 }).map((_, i) => (
+      <div key={i} className="flex flex-col items-center gap-1.5 flex-shrink-0">
+        <div className={cn(SKELETON_PULSE, 'w-14 h-14 rounded-full')} />
+        <div className={cn(SKELETON_PULSE, 'h-2 w-9 rounded-full')} />
+      </div>
+    ))}
+  </div>
+);
+
+/* The activity feed's shape: the filter chips over a run of rows sized off
+   renderActivityRow (9pt avatar, three stacked lines, trailing score ring).
+   Line widths vary a little so it reads as a list of different places
+   rather than a stack of identical bars. */
+const ActivitySkeleton: React.FC = () => (
+  <div aria-hidden="true">
+    <div className="flex gap-1.5 pt-3.5">
+      {[52, 68, 84].map((w) => (
+        <div key={w} className={cn(SKELETON_PULSE, 'h-8 rounded-full flex-none')} style={{ width: w }} />
+      ))}
+    </div>
+    <div className="pt-3">
+      {Array.from({ length: 6 }).map((_, i) => (
+        <div key={i} className={cn('flex items-start gap-3 py-3.5', i > 0 && 'border-t border-on-surface/[0.07]')}>
+          <div className={cn(SKELETON_PULSE, 'w-9 h-9 rounded-full flex-shrink-0 mt-0.5')} />
+          <div className="flex-1 min-w-0 space-y-2 pt-0.5">
+            <div className={cn(SKELETON_PULSE, 'h-3.5 rounded-full')} style={{ width: `${58 + ((i * 13) % 30)}%` }} />
+            <div className={cn(SKELETON_PULSE, 'h-2.5 w-2/5 rounded-full')} />
+            <div className={cn(SKELETON_PULSE, 'h-2 w-1/4 rounded-full')} />
+          </div>
+          <div className={cn(SKELETON_PULSE, 'w-9 h-9 rounded-full flex-none')} />
+        </div>
+      ))}
+    </div>
+  </div>
+);
+
 interface CirclePanelProps {
   variant: 'overlay' | 'page';
   onClose?: () => void;
@@ -118,9 +175,12 @@ export const CirclePanel: React.FC<CirclePanelProps> = ({ variant, onClose }) =>
   const [sentRequestIds, setSentRequestIds] = useState<Set<string>>(new Set());
 
   const [friends, setFriends] = useState<FriendInfo[]>([]);
+  // One profile map for the whole panel. Activity is queried over the
+  // mutual-friend ids, so every author it can return is already in this
+  // map — the third round trip that re-fetched them was fetching rows we
+  // had just asked for.
   const [friendProfiles, setFriendProfiles] = useState<Record<string, UserProfile>>({});
   const [activity, setActivity] = useState<CommunityRating[]>([]);
-  const [activityProfiles, setActivityProfiles] = useState<Record<string, UserProfile>>({});
   const [loading, setLoading] = useState(true);
 
   // Global people search — finds ANY user on the app (not just friends /
@@ -149,11 +209,32 @@ export const CirclePanel: React.FC<CirclePanelProps> = ({ variant, onClose }) =>
   const [filterTime, setFilterTime] = useState<'all' | 'today' | 'week'>('all');
   const [filterFriendIds, setFilterFriendIds] = useState<Set<string>>(new Set());
 
+  // Paint last visit's circle before the first frame. useLayoutEffect (not
+  // useEffect) because an effect that runs after paint would still show a
+  // frame of skeleton to someone whose data we already have on disk.
+  const hydratedForRef = useRef<string | null>(null);
+  useLayoutEffect(() => {
+    if (!userId) { hydratedForRef.current = null; return; }
+    if (hydratedForRef.current === userId) return;
+    hydratedForRef.current = userId;
+    const snap = readViewCache<CircleSnapshot>(CIRCLE_CACHE, userId);
+    if (!snap) return;
+    setFriends(snap.friends || []);
+    setFriendProfiles(snap.profiles || {});
+    setActivity(snap.activity || []);
+    setFollowedIds(new Set(snap.followedIds || []));
+    setFollowerIds(new Set(snap.followerIds || []));
+    setLoading(false);
+  }, [userId]);
+
   useEffect(() => {
     if (!userId) { setLoading(false); return; }
     let cancelled = false;
     (async () => {
-      setLoading(true);
+      // Two round trips, not three: the edges, then the profiles and the
+      // activity together. Nothing below waits on anything it doesn't
+      // actually need.
+      //
       // "My friends" = MUTUAL friends (people I follow who also follow me).
       // `followedIds` stays = everyone I follow (one-directional), so the
       // Experts list still shows Follow/Following correctly.
@@ -168,28 +249,36 @@ export const CirclePanel: React.FC<CirclePanelProps> = ({ variant, onClose }) =>
       setFollowedIds(new Set(followingList.map((f) => f.friend_id)));
       setFollowerIds(followerSet);
 
-      if (mutual.length > 0) {
-        const ids = mutual.map((f) => f.friend_id);
-        const [profs, act] = await Promise.all([
-          getProfilesByIds(ids),
-          getFriendActivity(ids, 30),
-        ]);
-        if (cancelled) return;
-        setFriendProfiles(profs);
-        setActivity(act);
-        const actIds = [...new Set(act.map((a) => a.user_id))];
-        if (actIds.length > 0) {
-          const actProf = await getProfilesByIds(actIds);
-          if (!cancelled) setActivityProfiles(actProf);
-        }
-      }
+      const ids = mutual.map((f) => f.friend_id);
+      const [profs, act] = ids.length > 0
+        ? await Promise.all([getProfilesByIds(ids), getFriendActivity(ids, 30)])
+        : [{} as Record<string, UserProfile>, [] as CommunityRating[]];
+      if (cancelled) return;
+      setFriendProfiles(profs);
+      setActivity(act);
+      writeViewCache(CIRCLE_CACHE, userId, {
+        friends: mutual,
+        profiles: profs,
+        activity: act,
+        followedIds: followingList.map((f) => f.friend_id),
+        followerIds: [...followerSet],
+      } satisfies CircleSnapshot);
+    })().finally(() => {
+      // Whatever happened, stop pulsing. A skeleton that never resolves
+      // reads as a hung app, where an empty circle at least reads as an
+      // empty circle.
       if (!cancelled) setLoading(false);
-    })();
+    });
     return () => { cancelled = true; };
   }, [userId]);
 
+  // Experts only ever render inside the Add page, so they load when it
+  // opens rather than on every mount — two round trips (one of them a
+  // whole-table profile scan) that the panel's own screen never spent.
+  const expertsLoadedForRef = useRef<string | null>(null);
   useEffect(() => {
-    if (!userId) return;
+    if (!userId || !addOpen || expertsLoadedForRef.current === userId) return;
+    expertsLoadedForRef.current = userId;
     let cancelled = false;
     (async () => {
       setExpertsLoading(true);
@@ -210,7 +299,7 @@ export const CirclePanel: React.FC<CirclePanelProps> = ({ variant, onClose }) =>
       if (!cancelled) setExpertsLoading(false);
     })();
     return () => { cancelled = true; };
-  }, [userId]);
+  }, [userId, addOpen]);
 
   // Landing on Alerts counts as reading them.
   useEffect(() => {
@@ -427,13 +516,13 @@ export const CirclePanel: React.FC<CirclePanelProps> = ({ variant, onClose }) =>
     }
     if (q) {
       list = list.filter((a) => {
-        const prof = activityProfiles[a.user_id];
+        const prof = friendProfiles[a.user_id];
         const hay = `${a.restaurant_name} ${a.cuisine || ''} ${a.address || ''} ${prof?.display_name || ''} ${prof?.username || ''}`.toLowerCase();
         return hay.includes(q);
       });
     }
     return list;
-  }, [activity, activityProfiles, q, filterTime, filterFriendIds]);
+  }, [activity, friendProfiles, q, filterTime, filterFriendIds]);
 
   const activityBuckets = useMemo(() => {
     const today: CommunityRating[] = [];
@@ -613,7 +702,7 @@ export const CirclePanel: React.FC<CirclePanelProps> = ({ variant, onClose }) =>
   };
 
   const renderActivityRow = (a: CommunityRating, i: number) => {
-    const prof = activityProfiles[a.user_id];
+    const prof = friendProfiles[a.user_id];
     const name = prof?.display_name || prof?.username || 'Someone';
     const username = prof?.username || '';
     const color = avatarColor(a.user_id);
@@ -1116,15 +1205,14 @@ export const CirclePanel: React.FC<CirclePanelProps> = ({ variant, onClose }) =>
 
         {/* Scroll body */}
         <div className="flex-1 min-h-0 overflow-y-auto px-5 pb-safe-6">
-          {loading ? (
-            <div className="flex items-center justify-center py-16 text-on-surface/40 text-sm">Loading your circle…</div>
-          ) : (
-            <>
-              {friendsRail}
-              <div className="mt-4 border-t border-on-surface/[0.1]" />
-              {tab === 'activity' ? renderActivity() : renderAlerts()}
-            </>
-          )}
+          {/* Alerts come from the notifications + requests fetches, not the
+              friends one, so only the rail and the activity feed go to
+              skeleton — tapping Alerts during a cold load shows alerts. */}
+          {loading ? <RailSkeleton /> : friendsRail}
+          <div className="mt-4 border-t border-on-surface/[0.1]" />
+          {tab === 'activity'
+            ? (loading ? <ActivitySkeleton /> : renderActivity())
+            : renderAlerts()}
         </div>
       </div>
 

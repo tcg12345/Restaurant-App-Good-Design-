@@ -898,13 +898,13 @@ export const RecommendationsBrowser: React.FC<RecommendationsBrowserProps> = ({ 
           symbol="chevron.left"
           label="Back"
           onClick={onClose}
-          className="hit-44 flex-none w-[34px] h-[34px] rounded-full flex items-center justify-center text-on-surface active:scale-95 transition-transform"
+          className="hit-44 flex-none w-10 h-10 rounded-full flex items-center justify-center text-on-surface active:scale-95 transition-transform"
         >
           <ChevronLeft size={18} strokeWidth={2.1} />
         </GlassButton>
         <div className="flex-1" />
         <span
-          className="flex-none inline-flex items-center gap-1.5 rounded-full border border-primary/35 bg-primary/10 text-primary px-3 py-[9px]"
+          className="flex-none inline-flex h-10 items-center gap-1.5 rounded-full border border-primary/35 bg-primary/10 text-primary px-3.5"
           style={{ fontSize: '12px', fontWeight: 700 }}
         >
           <Sparkles size={13} />

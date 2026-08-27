@@ -35,6 +35,10 @@ import { useBottomSheet } from '../lib/useBottomSheet';
 import { saveGuide, type GuideEntry, type GuideType, type GuideVisibility, type Guide, type GuideTheme } from '../lib/supabase-guides';
 import { searchPlacesByText, type PlaceResult } from '../lib/places';
 import { entryFromRating, entryFromPlace, entryFromListRecipe, entryFromDbRecipe } from '../lib/guide-entry-builders';
+import {
+  readBrief, scoreRatings, scoreRecipes, describeCriteria,
+  type GuideBrief,
+} from '../lib/guide-suggestions';
 import { cityFromAddress, cityFromAddressComponents } from '../lib/city';
 import { GuideLiveEditor } from './guide/GuideLiveEditor';
 import { getProfilesByIds, type UserProfile } from '../lib/supabase-community';
@@ -448,6 +452,9 @@ const StepAdd: React.FC<{
   type: GuideType;
   source: SourceMode;
   onSource: (m: SourceMode) => void;
+  /** The title / tags / subtitle the user wrote on step 1. Read to work out
+   *  which of their own places belong in this guide. */
+  brief: GuideBrief;
   lists: CustomList[];
   ratings: RestaurantRating[];
   myRecipes: DbRecipe[];
@@ -464,7 +471,7 @@ const StepAdd: React.FC<{
   onAddListRecipes: (rs: ListRecipe[]) => void;
   onAddDbRecipes: (rs: DbRecipe[]) => void;
   onRemoveByRefIds: (refIds: string[]) => void;
-}> = ({ type, source, onSource, lists, ratings, myRecipes, homeMealScores, restaurantNames, addedRefIds, onAddRestaurants, onAddRestaurantsFromList, onAddPlaces, onAddListRecipes, onAddDbRecipes, onRemoveByRefIds }) => {
+}> = ({ type, source, onSource, brief, lists, ratings, myRecipes, homeMealScores, restaurantNames, addedRefIds, onAddRestaurants, onAddRestaurantsFromList, onAddPlaces, onAddListRecipes, onAddDbRecipes, onRemoveByRefIds }) => {
   const [searchQ, setSearchQ] = useState('');
   const [searchResults, setSearchResults] = useState<PlaceResult[]>([]);
   const [searching, setSearching] = useState(false);
@@ -573,6 +580,97 @@ const StepAdd: React.FC<{
       {isAdded ? <Check size={14} strokeWidth={2.8} /> : <Plus size={14} strokeWidth={2.2} />}
     </span>
   );
+
+  /* ── Suggested from what you've already rated / cooked ──────────────
+     The title and tags are a description of the guide; this reads them and
+     puts the matching entries from the user's OWN places at the top, so
+     "Best Italian" doesn't start life as an unordered list of everything
+     they have ever rated. Recomputed as they type — it's a pure keyword
+     pass, not a request. */
+  const criteria = useMemo(() => readBrief(brief), [brief]);
+
+  const suggestions = useMemo(() => {
+    if (isRecipes) {
+      const items = myRecipes
+        .filter((r) => !restaurantNames.has((r.title || '').trim().toLowerCase()))
+        .map((r) => ({
+          id: r.id,
+          title: r.title,
+          cuisine: r.cuisine,
+          difficulty: r.difficulty,
+          prepTimeMinutes: r.prepTimeMinutes,
+          cookTimeMinutes: r.cookTimeMinutes,
+          tags: r.tags,
+          score: homeMealScores.get((r.title || '').trim().toLowerCase()),
+        }));
+      return scoreRecipes(items, criteria, { exclude: addedRefIds, limit: 6 })
+        .map((s) => ({ id: s.item.id, name: s.item.title, reasons: s.reasons }));
+    }
+    return scoreRatings(ratings, criteria, { exclude: addedRefIds, limit: 6 })
+      .map((s) => ({ id: s.item.restaurantId, name: s.item.name, reasons: s.reasons }));
+  }, [isRecipes, myRecipes, restaurantNames, homeMealScores, ratings, criteria, addedRefIds]);
+
+  const addSuggestion = (id: string) => {
+    if (isRecipes) {
+      const r = myRecipes.find((x) => x.id === id);
+      if (r) onAddDbRecipes([r]);
+    } else {
+      const r = ratings.find((x) => x.restaurantId === id);
+      if (r) onAddRestaurants([r]);
+    }
+  };
+
+  const addAllSuggestions = () => {
+    if (isRecipes) {
+      const rs = suggestions.map((s) => myRecipes.find((x) => x.id === s.id)).filter(Boolean) as DbRecipe[];
+      if (rs.length) onAddDbRecipes(rs);
+    } else {
+      const rs = suggestions.map((s) => ratings.find((x) => x.restaurantId === s.id)).filter(Boolean) as RestaurantRating[];
+      if (rs.length) onAddRestaurants(rs);
+    }
+  };
+
+  // Any hit at all is worth showing: one exact match ("Date night spots"
+  // against the single place they tagged Romantic) is the most useful
+  // suggestion the builder can make, not the least. Nothing to suggest —
+  // no ratings yet, or a brief nothing answers — renders nothing.
+  const showSuggestions = suggestions.length > 0;
+
+  const suggestionBlock = showSuggestions ? (
+    <div className="gcx-sugg">
+      <div className="gcx-sugg-head">
+        <div className="gcx-sugg-titles">
+          <span className="gcx-sugg-kicker">Suggested for you</span>
+          <span className="gcx-sugg-sub">{describeCriteria(criteria)}</span>
+        </div>
+        <button type="button" className="gcx-sugg-addall" onClick={addAllSuggestions}>
+          Add all
+        </button>
+      </div>
+      <div className="gcx-rows">
+        {suggestions.map((sg) => (
+          <button
+            key={sg.id}
+            type="button"
+            className="gcx-row"
+            onClick={() => addSuggestion(sg.id)}
+          >
+            <span className="gcx-row-main">
+              <span className="gcx-row-name">{sg.name}</span>
+              {sg.reasons.length > 0 && (
+                <span className="gcx-sugg-why">
+                  {sg.reasons.map((why) => (
+                    <span key={why} className="gcx-sugg-chip">{why}</span>
+                  ))}
+                </span>
+              )}
+            </span>
+            {toggleBtn(false)}
+          </button>
+        ))}
+      </div>
+    </div>
+  ) : null;
 
   let pane: React.ReactNode = null;
 
@@ -739,6 +837,7 @@ const StepAdd: React.FC<{
 
   return (
     <div className="gcx-stack">
+      {suggestionBlock}
       <div className="gcx-seg" role="tablist">
         {tabs.map((t) => (
           <button
@@ -1484,6 +1583,16 @@ export const GuideCreatorSheet: React.FC<GuideCreatorSheetProps> = ({ open, onCl
     return m;
   }, [homeMeals]);
 
+  /* What the user has told us the guide is, in one object — read by the
+     Add step to shortlist their own places. Memoized on the primitives so
+     the criteria (and the order of the shortlist) only change when the
+     brief itself does. */
+  const tagsKey = tags.join('\u0000');
+  const brief = useMemo<GuideBrief>(
+    () => ({ title, tags: tagsKey ? tagsKey.split('\u0000') : [], subtitle, city }),
+    [title, tagsKey, subtitle, city],
+  );
+
   // Names from the user's ratings + cached restaurant meta + wishlist.
   // Cloud recipes whose title matches any of these are almost certainly
   // restaurant rows that leaked into the recipes table (e.g. from the
@@ -1856,6 +1965,7 @@ export const GuideCreatorSheet: React.FC<GuideCreatorSheetProps> = ({ open, onCl
                     type={type}
                     source={source}
                     onSource={setSource}
+                    brief={brief}
                     lists={lists}
                     ratings={ratings}
                     myRecipes={myRecipes}

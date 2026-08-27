@@ -404,6 +404,62 @@ export const SUGGESTABLE_CUISINES: string[] = (() => {
 })();
 
 /**
+ * Every phrase that names a cuisine — canonical labels and their aliases —
+ * keyed lowercase. Built once, because the guide builder resolves a title
+ * against it on every keystroke.
+ */
+const CUISINE_PHRASES: Map<string, string> = (() => {
+  const m = new Map<string, string>();
+  for (const label of SUGGESTABLE_CUISINES) m.set(label.toLowerCase(), label);
+  for (const [alias, target] of Object.entries(CUISINE_ALIASES)) {
+    if (!m.has(alias)) m.set(alias, target);
+  }
+  return m;
+})();
+
+/** Longest phrase in the table, so the n-gram scan below knows where to stop. */
+const CUISINE_PHRASE_MAX_WORDS = (() => {
+  let n = 1;
+  for (const k of CUISINE_PHRASES.keys()) n = Math.max(n, k.split(' ').length);
+  return n;
+})();
+
+/**
+ * The cuisines a free-text phrase NAMES — "best italian food" → ["Italian"],
+ * "cheap taqueria + ramen" → ["Mexican", "Ramen"].
+ *
+ * Deliberately exact-match on word boundaries, not the fuzzy contains that
+ * `searchCuisines` does. That function is answering "what might you be
+ * reaching for as you type"; this one is answering "what did you actually
+ * say", and the difference matters when the caller acts on the answer
+ * without a human confirming it. Fuzzy here would read "best" as a cuisine
+ * and quietly build somebody a guide out of the wrong restaurants.
+ *
+ * Longest match wins, so "korean bbq" resolves to Korean BBQ rather than
+ * Korean and BBQ separately. Order follows first appearance in the text.
+ */
+export function cuisinesNamedIn(text: string): string[] {
+  if (!text) return [];
+  const words = text
+    .toLowerCase()
+    .replace(/[^a-z0-9&'\- ]+/g, ' ')
+    .split(/\s+/)
+    .filter(Boolean);
+  const found: string[] = [];
+  const seen = new Set<string>();
+  for (let i = 0; i < words.length; i++) {
+    for (let n = Math.min(CUISINE_PHRASE_MAX_WORDS, words.length - i); n >= 1; n--) {
+      const hit = CUISINE_PHRASES.get(words.slice(i, i + n).join(' '));
+      if (!hit) continue;
+      if (!seen.has(hit)) { seen.add(hit); found.push(hit); }
+      i += n - 1;  // consume the phrase so its words can't match again
+      break;
+    }
+  }
+  return found;
+}
+
+/**
  * The picker's search, here rather than in the component so the matching
  * rules are testable and the aliases above are actually reachable.
  *

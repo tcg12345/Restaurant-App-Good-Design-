@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useRef, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { ArrowLeft, Plus, Send, Search, X, Users, Check, CheckCheck, MessageCircle, ChevronRight, MapPin, Trash2, ChefHat, Clock, Film, PlayCircle, Info, Store, AlertCircle, MoreVertical } from 'lucide-react';
 import { cn, firstFrameSrc } from '../lib/utils';
@@ -17,6 +17,8 @@ import { pickAvatarColor, initialsFor } from '../lib/avatar';
 import { ShareSheet } from '../components/messages/ShareSheet';
 import { Collapse } from '../components/Collapse';
 import { GlassButton } from '../lib/glass-buttons';
+import { readViewCache, writeViewCache } from '../lib/view-cache';
+import { SKELETON_PULSE } from '../components/LoadingSkeleton';
 
 /* ── Shared display helpers (used by both panes) ── */
 
@@ -1014,6 +1016,44 @@ const ChatView: React.FC<{
 /* ── Desktop: conversations + all-friends panel (left pane) ── */
 type FriendLite = { id: string; name: string; username?: string };
 
+/* ── First-paint snapshot ──
+   ChatContext already caches conversations, but names and avatars live in
+   `profiles` — without them a cached thread list paints as a column of
+   "Unknown". Caching the people alongside the threads is what makes the
+   warm load actually instant. */
+const MESSAGES_CACHE = 'messages';
+
+interface MessagesSnapshot {
+  friends: FriendLite[];
+  profiles: Record<string, UserProfile>;
+}
+
+/* One conversation row in pulse. `size` is the avatar diameter, matching
+   MobileConvRow (52) and the desktop ConvRow (48) so neither list shifts
+   when the real rows arrive. */
+const ConvRowSkeleton: React.FC<{ size: number; className?: string; titleWidth: string }> = ({ size, className, titleWidth }) => (
+  <div className={cn('w-full flex items-center gap-3 px-4 py-3', className)} aria-hidden="true">
+    <div className={cn(SKELETON_PULSE, 'rounded-full flex-shrink-0')} style={{ width: size, height: size }} />
+    <div className="flex-1 min-w-0">
+      <div className="flex items-center justify-between gap-2">
+        <div className={cn(SKELETON_PULSE, 'h-3.5 rounded-full')} style={{ width: titleWidth }} />
+        <div className={cn(SKELETON_PULSE, 'h-2.5 w-7 rounded-full flex-shrink-0')} />
+      </div>
+      <div className={cn(SKELETON_PULSE, 'mt-2 h-3 rounded-full')} style={{ width: `calc(${titleWidth} + 22%)` }} />
+    </div>
+  </div>
+);
+
+/* A short run of them. Widths step so the column reads as a list of
+   different people rather than a stack of identical bars. */
+const ConvListSkeleton: React.FC<{ count?: number; size?: number; rowClassName?: string }> = ({ count = 7, size = 52, rowClassName }) => (
+  <>
+    {Array.from({ length: count }).map((_, i) => (
+      <ConvRowSkeleton key={i} size={size} className={rowClassName} titleWidth={`${28 + ((i * 11) % 26)}%`} />
+    ))}
+  </>
+);
+
 const ConvRow: React.FC<{
   conv: Conversation;
   profiles: Record<string, UserProfile>;
@@ -1089,7 +1129,8 @@ const ConversationsPanel: React.FC<{
   onSelectConversation: (id: string) => void;
   onSelectFriend: (friendId: string) => void;
   onCompose: () => void;
-}> = ({ conversations, friends, profiles, selfId, activeId, draftFriendId, getUnread, hasThread, onSelectConversation, onSelectFriend, onCompose }) => {
+  loading: boolean;
+}> = ({ conversations, friends, profiles, selfId, activeId, draftFriendId, getUnread, hasThread, onSelectConversation, onSelectFriend, onCompose, loading }) => {
   const [query, setQuery] = useState('');
   const [tab, setTab] = useState<'all' | 'unread' | 'shares'>('all');
 
@@ -1153,6 +1194,10 @@ const ConversationsPanel: React.FC<{
 
       {/* Scroll body */}
       <div className="flex-1 overflow-y-auto px-2.5 py-2 min-h-0">
+        {loading && (
+          <ConvListSkeleton count={6} size={48} rowClassName="rounded-2xl" />
+        )}
+
         {filteredConvs.length > 0 && (
           <>
             <SectionHeader label="Conversations" count={filteredConvs.length} />
@@ -1171,7 +1216,7 @@ const ConversationsPanel: React.FC<{
           </>
         )}
 
-        {filteredConvs.length === 0 && friendsWithoutThread.length === 0 && (
+        {!loading && filteredConvs.length === 0 && friendsWithoutThread.length === 0 && (
           <div className="px-4 py-16 text-center">
             <MessageCircle size={32} className="mx-auto text-on-surface/12 mb-3" />
             <p className="text-[14px] font-semibold text-on-surface/40">{q ? `No matches for “${query}”` : tab === 'unread' ? 'No unread messages' : tab === 'shares' ? 'No shared cards yet' : 'No conversations yet'}</p>
@@ -1263,7 +1308,8 @@ const MobileMessageList: React.FC<{
   onOpenFriend: (friendId: string) => void;
   onCompose: () => void;
   onBack: () => void;
-}> = ({ conversations, friends, profiles, selfId, getUnread, hasThread, onOpenConversation, onOpenFriend, onCompose, onBack }) => {
+  loading: boolean;
+}> = ({ conversations, friends, profiles, selfId, getUnread, hasThread, onOpenConversation, onOpenFriend, onCompose, onBack, loading }) => {
   const [query, setQuery] = useState('');
   const [tab, setTab] = useState<'all' | 'unread' | 'shares'>('all');
   const q = query.trim().toLowerCase();
@@ -1351,6 +1397,7 @@ const MobileMessageList: React.FC<{
             section with its Message pills said the same names three
             times — this says them once. */}
         <div className="divide-y divide-on-surface/[0.06]">
+          {loading && <ConvListSkeleton />}
           {filteredConvs.map((c) => (
             <MobileConvRow key={c.id} conv={c} profiles={profiles} selfId={selfId} unread={getUnread(c.id)} onClick={() => onOpenConversation(c.id)} />
           ))}
@@ -1359,7 +1406,7 @@ const MobileMessageList: React.FC<{
           ))}
         </div>
 
-        {filteredConvs.length === 0 && friendsWithoutThread.length === 0 && (
+        {!loading && filteredConvs.length === 0 && friendsWithoutThread.length === 0 && (
           <div className="px-6 py-20 text-center">
             <MessageCircle size={36} className="mx-auto text-on-surface/12 mb-3" />
             <p className="text-[14px] font-semibold text-on-surface/45">{q ? 'No one by that name' : tab === 'unread' ? 'No unread messages' : tab === 'shares' ? 'No shared cards yet' : 'No conversations yet'}</p>
@@ -1376,7 +1423,7 @@ const MobileMessageList: React.FC<{
 
 /* ── Main Messages Page ── */
 export const Messages: React.FC = () => {
-  const { conversations, createConversation, findDirectConversation, getUnreadForConversation } = useChat();
+  const { conversations, loading: chatLoading, createConversation, findDirectConversation, getUnreadForConversation } = useChat();
   const { user } = useAuth();
   const { phoneMode } = useSettings();
   const navigate = useNavigate();
@@ -1387,21 +1434,40 @@ export const Messages: React.FC = () => {
   const [friends, setFriends] = useState<FriendLite[]>([]);
   const [profiles, setProfiles] = useState<Record<string, UserProfile>>({});
 
+  // Paint last visit's people before the first frame. ChatContext already
+  // restores the threads from its own cache; without the profiles beside
+  // them that list renders as a column of "Unknown" until two round trips
+  // land. useLayoutEffect rather than useEffect so there's no frame of
+  // placeholder for someone whose data is already on disk.
+  const hydratedForRef = useRef<string | null>(null);
+  useLayoutEffect(() => {
+    const uid = user?.id;
+    if (!uid) { hydratedForRef.current = null; return; }
+    if (hydratedForRef.current === uid) return;
+    hydratedForRef.current = uid;
+    const snap = readViewCache<MessagesSnapshot>(MESSAGES_CACHE, uid);
+    if (!snap) return;
+    if (snap.profiles) setProfiles((prev) => ({ ...snap.profiles, ...prev }));
+    if (snap.friends?.length) setFriends(snap.friends);
+  }, [user?.id]);
+
   // Load friends (and their profiles).
   useEffect(() => {
     if (!user?.id) return;
+    let cancelled = false;
     (async () => {
       const fl = await getFriends(user.id);
-      if (fl.length > 0) {
-        const profs = await getProfilesByIds(fl.map((f) => f.friend_id));
-        setProfiles((prev) => ({ ...prev, ...profs }));
-        setFriends(fl.map((f) => ({
-          id: f.friend_id,
-          name: profs[f.friend_id]?.display_name || profs[f.friend_id]?.username || f.friend_id.slice(0, 8),
-          username: profs[f.friend_id]?.username,
-        })));
-      }
+      if (cancelled || fl.length === 0) return;
+      const profs = await getProfilesByIds(fl.map((f) => f.friend_id));
+      if (cancelled) return;
+      setProfiles((prev) => ({ ...prev, ...profs }));
+      setFriends(fl.map((f) => ({
+        id: f.friend_id,
+        name: profs[f.friend_id]?.display_name || profs[f.friend_id]?.username || f.friend_id.slice(0, 8),
+        username: profs[f.friend_id]?.username,
+      })));
     })();
+    return () => { cancelled = true; };
   }, [user?.id]);
 
   // Load profiles for all conversation participants (and self, for the byline).
@@ -1414,6 +1480,23 @@ export const Messages: React.FC = () => {
       getProfilesByIds(missing).then((profs) => setProfiles((prev) => ({ ...prev, ...profs })));
     }
   }, [conversations, user?.id]);
+
+  // Persist the snapshot for the next visit. Debounced past the burst of
+  // profile merges the two effects above produce on a cold load.
+  useEffect(() => {
+    const uid = user?.id;
+    if (!uid || hydratedForRef.current !== uid) return;
+    if (Object.keys(profiles).length === 0 && friends.length === 0) return;
+    const t = setTimeout(() => {
+      writeViewCache(MESSAGES_CACHE, uid, { friends, profiles } satisfies MessagesSnapshot);
+    }, 600);
+    return () => clearTimeout(t);
+  }, [friends, profiles, user?.id]);
+
+  // A skeleton is only right when there is genuinely nothing to show. A
+  // warm load already has cached threads (or at least the cached friends
+  // this list falls back to) on screen, and is only refreshing them.
+  const listLoading = chatLoading && conversations.length === 0 && friends.length === 0;
 
   const sortedConversations = useMemo(() =>
     [...conversations].sort((a, b) => b.lastMessageAt - a.lastMessageAt), [conversations]);
@@ -1483,6 +1566,7 @@ export const Messages: React.FC = () => {
           onSelectConversation={selectConversation}
           onSelectFriend={selectFriend}
           onCompose={() => setNewChatOpen(true)}
+          loading={listLoading}
         />
         <div className="flex-1 min-w-0 flex flex-col min-h-0">
           {activeConversation ? (
@@ -1535,6 +1619,7 @@ export const Messages: React.FC = () => {
         onOpenFriend={selectFriend}
         onCompose={() => setNewChatOpen(true)}
         onBack={() => navigate(-1)}
+        loading={listLoading}
       />
       <NewChatSheet open={newChatOpen} onClose={() => setNewChatOpen(false)} onCreateChat={handleCreateChat} friends={friends} />
     </>

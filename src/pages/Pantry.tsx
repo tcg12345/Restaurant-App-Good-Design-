@@ -1334,7 +1334,7 @@ const ListMoreMenu: React.FC<{
   }, [open]);
   if (items.length === 0) return null;
   const triggerClass = glass
-    ? 'hit-44 w-[34px] h-[34px] rounded-full flex items-center justify-center text-on-surface active:scale-95 transition-transform'
+    ? 'hit-44 w-10 h-10 rounded-full flex items-center justify-center text-on-surface active:scale-95 transition-transform'
     : 'w-9 h-9 rounded-full flex items-center justify-center text-on-surface/55 hover:text-on-surface hover:bg-on-surface/[0.06] transition-colors';
   return (
     <div ref={wrapRef} className="relative flex-shrink-0">
@@ -1884,7 +1884,7 @@ const ListDetailView: React.FC<{
             symbol="chevron.left"
             label="Back"
             onClick={onBack}
-            className="hit-44 flex-none w-[34px] h-[34px] rounded-full flex items-center justify-center text-on-surface active:scale-95 transition-transform"
+            className="hit-44 flex-none w-10 h-10 rounded-full flex items-center justify-center text-on-surface active:scale-95 transition-transform"
           >
             <ChevronLeft size={18} strokeWidth={2.1} />
           </GlassButton>
@@ -1895,7 +1895,7 @@ const ListDetailView: React.FC<{
                 type="button"
                 onClick={() => navigate('/map', { state: { listView: { id: list.id } } })}
                 aria-label="View this list on the map"
-                className="flex-none inline-flex items-center gap-1.5 rounded-full border border-on-surface/20 text-on-surface px-3 py-[9px] active:bg-on-surface/[0.06] transition-colors"
+                className="flex-none inline-flex h-10 items-center gap-1.5 rounded-full border border-on-surface/20 text-on-surface px-3.5 active:bg-on-surface/[0.06] transition-colors"
                 style={{ fontSize: '12px', fontWeight: 700 }}
               >
                 <MapPin size={13} />
@@ -1909,7 +1909,7 @@ const ListDetailView: React.FC<{
               label={isHomeCooking ? 'Add Recipe' : 'Add Rating'}
               onClick={handlePlusClick}
               className={cn(
-                'hit-44 flex-none w-[34px] h-[34px] rounded-full text-white flex items-center justify-center active:scale-95 transition-transform',
+                'hit-44 flex-none w-10 h-10 rounded-full text-white flex items-center justify-center active:scale-95 transition-transform',
                 isHomeCooking ? 'bg-emerald-600' : 'bg-primary',
               )}
             >
@@ -6533,7 +6533,7 @@ export const Pantry: React.FC = () => {
                       symbol="chevron.left"
                       label="Back"
                       onClick={() => setShowAllRated(false)}
-                      className="hit-44 flex-none w-[34px] h-[34px] rounded-full flex items-center justify-center text-on-surface active:scale-95 transition-transform"
+                      className="hit-44 flex-none w-10 h-10 rounded-full flex items-center justify-center text-on-surface active:scale-95 transition-transform"
                     >
                       <ChevronLeft size={18} strokeWidth={2.1} />
                     </GlassButton>
@@ -6543,7 +6543,7 @@ export const Pantry: React.FC = () => {
                       symbol="magnifyingglass"
                       label="Search this list"
                       onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
-                      className="hit-44 flex-none w-[34px] h-[34px] rounded-full flex items-center justify-center text-on-surface active:scale-95 transition-transform"
+                      className="hit-44 flex-none w-10 h-10 rounded-full flex items-center justify-center text-on-surface active:scale-95 transition-transform"
                     >
                       <Search size={17} />
                     </GlassButton>
@@ -6553,7 +6553,7 @@ export const Pantry: React.FC = () => {
                       label="Filters"
                       badge={activeFilterCount > 0 ? String(activeFilterCount) : undefined}
                       onClick={() => { openFiltersOn(null); closeAllDropdowns(); }}
-                      className="hit-44 relative flex-none w-[34px] h-[34px] rounded-full flex items-center justify-center text-on-surface active:scale-95 transition-transform"
+                      className="hit-44 relative flex-none w-10 h-10 rounded-full flex items-center justify-center text-on-surface active:scale-95 transition-transform"
                     >
                       <SlidersHorizontal size={16} />
                       {activeFilterCount > 0 && (
@@ -6568,7 +6568,7 @@ export const Pantry: React.FC = () => {
                       tint="primary"
                       label="Add Rating"
                       onClick={() => { setSearchPopupMode('rate-new'); setSearchPopupOpen(true); }}
-                      className="hit-44 flex-none w-[34px] h-[34px] rounded-full bg-primary text-white flex items-center justify-center active:scale-95 transition-transform"
+                      className="hit-44 flex-none w-10 h-10 rounded-full bg-primary text-white flex items-center justify-center active:scale-95 transition-transform"
                     >
                       <Plus size={17} strokeWidth={2.4} />
                     </GlassButton>
@@ -6590,7 +6590,7 @@ export const Pantry: React.FC = () => {
                       symbol="chevron.left"
                       label="Back"
                       onClick={() => setShowAllRated(false)}
-                      className="hit-44 flex-none w-[34px] h-[34px] rounded-full flex items-center justify-center text-on-surface active:scale-95 transition-transform"
+                      className="hit-44 flex-none w-10 h-10 rounded-full flex items-center justify-center text-on-surface active:scale-95 transition-transform"
                     >
                       <ChevronLeft size={18} strokeWidth={2.1} />
                     </GlassButton>
@@ -6599,7 +6599,7 @@ export const Pantry: React.FC = () => {
                   <button
                     type="button"
                     onClick={() => navigate('/pantry/recommended')}
-                    className="flex-none inline-flex items-center gap-1.5 rounded-full border border-primary/30 bg-primary/10 text-primary px-3 py-[9px] active:opacity-80 transition-opacity"
+                    className="flex-none inline-flex h-10 items-center gap-1.5 rounded-full border border-primary/30 bg-primary/10 text-primary px-3.5 active:opacity-80 transition-opacity"
                     style={{ fontSize: '12px', fontWeight: 700 }}
                   >
                     <Sparkles size={13} />
@@ -6611,7 +6611,7 @@ export const Pantry: React.FC = () => {
                     tint="primary"
                     label="Add Rating"
                     onClick={() => { setSearchPopupMode('rate-new'); setSearchPopupOpen(true); }}
-                    className="hit-44 flex-none w-[34px] h-[34px] rounded-full bg-primary text-white flex items-center justify-center active:scale-95 transition-transform"
+                    className="hit-44 flex-none w-10 h-10 rounded-full bg-primary text-white flex items-center justify-center active:scale-95 transition-transform"
                   >
                     <Plus size={17} strokeWidth={2.4} />
                   </GlassButton>

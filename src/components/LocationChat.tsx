@@ -12,6 +12,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import {
   ArrowDown,
   ArrowLeft,
+  Bookmark,
   ChefHat,
   Check,
   ArrowUp,
@@ -37,6 +38,8 @@ import {
   Coffee,
   Info,
   CircleDollarSign,
+  ThumbsUp,
+  ThumbsDown,
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { GlassButton } from '../lib/glass-buttons';
@@ -70,6 +73,7 @@ import { generateRecipeImage } from '../lib/generate-recipe-image-client';
 import { uploadPhoto } from '../lib/images';
 import { useAiChatHistory } from '../contexts/AiChatHistoryContext';
 import { deriveChatTitle, type UiMessage, type UiBlock, type SavedChat } from '../lib/ai-chat-history';
+import { logChatFeedback } from '../lib/ai-chat-feedback';
 
 /** Cuisine for a place. One shared resolver — lib/cuisine — so this and
  *  LocationPage can't drift apart, and both get primaryType. Aliased
@@ -255,6 +259,13 @@ interface LocationChatProps {
   onOpenAddToListModal?: (restaurantId: string) => ActionResult | Promise<ActionResult>;
   /** Toggle wishlist membership for a restaurant. */
   onToggleWishlist?: (restaurantId: string) => ActionResult | Promise<ActionResult>;
+  /** Restaurant ids already on the user's wishlist. Read-only: the
+   *  recommendation cards need to know whether their bookmark is filled,
+   *  which onToggleWishlist alone can't answer. */
+  savedRestaurantIds?: ReadonlySet<string>;
+  /** The user's OWN score (0–10) per restaurant id, for the "You: 8.4"
+   *  chip on a place they've already rated. */
+  myRestaurantScores?: Record<string, number>;
   /** Open the Add Recipe flow. */
   onOpenAddRecipeModal?: () => ActionResult | Promise<ActionResult>;
   /** Open the Add Post flow. */
@@ -437,6 +448,112 @@ function renderAssistantText(
   return out;
 }
 
+/* ── What you'd ask next ──────────────────────────────────────────────
+   Refinements offered under a finished answer, so the next turn is one
+   tap instead of a sentence. Derived from what the assistant actually
+   recommended rather than a fixed list: offering "Under $$" against a set
+   that is already all $ reads as the assistant not having looked at its
+   own answer.
+
+   Client-side on purpose. The model could return these (an optional
+   `follow_ups` on recommend_restaurants), and they'd be sharper for it —
+   but that costs an Edge Function deploy, and these have to be right on
+   the very next turn, offline included. They also degrade honestly: a
+   chip only appears when the pool it describes exists. */
+const FOLLOWUP_LIMIT = 3;
+
+function buildFollowUps(
+  places: ScoredPlace[],
+  origin: { lat: number; lng: number } | null,
+): string[] {
+  if (places.length === 0) return [];
+  const out: string[] = [];
+
+  // Price: only offer to go cheaper when there IS something dearer here.
+  const levels = places.map((p) => p.priceLevel).filter((n): n is number => typeof n === 'number' && n > 0);
+  if (levels.some((n) => n >= 3)) out.push('Somewhere cheaper');
+
+  // Distance: only when the set is genuinely spread out — against three
+  // places all under half a mile, "walkable" is already the answer.
+  if (origin) {
+    const far = places.some((p) => haversineDistanceMi(origin.lat, origin.lng, p.lat, p.lng) > 1.2);
+    if (far) out.push('Walkable from me');
+  }
+
+  // Cuisine: one note repeated three times is the case worth escaping.
+  const cuisines = new Set(places.map((p) => inferCuisineLabel(p)).filter(Boolean));
+  if (cuisines.size === 1) out.push('Something different');
+
+  // Always available, and the most-asked refinement of a room.
+  out.push('Somewhere quieter');
+  out.push('Good for a group');
+  out.push('Open late tonight');
+
+  return out.slice(0, FOLLOWUP_LIMIT);
+}
+
+/* ── The end of an answer ─────────────────────────────────────────────
+   Follow-ups to tap, and the one place the user can say the answer was
+   wrong. Rendered under the LAST assistant turn only: on every turn it
+   becomes furniture, and the question "was that any good?" is about the
+   answer you are currently looking at. */
+interface ChatAnswerFooterProps {
+  followUps: string[];
+  verdict?: 'up' | 'down';
+  savableCount: number;
+  allSaved: boolean;
+  onFollowUp: (s: string) => void;
+  onVerdict: (v: 'up' | 'down') => void;
+  onSaveAll: () => void;
+}
+
+const ChatAnswerFooter: React.FC<ChatAnswerFooterProps> = ({
+  followUps, verdict, savableCount, allSaved, onFollowUp, onVerdict, onSaveAll,
+}) => (
+  <div className="lp-chat-answer-foot">
+    {followUps.length > 0 && (
+      <div className="lp-chat-followups">
+        {followUps.map((f) => (
+          <button key={f} type="button" className="lp-chat-followup" onClick={() => onFollowUp(f)}>
+            {f}
+          </button>
+        ))}
+      </div>
+    )}
+    <div className="lp-chat-verdict">
+      <button
+        type="button"
+        className={cn('lp-chat-verdict-btn', verdict === 'up' && 'is-on')}
+        aria-pressed={verdict === 'up'}
+        onClick={() => onVerdict('up')}
+      >
+        <ThumbsUp size={14} strokeWidth={1.9} />
+        Good pick
+      </button>
+      <button
+        type="button"
+        className={cn('lp-chat-verdict-btn', verdict === 'down' && 'is-on')}
+        aria-pressed={verdict === 'down'}
+        onClick={() => onVerdict('down')}
+      >
+        <ThumbsDown size={14} strokeWidth={1.9} />
+        Not for me
+      </button>
+      {savableCount > 0 && (
+        <button
+          type="button"
+          className="lp-chat-verdict-btn lp-chat-saveall"
+          onClick={onSaveAll}
+          disabled={allSaved}
+        >
+          <Bookmark size={14} strokeWidth={1.9} />
+          {allSaved ? 'Saved' : savableCount === 1 ? 'Save it' : 'Save all'}
+        </button>
+      )}
+    </div>
+  </div>
+);
+
 /* ── One conversation turn, memoized ─────────────────────────────────
    During a stream every token delta replaces ONLY the last message
    object; earlier turns keep their reference, so React.memo skips them
@@ -452,14 +569,28 @@ interface ChatTurnProps {
   placeById: Map<string, ScoredPlace>;
   recipeById: Map<string, Recipe | CommunityRecipeHit>;
   restaurantMeta: Record<string, RestaurantMeta>;
+  /** The user's OWN score per restaurant id, 0–10 — drives the "You: 8.4"
+   *  chip. A place they've rated is a different kind of recommendation
+   *  than one they've never been to, and the card should say so. */
+  myScores: Record<string, number>;
+  /** Restaurants already on the wishlist — fills the bookmark. */
+  savedIds: ReadonlySet<string>;
+  /** Distance origin for the card's meta line. */
+  origin: { lat: number; lng: number } | null;
   onNavigateRestaurant: (id: string) => void;
   onNavigateRecipe: (id: string) => void;
   onOpenDraft: (toolUseId: string) => void;
+  onToggleSave: (id: string) => void;
+  /** Show this place on the map. Absent off the map page, where the
+   *  action would have nowhere to go — the button hides rather than
+   *  no-ops. */
+  onShowOnMap?: (id: string) => void;
 }
 
 const ChatTurn = React.memo<ChatTurnProps>(({
   m, linkables, linkRegex, placeById, recipeById, restaurantMeta,
-  onNavigateRestaurant, onNavigateRecipe, onOpenDraft,
+  myScores, savedIds, origin,
+  onNavigateRestaurant, onNavigateRecipe, onOpenDraft, onToggleSave, onShowOnMap,
 }) => {
   // Hide messages that have only invisible blocks (a user turn full of
   // tool_results, an assistant turn that only called search_restaurants,
@@ -565,19 +696,25 @@ const ChatTurn = React.memo<ChatTurnProps>(({
             </div>
           );
         }
-        // restaurant cards
+        /* ── Recommendations ──────────────────────────────────────
+           Rows, not cards. The old boxed card held the name and a
+           9.5px all-caps meta line in a 56px-tall bordered tile with
+           the blurb exiled underneath it, so a set of three read as
+           three widgets rather than one answer. Here each place gets
+           room: the score as a ring, the name at reading size, one
+           quiet meta line, the assistant's actual sentence about the
+           place, and the two things you'd want to do next. Hairlines
+           between them; no borders. */
         if (b.placeIds.length === 0) return null;
         return (
-          <div key={bi} className="lp-chat-cards">
+          <div key={bi} className="lp-recs">
             {b.placeIds.map((id) => {
               const place = placeById.get(id);
               const note = b.notes?.[id];
               if (!place) {
                 return (
-                  <div key={id} className="lp-chat-card-group">
-                    <div className="lp-chat-card lp-chat-card-missing">
-                      Restaurant no longer in your filtered list.
-                    </div>
+                  <div key={id} className="lp-rec lp-rec-missing">
+                    Restaurant no longer in your filtered list.
                   </div>
                 );
               }
@@ -593,35 +730,55 @@ const ChatTurn = React.memo<ChatTurnProps>(({
                 place.address || '',
                 placeMeta?.neighborhood,
               );
+              const distMi = origin
+                ? haversineDistanceMi(origin.lat, origin.lng, place.lat, place.lng)
+                : null;
+              // One meta line, joined by dots — assembling it here rather
+              // than with interleaved separator spans means no stray
+              // leading dot when a field is missing.
+              const meta = [
+                cuisine,
+                priceLabel,
+                areaLabel,
+                distMi != null ? formatDistance(distMi) : '',
+              ].filter(Boolean).join(' · ');
+              const mine = myScores[id];
+              const saved = savedIds.has(id);
               return (
-                <div key={id} className="lp-chat-card-group">
+                <article key={id} className="lp-rec">
+                  <div className={cn('lp-rec-score', scoreClass)}>
+                    {score > 0 ? score.toFixed(1) : '—'}
+                  </div>
+                  <div className="lp-rec-body">
+                    <div className="lp-rec-head">
+                      <h4>
+                        <button type="button" onClick={() => onNavigateRestaurant(id)}>
+                          {place.name}
+                        </button>
+                      </h4>
+                      {typeof mine === 'number' && mine > 0 && (
+                        <span className="lp-rec-you">You: {mine.toFixed(1)}</span>
+                      )}
+                    </div>
+                    {meta && <p className="lp-rec-meta">{meta}</p>}
+                    {note && <p className="lp-rec-note">{note}</p>}
+                    <div className="lp-rec-actions">
+                      <button type="button" onClick={() => onNavigateRestaurant(id)}>Open</button>
+                      {onShowOnMap && (
+                        <button type="button" onClick={() => onShowOnMap(id)}>Map</button>
+                      )}
+                    </div>
+                  </div>
                   <button
                     type="button"
-                    className="lp-chat-card"
-                    onClick={() => onNavigateRestaurant(id)}
+                    className={cn('lp-rec-save', saved && 'is-saved')}
+                    onClick={() => onToggleSave(id)}
+                    aria-pressed={saved}
+                    aria-label={saved ? `Remove ${place.name} from your saves` : `Save ${place.name}`}
                   >
-                    <div className={cn('lp-chat-card-score', scoreClass)}>
-                      {score > 0 ? score.toFixed(1) : '—'}
-                    </div>
-                    <div className="lp-chat-card-info">
-                      <h4>{place.name}</h4>
-                      <p>
-                        {cuisine && <span className="accent">{cuisine}</span>}
-                        {cuisine && priceLabel && <span className="dot">·</span>}
-                        {priceLabel && <span className="price">{priceLabel}</span>}
-                        {(cuisine || priceLabel) && areaLabel && <span className="dot">·</span>}
-                        {areaLabel && (
-                          <span className="area">
-                            <MapPin size={11} />
-                            {areaLabel}
-                          </span>
-                        )}
-                      </p>
-                    </div>
-                    <ChevronRight />
+                    <Bookmark size={16} strokeWidth={1.9} />
                   </button>
-                  {note && <p className="lp-chat-card-note">{note}</p>}
-                </div>
+                </article>
               );
             })}
           </div>
@@ -901,6 +1058,8 @@ export const LocationChat: React.FC<LocationChatProps> = ({
   onSearchCommunityRecipes,
   onGetCircleRatings,
   onAssistantPlaces,
+  savedRestaurantIds,
+  myRestaurantScores,
   recipes,
   knownPlaces,
   currentPath,
@@ -1338,6 +1497,70 @@ export const LocationChat: React.FC<LocationChatProps> = ({
     // chance to play before the route swap.
     setTimeout(() => navigate(`/restaurant/${id}`), 60);
   }, [navigate]);
+
+  /* ── Card actions ────────────────────────────────────────────────── */
+
+  const emptySaved = useMemo(() => new Set<string>(), []);
+  const savedIds = savedRestaurantIds ?? emptySaved;
+  const emptyScores = useMemo(() => ({}), []);
+  const myScores = myRestaurantScores ?? emptyScores;
+
+  const handleToggleSave = useCallback((id: string) => {
+    if (!onToggleWishlist) { showToast('Saving is not available here.'); return; }
+    // Optimism belongs to whoever owns the wishlist — savedIds comes back
+    // down as a prop, so the bookmark fills when the write lands.
+    void Promise.resolve(onToggleWishlist(id));
+  }, [onToggleWishlist, showToast]);
+
+  /** Put one recommendation on the map. Only wired on the map page; the
+   *  button doesn't render anywhere else. */
+  const handleShowOnMap = useMemo(() => {
+    if (!onAssistantPlaces) return undefined;
+    return (id: string) => {
+      const place = placeById.get(id);
+      if (!place) return;
+      onAssistantPlaces([place]);
+      setOpen(false);
+    };
+  }, [onAssistantPlaces, placeById]);
+
+  /* ── Was that any good? ──────────────────────────────────────────────
+     The verdict is stored on the message (so re-opening the chat still
+     shows it) and written to ai_chat_feedback (migration 077), which is
+     the collected data. Tapping the same thumb again clears the UI state
+     but doesn't write — an un-rating isn't a verdict, and the table is
+     append-only. */
+  const sessionKeyRef = useRef(`s-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`);
+
+  const handleVerdict = useCallback((index: number, verdict: 'up' | 'down') => {
+    let recorded: 'up' | 'down' | undefined;
+    setMessages((prev) => prev.map((m, i) => {
+      if (i !== index) return m;
+      const next = m.feedback === verdict ? undefined : verdict;
+      recorded = next;
+      return { ...m, feedback: next };
+    }));
+    if (!recorded) return;
+    const msg = messagesRef.current[index];
+    const ids = (msg?.blocks ?? []).flatMap((b) => (b.type === 'cards' ? b.placeIds : []));
+    logChatFeedback({
+      verdict: recorded,
+      turnKey: `${currentChatIdRef.current || sessionKeyRef.current}:${index}`,
+      restaurantIds: ids,
+      userId: authUser?.id ?? null,
+    });
+    showToast(recorded === 'up' ? 'Thanks — noted.' : 'Thanks — I\u2019ll aim differently.');
+  }, [showToast, authUser?.id]);
+
+  /** Save every recommendation in the turn that isn't saved already.
+   *  Toggling blindly would UN-save the ones the user had kept. */
+  const handleSaveAll = useCallback((ids: string[]) => {
+    if (!onToggleWishlist) { showToast('Saving is not available here.'); return; }
+    const fresh = ids.filter((id) => !savedIds.has(id));
+    if (fresh.length === 0) return;
+    fresh.forEach((id) => { void Promise.resolve(onToggleWishlist(id)); });
+    showToast(fresh.length === 1 ? 'Saved.' : `Saved ${fresh.length} places.`);
+  }, [onToggleWishlist, savedIds, showToast]);
 
   const handleNavigateRecipe = useCallback((id: string) => {
     setOpen(false);
@@ -2474,6 +2697,33 @@ export const LocationChat: React.FC<LocationChatProps> = ({
     scrollToBottom();
   }, [input, sendTurn, streaming, scrollToBottom]);
 
+  /* Everything the answer footer needs, or null when there's no finished
+     assistant answer to stand under. Recomputed per turn, not per token:
+     the `streaming` guard means it simply isn't mounted mid-stream. */
+  const answerFooter = useMemo(() => {
+    if (streaming || messages.length === 0) return null;
+    const index = messages.length - 1;
+    const last = messages[index];
+    if (last.role !== 'assistant') return null;
+    const hasAnswer = last.blocks.some(
+      (b) => (b.type === 'text' && b.text.trim())
+        || (b.type === 'cards' && b.placeIds.length > 0)
+        || (b.type === 'recipe_cards' && b.recipeIds.length > 0)
+        || b.type === 'recipe_draft',
+    );
+    if (!hasAnswer) return null;
+    const placeIds = last.blocks.flatMap((b) => (b.type === 'cards' ? b.placeIds : []))
+      .filter((id) => placeById.has(id));
+    const places = placeIds.map((id) => placeById.get(id)!);
+    return {
+      index,
+      placeIds,
+      followUps: buildFollowUps(places, origin),
+      verdict: last.feedback,
+      allSaved: placeIds.length > 0 && placeIds.every((id) => savedIds.has(id)),
+    };
+  }, [streaming, messages, placeById, origin, savedIds]);
+
   const handleSuggestion = useCallback((s: string) => {
     if (streaming) return;
     setInput('');
@@ -2789,11 +3039,32 @@ export const LocationChat: React.FC<LocationChatProps> = ({
                   placeById={placeById}
                   recipeById={recipeById}
                   restaurantMeta={restaurantMeta}
+                  myScores={myScores}
+                  savedIds={savedIds}
+                  origin={origin}
                   onNavigateRestaurant={handleNavigateRestaurant}
                   onNavigateRecipe={handleNavigateRecipe}
                   onOpenDraft={handleOpenDraft}
+                  onToggleSave={handleToggleSave}
+                  onShowOnMap={handleShowOnMap}
                 />
               ))}
+
+              {/* The end of the answer: what to ask next, and whether it
+                  was any good. Only under the finished last turn — mid
+                  stream the answer isn't there yet to judge, and on every
+                  turn it stops being a question and becomes furniture. */}
+              {answerFooter && (
+                <ChatAnswerFooter
+                  followUps={answerFooter.followUps}
+                  verdict={answerFooter.verdict}
+                  savableCount={answerFooter.placeIds.length}
+                  allSaved={answerFooter.allSaved}
+                  onFollowUp={handleSuggestion}
+                  onVerdict={(v) => handleVerdict(answerFooter.index, v)}
+                  onSaveAll={() => handleSaveAll(answerFooter.placeIds)}
+                />
+              )}
 
               {/* Persistent typing indicator — visible the whole time
                   `streaming` is true (between user-send and final

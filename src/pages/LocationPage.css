@@ -2486,6 +2486,259 @@ html.kb-open .lp-chat-island.is-phone .lp-chat-foot {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+/* ══════════════════════════════════════════════════════════════════
+   Recommendations — the assistant's answer, as rows
+
+   These replaced .lp-chat-card for restaurants. The old card packed a
+   name, a 9.5px all-caps meta line and a chevron into a 56px bordered
+   tile and pushed the assistant's actual sentence out underneath it —
+   three of them read as three widgets stacked in a list rather than
+   one considered answer. What changed is mostly space and hierarchy:
+   the border is gone (a hairline between rows does the separating),
+   the name is at reading size, the meta line is one quiet string, and
+   the blurb — the part the user came for — sits inside the row at a
+   size you'd actually read.
+   ══════════════════════════════════════════════════════════════════ */
+.lp-recs {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: 100%;
+  margin: 2px 0 4px;
+}
+.lp-rec {
+  display: grid;
+  /* score · body · bookmark */
+  grid-template-columns: 48px minmax(0, 1fr) 32px;
+  align-items: start;
+  gap: 14px;
+  padding: 18px 2px;
+}
+/* Hairline between rows only — no box around each one, and no rule
+   dangling under the last. */
+.lp-rec + .lp-rec {
+  border-top: 1px solid var(--border);
+}
+.lp-rec-missing {
+  display: block;
+  font-size: 12.5px;
+  color: var(--muted);
+  padding: 14px 2px;
+}
+
+/* The score as a ring rather than a filled chip: at 48px a solid block
+   of colour would out-shout the name beside it. */
+.lp-rec-score {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font: 700 15px/1 var(--serif);
+  letter-spacing: -0.01em;
+  font-variant-numeric: tabular-nums;
+  border: 1.5px solid var(--border-strong);
+  background: var(--bg-2);
+  color: var(--ink-2);
+}
+.lp-rec-score.is-good {
+  border-color: rgba(46, 125, 92, 0.5);
+  background: rgba(46, 125, 92, 0.09);
+  color: var(--green);
+}
+.lp-rec-score.is-mid {
+  border-color: rgba(194, 143, 58, 0.55);
+  background: rgba(194, 143, 58, 0.10);
+  color: #A06F1F;
+}
+.lp-rec-score.is-low {
+  border-color: rgba(168, 57, 42, 0.45);
+  background: rgba(168, 57, 42, 0.07);
+  color: var(--accent);
+}
+
+.lp-rec-body { min-width: 0; }
+.lp-rec-head {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.lp-rec-head h4 {
+  margin: 0;
+  min-width: 0;
+}
+/* The name is the tap target, not the whole row: the row now holds its
+   own buttons, and a button inside a button is invalid markup that
+   swallows their clicks. */
+.lp-rec-head h4 button {
+  display: block;
+  max-width: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  font-family: var(--serif);
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1.15;
+  color: var(--ink);
+  text-align: left;
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.lp-rec-head h4 button:hover { color: var(--accent); }
+
+/* "You: 8.4" — a place the user has already rated is a different kind
+   of suggestion, and the card should say so without competing with the
+   name. */
+.lp-rec-you {
+  flex: none;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-2);
+  background: var(--bg-2);
+  border-radius: 999px;
+  padding: 3px 8px;
+}
+
+/* One line, dot-joined: cuisine · price · neighbourhood · distance. */
+.lp-rec-meta {
+  margin: 6px 0 0;
+  font-size: 13px;
+  line-height: 1.35;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* The sentence the assistant wrote about this place. Full reading size
+   and allowed to wrap — this is the answer. */
+.lp-rec-note {
+  margin: 10px 0 0;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--ink-2);
+}
+
+.lp-rec-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+.lp-rec-actions button {
+  height: 36px;
+  padding: 0 18px;
+  border-radius: 999px;
+  border: 1px solid var(--border-strong);
+  background: transparent;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ink);
+  cursor: pointer;
+  transition: background .15s, border-color .15s;
+}
+.lp-rec-actions button:hover {
+  background: var(--bg-2);
+  border-color: var(--ink);
+}
+.lp-rec-actions button:active { transform: scale(0.97); }
+
+.lp-rec-save {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  border: 0;
+  background: var(--bg-2);
+  color: var(--muted);
+  cursor: pointer;
+  transition: color .15s, background .15s;
+}
+.lp-rec-save:hover { color: var(--ink); }
+.lp-rec-save.is-saved { color: var(--accent); }
+.lp-rec-save.is-saved svg { fill: currentColor; }
+
+/* ── The end of an answer ─────────────────────────────────────────
+   Follow-ups to tap, then the verdict row. Sits at the assistant's
+   own left edge so it reads as part of the answer rather than a
+   separate control panel. */
+.lp-chat-answer-foot {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  width: 100%;
+  margin: 2px 0 4px;
+}
+.lp-chat-followups {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.lp-chat-followup {
+  height: 38px;
+  padding: 0 18px;
+  border-radius: 999px;
+  border: 1px solid var(--border-strong);
+  background: var(--surface);
+  font-size: 13.5px;
+  font-weight: 700;
+  color: var(--ink);
+  cursor: pointer;
+  transition: background .15s, border-color .15s, transform .12s;
+}
+.lp-chat-followup:hover {
+  background: var(--bg-2);
+  border-color: var(--ink);
+}
+.lp-chat-followup:active { transform: scale(0.97); }
+
+/* Quieter than the follow-ups: these are for the rare turn where the
+   user has something to say about the answer, not the expected next
+   step. */
+.lp-chat-verdict {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+}
+.lp-chat-verdict-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 34px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 999px;
+  background: none;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--muted);
+  cursor: pointer;
+  transition: color .15s, background .15s;
+}
+.lp-chat-verdict-btn:hover:not(:disabled) {
+  color: var(--ink);
+  background: var(--bg-2);
+}
+.lp-chat-verdict-btn.is-on {
+  color: var(--accent);
+  background: rgba(168, 57, 42, 0.08);
+}
+.lp-chat-verdict-btn.is-on svg { fill: currentColor; fill-opacity: 0.18; }
+.lp-chat-verdict-btn:disabled {
+  color: var(--muted-2);
+  cursor: default;
+}
+.lp-chat-verdict-btn svg { flex: none; }
+
 /* AI recipe-draft card — full-width tile with breathing room for the
    eyebrow, title, summary, and a wrapped chip row. Visually elevated
    so it reads as "fresh from the AI"; transitions to a muted state
