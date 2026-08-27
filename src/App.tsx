@@ -51,7 +51,7 @@ import { GuideDetail } from './pages/GuideDetail';
 import { GuideEdit } from './pages/GuideEdit';
 import { Auth } from './pages/Auth';
 import { PreAuthFlow } from './components/onboarding/PreAuthFlow';
-import { isPreauthDone } from './lib/preauth';
+import { isPreauthDone, getPreauthOutcome, shouldAskGuestToSave, noteGuestAsked } from './lib/preauth';
 import { ImportRestaurants } from './pages/ImportRestaurants';
 import { ProfileSetup } from './pages/ProfileSetup';
 import { UserProfile } from './pages/UserProfile';
@@ -243,9 +243,19 @@ const AppContent: React.FC = () => {
   const isFocusedReel = location.pathname.startsWith('/r/');
   const showBottomNav = !['/messages', '/reorder', '/location', '/location/map', '/map', '/create', '/recipes-for-you', '/circle', '/settings'].includes(location.pathname) && !location.pathname.startsWith('/restaurant/') && !location.pathname.startsWith('/user/') && !location.pathname.startsWith('/recipe/') && !location.pathname.startsWith('/meal/') && !location.pathname.startsWith('/review/') && !location.pathname.startsWith('/activity') && !location.pathname.startsWith('/guides/') && !isFocusedReel;
   const { isSignedIn, isGuest, continueAsGuest, loading, profile, profileComplete, profileError, profileLoading, needsPasswordSetup } = useAuth();
-  // How the pre-auth taste flow was left this session — 'signup' carries the
-  // "save your taste profile" framing into the Auth screen it hands off to.
-  const [preauthExited, setPreauthExited] = React.useState<null | 'signup' | 'signin'>(null);
+  // How the pre-auth taste flow was left — 'signup' carries the "save your
+  // taste profile" framing into the Auth screen it hands off to. Seeded from
+  // the durable record so a relaunch ON the gate keeps that framing instead
+  // of falling back to the generic "Welcome to Gourmet Canvas" sign-in copy.
+  const [preauthExited, setPreauthExited] = React.useState<null | 'signup' | 'signin'>(() => {
+    const o = getPreauthOutcome();
+    return o === 'signup' || o === 'signin' ? o : null;
+  });
+  // The one follow-up offer to a guest who finished onboarding (see
+  // shouldAskGuestToSave). Decided once per launch, and burned on show so
+  // declining it never re-arms it.
+  const [askGuestToSave, setAskGuestToSave] = React.useState(() => isGuest && shouldAskGuestToSave());
+  React.useEffect(() => { if (askGuestToSave) noteGuestAsked(); }, [askGuestToSave]);
   // Reinstall / second-device backstop: the profile knows their home city,
   // but nothing ever read those columns back into the location the app
   // actually resolves from. Without this a returning user on a new phone
@@ -313,7 +323,11 @@ const AppContent: React.FC = () => {
   // freshly code-verified signup that hasn't chosen a password yet
   // (needsPasswordSetup): the session already exists, but Auth stays up
   // on its choose-password step until it's set.
-  if ((!isSignedIn && !isGuest) || (isSignedIn && needsPasswordSetup)) {
+  // `askGuestToSave` is the third case: a guest who answered every onboarding
+  // question and was never once offered an account, because "Browse without
+  // an account" wrote a flag that this branch has always treated as final.
+  // They get the gate one more time, with the escape still on it.
+  if ((!isSignedIn && !isGuest) || (isSignedIn && needsPasswordSetup) || (isGuest && askGuestToSave)) {
     // Fresh installs meet the taste questions BEFORE the account gate — the
     // signup ask lands after the personalized preview, framed as saving
     // what was just built. One-shot per device (isPreauthDone); leaving the
@@ -329,7 +343,15 @@ const AppContent: React.FC = () => {
             path="*"
             element={showPreauth
               ? <PreAuthFlow onExit={(mode) => setPreauthExited(mode)} onBrowseAsGuest={continueAsGuest} />
-              : <Auth onBrowseAsGuest={continueAsGuest} saveTasteFraming={preauthExited === 'signup'} />}
+              : (
+                <Auth
+                  // For the guest follow-up the escape DISMISSES the ask —
+                  // they are already a guest, so re-entering guest mode
+                  // would leave the gate up forever.
+                  onBrowseAsGuest={askGuestToSave ? () => setAskGuestToSave(false) : continueAsGuest}
+                  saveTasteFraming={preauthExited === 'signup' || askGuestToSave}
+                />
+              )}
           />
         </Routes>
       </div>

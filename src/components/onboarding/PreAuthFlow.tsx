@@ -6,7 +6,7 @@ import { TastePillGrid, AtmosphereGrid, TASTE_CUISINES, TASTE_PRICES } from './T
 import { CityAutocomplete } from '../CityAutocomplete';
 import { saveLastSelectedLocation } from '../HomeLocationBar';
 import { saveTasteQuiz } from '../../lib/taste-quiz';
-import { savePreauthCity, markPreauthDone } from '../../lib/preauth';
+import { savePreauthCity, markPreauthDone, savePreauthOutcome } from '../../lib/preauth';
 import { logOnboardingEvent, markOnboardingStep } from '../../lib/onboarding-events';
 import {
   buildTasteProfile, buildCandidateQueries, scoreCandidates,
@@ -181,6 +181,10 @@ export const PreAuthFlow: React.FC<{
   const leave = (mode: 'signup' | 'signin' | 'guest') => {
     persistAnswers();
     markPreauthDone();
+    // Durable, unlike App's `preauthExited` React state: a relaunch on the
+    // gate must still show the "save what you just built" ask, and a guest
+    // is owed one follow-up offer on a later launch.
+    savePreauthOutcome(mode);
     // Left on purpose — not an abandon. The wizard re-registers on mount.
     markOnboardingStep(null);
     logOnboardingEvent(`preauth_gate_${mode}`);
