@@ -934,17 +934,23 @@
   .gle-scope.gle-scope .gle-hero-top { padding-inline: 12px; }
 
   /* Neutral and small. In terracotta caps this was the first thing the
-     eye hit on the page, ahead of the guide's own name. */
+     eye hit on the page, ahead of the guide's own name.
+     Colour only for the flat heroes: `.dark` means this hero is text
+     laid over the guide's cover photo, where anything but white stops
+     being readable. Everything below follows the same split — size for
+     both, colour scoped to the ground it sits on. */
   .gle-scope.gle-scope .gle-hero-eyebrow {
     font-size: 11px;
     font-weight: 600;
     letter-spacing: 0.02em;
     text-transform: none;
-    color: var(--gle-ink-muted);
-    opacity: 0.75;
     margin-bottom: 8px;
   }
-  .gle-scope.gle-scope .gle-crumb-sep { opacity: 0.4; }
+  .gle-scope.gle-scope .gle-hero-eyebrow:not(.dark) {
+    color: var(--gle-ink-muted);
+    opacity: 0.75;
+  }
+  .gle-scope.gle-scope .gle-crumb-sep { opacity: 0.5; }
 
   .gle-scope.gle-scope .gle-hero-title {
     font-size: 27px;
@@ -952,7 +958,6 @@
     letter-spacing: -0.022em;
     margin-bottom: 10px;
   }
-  .gle-scope.gle-scope .gle-hero-title.dark { text-shadow: none; }
   .gle-scope.gle-scope .gle-hero-sub {
     font-family: var(--gle-font-sans);
     font-size: 14.5px;
@@ -964,14 +969,17 @@
      bordered chip made the author a badge sitting on the page; here they
      read as the byline they are. */
   .gle-scope.gle-scope .gle-hero-meta { gap: 7px; margin-bottom: 16px; }
-  .gle-scope.gle-scope .gle-author-chip {
+  .gle-scope.gle-scope .gle-author-chip { gap: 7px; }
+  /* Flat hero: the byline is a line of text, not a badge. Over a photo
+     it keeps its translucent chip — that chip IS its legibility. */
+  .gle-scope.gle-scope .gle-author-chip:not(.dark) {
     padding: 0;
-    gap: 7px;
     background: transparent;
     border: 0;
     backdrop-filter: none;
     color: var(--gle-ink);
   }
+  .gle-scope.gle-scope .gle-author-chip.dark { padding: 3px 11px 3px 3px; }
   .gle-scope.gle-scope .gle-author-avatar { width: 22px; height: 22px; font-size: 10px; }
   .gle-scope.gle-scope .gle-author-id { display: flex; align-items: baseline; gap: 5px; }
   .gle-scope.gle-scope .gle-author-name { font-size: 13px; font-weight: 600; }
@@ -983,13 +991,11 @@
     font-weight: 400;
     letter-spacing: 0;
     text-transform: none;
-    opacity: 0.5;
+    opacity: 0.6;
   }
   .gle-scope.gle-scope .gle-hero-content .gle-dot { width: 3px; height: 3px; opacity: 0.35; }
 
-  /* Tinted fills, iOS's own button style: the accent at low alpha with
-     accent text. Sets BOTH colours explicitly — the inherited pair was
-     a white fill with near-white text once the guide's theme went dark. */
+  /* Size for every hero; colour only for the flat ones. */
   .gle-scope.gle-scope .gle-hero-actions { gap: 8px; }
   .gle-scope.gle-scope .gle-pill-cta,
   .gle-scope.gle-scope .gle-pill-ghost {
@@ -999,12 +1005,22 @@
     font-size: 13.5px;
     font-weight: 600;
     letter-spacing: -0.01em;
+  }
+  /* Tinted fills, iOS's own button style: the accent at low alpha with
+     accent text. Sets BOTH colours explicitly — the inherited pair was a
+     white fill with near-white text once the theme went dark.
+     Flat heroes only: 11% accent over a cover photo is not a button, it
+     is a rumour. Over a photo the pills keep their opaque white / frosted
+     white pair, which is the only thing that survives an arbitrary
+     image behind it. */
+  .gle-scope.gle-scope:is(.hero-minimal, .hero-split) .gle-pill-cta,
+  .gle-scope.gle-scope:is(.hero-minimal, .hero-split) .gle-pill-ghost {
     border: 0;
     background: var(--gle-ios-tint);
     color: var(--gle-accent);
     backdrop-filter: none;
   }
-  .gle-scope.gle-scope .gle-pill-cta.is-on {
+  .gle-scope.gle-scope:is(.hero-minimal, .hero-split) .gle-pill-cta.is-on {
     background: var(--gle-accent);
     color: #fff;
   }
