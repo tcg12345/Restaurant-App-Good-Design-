@@ -88,7 +88,7 @@ export const CityAutocomplete: React.FC<{
           className="absolute left-0 right-0 z-20 overflow-hidden"
           style={
             wizard
-              ? { top: 'calc(100% + 8px)', borderRadius: 15, background: 'var(--ob-card)', border: `1.5px solid ${OB.BORDER}`, boxShadow: '0 16px 40px rgba(40,24,14,0.14)' }
+              ? { top: 'calc(100% + 8px)', borderRadius: 16, background: 'var(--ob-card)', border: `1px solid ${OB.BORDER}`, boxShadow: '0 16px 40px rgba(0,0,0,0.12)' }
               : { top: 'calc(100% + 6px)', borderRadius: 16, background: 'var(--color-surface, #fff)', border: '1px solid rgba(0,0,0,0.06)', boxShadow: '0 16px 40px rgba(0,0,0,0.12)' }
           }
         >

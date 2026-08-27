@@ -151,7 +151,7 @@ export const VerificationApply: React.FC = () => {
                 placeholder="James Beard nominee 2024 · Featured in Eater NY…"
                 rows={3}
                 className="w-full rounded-2xl border px-4 py-3 text-[15px] focus:outline-none resize-none"
-                style={{ background: 'var(--ob-field-bg, rgba(255,255,255,0.7))', borderColor: OB.BORDER, color: OB.INK }}
+                style={{ background: 'var(--ob-field)', borderColor: OB.BORDER, color: OB.INK }}
               />
             </div>
           </div>
@@ -215,7 +215,7 @@ export const VerificationApply: React.FC = () => {
               rows={6}
               autoFocus={!phoneMode}
               className="w-full rounded-2xl border px-4 py-3 text-[15px] leading-relaxed focus:outline-none resize-none"
-              style={{ background: 'var(--ob-field-bg, rgba(255,255,255,0.7))', borderColor: OB.BORDER, color: OB.INK }}
+              style={{ background: 'var(--ob-field)', borderColor: OB.BORDER, color: OB.INK }}
             />
             <p className="text-[12px]" style={{ color: OB.LABEL_GREY }}>{form.statement.trim().length}/20 characters minimum</p>
           </div>

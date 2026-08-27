@@ -91,6 +91,8 @@ export const ProfileSetup: React.FC = () => {
   const navigate = useNavigate();
   // Mobile wizard state (unused by desktop, but hooks must be unconditional).
   const [pStep, setPStep] = useState(0);
+  // +1 forward, -1 back — the step slide matches travel direction.
+  const [dir, setDir] = useState(1);
   const [screen, setScreen] = useState<'wizard' | 'done'>('wizard');
   // Taste answers (the wizard's cold-start priors — see TasteSteps.tsx).
   // Seeded from the pre-auth flow's local mirror when it ran: those
@@ -370,6 +372,7 @@ export const ProfileSetup: React.FC = () => {
 
   const next = () => {
     setError('');
+    setDir(1);
     if (stepKey === 'handle') {
       if (!username.trim()) { setError('Please choose a username'); return; }
       if (!usernameValid) { setError('Username must be 3+ letters, numbers, or underscores'); return; }
@@ -418,27 +421,41 @@ export const ProfileSetup: React.FC = () => {
   const back = () => {
     setError('');
     if (pStep <= 0) { void signOut(); return; }
+    setDir(-1);
     setPStep((p) => p - 1);
   };
 
   if (screen === 'done') {
     return (
       <OB.OnboardingScreen glow="center">
-        <motion.div
-          initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.35, ease: [0.22, 1, 0.36, 1] }}
-          className="flex flex-1 flex-col items-center text-center" style={{ paddingTop: 40 }}
-        >
-          <div className="flex items-center justify-center" style={{ width: 88, height: 88, borderRadius: '50%', background: OB.TERRA, boxShadow: '0 14px 34px rgba(166,55,29,0.32)' }}>
-            <svg width="42" height="42" viewBox="0 0 44 44" fill="none"><path d="M11 23l7 7 15-16" stroke="#fff" strokeWidth="3.4" strokeLinecap="round" strokeLinejoin="round" /></svg>
-          </div>
-          <div style={{ marginTop: 26 }}><OB.Title>You're all set</OB.Title></div>
-          <p style={{ fontSize: 15.5, lineHeight: 1.55, color: OB.SECONDARY, margin: '12px 0 0', maxWidth: 280 }}>
-            Welcome aboard, <span style={{ color: OB.TERRA, fontWeight: 600 }}>{handle}</span>. Your canvas is ready — let's find something worth the trip.
-          </p>
-          <div style={{ marginTop: 'auto', paddingTop: 34, width: '100%' }}>
+        <div className="flex flex-1 flex-col items-center text-center" style={{ paddingTop: 48 }}>
+          <motion.div
+            initial={{ opacity: 0, scale: 0.5 }}
+            animate={{ opacity: 1, scale: 1 }}
+            transition={OB.SPRING_SOFT}
+            className="flex items-center justify-center"
+            style={{ width: 88, height: 88, borderRadius: '50%', background: OB.TERRA, boxShadow: '0 16px 36px -10px color-mix(in srgb, var(--ob-terra) 55%, transparent)' }}
+          >
+            <svg width="42" height="42" viewBox="0 0 44 44" fill="none">
+              <motion.path
+                d="M11 23l7 7 15-16"
+                stroke="#fff" strokeWidth="3.4" strokeLinecap="round" strokeLinejoin="round"
+                initial={{ pathLength: 0 }}
+                animate={{ pathLength: 1 }}
+                transition={{ duration: 0.45, delay: 0.18, ease: OB.EASE }}
+              />
+            </svg>
+          </motion.div>
+          <OB.Reveal blur i={1} style={{ marginTop: 26 }}><OB.Title>You're all set</OB.Title></OB.Reveal>
+          <OB.Reveal i={2}>
+            <p style={{ fontSize: 15.5, lineHeight: 1.55, color: OB.SECONDARY, margin: '12px 0 0', maxWidth: 280 }}>
+              Welcome aboard, <span style={{ color: OB.TERRA, fontWeight: 600 }}>{handle}</span>. Let's find something worth the trip.
+            </p>
+          </OB.Reveal>
+          <OB.Reveal i={3} style={{ marginTop: 'auto', paddingTop: 34, width: '100%' }}>
             <OB.PrimaryButton onClick={() => { void refreshProfile(); }}>Start exploring</OB.PrimaryButton>
-          </div>
-        </motion.div>
+          </OB.Reveal>
+        </div>
       </OB.OnboardingScreen>
     );
   }
@@ -447,36 +464,32 @@ export const ProfileSetup: React.FC = () => {
     <OB.OnboardingScreen>
       <OB.ProgressHeader step={offset + pStep + 1} total={total} onBack={back} />
       <div className="flex flex-1 flex-col">
-        <AnimatePresence mode="wait" initial={false}>
+        <AnimatePresence mode="wait" initial={false} custom={dir}>
           <motion.div
             key={stepKey}
-            initial={{ opacity: 0, x: 16 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -16 }}
-            transition={{ duration: 0.24, ease: [0.22, 1, 0.36, 1] }}
+            custom={dir}
+            variants={{
+              enter: (d: number) => ({ opacity: 0, x: 24 * d }),
+              center: { opacity: 1, x: 0 },
+              exit: (d: number) => ({ opacity: 0, x: -20 * d }),
+            }}
+            initial="enter" animate="center" exit="exit"
+            transition={OB.SPRING}
             className="flex flex-1 flex-col"
           >
             {stepKey === 'name' && (
               <div className="flex flex-1 flex-col">
-                <div style={{ marginTop: 46 }}>
-                  <OB.Eyebrow>About you</OB.Eyebrow>
-                  <div style={{ marginTop: 13 }}><OB.Title size={33}>What should we call you?</OB.Title></div>
-                  <OB.Subtitle>This is the name friends will see on your profile.</OB.Subtitle>
-                </div>
-                <div style={{ marginTop: 32 }}>
-                  <OB.FieldLabel>Your name</OB.FieldLabel>
+                <OB.StepHeader title="What should we call you?" subtitle="The name friends see on your profile." />
+                <OB.Reveal i={2} style={{ marginTop: 30 }}>
                   <OB.Field value={displayName} onChange={setDisplayName} placeholder="Jane Doe" icon={<User size={17} strokeWidth={1.6} />} autoFocus autoComplete="name" autoCapitalize="words" onSubmit={next} />
-                </div>
+                </OB.Reveal>
               </div>
             )}
 
             {stepKey === 'handle' && (
               <div className="flex flex-1 flex-col">
-                <div style={{ marginTop: 46 }}>
-                  <OB.Eyebrow>Your handle</OB.Eyebrow>
-                  <div style={{ marginTop: 13 }}><OB.Title size={33}>Claim your @</OB.Title></div>
-                  <OB.Subtitle>Your one-of-a-kind handle on Gourmet Canvas.</OB.Subtitle>
-                </div>
-                <div style={{ marginTop: 32 }}>
-                  <OB.FieldLabel>Username</OB.FieldLabel>
+                <OB.StepHeader title="Claim your @" />
+                <OB.Reveal i={1} style={{ marginTop: 30 }}>
                   <OB.Field value={username} onChange={(v) => { setUsername(v.replace(/\s/g, '').replace(/[^a-zA-Z0-9_]/g, '')); setError(''); }} placeholder="username" prefix="@" autoFocus autoComplete="username" autoCapitalize="off" onSubmit={next} />
                   <div className="flex items-center justify-between" style={{ marginTop: 11 }}>
                     <div style={{ fontSize: 13.5, color: 'var(--ob-label)' }}>Your handle: <span style={{ color: OB.TERRA, fontWeight: 600 }}>{handle}</span></div>
@@ -498,66 +511,62 @@ export const ProfileSetup: React.FC = () => {
                     )}
                   </div>
                   {error && <OB.ErrorRow>{error}</OB.ErrorRow>}
-                </div>
+                </OB.Reveal>
                 {/* Visibility used to be a whole screen of its own. Asking
                     someone with zero content who may see it is abstract, and
                     the answer is better collected at the first publish — but
                     it stays visible here as one line, because a social app
                     silently defaulting this would be worse than a screen. */}
-                <div
-                  className="flex items-center justify-between rounded-2xl"
-                  style={{ marginTop: 22, padding: '13px 16px', background: 'var(--ob-card)', border: '1.5px solid var(--ob-border)' }}
-                >
-                  <span className="min-w-0 flex-1" style={{ paddingRight: 12 }}>
-                    <span className="block" style={{ fontSize: 14.5, fontWeight: 600, color: 'var(--ob-ink)' }}>
-                      {isPublic ? 'Public account' : 'Private account'}
-                    </span>
-                    <span className="block" style={{ fontSize: 12, marginTop: 2, lineHeight: 1.35, color: 'var(--ob-label)' }}>
-                      {isPublic
-                        ? 'Anyone can follow you and see your ratings.'
-                        : 'Only people you approve can see your activity.'}
-                    </span>
-                  </span>
-                  <button
-                    type="button"
-                    role="switch"
-                    aria-checked={isPublic}
-                    aria-label={isPublic ? 'Make account private' : 'Make account public'}
-                    onClick={() => { setIsPublic(!isPublic); setVisibilityTouched(true); }}
-                    className="flex-none relative rounded-full transition-colors"
-                    style={{ width: 46, height: 28, background: isPublic ? OB.TERRA : 'var(--ob-border)' }}
+                <OB.Reveal i={2}>
+                  <div
+                    className="flex items-center justify-between rounded-2xl"
+                    style={{ marginTop: 22, padding: '13px 16px', background: 'var(--ob-card)', border: '1px solid var(--ob-border)', boxShadow: '0 1px 2px rgba(0,0,0,0.03)' }}
                   >
-                    <span
-                      className="absolute rounded-full bg-white transition-all"
-                      style={{ top: 3, left: isPublic ? 21 : 3, width: 22, height: 22, boxShadow: '0 1px 3px rgba(0,0,0,0.2)' }}
-                    />
-                  </button>
-                </div>
+                    <span className="min-w-0 flex-1" style={{ paddingRight: 12 }}>
+                      <span className="block" style={{ fontSize: 14.5, fontWeight: 600, color: 'var(--ob-ink)' }}>
+                        {isPublic ? 'Public account' : 'Private account'}
+                      </span>
+                      <span className="block" style={{ fontSize: 12, marginTop: 2, lineHeight: 1.35, color: 'var(--ob-label)' }}>
+                        {isPublic
+                          ? 'Anyone can follow you and see your ratings.'
+                          : 'Only people you approve can see your activity.'}
+                      </span>
+                    </span>
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={isPublic}
+                      aria-label={isPublic ? 'Make account private' : 'Make account public'}
+                      onClick={() => { setIsPublic(!isPublic); setVisibilityTouched(true); }}
+                      className="flex-none relative rounded-full border-none cursor-pointer transition-colors"
+                      style={{ width: 46, height: 28, background: isPublic ? OB.TERRA : 'var(--ob-radio-ring)' }}
+                    >
+                      <motion.span
+                        className="absolute rounded-full bg-white"
+                        initial={false}
+                        animate={{ left: isPublic ? 21 : 3 }}
+                        transition={OB.SPRING}
+                        style={{ top: 3, width: 22, height: 22, boxShadow: '0 1px 3px rgba(0,0,0,0.2)' }}
+                      />
+                    </button>
+                  </div>
+                </OB.Reveal>
               </div>
             )}
 
             {stepKey === 'city' && (
               <div className="flex flex-1 flex-col">
-                <div style={{ marginTop: 46 }}>
-                  <OB.Eyebrow>Location</OB.Eyebrow>
-                  <div style={{ marginTop: 13 }}><OB.Title size={33}>Where do you eat?</OB.Title></div>
-                  <OB.Subtitle>We'll surface the tables nearest you. Change it anytime.</OB.Subtitle>
-                </div>
-                <div style={{ marginTop: 32 }}>
-                  <OB.FieldLabel>Home city</OB.FieldLabel>
+                <OB.StepHeader title="Where do you eat?" subtitle="We'll surface tables near you — change it anytime." />
+                <OB.Reveal i={2} style={{ marginTop: 30 }}>
                   <CityAutocomplete value={homeCity} onChange={(v) => { setHomeCity(v); setHomeGeo(null); }} onPick={setHomeGeo} onSubmit={next} />
-                </div>
+                </OB.Reveal>
               </div>
             )}
 
             {stepKey === 'cuisines' && (
               <div className="flex flex-1 flex-col">
-                <div style={{ marginTop: 46 }}>
-                  <OB.Eyebrow>Your taste</OB.Eyebrow>
-                  <div style={{ marginTop: 13 }}><OB.Title size={33}>Which cuisines do you love?</OB.Title></div>
-                  <OB.Subtitle>Pick a few — your first recommendations start here.</OB.Subtitle>
-                </div>
-                <div style={{ marginTop: 28 }}>
+                <OB.StepHeader title="Which cuisines do you love?" subtitle="Pick as many as you like." />
+                <div style={{ marginTop: 26 }}>
                   <TastePillGrid
                     options={TASTE_CUISINES.map((c) => ({ id: c, label: c }))}
                     selected={cuisineSel}
@@ -569,12 +578,8 @@ export const ProfileSetup: React.FC = () => {
 
             {stepKey === 'prices' && (
               <div className="flex flex-1 flex-col">
-                <div style={{ marginTop: 46 }}>
-                  <OB.Eyebrow>Your taste</OB.Eyebrow>
-                  <div style={{ marginTop: 13 }}><OB.Title size={33}>What do you usually spend?</OB.Title></div>
-                  <OB.Subtitle>So a special-occasion palate gets special-occasion picks.</OB.Subtitle>
-                </div>
-                <div style={{ marginTop: 28 }}>
+                <OB.StepHeader title="What do you usually spend?" />
+                <div style={{ marginTop: 26 }}>
                   <TastePillGrid
                     options={TASTE_PRICES.map((t) => ({ id: String(t.tier), label: t.label, sub: t.sub }))}
                     selected={priceSel.map(String)}
@@ -589,12 +594,8 @@ export const ProfileSetup: React.FC = () => {
 
             {stepKey === 'atmosphere' && (
               <div className="flex flex-1 flex-col">
-                <div style={{ marginTop: 46 }}>
-                  <OB.Eyebrow>Your taste</OB.Eyebrow>
-                  <div style={{ marginTop: 13 }}><OB.Title size={33}>Your ideal atmosphere?</OB.Title></div>
-                  <OB.Subtitle>The room matters as much as the plate.</OB.Subtitle>
-                </div>
-                <div style={{ marginTop: 24 }}>
+                <OB.StepHeader title="Your ideal atmosphere?" />
+                <div style={{ marginTop: 22 }}>
                   <AtmosphereGrid selected={atmosphere} onSelect={setAtmosphere} />
                 </div>
               </div>
@@ -602,40 +603,31 @@ export const ProfileSetup: React.FC = () => {
 
             {stepKey === 'import' && (
               <div className="flex flex-1 flex-col">
-                <div style={{ marginTop: 46 }}>
-                  <OB.Eyebrow>Your ratings</OB.Eyebrow>
-                  <div style={{ marginTop: 13 }}><OB.Title size={33}>Already rank restaurants somewhere?</OB.Title></div>
-                  <OB.Subtitle>Screenshot your Beli list and we'll read every place and every score — your rankings start where you left off.</OB.Subtitle>
-                </div>
-                <div style={{ marginTop: 26 }}>
+                <OB.StepHeader
+                  title="Already rank restaurants somewhere?"
+                  subtitle="Screenshot your Beli list — we'll read every place and every score."
+                />
+                <OB.Reveal i={2} style={{ marginTop: 26 }}>
                   <ImportStep state={importState} />
-                </div>
+                </OB.Reveal>
               </div>
             )}
 
             {stepKey === 'follow' && (
               <div className="flex flex-1 flex-col">
-                <div style={{ marginTop: 46 }}>
-                  <OB.Eyebrow>Your circle</OB.Eyebrow>
-                  <div style={{ marginTop: 13 }}><OB.Title size={33}>Follow a few tastemakers</OB.Title></div>
-                  <OB.Subtitle>Their ratings, posts, and cooking fill your feed from day one.</OB.Subtitle>
-                </div>
-                <div style={{ marginTop: 24 }}>
+                <OB.StepHeader title="Follow a few tastemakers" subtitle="Their ratings and posts fill your feed from day one." />
+                <OB.Reveal i={2} style={{ marginTop: 24 }}>
                   <FollowRail />
-                </div>
+                </OB.Reveal>
               </div>
             )}
 
             {stepKey === 'rate' && (
               <div className="flex flex-1 flex-col">
-                <div style={{ marginTop: 46 }}>
-                  <OB.Eyebrow>First ratings</OB.Eyebrow>
-                  <div style={{ marginTop: 13 }}><OB.Title size={33}>Rate places you've been</OB.Title></div>
-                  <OB.Subtitle>A few real ratings teach us your taste better than any quiz.</OB.Subtitle>
-                </div>
-                <div style={{ marginTop: 20 }}>
+                <OB.StepHeader title="Rate places you've been" subtitle="A few real ratings beat any quiz." />
+                <OB.Reveal i={2} style={{ marginTop: 20 }}>
                   <RatePlacesStep />
-                </div>
+                </OB.Reveal>
               </div>
             )}
           </motion.div>
@@ -662,7 +654,7 @@ export const ProfileSetup: React.FC = () => {
           })()}
           {stepKey === 'city' && (
             <div style={{ marginTop: 4 }}>
-              <OB.GhostButton onClick={() => { setHomeCity(''); setHomeGeo(null); setError(''); setPStep((p) => p + 1); }}>Skip for now</OB.GhostButton>
+              <OB.GhostButton onClick={() => { setHomeCity(''); setHomeGeo(null); setError(''); setDir(1); setPStep((p) => p + 1); }}>Skip for now</OB.GhostButton>
             </div>
           )}
           {stepKey === 'handle' && (

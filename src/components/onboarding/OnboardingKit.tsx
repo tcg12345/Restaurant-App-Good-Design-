@@ -1,53 +1,78 @@
 /**
- * Onboarding design kit — the warm-cream / terracotta editorial look used
- * across the account-creation flow (Welcome → Create account → 5-step profile
- * wizard → All set, plus Sign in). One cohesive design for every viewport: a
- * centred phone-width column on a cream page with a soft radial glow.
+ * Onboarding design kit — the account-creation flow's primitives, in the
+ * MAIN APP'S design language: clean surface background (white / graphite),
+ * the app serif for headings, terracotta `--color-primary` accents, iOS-
+ * style recessed input fills, capsule buttons, and liquid-glass chrome for
+ * the navigation layer (the back button rides `.glass-control`, exactly
+ * like the app's own top bars).
  *
- * Newsreader (serif) for headings; the app's sans for UI/body. Terracotta
- * accent, 56–58px inputs with a 15px radius and a terracotta focus ring.
+ * Motion: springs from one shared config, and a `Reveal` primitive that
+ * staggers step content in (soft blur on the title, rise + fade on the
+ * rest). Glass stays navigation-only — in-content controls are solid, per
+ * the same doctrine as the rest of the app (see index.css `.glass-control`).
+ *
+ * All colour resolves through the `--ob-*` custom properties in index.css,
+ * which now mirror the app palette and flip with `.dark`.
  */
 import React from 'react';
 import { motion } from 'motion/react';
 import { ArrowLeft, ArrowRight, Check, Loader2 } from 'lucide-react';
 
-/* Colour values resolve through CSS custom properties (defined in index.css)
-   so the whole flow flips with the app's `.dark` class. The light values are
-   the original warm palette; see `--ob-*` in index.css for the dark tones. */
-export const CREAM = 'var(--ob-bg)';
+/* Colour values resolve through CSS custom properties (index.css) so the
+   whole flow flips with the app's `.dark` class. */
+export const CREAM = 'var(--ob-bg)'; // historical name — now the app surface
 export const INK = 'var(--ob-ink)';
 export const SECONDARY = 'var(--ob-secondary)';
 export const LABEL_GREY = 'var(--ob-label)';
 export const BORDER = 'var(--ob-border)';
 export const TERRA = 'var(--ob-terra)';
 export const TERRA_HOVER = 'var(--ob-terra-hover)';
-export const SERIF = '"Newsreader", Georgia, serif';
+export const SERIF = 'var(--font-serif)'; // the app's heading serif
+
+/* ── Motion vocabulary ──────────────────────────────────────────────────── */
+/** The app's arrival curve (--ease-out-strong), as a motion-usable tuple. */
+export const EASE = [0.22, 1, 0.36, 1] as const;
+/** Snappy, no-wobble spring for presses and step slides. */
+export const SPRING = { type: 'spring' as const, stiffness: 420, damping: 38, mass: 0.9 };
+/** Softer spring for things that travel (progress fill, pops). */
+export const SPRING_SOFT = { type: 'spring' as const, stiffness: 260, damping: 30 };
+
+/** Staggered entrance for step content: rise + fade, with an optional soft
+ *  blur-in for the headline. `i` is the stagger slot (0, 1, 2, …). */
+export const Reveal: React.FC<{
+  children: React.ReactNode;
+  i?: number;
+  blur?: boolean;
+  className?: string;
+  style?: React.CSSProperties;
+}> = ({ children, i = 0, blur, className, style }) => (
+  <motion.div
+    className={className}
+    style={style}
+    initial={blur ? { opacity: 0, y: 16, filter: 'blur(6px)' } : { opacity: 0, y: 14 }}
+    animate={blur ? { opacity: 1, y: 0, filter: 'blur(0px)' } : { opacity: 1, y: 0 }}
+    transition={{ duration: 0.55, delay: 0.07 * i, ease: EASE }}
+  >
+    {children}
+  </motion.div>
+);
 
 /* ── Screen wrapper ─────────────────────────────────────────────────────── */
 export const OnboardingScreen: React.FC<{
   children: React.ReactNode;
-  /** Corner glow (most screens) or a centred glow (the success screen). */
+  /** Kept for API compatibility. The page is a clean app surface now — the
+   *  old cream radial glows are gone; depth comes from glass and motion. */
   glow?: 'corner' | 'center';
-}> = ({ children, glow = 'corner' }) => (
+}> = ({ children }) => (
   <div className="relative w-full overflow-hidden" style={{ minHeight: '100dvh', background: CREAM, color: INK }}>
     <div
-      className="pointer-events-none absolute inset-x-0 top-0"
-      style={{
-        height: glow === 'center' ? 440 : 340,
-        background:
-          glow === 'center'
-            ? 'radial-gradient(120% 70% at 50% 0%, rgba(214,150,120,0.22), rgba(214,150,120,0) 62%)'
-            : 'radial-gradient(120% 80% at 82% 0%, rgba(214,150,120,0.18), rgba(214,150,120,0) 60%)',
-      }}
-    />
-    <div
-      className="relative z-10 mx-auto flex w-full max-w-[420px] flex-col"
+      className="relative z-10 mx-auto flex w-full max-w-[430px] flex-col"
       style={{
         minHeight: '100dvh',
-        paddingTop: 'max(56px, calc(env(safe-area-inset-top) + 28px))',
+        paddingTop: 'max(54px, calc(env(safe-area-inset-top) + 26px))',
         paddingBottom: 'max(28px, env(safe-area-inset-bottom))',
-        paddingLeft: 26,
-        paddingRight: 26,
+        paddingLeft: 24,
+        paddingRight: 24,
       }}
     >
       {children}
@@ -59,30 +84,50 @@ export const OnboardingScreen: React.FC<{
 export const BrandMark: React.FC<{ size?: number }> = ({ size = 54 }) => (
   <div
     className="flex items-center justify-center"
-    style={{ width: size, height: size, borderRadius: '50%', background: TERRA, boxShadow: '0 8px 20px rgba(166,55,29,0.30)' }}
+    style={{
+      width: size, height: size, borderRadius: '50%', background: TERRA,
+      boxShadow: '0 10px 26px -8px color-mix(in srgb, var(--ob-terra) 55%, transparent)',
+    }}
   >
     <span style={{ fontFamily: SERIF, fontStyle: 'italic', fontWeight: 600, fontSize: size * 0.52, color: '#fff', lineHeight: 1 }}>G</span>
   </div>
 );
 
 /* ── Typography ─────────────────────────────────────────────────────────── */
+/** Quiet micro-label. The flows no longer lead with these — headlines carry
+ *  the screen — but form sections and older pages still use it. */
 export const Eyebrow: React.FC<{ children: React.ReactNode }> = ({ children }) => (
-  <div style={{ fontSize: 11, letterSpacing: '1.6px', fontWeight: 700, color: TERRA, textTransform: 'uppercase' }}>{children}</div>
+  <div style={{ fontSize: 11, letterSpacing: '1.4px', fontWeight: 700, color: LABEL_GREY, textTransform: 'uppercase' }}>{children}</div>
 );
 
-export const Title: React.FC<{ children: React.ReactNode; size?: number }> = ({ children, size = 32 }) => (
-  <h1 style={{ fontFamily: SERIF, fontWeight: 600, fontSize: size, lineHeight: 1.04, letterSpacing: '-0.01em', margin: 0 }}>{children}</h1>
+export const Title: React.FC<{ children: React.ReactNode; size?: number }> = ({ children, size = 34 }) => (
+  <h1 style={{ fontFamily: SERIF, fontWeight: 700, fontSize: size, lineHeight: 1.06, letterSpacing: '-0.02em', margin: 0 }}>{children}</h1>
 );
 
 export const Subtitle: React.FC<{ children: React.ReactNode }> = ({ children }) => (
-  <p style={{ fontSize: 15, lineHeight: 1.5, color: SECONDARY, margin: '11px 0 0', maxWidth: 300 }}>{children}</p>
+  <p style={{ fontSize: 15.5, lineHeight: 1.5, color: SECONDARY, margin: '10px 0 0', maxWidth: 320 }}>{children}</p>
+);
+
+/** Step headline + optional one-liner, with the entrance built in: the
+ *  title blurs in first, the subtitle rises after it. */
+export const StepHeader: React.FC<{
+  title: React.ReactNode;
+  subtitle?: React.ReactNode;
+  topGap?: number;
+}> = ({ title, subtitle, topGap = 40 }) => (
+  <div style={{ marginTop: topGap }}>
+    <Reveal blur><Title>{title}</Title></Reveal>
+    {subtitle && <Reveal i={1}><Subtitle>{subtitle}</Subtitle></Reveal>}
+  </div>
 );
 
 export const FieldLabel: React.FC<{ children: React.ReactNode }> = ({ children }) => (
-  <div style={{ fontSize: 10, letterSpacing: '1.4px', fontWeight: 700, color: LABEL_GREY, textTransform: 'uppercase', marginBottom: 9 }}>{children}</div>
+  <div style={{ fontSize: 10.5, letterSpacing: '1.3px', fontWeight: 700, color: LABEL_GREY, textTransform: 'uppercase', marginBottom: 9 }}>{children}</div>
 );
 
 /* ── Inputs ─────────────────────────────────────────────────────────────── */
+/** iOS-style filled field: recessed neutral fill, no hairline at rest, a
+ *  primary ring on focus. */
 export const Field: React.FC<{
   value: string;
   onChange: (v: string) => void;
@@ -122,16 +167,15 @@ export const Field: React.FC<{
       autoCapitalize={autoCapitalize}
       autoCorrect="off"
       inputMode={inputMode}
-      className="w-full rounded-[15px] outline-none transition-all focus:border-[var(--ob-terra)] focus:[box-shadow:0_0_0_4px_var(--ob-focus-ring)]"
+      className="w-full rounded-2xl outline-none transition-all focus:[box-shadow:0_0_0_3.5px_var(--ob-focus-ring)]"
       style={{
-        height: 57,
-        background: 'var(--ob-card)',
-        border: `1.5px solid ${BORDER}`,
+        height: 54,
+        background: 'var(--ob-field)',
+        border: 'none',
         paddingLeft: icon ? 46 : prefix ? 42 : 16,
         paddingRight: rightSlot ? 50 : 16,
         fontSize: 16.5,
         color: INK,
-        boxShadow: '0 1px 2px rgba(40,24,14,0.03)',
       }}
     />
     {rightSlot && <div className="absolute right-2 top-1/2 -translate-y-1/2">{rightSlot}</div>}
@@ -139,6 +183,8 @@ export const Field: React.FC<{
 );
 
 /* ── Buttons ────────────────────────────────────────────────────────────── */
+/** The flow's one solid action: a full-width terracotta capsule, same as
+ *  the app's primary actions, with spring press physics. */
 export const PrimaryButton: React.FC<{
   children: React.ReactNode;
   onClick?: () => void;
@@ -152,9 +198,13 @@ export const PrimaryButton: React.FC<{
     type={type}
     onClick={onClick}
     disabled={disabled || loading}
-    whileTap={!disabled && !loading ? { scale: 0.99 } : undefined}
-    className="w-full flex items-center justify-center gap-2 rounded-[15px] font-semibold cursor-pointer transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
-    style={{ height: 54, border: 'none', background: TERRA, color: '#fff', fontSize: 16, boxShadow: '0 8px 20px rgba(166,55,29,0.26)' }}
+    whileTap={!disabled && !loading ? { scale: 0.97 } : undefined}
+    transition={SPRING}
+    className="w-full flex items-center justify-center gap-2 rounded-full font-semibold cursor-pointer transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+    style={{
+      height: 52, border: 'none', background: TERRA, color: '#fff', fontSize: 16,
+      boxShadow: '0 10px 22px -10px color-mix(in srgb, var(--ob-terra) 60%, transparent)',
+    }}
     onMouseEnter={(e) => { if (!disabled && !loading) (e.currentTarget as HTMLButtonElement).style.background = TERRA_HOVER; }}
     onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = TERRA; }}
   >
@@ -173,7 +223,7 @@ export const GhostButton: React.FC<{ children: React.ReactNode; onClick?: () => 
     type="button"
     onClick={onClick}
     className="w-full flex items-center justify-center gap-2 font-semibold cursor-pointer bg-transparent border-none transition-colors"
-    style={{ height: 50, color: 'var(--ob-ghost)', fontSize: 15 }}
+    style={{ height: 46, color: 'var(--ob-ghost)', fontSize: 15 }}
     onMouseEnter={(e) => ((e.currentTarget as HTMLButtonElement).style.color = INK)}
     onMouseLeave={(e) => ((e.currentTarget as HTMLButtonElement).style.color = 'var(--ob-ghost)')}
   >
@@ -183,18 +233,20 @@ export const GhostButton: React.FC<{ children: React.ReactNode; onClick?: () => 
 );
 
 export const SocialButton: React.FC<{ children: React.ReactNode; icon: React.ReactNode; onClick?: () => void; disabled?: boolean }> = ({ children, icon, onClick, disabled }) => (
-  <button
+  <motion.button
     type="button"
     onClick={onClick}
     disabled={disabled}
-    className="w-full flex items-center justify-center gap-2.5 rounded-[15px] font-semibold cursor-pointer transition-colors disabled:opacity-60"
-    style={{ height: 54, background: 'var(--ob-card)', border: `1.5px solid ${BORDER}`, color: INK, fontSize: 15.5 }}
+    whileTap={!disabled ? { scale: 0.98 } : undefined}
+    transition={SPRING}
+    className="w-full flex items-center justify-center gap-2.5 rounded-full font-semibold cursor-pointer transition-colors disabled:opacity-60"
+    style={{ height: 52, background: 'var(--ob-card)', border: `1px solid ${BORDER}`, color: INK, fontSize: 15.5, boxShadow: '0 1px 2px rgba(0,0,0,0.04)' }}
     onMouseEnter={(e) => { if (!disabled) (e.currentTarget as HTMLButtonElement).style.background = 'var(--ob-card-hover)'; }}
     onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'var(--ob-card)'; }}
   >
     {icon}
     <span>{children}</span>
-  </button>
+  </motion.button>
 );
 
 export const Divider: React.FC<{ children?: React.ReactNode }> = ({ children = 'OR' }) => (
@@ -206,28 +258,43 @@ export const Divider: React.FC<{ children?: React.ReactNode }> = ({ children = '
 );
 
 /* ── Navigation chrome ──────────────────────────────────────────────────── */
+/** Liquid-glass back capsule — the same `.glass-control` material as the
+ *  app's own navigation chrome (native glass on device, the web fallback
+ *  in a browser). */
 export const RoundBackButton: React.FC<{ onClick?: () => void }> = ({ onClick }) => (
-  <button
+  <motion.button
     type="button"
     onClick={onClick}
     aria-label="Back"
-    className="flex items-center justify-center rounded-full cursor-pointer flex-shrink-0 p-0 transition-colors"
-    style={{ width: 40, height: 40, background: 'var(--ob-card)', border: `1.5px solid ${BORDER}` }}
-    onMouseEnter={(e) => ((e.currentTarget as HTMLButtonElement).style.background = 'var(--ob-card-hover)')}
-    onMouseLeave={(e) => ((e.currentTarget as HTMLButtonElement).style.background = 'var(--ob-card)')}
+    whileTap={{ scale: 0.9 }}
+    transition={SPRING}
+    className="glass-control flex items-center justify-center rounded-full cursor-pointer flex-shrink-0 p-0 border-none"
+    style={{ width: 42, height: 42 }}
   >
     <ArrowLeft size={17} strokeWidth={2.2} style={{ color: 'var(--ob-ink-soft)' }} />
-  </button>
+  </motion.button>
 );
 
-/** Back chip + continuous progress bar + "Step N of total". */
+/** Glass back capsule + a slim spring-animated progress track. The bar is
+ *  the progress statement — no "Step N of total" caption. */
 export const ProgressHeader: React.FC<{ step: number; total: number; onBack?: () => void }> = ({ step, total, onBack }) => (
-  <div className="flex items-center gap-3.5">
+  <div className="flex items-center" style={{ gap: 16 }}>
     <RoundBackButton onClick={onBack} />
-    <div className="flex-1 overflow-hidden" style={{ height: 5, borderRadius: 3, background: 'var(--ob-divider)' }}>
-      <div style={{ height: '100%', borderRadius: 3, background: TERRA, width: `${Math.min(100, (step / total) * 100)}%`, transition: 'width .3s ease' }} />
+    <div
+      className="flex-1 overflow-hidden"
+      role="progressbar"
+      aria-valuemin={0}
+      aria-valuemax={total}
+      aria-valuenow={step}
+      style={{ height: 4, borderRadius: 2, background: 'var(--ob-divider)' }}
+    >
+      <motion.div
+        style={{ height: '100%', borderRadius: 2, background: TERRA }}
+        initial={false}
+        animate={{ width: `${Math.min(100, (step / total) * 100)}%` }}
+        transition={SPRING_SOFT}
+      />
     </div>
-    <span className="flex-shrink-0" style={{ fontSize: 12, fontWeight: 600, color: LABEL_GREY }}>Step {step} of {total}</span>
   </div>
 );
 
@@ -254,30 +321,39 @@ export const RadioCard: React.FC<{
   title: React.ReactNode;
   description: string;
 }> = ({ selected, onClick, title, description }) => (
-  <div
+  <motion.div
     onClick={onClick}
     role="button"
     tabIndex={0}
     onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick(); } }}
+    whileTap={{ scale: 0.985 }}
+    transition={SPRING}
     className="flex items-start gap-3.5 cursor-pointer transition-colors"
     style={{
-      borderRadius: 18,
-      padding: '17px 18px',
+      borderRadius: 16,
+      padding: '16px 17px',
       border: `1.5px solid ${selected ? TERRA : BORDER}`,
       background: selected ? 'var(--ob-radio-selected)' : 'var(--ob-card)',
     }}
   >
     <span
       className="flex items-center justify-center flex-shrink-0"
-      style={{ width: 24, height: 24, borderRadius: '50%', marginTop: 1, background: selected ? TERRA : 'transparent', border: selected ? 'none' : '2px solid var(--ob-radio-ring)' }}
+      style={{ width: 24, height: 24, borderRadius: '50%', marginTop: 1, background: selected ? TERRA : 'transparent', border: selected ? 'none' : '2px solid var(--ob-radio-ring)', transition: 'background .18s var(--ease-out-strong)' }}
     >
-      {selected && <span style={{ width: 9, height: 9, borderRadius: '50%', background: '#fff' }} />}
+      {selected && (
+        <motion.span
+          initial={{ scale: 0 }}
+          animate={{ scale: 1 }}
+          transition={SPRING_SOFT}
+          style={{ width: 9, height: 9, borderRadius: '50%', background: '#fff' }}
+        />
+      )}
     </span>
     <div className="flex-1 min-w-0">
       <div style={{ fontSize: 16, fontWeight: 600, color: INK }}>{title}</div>
       <div style={{ fontSize: 13, color: 'var(--ob-secondary)', marginTop: 3, lineHeight: 1.45 }}>{description}</div>
     </div>
-  </div>
+  </motion.div>
 );
 
 /* ── Social glyphs ──────────────────────────────────────────────────────── */
@@ -290,8 +366,14 @@ export const GoogleGlyph: React.FC = () => (
 
 /** Inline error row (red, with a small circle-i). */
 export const ErrorRow: React.FC<{ children: React.ReactNode }> = ({ children }) => (
-  <div className="flex items-center gap-1.5" style={{ marginTop: 9, color: 'var(--ob-error)', fontSize: 13, fontWeight: 500 }}>
+  <motion.div
+    initial={{ opacity: 0, y: -4 }}
+    animate={{ opacity: 1, y: 0 }}
+    transition={{ duration: 0.25, ease: EASE }}
+    className="flex items-center gap-1.5"
+    style={{ marginTop: 9, color: 'var(--ob-error)', fontSize: 13, fontWeight: 500 }}
+  >
     <svg width="14" height="14" viewBox="0 0 16 16" fill="none" className="flex-shrink-0"><circle cx="8" cy="8" r="6.5" stroke="var(--ob-error)" strokeWidth="1.4" /><path d="M8 4.6v4M8 11.1v.05" stroke="var(--ob-error)" strokeWidth="1.5" strokeLinecap="round" /></svg>
     <span>{children}</span>
-  </div>
+  </motion.div>
 );

@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { motion, AnimatePresence } from 'motion/react';
 import { Check, Search, Star } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import * as OB from './OnboardingKit';
@@ -48,78 +49,112 @@ export const TASTE_ATMOSPHERES: Array<{ id: string; label: string; image: string
   { id: 'rustic', label: 'Rustic & Organic', image: 'https://images.unsplash.com/photo-1414235077428-338989a2e8c0?auto=format&fit=crop&q=80&w=400' },
 ];
 
-/** Multi-select chip grid in the wizard's visual language. */
+/** Multi-select chip grid: quiet filled capsules that spring to the accent
+ *  when chosen, with the check popping in. */
 export const TastePillGrid: React.FC<{
   options: Array<{ id: string; label: string; sub?: string }>;
   selected: string[];
   onToggle: (id: string) => void;
 }> = ({ options, selected, onToggle }) => (
   <div className="flex flex-wrap gap-2.5">
-    {options.map((o) => {
+    {options.map((o, idx) => {
       const sel = selected.includes(o.id);
       return (
-        <button
+        <motion.button
           key={o.id}
           type="button"
           onClick={() => onToggle(o.id)}
-          className="inline-flex items-center gap-2 rounded-full transition-colors active:scale-[0.97]"
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.4, delay: 0.12 + Math.min(idx, 12) * 0.022, ease: OB.EASE }}
+          whileTap={{ scale: 0.94 }}
+          className="inline-flex items-center gap-2 rounded-full border-none cursor-pointer"
           style={{
             minHeight: 44,
-            padding: '0 18px',
+            padding: '0 17px',
             fontSize: 14,
             fontWeight: 600,
-            background: sel ? OB.TERRA : 'var(--ob-card)',
+            background: sel ? OB.TERRA : 'var(--ob-pill-bg)',
             color: sel ? '#fff' : 'var(--ob-ink)',
-            border: sel ? '1px solid transparent' : '1.5px solid var(--ob-border)',
+            transition: 'background .18s var(--ease-out-strong), color .18s var(--ease-out-strong)',
           }}
         >
           {o.label}
           {o.sub && (
-            <span style={{ fontSize: 12, fontWeight: 500, color: sel ? 'rgba(255,255,255,0.75)' : 'var(--ob-label)' }}>
+            <span style={{ fontSize: 12, fontWeight: 500, color: sel ? 'rgba(255,255,255,0.75)' : 'var(--ob-label)', transition: 'color .18s var(--ease-out-strong)' }}>
               {o.sub}
             </span>
           )}
-          {sel && <Check size={14} strokeWidth={2.6} />}
-        </button>
+          <AnimatePresence>
+            {sel && (
+              <motion.span
+                className="inline-flex"
+                initial={{ scale: 0, width: 0 }}
+                animate={{ scale: 1, width: 14 }}
+                exit={{ scale: 0, width: 0 }}
+                transition={OB.SPRING_SOFT}
+              >
+                <Check size={14} strokeWidth={2.6} />
+              </motion.span>
+            )}
+          </AnimatePresence>
+        </motion.button>
       );
     })}
   </div>
 );
 
-/** Single-select photo grid for the atmosphere question. No auto-advance —
- *  the wizard's shared Continue button moves forward, so the answer is
- *  committed state by the time anything reads it (the standalone page's
- *  auto-advance saved from a stale closure and dropped the answer). */
+/** Single-select photo grid for the atmosphere question. The label rides a
+ *  liquid-glass capsule over the photo — glass over content, where it
+ *  actually reads as a material. No auto-advance — the wizard's shared
+ *  Continue button moves forward, so the answer is committed state by the
+ *  time anything reads it. */
 export const AtmosphereGrid: React.FC<{
   selected: string | null;
   onSelect: (id: string) => void;
 }> = ({ selected, onSelect }) => (
   <div className="grid grid-cols-2 gap-3">
-    {TASTE_ATMOSPHERES.map((o) => (
-      <button
+    {TASTE_ATMOSPHERES.map((o, idx) => (
+      <motion.button
         key={o.id}
         type="button"
         onClick={() => onSelect(o.id)}
+        initial={{ opacity: 0, y: 14, scale: 0.97 }}
+        animate={{ opacity: 1, y: 0, scale: 1 }}
+        transition={{ duration: 0.45, delay: 0.12 + idx * 0.06, ease: OB.EASE }}
+        whileTap={{ scale: 0.97 }}
         className={cn(
-          'relative aspect-square rounded-3xl overflow-hidden transition-all duration-200 active:scale-[0.98]',
-          selected === o.id && 'ring-[3px] ring-offset-2',
+          'relative aspect-square rounded-3xl overflow-hidden border-none p-0 cursor-pointer transition-shadow duration-200',
+          selected === o.id && 'ring-[2.5px] ring-offset-2',
         )}
         style={selected === o.id ? { ['--tw-ring-color' as string]: OB.TERRA, ['--tw-ring-offset-color' as string]: 'var(--ob-bg)' } : undefined}
       >
         <img src={o.image} alt={o.label} className="absolute inset-0 h-full w-full object-cover" referrerPolicy="no-referrer" />
-        <span className="absolute inset-0" style={{ background: 'linear-gradient(to top, rgba(0,0,0,0.72), rgba(0,0,0,0.06))' }} />
-        <span className="absolute left-4 right-4 bottom-3.5 text-left font-serif font-bold text-white" style={{ fontSize: 16, lineHeight: 1.15 }}>
-          {o.label}
-        </span>
-        {selected === o.id && (
-          <span
-            className="absolute top-3 right-3 w-8 h-8 rounded-full flex items-center justify-center text-white shadow-lg"
-            style={{ background: OB.TERRA }}
-          >
-            <Check size={16} strokeWidth={2.6} />
+        {/* Just enough shading for the glass capsule to sit on. */}
+        <span className="absolute inset-0" style={{ background: 'linear-gradient(to top, rgba(0,0,0,0.34), rgba(0,0,0,0.02) 55%)' }} />
+        <span
+          className="glass-control absolute left-2 right-2 bottom-2 rounded-full text-left"
+          style={{ padding: '7px 11px' }}
+        >
+          <span className="block truncate font-semibold" style={{ fontSize: 11.5, lineHeight: 1.2, letterSpacing: '-0.01em', color: 'var(--ob-ink)' }}>
+            {o.label}
           </span>
-        )}
-      </button>
+        </span>
+        <AnimatePresence>
+          {selected === o.id && (
+            <motion.span
+              initial={{ scale: 0.4, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.4, opacity: 0 }}
+              transition={OB.SPRING_SOFT}
+              className="absolute top-2.5 right-2.5 w-8 h-8 rounded-full flex items-center justify-center text-white shadow-lg"
+              style={{ background: OB.TERRA }}
+            >
+              <Check size={16} strokeWidth={2.6} />
+            </motion.span>
+          )}
+        </AnimatePresence>
+      </motion.button>
     ))}
   </div>
 );
@@ -202,13 +237,13 @@ export const RatePlacesStep: React.FC = () => {
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder="Search a restaurant you know…"
-          className="w-full rounded-2xl focus:outline-none"
+          className="w-full rounded-2xl focus:outline-none focus:[box-shadow:0_0_0_3.5px_var(--ob-focus-ring)] transition-all"
           style={{
             padding: '14px 16px 14px 44px',
-            fontSize: 15,
+            fontSize: 16,
             fontWeight: 500,
-            background: 'var(--ob-card)',
-            border: '1.5px solid var(--ob-border)',
+            background: 'var(--ob-field)',
+            border: 'none',
             color: 'var(--ob-ink)',
           }}
         />
@@ -221,15 +256,22 @@ export const RatePlacesStep: React.FC = () => {
         </div>
       ) : (
         <ul className="space-y-2.5">
-          {results.map((place) => {
+          {results.map((place, idx) => {
             const rated = ratedIds.has(place.id);
             const priceStr = priceLevelToString(place.priceLevel);
             const sub = [cuisineLabel(place), priceStr, extractCityState(place.fullAddress, place.address)]
               .filter(Boolean).join(' · ');
             return (
-              <li key={place.id}>
-                <button
+              <motion.li
+                key={place.id}
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.35, delay: Math.min(idx, 6) * 0.04, ease: OB.EASE }}
+              >
+                <motion.button
                   type="button"
+                  whileTap={{ scale: 0.985 }}
+                  transition={OB.SPRING}
                   onClick={() => openAddRestaurantModal({
                     id: place.id,
                     name: place.name,
@@ -238,8 +280,8 @@ export const RatePlacesStep: React.FC = () => {
                     price: priceStr,
                     address: place.fullAddress || place.address,
                   })}
-                  className="w-full flex items-center gap-3 rounded-2xl text-left active:opacity-80 transition-opacity"
-                  style={{ padding: '12px 16px', background: 'var(--ob-card)', border: '1.5px solid var(--ob-border)' }}
+                  className="w-full flex items-center gap-3 rounded-2xl text-left cursor-pointer"
+                  style={{ padding: '12px 16px', background: 'var(--ob-card)', border: '1px solid var(--ob-border)' }}
                 >
                   <span className="flex-1 min-w-0">
                     <span className="block truncate font-serif font-bold" style={{ fontSize: 15, lineHeight: 1.2, color: 'var(--ob-ink)' }}>{place.name}</span>
@@ -254,8 +296,8 @@ export const RatePlacesStep: React.FC = () => {
                       <Star size={12} strokeWidth={2.6} /> Rate
                     </span>
                   )}
-                </button>
-              </li>
+                </motion.button>
+              </motion.li>
             );
           })}
           {query.trim().length >= 2 && !searching && results.length === 0 && (

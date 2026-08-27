@@ -95,7 +95,7 @@ export async function fetchTastePreview(
   return scoreCandidates(pool, profile, emptySignals(), city, PREVIEW_RADIUS_M, { limit: 6 });
 }
 
-const PreviewCard: React.FC<{ place: ScoredPlace }> = ({ place }) => {
+const PreviewCard: React.FC<{ place: ScoredPlace; index: number }> = ({ place, index }) => {
   const sub = [cuisineLabel(place), priceLevelToString(place.priceLevel)].filter(Boolean).join(' · ');
   // This screen's headline is "built from your answers", so lead with a
   // reason that actually came from them. Google's star count is true but
@@ -103,7 +103,13 @@ const PreviewCard: React.FC<{ place: ScoredPlace }> = ({ place }) => {
   // made a personalization claim it couldn't support.
   const why = place.tasteReasons?.[0] ?? place.reasons?.[0];
   return (
-    <div className="rounded-2xl" style={{ padding: '13px 16px', background: 'var(--ob-card)', border: '1.5px solid var(--ob-border)' }}>
+    <motion.div
+      initial={{ opacity: 0, y: 14 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.45, delay: index * 0.07, ease: OB.EASE }}
+      className="rounded-2xl"
+      style={{ padding: '13px 16px', background: 'var(--ob-card)', border: '1px solid var(--ob-border)', boxShadow: '0 1px 2px rgba(0,0,0,0.03)' }}
+    >
       <div className="flex items-center gap-3">
         <span className="flex-1 min-w-0">
           <span className="block truncate font-serif font-bold" style={{ fontSize: 15.5, lineHeight: 1.2, color: 'var(--ob-ink)' }}>{place.name}</span>
@@ -117,11 +123,11 @@ const PreviewCard: React.FC<{ place: ScoredPlace }> = ({ place }) => {
         )}
       </div>
       {why && (
-        <span className="mt-2 inline-block rounded-full" style={{ padding: '4px 10px', fontSize: 11.5, fontWeight: 600, color: OB.TERRA, background: 'color-mix(in srgb, var(--ob-terra) 10%, transparent)' }}>
+        <span className="mt-2 inline-block rounded-full" style={{ padding: '4px 10px', fontSize: 11.5, fontWeight: 600, color: OB.TERRA, background: 'var(--ob-badge-bg)' }}>
           {why}
         </span>
       )}
-    </div>
+    </motion.div>
   );
 };
 
@@ -132,6 +138,8 @@ export const PreAuthFlow: React.FC<{
   onBrowseAsGuest?: () => void;
 }> = ({ onExit, onBrowseAsGuest }) => {
   const [step, setStep] = useState<PreStep>('welcome');
+  // +1 forward, -1 back — the entrance slide matches travel direction.
+  const [dir, setDir] = useState(1);
   const [cuisineSel, setCuisineSel] = useState<string[]>([]);
   const [priceSel, setPriceSel] = useState<number[]>([]);
   const [atmosphere, setAtmosphere] = useState<string | null>(null);
@@ -146,9 +154,10 @@ export const PreAuthFlow: React.FC<{
   const idx = ORDER.indexOf(step);
   const go = (next: PreStep) => {
     logOnboardingEvent(`preauth_${step}_done`);
+    setDir(1);
     setStep(next);
   };
-  const back = () => { if (idx > 0) setStep(ORDER[idx - 1]); };
+  const back = () => { if (idx > 0) { setDir(-1); setStep(ORDER[idx - 1]); } };
 
   /** Persist answers to the local mirror (no user yet) — ProfileSetup
    *  reads them back after signup and stamps the row. */
@@ -215,43 +224,44 @@ export const PreAuthFlow: React.FC<{
       {step !== 'welcome' && (
         <OB.ProgressHeader step={idx} total={ORDER.length - 1} onBack={back} />
       )}
-      {/* Keyed div, no AnimatePresence — entrance plays per step and nothing
-          gates on an exit animation completing. */}
+      {/* Keyed div, no AnimatePresence — entrance plays per step (direction-
+          aware) and nothing gates on an exit animation completing. */}
       <motion.div
         key={step}
-        initial={{ opacity: 0, x: 16 }}
+        initial={{ opacity: 0, x: 24 * dir }}
         animate={{ opacity: 1, x: 0 }}
-        transition={{ duration: 0.24, ease: [0.22, 1, 0.36, 1] }}
+        transition={OB.SPRING}
         className="flex flex-1 flex-col"
       >
         {step === 'welcome' && (
           <div className="flex flex-1 flex-col">
-            <div style={{ marginTop: 40 }}><OB.BrandMark size={54} /></div>
+            <motion.div
+              initial={{ opacity: 0, scale: 0.6 }}
+              animate={{ opacity: 1, scale: 1 }}
+              transition={{ ...OB.SPRING_SOFT, delay: 0.05 }}
+              style={{ marginTop: 40 }}
+            >
+              <OB.BrandMark size={56} />
+            </motion.div>
             <div style={{ marginTop: 26 }}>
-              <OB.Title size={34}>Find your next favorite table</OB.Title>
-              <OB.Subtitle>Answer three quick questions and we'll show you where to eat — before you sign up for anything.</OB.Subtitle>
+              <OB.Reveal blur i={1}><OB.Title size={36}>Find your next favorite table</OB.Title></OB.Reveal>
+              <OB.Reveal i={2}><OB.Subtitle>Three quick questions, and we'll show you where to eat.</OB.Subtitle></OB.Reveal>
             </div>
-            <div style={{ marginTop: 'auto', paddingTop: 30 }}>
+            <OB.Reveal i={3} style={{ marginTop: 'auto', paddingTop: 30 }}>
               <OB.PrimaryButton onClick={() => go('cuisines')}>Get started</OB.PrimaryButton>
               <div style={{ marginTop: 4 }}>
                 <OB.GhostButton onClick={() => leave('signin')}>Already have an account? Sign in</OB.GhostButton>
               </div>
               {onBrowseAsGuest && (
-                <div style={{ marginTop: 0 }}>
-                  <OB.GhostButton onClick={() => leave('guest')}>Browse without an account</OB.GhostButton>
-                </div>
+                <OB.GhostButton onClick={() => leave('guest')}>Browse without an account</OB.GhostButton>
               )}
-            </div>
+            </OB.Reveal>
           </div>
         )}
 
         {step === 'cuisines' && (
           <div className="flex flex-1 flex-col">
-            <div style={{ marginTop: 42 }}>
-              <OB.Eyebrow>Your taste</OB.Eyebrow>
-              <div style={{ marginTop: 13 }}><OB.Title size={33}>Which cuisines do you love?</OB.Title></div>
-              <OB.Subtitle>Pick a few — your first recommendations start here.</OB.Subtitle>
-            </div>
+            <OB.StepHeader title="Which cuisines do you love?" subtitle="Pick as many as you like." />
             <div style={{ marginTop: 26 }}>
               <TastePillGrid
                 options={TASTE_CUISINES.map((c) => ({ id: c, label: c }))}
@@ -259,19 +269,15 @@ export const PreAuthFlow: React.FC<{
                 onToggle={(id) => setCuisineSel((prev) => prev.includes(id) ? prev.filter((c) => c !== id) : [...prev, id])}
               />
             </div>
-            <div style={{ marginTop: 'auto', paddingTop: 24 }}>
+            <OB.Reveal i={3} style={{ marginTop: 'auto', paddingTop: 24 }}>
               <OB.PrimaryButton onClick={() => go('prices')}>Continue</OB.PrimaryButton>
-            </div>
+            </OB.Reveal>
           </div>
         )}
 
         {step === 'prices' && (
           <div className="flex flex-1 flex-col">
-            <div style={{ marginTop: 42 }}>
-              <OB.Eyebrow>Your taste</OB.Eyebrow>
-              <div style={{ marginTop: 13 }}><OB.Title size={33}>What do you usually spend?</OB.Title></div>
-              <OB.Subtitle>So a special-occasion palate gets special-occasion picks.</OB.Subtitle>
-            </div>
+            <OB.StepHeader title="What do you usually spend?" />
             <div style={{ marginTop: 26 }}>
               <TastePillGrid
                 options={TASTE_PRICES.map((t) => ({ id: String(t.tier), label: t.label, sub: t.sub }))}
@@ -282,66 +288,52 @@ export const PreAuthFlow: React.FC<{
                 }}
               />
             </div>
-            <div style={{ marginTop: 'auto', paddingTop: 24 }}>
+            <OB.Reveal i={3} style={{ marginTop: 'auto', paddingTop: 24 }}>
               <OB.PrimaryButton onClick={() => go('atmosphere')}>Continue</OB.PrimaryButton>
-            </div>
+            </OB.Reveal>
           </div>
         )}
 
         {step === 'atmosphere' && (
           <div className="flex flex-1 flex-col">
-            <div style={{ marginTop: 42 }}>
-              <OB.Eyebrow>Your taste</OB.Eyebrow>
-              <div style={{ marginTop: 13 }}><OB.Title size={33}>Your ideal atmosphere?</OB.Title></div>
-              <OB.Subtitle>The room matters as much as the plate.</OB.Subtitle>
-            </div>
+            <OB.StepHeader title="Your ideal atmosphere?" />
             <div style={{ marginTop: 22 }}>
               <AtmosphereGrid selected={atmosphere} onSelect={setAtmosphere} />
             </div>
-            <div style={{ marginTop: 'auto', paddingTop: 24 }}>
+            <OB.Reveal i={3} style={{ marginTop: 'auto', paddingTop: 24 }}>
               <OB.PrimaryButton onClick={() => go('city')}>Continue</OB.PrimaryButton>
-            </div>
+            </OB.Reveal>
           </div>
         )}
 
         {step === 'city' && (
           <div className="flex flex-1 flex-col">
-            <div style={{ marginTop: 42 }}>
-              <OB.Eyebrow>Location</OB.Eyebrow>
-              <div style={{ marginTop: 13 }}><OB.Title size={33}>Where do you eat?</OB.Title></div>
-              <OB.Subtitle>We'll pull your first picks from here.</OB.Subtitle>
-            </div>
-            <div style={{ marginTop: 26 }}>
-              <OB.FieldLabel>City</OB.FieldLabel>
+            <OB.StepHeader title="Where do you eat?" subtitle="Your first picks come from here." />
+            <OB.Reveal i={2} style={{ marginTop: 26 }}>
               <CityAutocomplete
                 value={cityText}
                 onChange={(v) => { setCityText(v); setCityGeo(null); }}
                 onPick={(loc) => { setCityText(loc.label); setCityGeo(loc); }}
                 onSubmit={advanceFromCity}
               />
-            </div>
-            <div style={{ marginTop: 'auto', paddingTop: 24 }}>
+            </OB.Reveal>
+            <OB.Reveal i={3} style={{ marginTop: 'auto', paddingTop: 24 }}>
               <OB.PrimaryButton onClick={advanceFromCity}>{cityGeo ? 'Show my picks' : 'Continue'}</OB.PrimaryButton>
               <div style={{ marginTop: 4 }}>
                 <OB.GhostButton onClick={() => { persistAnswers(); go('preview'); }}>Skip for now</OB.GhostButton>
               </div>
-            </div>
+            </OB.Reveal>
           </div>
         )}
 
         {step === 'preview' && (
           <div className="flex flex-1 flex-col">
-            <div style={{ marginTop: 42 }}>
-              <OB.Eyebrow>Made for you</OB.Eyebrow>
-              <div style={{ marginTop: 13 }}>
-                <OB.Title size={33}>{cityGeo ? 'Your first picks' : 'Your taste profile is ready'}</OB.Title>
-              </div>
-              <OB.Subtitle>
-                {cityGeo
-                  ? `Near ${cityGeo.label.split(',')[0]} — built from your answers.`
-                  : 'Save it and we’ll surface tables that fit it, wherever you are.'}
-              </OB.Subtitle>
-            </div>
+            <OB.StepHeader
+              title={cityGeo ? 'Your first picks' : 'Your taste profile is ready'}
+              subtitle={cityGeo
+                ? `Near ${cityGeo.label.split(',')[0]} — built from your answers.`
+                : "Save it and we'll surface tables that fit it, wherever you are."}
+            />
             {cityGeo && (
               <div className="flex flex-col gap-2.5" style={{ marginTop: 22 }}>
                 {preview === null ? (
@@ -349,7 +341,7 @@ export const PreAuthFlow: React.FC<{
                     <div key={i} className="animate-pulse rounded-2xl" style={{ height: 74, background: 'var(--ob-divider)' }} />
                   ))
                 ) : preview.length > 0 ? (
-                  preview.slice(0, 4).map((p) => <PreviewCard key={p.id} place={p} />)
+                  preview.slice(0, 4).map((p, i) => <PreviewCard key={p.id} place={p} index={i} />)
                 ) : (
                   <p style={{ fontSize: 14, lineHeight: 1.5, color: 'var(--ob-label)' }}>
                     We couldn't pull picks for that area just now — your taste profile is saved and ready either way.
@@ -357,17 +349,15 @@ export const PreAuthFlow: React.FC<{
                 )}
               </div>
             )}
-            <div style={{ marginTop: 'auto', paddingTop: 26 }}>
+            <OB.Reveal i={3} style={{ marginTop: 'auto', paddingTop: 26 }}>
               <OB.PrimaryButton onClick={() => leave('signup')} trailing="check">Save my taste profile</OB.PrimaryButton>
               <div style={{ marginTop: 4 }}>
                 <OB.GhostButton onClick={() => leave('signin')}>Already have an account? Sign in</OB.GhostButton>
               </div>
               {onBrowseAsGuest && (
-                <div style={{ marginTop: 0 }}>
-                  <OB.GhostButton onClick={() => leave('guest')}>Browse without an account</OB.GhostButton>
-                </div>
+                <OB.GhostButton onClick={() => leave('guest')}>Browse without an account</OB.GhostButton>
               )}
-            </div>
+            </OB.Reveal>
           </div>
         )}
       </motion.div>

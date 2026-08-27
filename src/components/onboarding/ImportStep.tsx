@@ -1,4 +1,5 @@
 import React, { useCallback, useRef, useState } from 'react';
+import { motion } from 'motion/react';
 import { Check, FileUp, Images, Loader2 } from 'lucide-react';
 import * as OB from './OnboardingKit';
 import { useLists } from '../../contexts/ListsContext';
@@ -155,21 +156,26 @@ const RouteCard: React.FC<{
   filled?: boolean;
   onClick: () => void;
 }> = ({ icon, title, description, filled, onClick }) => (
-  <button
+  <motion.button
     type="button"
     onClick={onClick}
-    className="w-full flex items-center gap-3.5 rounded-2xl text-left active:opacity-85 transition-opacity"
+    whileTap={{ scale: 0.98 }}
+    transition={OB.SPRING}
+    className="w-full flex items-center gap-3.5 rounded-2xl text-left cursor-pointer"
     style={{
       padding: '14px 16px',
       background: filled ? OB.TERRA : 'var(--ob-card)',
-      border: filled ? '1.5px solid transparent' : '1.5px solid var(--ob-border)',
+      border: filled ? '1px solid transparent' : '1px solid var(--ob-border)',
+      boxShadow: filled
+        ? '0 10px 22px -10px color-mix(in srgb, var(--ob-terra) 55%, transparent)'
+        : '0 1px 2px rgba(0,0,0,0.03)',
     }}
   >
     <span
       className="flex-none flex items-center justify-center rounded-full"
       style={{
         width: 38, height: 38,
-        background: filled ? 'rgba(255,255,255,0.18)' : 'color-mix(in srgb, var(--ob-terra) 10%, transparent)',
+        background: filled ? 'rgba(255,255,255,0.18)' : 'var(--ob-badge-bg)',
         color: filled ? '#fff' : OB.TERRA,
       }}
     >
@@ -183,7 +189,7 @@ const RouteCard: React.FC<{
         {description}
       </span>
     </span>
-  </button>
+  </motion.button>
 );
 
 /** Rows shown before importing. Capped, because the wizard's footer sits in
@@ -271,7 +277,7 @@ export const ImportStep: React.FC<{ state: OnboardingImportState }> = ({ state }
                 >Double to /10</button>
                 <button
                   type="button" onClick={() => state.applyScale(false)}
-                  className="rounded-full" style={{ padding: '0 16px', height: 34, fontSize: 12.5, fontWeight: 600, background: 'var(--ob-card)', border: '1.5px solid var(--ob-border)', color: 'var(--ob-ink)' }}
+                  className="rounded-full" style={{ padding: '0 16px', height: 34, fontSize: 12.5, fontWeight: 600, background: 'var(--ob-card)', border: '1px solid var(--ob-border)', color: 'var(--ob-ink)' }}
                 >Keep as-is</button>
               </div>
             </div>
@@ -282,7 +288,7 @@ export const ImportStep: React.FC<{ state: OnboardingImportState }> = ({ state }
               <li
                 key={`${row.restaurant.name}-${i}`}
                 className="flex items-center gap-3 rounded-2xl"
-                style={{ padding: '10px 14px', background: 'var(--ob-card)', border: '1.5px solid var(--ob-border)' }}
+                style={{ padding: '10px 14px', background: 'var(--ob-card)', border: '1px solid var(--ob-border)' }}
               >
                 <span className="flex-1 min-w-0">
                   <span className="block truncate" style={{ fontSize: 14, fontWeight: 600, color: 'var(--ob-ink)' }}>
@@ -297,7 +303,7 @@ export const ImportStep: React.FC<{ state: OnboardingImportState }> = ({ state }
                 ) : row.restaurant.rating !== null ? (
                   <span
                     className="flex-none rounded-full"
-                    style={{ padding: '3px 9px', fontSize: 12, fontWeight: 700, color: OB.TERRA, background: 'color-mix(in srgb, var(--ob-terra) 10%, transparent)' }}
+                    style={{ padding: '3px 9px', fontSize: 12, fontWeight: 700, color: OB.TERRA, background: 'var(--ob-badge-bg)' }}
                   >
                     {clampScore(row.restaurant.rating).toFixed(1)}
                   </span>
@@ -317,12 +323,15 @@ export const ImportStep: React.FC<{ state: OnboardingImportState }> = ({ state }
 
       {state.phase === 'done' && state.summary && (
         <div className="flex flex-col items-center text-center" style={{ paddingTop: 18 }}>
-          <span
+          <motion.span
+            initial={{ scale: 0.4, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            transition={OB.SPRING_SOFT}
             className="flex items-center justify-center rounded-full"
-            style={{ width: 62, height: 62, background: OB.TERRA }}
+            style={{ width: 62, height: 62, background: OB.TERRA, boxShadow: '0 12px 26px -10px color-mix(in srgb, var(--ob-terra) 55%, transparent)' }}
           >
             <Check size={30} strokeWidth={3} color="#fff" />
-          </span>
+          </motion.span>
           <p style={{ fontSize: 19, fontWeight: 700, marginTop: 16, color: 'var(--ob-ink)' }}>
             {state.summary.rated + state.summary.updated + state.summary.wishlisted} places are in your list
           </p>
