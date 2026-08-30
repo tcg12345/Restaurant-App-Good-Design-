@@ -459,6 +459,7 @@ const PhoneSearch: React.FC = () => {
           read-only until the takeover; on Recipes it filters the Recipe
           Box in place. Same capsule, same spot. */}
       <div
+        data-tour="search-field"
         className={cn(
           'absolute inset-x-0 z-50 px-3.5 transition-opacity duration-200',
           locOpen && 'opacity-0 pointer-events-none',

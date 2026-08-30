@@ -157,6 +157,7 @@ export const PhonePantryHome: React.FC<Props> = ({
           />
           <div
             ref={miniSeg.ref}
+            data-tour="pantry-tabs"
             className={cn(
               'relative inline-flex items-center gap-0.5 rounded-full p-[3px]',
               !miniSeg.active && 'glass-control',

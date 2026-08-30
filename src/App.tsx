@@ -75,6 +75,7 @@ import { AiChatHistoryProvider } from './contexts/AiChatHistoryContext';
 import { GuideCreatorSheet } from './components/GuideCreatorSheet';
 import { CirclePanel } from './components/CirclePanel';
 import { AppAssistant } from './components/AppAssistant';
+import { FeatureTour } from './components/FeatureTour';
 import { AppErrorBoundary } from './components/AppErrorBoundary';
 import { SignInModalProvider } from './contexts/SignInModalContext';
 import { RequireAuthRoute } from './components/RequireAuthRoute';
@@ -685,6 +686,10 @@ const AppContent: React.FC = () => {
         )}
       </AnimatePresence>
       {modals}
+      {/* Post-onboarding coachmark tour. Phone layout only: its stops point
+          at phone chrome, and the sidebar layout labels every destination
+          anyway. Arming on desktop keeps the flag for a later phone launch. */}
+      <FeatureTour />
     </div>
   );
 };

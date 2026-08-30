@@ -21,6 +21,7 @@ import { loadLastSelectedLocation } from '../components/HomeLocationBar';
 import { saveTasteQuiz, getTasteQuiz } from '../lib/taste-quiz';
 import { getPreauthCity } from '../lib/preauth';
 import { logOnboardingEvent, markOnboardingStep } from '../lib/onboarding-events';
+import { armFeatureTour } from '../lib/feature-tour';
 
 type StepKey =
   | 'name' | 'handle' | 'city'
@@ -198,7 +199,7 @@ export const ProfileSetup: React.FC = () => {
       // Desktop goes straight into the app: the taste steps are part of the
       // MOBILE wizard (the product's real signup surface). A desktop signup
       // just starts with default priors until they rate.
-      if (res.ok) await refreshProfile();
+      if (res.ok) { armFeatureTour(); await refreshProfile(); }
       else setError(friendlyError(res.error));
       setSubmitting(false);
     };
@@ -211,6 +212,9 @@ export const ProfileSetup: React.FC = () => {
       setSubmitting(true);
       const res = await persistProfile();
       if (res.ok) {
+        // The tour waits for a tab root (FeatureTour START_ROUTES), so it
+        // holds until the verification flow is left, not interrupting it.
+        armFeatureTour();
         navigate('/verify/apply');
         await refreshProfile();
       } else setError(friendlyError(res.error));
@@ -366,6 +370,10 @@ export const ProfileSetup: React.FC = () => {
     const res = await persistProfile();
     setSubmitting(false);
     if (res.ok) {
+      // The tour waits for a tab root (FeatureTour START_ROUTES), so arming
+      // here holds it until the verification form is left rather than
+      // interrupting it.
+      armFeatureTour();
       navigate('/verify/apply');
       void refreshProfile();
     } else setError(friendlyError(res.error));
@@ -420,6 +428,12 @@ export const ProfileSetup: React.FC = () => {
       logOnboardingEvent('wizard_done', user?.id);
       setFinishing(true);
       setSubmitting(true);
+      // Queue the coachmark tour for the tab root they're about to land on
+      // (components/FeatureTour.tsx). It has to be armed BEFORE the refresh:
+      // profileComplete flips synchronously with it and App swaps the wizard
+      // out on the spot, so anything after this call runs on an unmounted
+      // component.
+      armFeatureTour();
       // No "you're done" screen to land on — refreshProfile flips
       // profileComplete, and App swaps this wizard straight for the app.
       void refreshProfile();
