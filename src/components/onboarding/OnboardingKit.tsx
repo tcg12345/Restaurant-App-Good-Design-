@@ -17,6 +17,7 @@
 import React from 'react';
 import { motion } from 'motion/react';
 import { ArrowLeft, ArrowRight, Check, Loader2 } from 'lucide-react';
+import { GlassButton } from '../../lib/glass-buttons';
 
 /* Colour values resolve through CSS custom properties (index.css) so the
    whole flow flips with the app's `.dark` class. */
@@ -58,24 +59,61 @@ export const Reveal: React.FC<{
 );
 
 /* ── Screen wrapper ─────────────────────────────────────────────────────── */
+/** The screen is a fixed-height column, not a min-height one: `children`
+ *  scrolls in its own region while `header` and `footer` sit outside that
+ *  scroll, so the back button/progress bar and the primary action both land
+ *  on the exact same pixel on every step regardless of how much content
+ *  that step has — a short question and a long picked-list put "Continue"
+ *  in the same place, and a step tall enough to need scrolling scrolls
+ *  UNDER a footer (and BENEATH a header) that never move. Pass `footer` on
+ *  every onboarding screen; omitting it falls back to the old
+ *  content-decides-the-bottom layout for any screen not yet moved over. */
 export const OnboardingScreen: React.FC<{
   children: React.ReactNode;
+  header?: React.ReactNode;
+  footer?: React.ReactNode;
   /** Kept for API compatibility. The page is a clean app surface now — the
    *  old cream radial glows are gone; depth comes from glass and motion. */
   glow?: 'corner' | 'center';
-}> = ({ children }) => (
-  <div className="relative w-full overflow-hidden" style={{ minHeight: '100dvh', background: CREAM, color: INK }}>
+}> = ({ children, header, footer }) => (
+  // Without a footer, height stays a MINIMUM: a screen whose content grows
+  // past one viewport (an error row, a reset notice, a keyboard-shrunk
+  // viewport) still needs the page itself to scroll, same as always. Only
+  // a footer screen gets the hard-height + internal-scroll treatment below
+  // — that trade only makes sense once something is actually pinned to it.
+  <div className="relative w-full overflow-hidden" style={footer ? { height: '100dvh', background: CREAM, color: INK } : { minHeight: '100dvh', background: CREAM, color: INK }}>
     <div
       className="relative z-10 mx-auto flex w-full max-w-[430px] flex-col"
       style={{
-        minHeight: '100dvh',
+        ...(footer ? { height: '100dvh' } : { minHeight: '100dvh' }),
         paddingTop: 'max(54px, calc(env(safe-area-inset-top) + 26px))',
-        paddingBottom: 'max(28px, env(safe-area-inset-bottom))',
+        paddingBottom: footer ? 0 : 'max(28px, env(safe-area-inset-bottom))',
         paddingLeft: 24,
         paddingRight: 24,
       }}
     >
-      {children}
+      {footer ? (
+        <>
+          {header && <div className="flex-shrink-0">{header}</div>}
+          {/* min-h-0 overrides the flex-item default of min-height:auto —
+              without it, content taller than the column refuses to shrink
+              and overflow-y-auto never actually scrolls.
+              overflow-x-hidden is NOT redundant: `overflow-y: auto` makes
+              the x axis compute to `auto` too, so the step-change slide
+              (x: ±24 → 0) would flash a real horizontal scrollbar. */}
+          <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden" style={{ paddingBottom: 20 }}>
+            {children}
+          </div>
+          <div className="flex-shrink-0" style={{ paddingBottom: 'max(28px, env(safe-area-inset-bottom))' }}>
+            {footer}
+          </div>
+        </>
+      ) : (
+        <>
+          {header}
+          {children}
+        </>
+      )}
     </div>
   </div>
 );
@@ -258,21 +296,25 @@ export const Divider: React.FC<{ children?: React.ReactNode }> = ({ children = '
 );
 
 /* ── Navigation chrome ──────────────────────────────────────────────────── */
-/** Liquid-glass back capsule — the same `.glass-control` material as the
- *  app's own navigation chrome (native glass on device, the web fallback
- *  in a browser). */
+/** The back capsule — real liquid glass, via the same native handover every
+ *  other back button in the app makes (TopBar, Search, GuideDetail). This
+ *  used to paint `.glass-control` by hand, which is only the FALLBACK
+ *  material: CSS cannot refract, so on a flat onboarding background — where
+ *  there is nothing behind the capsule for `backdrop-filter` to bend — it
+ *  read as a plain dark disc. `GlassButton` registers the box with the
+ *  native layer, which draws a genuine `UIGlassEffect` over it on iOS 26 and
+ *  falls back to the same CSS everywhere else. */
 export const RoundBackButton: React.FC<{ onClick?: () => void }> = ({ onClick }) => (
-  <motion.button
-    type="button"
-    onClick={onClick}
-    aria-label="Back"
-    whileTap={{ scale: 0.9 }}
-    transition={SPRING}
-    className="glass-control flex items-center justify-center rounded-full cursor-pointer flex-shrink-0 p-0 border-none"
+  <GlassButton
+    id="onboarding-back"
+    symbol="arrow.left"
+    label="Back"
+    onClick={() => onClick?.()}
+    className="flex items-center justify-center rounded-full cursor-pointer flex-shrink-0 p-0 border-none active:scale-90 transition-transform"
     style={{ width: 42, height: 42 }}
   >
     <ArrowLeft size={17} strokeWidth={2.2} style={{ color: 'var(--ob-ink-soft)' }} />
-  </motion.button>
+  </GlassButton>
 );
 
 /** Glass back capsule + a slim spring-animated progress track. The bar is

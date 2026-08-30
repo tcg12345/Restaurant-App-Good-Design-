@@ -1665,7 +1665,11 @@ final class GlassActionGroupView: UIView {
             // Template explicitly: a `.custom` button leaves an `.automatic`
             // image alone, and a bookmark that ignores its tint is the saved
             // state failing to show.
-            let image = UIImage(systemName: segment.symbol, withConfiguration: config)?
+            // `app.*` names are the app's own drawn glyphs (see `AppGlyph`),
+            // for marks SF Symbols has no equivalent of — checked first since
+            // `UIImage(systemName:)` returns nil for them anyway.
+            let image = (AppGlyph.named(segment.symbol, pointSize: point)
+                ?? UIImage(systemName: segment.symbol, withConfiguration: config))?
                 .withRenderingMode(.alwaysTemplate)
             button.setImage(image, for: .normal)
             button.tintColor = segment.tint
@@ -2014,6 +2018,94 @@ final class GlassSearchFieldView: UIView, UITextFieldDelegate {
     }
 }
 
+/// Drawn glyphs for glass CONTROLS, rendered at the point size the caller
+/// worked out rather than at a tab bar's fixed 28pt — which is why this is
+/// its own type rather than another case in `GlassTabBar.TabGlyph`.
+///
+/// It exists because SF Symbols has no teardrop map marker. The whole
+/// `mappin`/`pin` family is a PUSHPIN — `mappin` is a stalk with a bead,
+/// `mappin.and.ellipse` adds a base underneath it — and a pushpin is a
+/// different object from the drop-pin every maps UI uses. Drawing the mark
+/// here is what lets a button wear the real lens AND the right icon; going
+/// through `UIImage(systemName:)` alone, it could only have one or the other.
+private enum AppGlyph {
+    /// The box the path below is drawn in, SVG-style with y growing down.
+    private static let box: CGFloat = 24
+
+    static func named(_ name: String, pointSize: CGFloat) -> UIImage? {
+        switch name {
+        case "app.mappin": return mapPin(pointSize: pointSize)
+        case "app.paperplane": return paperPlane(pointSize: pointSize)
+        default: return nil
+        }
+    }
+
+    /// The lucide `MapPin` the web layer draws, transcribed — so the native
+    /// glyph and the CSS fallback are the same mark.
+    private static func mapPin(pointSize: CGFloat) -> UIImage {
+        // SF Symbols lays a glyph out in a box somewhat taller than its point
+        // size; matching that keeps this the same visual weight as the system
+        // symbols on the buttons either side of it.
+        let side = pointSize * 1.42
+        let scale = side / box
+        let cg = CGMutablePath()
+        cg.move(to: CGPoint(x: 4, y: 10))
+        // The head: a half circle of r=8 about (12,10). y grows DOWNWARD in
+        // this box, so sweeping π → 2π passes over the top, not under.
+        cg.addArc(center: CGPoint(x: 12, y: 10), radius: 8,
+                  startAngle: .pi, endAngle: 2 * .pi, clockwise: false)
+        // Down the right flank to the point, then back up the left.
+        cg.addCurve(to: CGPoint(x: 12, y: 21.9),
+                    control1: CGPoint(x: 20, y: 14.99),
+                    control2: CGPoint(x: 14.46, y: 20.19))
+        cg.addCurve(to: CGPoint(x: 4, y: 10),
+                    control1: CGPoint(x: 9.54, y: 20.19),
+                    control2: CGPoint(x: 4, y: 14.99))
+        cg.closeSubpath()
+        // The hollow centre.
+        cg.addEllipse(in: CGRect(x: 9, y: 7, width: 6, height: 6))
+
+        let path = UIBezierPath(cgPath: cg)
+        path.apply(CGAffineTransform(scaleX: scale, y: scale))
+        path.lineWidth = 1.9 * scale
+        path.lineCapStyle = .round
+        path.lineJoinStyle = .round
+        let renderer = UIGraphicsImageRenderer(size: CGSize(width: side, height: side))
+        return renderer.image { _ in
+            UIColor.label.setStroke()
+            path.stroke()
+        }.withRenderingMode(.alwaysTemplate)
+    }
+
+    /// The share glyph the web layer draws (a custom paper plane, not SF
+    /// Symbols' `paperplane`, whose silhouette doesn't match) — transcribed
+    /// so every share button in the app, native or CSS fallback, is the
+    /// same mark.
+    private static func paperPlane(pointSize: CGFloat) -> UIImage {
+        let side = pointSize * 1.42
+        let scale = side / box
+        let cg = CGMutablePath()
+        cg.move(to: CGPoint(x: 20.8, y: 3.2))
+        cg.addLine(to: CGPoint(x: 10.4, y: 13.6))
+        cg.move(to: CGPoint(x: 20.8, y: 3.2))
+        cg.addLine(to: CGPoint(x: 14.3, y: 20.8))
+        cg.addLine(to: CGPoint(x: 10.4, y: 13.6))
+        cg.addLine(to: CGPoint(x: 3.2, y: 9.4))
+        cg.closeSubpath()
+
+        let path = UIBezierPath(cgPath: cg)
+        path.apply(CGAffineTransform(scaleX: scale, y: scale))
+        path.lineWidth = 2 * scale
+        path.lineCapStyle = .round
+        path.lineJoinStyle = .round
+        let renderer = UIGraphicsImageRenderer(size: CGSize(width: side, height: side))
+        return renderer.image { _ in
+            UIColor.label.setStroke()
+            path.stroke()
+        }.withRenderingMode(.alwaysTemplate)
+    }
+}
+
 final class GlassButtonView: UIButton {
     private let icon = UIImageView()
     private let badge = BadgeLabel()
@@ -2172,7 +2264,10 @@ final class GlassButtonView: UIButton {
         let isLabelledPill = !spec.title.isEmpty && spec.titleStyle == "chip"
         let point = isChip ? 13 : isLabelledPill ? 11.5 : max(15, min(22, spec.frame.height * 0.44))
         let symbolConfig = UIImage.SymbolConfiguration(pointSize: point, weight: isLabelledPill ? .bold : .regular)
-        let image = UIImage(systemName: spec.symbol, withConfiguration: symbolConfig)
+        // `app.*` names are the app's own drawn glyphs (see `AppGlyph`), for
+        // marks SF Symbols simply doesn't have. Anything else is a symbol.
+        let image = AppGlyph.named(spec.symbol, pointSize: point)
+            ?? UIImage(systemName: spec.symbol, withConfiguration: symbolConfig)
 
         if spec.title.isEmpty {
             // Icon only. The glyph is ours rather than the configuration's:

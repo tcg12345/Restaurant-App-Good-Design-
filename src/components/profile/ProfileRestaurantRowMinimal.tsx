@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import { SquarePen, ArrowRight, Plus, Bookmark } from 'lucide-react';
@@ -6,6 +6,7 @@ import { cn } from '../../lib/utils';
 import { scoreHex } from '../../lib/score';
 import type { CommunityRating, CommunityPhoto } from '../../lib/supabase-community';
 import { Collapse } from '../Collapse';
+import { PhotoGallery } from '../PhotoGallery';
 
 interface Props {
   rating: CommunityRating;
@@ -55,6 +56,8 @@ export const ProfileRestaurantRowMinimal: React.FC<Props> = ({
   rating, photos, expanded, onToggle, ownerName, compact = false,
   saved = false, onToggleSave,
 }) => {
+  /** Index the full-screen viewer opened at; null = closed. */
+  const [galleryAt, setGalleryAt] = useState<number | null>(null);
   const score = Number(rating.score);
   const hasReview = !!(rating.notes && rating.notes.trim());
   const firstName = (ownerName || '').trim().split(/\s+/)[0] || ownerName;
@@ -134,17 +137,23 @@ export const ProfileRestaurantRowMinimal: React.FC<Props> = ({
               )}
 
               {photos.length > 0 && (
+                /* Buttons into the in-app viewer, not links out. These were
+                   `<a href={p.url} target="_blank">`, so tapping someone's
+                   photo left the app entirely and dumped the raw Supabase
+                   Storage URL into a browser tab — no caption, no swiping to
+                   the next one, no way back but the OS. Same PhotoGallery the
+                   restaurant page opens. */
                 <div className="grid grid-cols-4 md:grid-cols-6 gap-1.5 mt-5 max-w-[560px]">
-                  {photos.slice(0, 6).map((p) => (
-                    <a
+                  {photos.slice(0, 6).map((p, i) => (
+                    <button
                       key={p.id}
-                      href={p.url}
-                      target="_blank"
-                      rel="noreferrer"
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); setGalleryAt(i); }}
+                      aria-label={p.caption || `View photo ${i + 1}`}
                       className="aspect-square rounded-xl overflow-hidden bg-on-surface/[0.05] block hover:scale-[1.02] transition-transform"
                     >
                       <img src={p.url} alt={p.caption || ''} referrerPolicy="no-referrer" className="w-full h-full object-cover" />
-                    </a>
+                    </button>
                   ))}
                 </div>
               )}
@@ -179,6 +188,16 @@ export const ProfileRestaurantRowMinimal: React.FC<Props> = ({
               </div>
             </div>
       </Collapse>
+
+      {galleryAt !== null && (
+        <PhotoGallery
+          photos={photos.map((p) => p.url)}
+          communityPhotos={photos}
+          name={rating.restaurant_name || ''}
+          initialIndex={galleryAt}
+          onClose={() => setGalleryAt(null)}
+        />
+      )}
     </div>
   );
 };

@@ -9,7 +9,8 @@
  */
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
-import { ArrowLeft, Share2, BookOpen, Edit3, EyeOff, Loader2 } from 'lucide-react';
+import { ArrowLeft, BookOpen, Edit3, EyeOff, Loader2 } from 'lucide-react';
+import { ShareIcon } from '../components/icons/ShareIcon';
 import { cn } from '../lib/utils';
 import { useAuth } from '../contexts/AuthContext';
 import { useLists } from '../contexts/ListsContext';
@@ -284,12 +285,12 @@ export const GuideDetail: React.FC = () => {
         )}
         <GlassButton
           id="guide-share"
-          symbol="square.and.arrow.up"
+          symbol="app.paperplane"
           label="Share guide"
           onClick={() => setShareOpen(true)}
           className="hit-44 w-10 h-10 rounded-full flex items-center justify-center text-on-surface active:scale-95 transition-transform"
         >
-          <Share2 size={16} />
+          <ShareIcon size={16} />
         </GlassButton>
       </div>
     </>

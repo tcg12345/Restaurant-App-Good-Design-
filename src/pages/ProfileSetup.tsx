@@ -12,7 +12,7 @@ import { AuthShell, useDesktopAuthLayout } from '../components/AuthShell';
 // original single-form AuthShell design.
 import * as OB from '../components/onboarding/OnboardingKit';
 import {
-  TastePillGrid, AtmosphereGrid, FollowRail, RatePlacesStep,
+  TastePillGrid, CuisineGrid, FollowRail, RatePlacesStep,
   TASTE_CUISINES, TASTE_PRICES,
 } from '../components/onboarding/TasteSteps';
 import { AddRestaurantModal } from '../components/AddRestaurantModal';
@@ -27,7 +27,7 @@ type StepKey =
   // Taste + first-actions steps — one wizard, one progress bar, instead of
   // the separate /onboarding page these lived on. The profile row persists
   // on leaving 'visibility', so a bail-out mid-taste still keeps the account.
-  | 'cuisines' | 'prices' | 'atmosphere' | 'import' | 'follow' | 'rate';
+  | 'cuisines' | 'prices' | 'import' | 'follow' | 'rate';
 
 /**
  * Save failures are shown verbatim to someone in the middle of creating an
@@ -93,7 +93,11 @@ export const ProfileSetup: React.FC = () => {
   const [pStep, setPStep] = useState(0);
   // +1 forward, -1 back — the step slide matches travel direction.
   const [dir, setDir] = useState(1);
-  const [screen, setScreen] = useState<'wizard' | 'done'>('wizard');
+  // Set the instant the wizard's last step completes — App swaps this wizard
+  // out for the main app as soon as refreshProfile lands, so there is no
+  // "you're done" screen of its own to wait on; this just stops abandon
+  // tracking from firing during that brief gap.
+  const [finishing, setFinishing] = useState(false);
   // Taste answers (the wizard's cold-start priors — see TasteSteps.tsx).
   // Seeded from the pre-auth flow's local mirror when it ran: those
   // questions were already answered before the account existed, so the
@@ -105,7 +109,6 @@ export const ProfileSetup: React.FC = () => {
   }));
   const [cuisineSel, setCuisineSel] = useState<string[]>(preauth.answers?.cuisines ?? []);
   const [priceSel, setPriceSel] = useState<number[]>(preauth.answers?.prices ?? []);
-  const [atmosphere, setAtmosphere] = useState<string | null>(preauth.answers?.atmosphere ?? null);
   // The profile row saves once, on leaving 'visibility' — backing up and
   // coming forward again must not re-await a geocode + write.
   const [profileSaved, setProfileSaved] = useState(false);
@@ -131,12 +134,12 @@ export const ProfileSetup: React.FC = () => {
   // desktop layout returns before `steps` is computed, and a hook below
   // that return would change the hook count on a breakpoint resize.
   // Effects run after render, so the ref is already current; pStep and
-  // screen cover every transition. `screen === 'done'` clears it —
-  // finishing is not leaving.
+  // finishing cover every transition. `finishing` clears it — completing
+  // the wizard is not leaving it.
   const stepKeyRef = useRef<string | undefined>(undefined);
   useEffect(() => {
-    markOnboardingStep(screen === 'done' ? null : `wizard_${stepKeyRef.current ?? 'start'}`, user?.id);
-  }, [screen, pStep, user?.id]);
+    markOnboardingStep(finishing ? null : `wizard_${stepKeyRef.current ?? 'start'}`, user?.id);
+  }, [finishing, pStep, user?.id]);
 
   const handle = '@' + (username.toLowerCase() || 'username');
   const usernameValid = username.trim().length >= 3 && /^[a-zA-Z0-9_]+$/.test(username);
@@ -320,8 +323,7 @@ export const ProfileSetup: React.FC = () => {
   // (no pre-auth answers) still get the full set.
   const hasPreauthTaste = !!preauth.answers
     && ((preauth.answers.cuisines?.length ?? 0) > 0
-      || (preauth.answers.prices?.length ?? 0) > 0
-      || !!preauth.answers.atmosphere);
+      || (preauth.answers.prices?.length ?? 0) > 0);
   // Visibility is no longer its own step — it rides on 'handle' as a
   // toggle. Asking a user with zero content who may see it is abstract,
   // and it cost a whole screen at the point the flow can least afford one.
@@ -333,7 +335,7 @@ export const ProfileSetup: React.FC = () => {
     ...(seed.nameFromProvider ? [] : ['name' as const]),
     'handle' as const,
     ...(preauth.city && !profile?.home_city ? [] : ['city' as const]),
-    ...(hasPreauthTaste ? [] : (['cuisines', 'prices', 'atmosphere'] as const)),
+    ...(hasPreauthTaste ? [] : (['cuisines', 'prices'] as const)),
     'import' as const,
     'follow' as const,
     ...(skipRate ? [] : ['rate' as const]),
@@ -346,18 +348,17 @@ export const ProfileSetup: React.FC = () => {
   const isLast = pStep === steps.length - 1;
 
 
-  /** Save the taste answers. Runs on leaving 'atmosphere' and again when
+  /** Save the taste answers. Runs on leaving 'prices' and again when
    *  the wizard ends — an upsert either way, so backing up and re-answering
    *  just refreshes the row. Empty answers write nothing. */
   const persistTaste = useCallback(() => {
-    if (cuisineSel.length === 0 && priceSel.length === 0 && !atmosphere) return;
+    if (cuisineSel.length === 0 && priceSel.length === 0) return;
     void saveTasteQuiz(user?.id, {
       cuisines: cuisineSel,
       prices: priceSel,
-      atmosphere: atmosphere ?? undefined,
       completedAt: Date.now(),
     });
-  }, [user?.id, cuisineSel, priceSel, atmosphere]);
+  }, [user?.id, cuisineSel, priceSel]);
 
   const finishThenVerify = async () => {
     setSubmitting(true);
@@ -413,8 +414,17 @@ export const ProfileSetup: React.FC = () => {
       })();
       return;
     }
-    if (stepKey === 'atmosphere') persistTaste();
-    if (isLast) { persistTaste(); logOnboardingEvent('wizard_done', user?.id); setScreen('done'); return; }
+    if (stepKey === 'prices') persistTaste();
+    if (isLast) {
+      persistTaste();
+      logOnboardingEvent('wizard_done', user?.id);
+      setFinishing(true);
+      setSubmitting(true);
+      // No "you're done" screen to land on — refreshProfile flips
+      // profileComplete, and App swaps this wizard straight for the app.
+      void refreshProfile();
+      return;
+    }
     setPStep((p) => p + 1);
   };
 
@@ -425,44 +435,55 @@ export const ProfileSetup: React.FC = () => {
     setPStep((p) => p - 1);
   };
 
-  if (screen === 'done') {
-    return (
-      <OB.OnboardingScreen glow="center">
-        <div className="flex flex-1 flex-col items-center text-center" style={{ paddingTop: 48 }}>
-          <motion.div
-            initial={{ opacity: 0, scale: 0.5 }}
-            animate={{ opacity: 1, scale: 1 }}
-            transition={OB.SPRING_SOFT}
-            className="flex items-center justify-center"
-            style={{ width: 88, height: 88, borderRadius: '50%', background: OB.TERRA, boxShadow: '0 16px 36px -10px color-mix(in srgb, var(--ob-terra) 55%, transparent)' }}
-          >
-            <svg width="42" height="42" viewBox="0 0 44 44" fill="none">
-              <motion.path
-                d="M11 23l7 7 15-16"
-                stroke="#fff" strokeWidth="3.4" strokeLinecap="round" strokeLinejoin="round"
-                initial={{ pathLength: 0 }}
-                animate={{ pathLength: 1 }}
-                transition={{ duration: 0.45, delay: 0.18, ease: OB.EASE }}
-              />
-            </svg>
-          </motion.div>
-          <OB.Reveal blur i={1} style={{ marginTop: 26 }}><OB.Title>You're all set</OB.Title></OB.Reveal>
-          <OB.Reveal i={2}>
-            <p style={{ fontSize: 15.5, lineHeight: 1.55, color: OB.SECONDARY, margin: '12px 0 0', maxWidth: 280 }}>
-              Welcome aboard, <span style={{ color: OB.TERRA, fontWeight: 600 }}>{handle}</span>. Let's find something worth the trip.
-            </p>
-          </OB.Reveal>
-          <OB.Reveal i={3} style={{ marginTop: 'auto', paddingTop: 34, width: '100%' }}>
-            <OB.PrimaryButton onClick={() => { void refreshProfile(); }}>Start exploring</OB.PrimaryButton>
-          </OB.Reveal>
+  // The primary button is always the LAST element in the footer: a footer
+  // is only as tall as what's in it, so a ghost link stacked BELOW the
+  // button would push the button up on exactly the steps that have one
+  // ('city', 'handle') — the same drifting-button bug the header/footer
+  // split above exists to prevent, one level down. The optional ghost link
+  // goes ABOVE the button instead, so the button's distance from the
+  // bottom edge never depends on which step is showing.
+  const footer = (
+    <>
+      {error && stepKey !== 'handle' && <div style={{ marginBottom: 12 }}><OB.ErrorRow>{error}</OB.ErrorRow></div>}
+      {stepKey === 'city' && (
+        <div style={{ marginBottom: 4 }}>
+          <OB.GhostButton onClick={() => { setHomeCity(''); setHomeGeo(null); setError(''); setDir(1); setPStep((p) => p + 1); }}>Skip for now</OB.GhostButton>
         </div>
-      </OB.OnboardingScreen>
-    );
-  }
+      )}
+      {stepKey === 'handle' && (
+        <div style={{ marginBottom: 4 }}>
+          {/* Verification lives on the last PROFILE step — it saves the
+              row and opens the request form, skipping everything after. */}
+          <OB.GhostButton onClick={() => { void finishThenVerify(); }}>
+            Are you a chef, critic, or creator? Request verification
+          </OB.GhostButton>
+        </div>
+      )}
+      {(() => {
+        // The import step drives its own footer (its label and action
+        // change per phase); every other step shares the wizard's.
+        const f = stepKey === 'import'
+          ? importFooter(importState, next)
+          : {
+              label: isLast ? 'Finish setup' : stepKey === 'handle' ? 'Save & continue' : 'Continue',
+              onClick: next,
+              loading: submitting,
+              trailing: (isLast ? 'check' : 'arrow') as 'check' | 'arrow' | 'none',
+            };
+        return (
+          <OB.PrimaryButton onClick={f.onClick} loading={f.loading} trailing={f.trailing}>
+            {f.label}
+          </OB.PrimaryButton>
+        );
+      })()}
+    </>
+  );
 
   return (
-    <OB.OnboardingScreen>
-      <OB.ProgressHeader step={offset + pStep + 1} total={total} onBack={back} />
+    <OB.OnboardingScreen
+      header={<OB.ProgressHeader step={offset + pStep + 1} total={total} onBack={back} />}
+      footer={footer}
+    >
       <div className="flex flex-1 flex-col">
         <AnimatePresence mode="wait" initial={false} custom={dir}>
           <motion.div
@@ -566,9 +587,9 @@ export const ProfileSetup: React.FC = () => {
             {stepKey === 'cuisines' && (
               <div className="flex flex-1 flex-col">
                 <OB.StepHeader title="Which cuisines do you love?" subtitle="Pick as many as you like." />
-                <div style={{ marginTop: 26 }}>
-                  <TastePillGrid
-                    options={TASTE_CUISINES.map((c) => ({ id: c, label: c }))}
+                <div style={{ marginTop: 22 }}>
+                  <CuisineGrid
+                    options={TASTE_CUISINES}
                     selected={cuisineSel}
                     onToggle={(id) => setCuisineSel((prev) => prev.includes(id) ? prev.filter((c) => c !== id) : [...prev, id])}
                   />
@@ -592,15 +613,6 @@ export const ProfileSetup: React.FC = () => {
               </div>
             )}
 
-            {stepKey === 'atmosphere' && (
-              <div className="flex flex-1 flex-col">
-                <OB.StepHeader title="Your ideal atmosphere?" />
-                <div style={{ marginTop: 22 }}>
-                  <AtmosphereGrid selected={atmosphere} onSelect={setAtmosphere} />
-                </div>
-              </div>
-            )}
-
             {stepKey === 'import' && (
               <div className="flex flex-1 flex-col">
                 <OB.StepHeader
@@ -615,7 +627,7 @@ export const ProfileSetup: React.FC = () => {
 
             {stepKey === 'follow' && (
               <div className="flex flex-1 flex-col">
-                <OB.StepHeader title="Follow a few tastemakers" subtitle="Their ratings and posts fill your feed from day one." />
+                <OB.StepHeader title="Find some friends" subtitle="Their ratings and posts fill your feed from day one." />
                 <OB.Reveal i={2} style={{ marginTop: 24 }}>
                   <FollowRail />
                 </OB.Reveal>
@@ -626,47 +638,12 @@ export const ProfileSetup: React.FC = () => {
               <div className="flex flex-1 flex-col">
                 <OB.StepHeader title="Rate places you've been" subtitle="A few real ratings beat any quiz." />
                 <OB.Reveal i={2} style={{ marginTop: 20 }}>
-                  <RatePlacesStep />
+                  <RatePlacesStep cuisines={cuisineSel} prices={priceSel} homeGeo={homeGeo ?? preauth.city} />
                 </OB.Reveal>
               </div>
             )}
           </motion.div>
         </AnimatePresence>
-
-        <div style={{ paddingTop: 26 }}>
-          {error && stepKey !== 'handle' && <div style={{ marginBottom: 12 }}><OB.ErrorRow>{error}</OB.ErrorRow></div>}
-          {(() => {
-            // The import step drives its own footer (its label and action
-            // change per phase); every other step shares the wizard's.
-            const f = stepKey === 'import'
-              ? importFooter(importState, next)
-              : {
-                  label: isLast ? 'Finish setup' : stepKey === 'handle' ? 'Save & continue' : 'Continue',
-                  onClick: next,
-                  loading: submitting,
-                  trailing: (isLast ? 'check' : 'arrow') as 'check' | 'arrow' | 'none',
-                };
-            return (
-              <OB.PrimaryButton onClick={f.onClick} loading={f.loading} trailing={f.trailing}>
-                {f.label}
-              </OB.PrimaryButton>
-            );
-          })()}
-          {stepKey === 'city' && (
-            <div style={{ marginTop: 4 }}>
-              <OB.GhostButton onClick={() => { setHomeCity(''); setHomeGeo(null); setError(''); setDir(1); setPStep((p) => p + 1); }}>Skip for now</OB.GhostButton>
-            </div>
-          )}
-          {stepKey === 'handle' && (
-            <div style={{ marginTop: 4 }}>
-              {/* Verification lives on the last PROFILE step — it saves the
-                  row and opens the request form, skipping everything after. */}
-              <OB.GhostButton onClick={() => { void finishThenVerify(); }}>
-                Are you a chef, critic, or creator? Request verification
-              </OB.GhostButton>
-            </div>
-          )}
-        </div>
       </div>
       {/* The rate step opens the app's real rating flow. App's own modal
           instance isn't mounted while this wizard shows (ProfileSetup

@@ -14,6 +14,7 @@ import {
   ArrowLeft,
   Bookmark,
   ChefHat,
+  UtensilsCrossed,
   Check,
   ArrowUp,
   ChevronDown,
@@ -42,7 +43,7 @@ import {
   ThumbsDown,
 } from 'lucide-react';
 import { cn } from '../lib/utils';
-import { GlassButton } from '../lib/glass-buttons';
+import { GlassButton, useGlassOccluder } from '../lib/glass-buttons';
 import { cuisineLabel as placeCuisineLabel, labelForCuisineType } from '../lib/cuisine';
 import { useSettings } from '../contexts/SettingsContext';
 import { useAuth } from '../contexts/AuthContext';
@@ -57,6 +58,7 @@ import { ugc, ugcSanitize, UGC_MAX_BIO, UGC_MAX_NAME, UGC_MAX_TITLE, UGC_MAX_NOT
 import type { RestaurantMeta, HomeMeal } from '../contexts/ListsContext';
 import type { Recipe } from '../contexts/RecipesContext';
 import type { ScoredPlace } from '../lib/recommendations';
+import type { AssistantAttachment } from '../contexts/AssistantContext';
 import {
   streamLocationChat,
   type AnthropicMessage,
@@ -174,6 +176,9 @@ const MODEL_SUBLABELS: Record<ChatModelPref, string> = {
 };
 
 interface LocationChatProps {
+  /** Drop the floating launcher, keeping the chat itself mountable. For
+   *  pages with their own way in (a detail page's glass capsule). */
+  hideLauncher?: boolean;
   /** Filtered restaurant pool — what the user is currently looking at. */
   visible: ScoredPlace[];
   /** Shared meta cache so chat cards render the same "Neighborhood,
@@ -297,6 +302,12 @@ interface LocationChatProps {
    *  scrolls DOWN and flips it back off when they scroll UP. Always
    *  false on desktop. */
   fabHidden?: boolean;
+  /** The restaurant / recipe the chat is pinned to (set from a detail
+   *  page's "ask about this" button), plus the way to unpin it. */
+  attachment?: AssistantAttachment | null;
+  onClearAttachment?: () => void;
+  /** Bumped by a page that wants the panel opened. */
+  openRequest?: number;
 }
 
 // UiMessage / UiBlock / SavedChat and the history persistence helpers live
@@ -1076,6 +1087,10 @@ export const LocationChat: React.FC<LocationChatProps> = ({
   onOpenGuideCreator,
   homeMeals,
   onPublishHomeMeal,
+  attachment,
+  onClearAttachment,
+  openRequest,
+  hideLauncher,
   fabAboveBottomNav,
   fabOverTakeover,
   fabHidden,
@@ -1086,6 +1101,16 @@ export const LocationChat: React.FC<LocationChatProps> = ({
   const { showToast } = useToast();
 
   const [open, setOpen] = useState(false);
+  // A detail page asked for the panel. Signal, not a controlled prop: the
+  // chat still owns `open`, so asking again while it's up changes nothing
+  // and the user can still close it.
+  const firstOpenRequest = useRef(openRequest ?? 0);
+  useEffect(() => {
+    if (openRequest === undefined) return;
+    if (openRequest === firstOpenRequest.current) return;
+    firstOpenRequest.current = openRequest;
+    setOpen(true);
+  }, [openRequest]);
   const [messages, setMessages] = useState<UiMessage[]>([]);
   const [input, setInput] = useState('');
   const [streaming, setStreaming] = useState(false);
@@ -1223,6 +1248,12 @@ export const LocationChat: React.FC<LocationChatProps> = ({
   const abortRef = useRef<AbortController | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
+  // The panel covers the page it was opened over, so every glass control
+  // underneath has to stand down — those are drawn natively, ABOVE the
+  // WebView, and would otherwise pile onto the panel's own header buttons
+  // in the same corner. Declared rather than left to the hit-test probe,
+  // which was missing the tab roots' header capsule.
+  const islandRef = useGlassOccluder();
 
   // Hide the bottom-nav on phone while the chat sheet is up.
   useEffect(() => {
@@ -1950,6 +1981,7 @@ export const LocationChat: React.FC<LocationChatProps> = ({
             userContext,
             currentPath,
             currentPageLabel,
+            attachment: attachment ?? undefined,
             model,
           },
           controller.signal,
@@ -2758,29 +2790,38 @@ export const LocationChat: React.FC<LocationChatProps> = ({
   return (
     <>
       <AnimatePresence>
-        {!open && (
-          <motion.button
+        {!open && !hideLauncher && (
+          <motion.div
             key="fab"
-            type="button"
-            className={cn('lp-chat-fab', fabAboveBottomNav && 'is-above-nav', fabOverTakeover && 'is-over-takeover')}
-            onClick={() => setOpen(true)}
+            className={cn('lp-chat-fab-slot', fabAboveBottomNav && 'is-above-nav', fabOverTakeover && 'is-over-takeover')}
             initial={{ opacity: 0, scale: 0.85, y: 8 }}
-            // Scroll-hide on mobile: while `fabHidden` is true the
-            // button slips down + fades out, but stays mounted so the
-            // pulse animation doesn't restart on every reveal. Click
-            // events are suppressed while it's invisible.
+            // Scroll-hide on mobile: while `fabHidden` is true the button
+            // slips down + fades out, but stays mounted so coming back is
+            // an animation rather than a remount. Click events are
+            // suppressed while it's invisible.
             animate={fabHidden
               ? { opacity: 0, scale: 0.75, y: 32 }
               : { opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.85, y: 8 }}
             transition={{ duration: 0.18, ease: [0.4, 0, 0.2, 1] }}
             style={{ pointerEvents: fabHidden ? 'none' : 'auto' }}
-            aria-label="Open assistant"
             aria-hidden={fabHidden || undefined}
           >
-            <span className="lp-chat-fab-pulse" aria-hidden="true" />
-            <Sparkles />
-          </motion.button>
+            {/* The wrapper animates, the button is measured. Framer writes
+                a transform onto the slot every frame; the native glass
+                layer mirrors the BUTTON's box, which is stable inside it.
+                (`effectiveOpacity` walks up from the button, so the slot's
+                fade carries the glass with it.) */}
+            <GlassButton
+              id="assistant-fab"
+              symbol="sparkles"
+              label="Open assistant"
+              onClick={() => setOpen(true)}
+              className="lp-chat-fab"
+            >
+              <Sparkles />
+            </GlassButton>
+          </motion.div>
         )}
       </AnimatePresence>
 
@@ -2788,6 +2829,7 @@ export const LocationChat: React.FC<LocationChatProps> = ({
         {open && (
           <motion.div
             key="island"
+            ref={islandRef}
             className={cn('lp-chat-island', phoneMode && 'is-phone')}
             // Phone: opacity-only fade. A transform (scale/translate) on a
             // position:fixed full-screen panel breaks iOS keyboard handling
@@ -3126,6 +3168,31 @@ export const LocationChat: React.FC<LocationChatProps> = ({
 
             {view === 'chat' && (
             <form className="lp-chat-foot" onSubmit={handleSubmit}>
+              {attachment && (
+                /* What the next message is about. Sits inside the composer
+                   so it reads as part of the message being written, not as
+                   a banner over the transcript — and so the X that removes
+                   it is exactly where the thing it removes is. */
+                <div className="lp-chat-attach">
+                  <span className="lp-chat-attach-icon" aria-hidden>
+                    {attachment.kind === 'recipe' ? <ChefHat size={13} /> : <UtensilsCrossed size={13} />}
+                  </span>
+                  <span className="lp-chat-attach-text">
+                    <span className="lp-chat-attach-name">{attachment.name}</span>
+                    {attachment.subtitle && (
+                      <span className="lp-chat-attach-sub">{attachment.subtitle}</span>
+                    )}
+                  </span>
+                  <button
+                    type="button"
+                    className="lp-chat-attach-x"
+                    onClick={() => onClearAttachment?.()}
+                    aria-label={`Stop asking about ${attachment.name}`}
+                  >
+                    <X size={12} strokeWidth={2.4} />
+                  </button>
+                </div>
+              )}
               <div className="lp-chat-composer">
                 {/* NOT disabled while streaming — disabling blurred the
                     field, which dismisses the iOS keyboard after every

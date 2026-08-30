@@ -1309,7 +1309,14 @@ const MobileMessageList: React.FC<{
   onCompose: () => void;
   onBack: () => void;
   loading: boolean;
-}> = ({ conversations, friends, profiles, selfId, getUnread, hasThread, onOpenConversation, onOpenFriend, onCompose, onBack, loading }) => {
+  // The New Message sheet is a separate `fixed inset-0` layer that covers
+  // this whole header, but native glass draws in its own layer ABOVE the
+  // WebView — an opaque CSS sheet on top does nothing to hide a still-
+  // registered native control underneath it. Suspend this header's glass
+  // while that sheet is open, or its back chevron and search bar bleed
+  // through on top of "New message".
+  composeOpen: boolean;
+}> = ({ conversations, friends, profiles, selfId, getUnread, hasThread, onOpenConversation, onOpenFriend, onCompose, onBack, loading, composeOpen }) => {
   const [query, setQuery] = useState('');
   const [tab, setTab] = useState<'all' | 'unread' | 'shares'>('all');
   const q = query.trim().toLowerCase();
@@ -1359,6 +1366,7 @@ const MobileMessageList: React.FC<{
               symbol="chevron.left"
               label="Back"
               onClick={onBack}
+              suspended={composeOpen}
               className="hit-44 flex-none w-9 h-9 -ml-1 rounded-full flex items-center justify-center text-on-surface active:scale-95 transition-transform"
             >
               <ArrowLeft size={18} />
@@ -1369,7 +1377,7 @@ const MobileMessageList: React.FC<{
         </div>
         <div className="mt-2.5">
           <SearchField
-            glassId="messages-search"
+            glassId={composeOpen ? undefined : 'messages-search'}
             value={query}
             onChange={setQuery}
             placeholder="Search messages and friends"
@@ -1620,6 +1628,7 @@ export const Messages: React.FC = () => {
         onCompose={() => setNewChatOpen(true)}
         onBack={() => navigate(-1)}
         loading={listLoading}
+        composeOpen={newChatOpen}
       />
       <NewChatSheet open={newChatOpen} onClose={() => setNewChatOpen(false)} onCreateChat={handleCreateChat} friends={friends} />
     </>

@@ -1792,70 +1792,61 @@
 }
 
 /* ============ AI CHATBOT — FAB + ISLAND ============ */
-.lp-chat-fab {
+/* The launcher, in two parts: a fixed SLOT that owns where it sits and how
+   it comes and goes, and the control inside it that owns the material.
+   Splitting them is what lets the button be a `GlassButton` — the native
+   layer mirrors that element's box, so the box must not also be the thing
+   Framer is writing transforms onto every frame.
+
+   The material is the app's glass, the same as every other piece of
+   floating chrome. It used to be an inverted ink squircle, which read as a
+   solid chip pasted over the page rather than as part of it — loud in a
+   corner it shares with the page's own content, and the one bit of chrome
+   still wearing a look of its own. A circle, not the squircle it had:
+   native glass rounds a square box to a capsule, and a control belongs to
+   the control vocabulary anyway. The squircle stays where it means
+   something — the chat's own header mark and empty state. */
+.lp-chat-fab-slot {
   position: fixed;
   right: 24px;
   /* Sits above the global bottom nav. The safe-area inset keeps the
      button clear of the iPhone home indicator. */
   bottom: calc(36px + env(safe-area-inset-bottom, 0px));
   z-index: 45;
-  width: 54px;
-  height: 54px;
-  /* A squircle, not a disc — the same mark the chat header wears, so
-     the floating button and the page it opens read as one object. */
-  border-radius: 18px;
-  background: linear-gradient(160deg, color-mix(in srgb, var(--ink) 94%, #fff), var(--ink));
-  color: var(--bg);
-  display: grid;
-  place-items: center;
-  cursor: pointer;
-  box-shadow:
-    0 10px 28px -8px rgba(28, 24, 22, 0.45),
-    0 2px 6px rgba(28, 24, 22, 0.18),
-    0 0 0 1px rgba(28, 24, 22, 0.08),
-    inset 0 1px 0 rgba(255, 255, 255, 0.16);
-  transition: transform .15s, background .15s, box-shadow .15s;
 }
 /* On the search takeover the FAB has to ride ABOVE the takeover's wash
    (z-70) — its usual 45 sits above the nav but under overlays. */
-.lp-chat-fab.is-over-takeover {
+.lp-chat-fab-slot.is-over-takeover {
   z-index: 75;
 }
-.lp-chat-fab:hover {
-  transform: translateY(-2px);
-  background: var(--accent);
-  box-shadow:
-    0 14px 36px -10px rgba(168, 57, 42, 0.55),
-    0 4px 10px rgba(28, 24, 22, 0.22),
-    0 0 0 1px rgba(28, 24, 22, 0.08);
-}
-.lp-chat-fab svg {
-  width: 22px;
-  height: 22px;
-  position: relative;
-  z-index: 2;
-}
-.lp-chat-fab-pulse {
-  position: absolute;
-  inset: -4px;
-  border-radius: 21px;
-  background: rgba(168, 57, 42, 0.32);
-  /* Rest at 0 — without this, the element snaps back to opacity 1 when
-     the 3 pulses finish and permanently tints the button. */
-  opacity: 0;
-  animation: lp-chat-fab-pulse 1.8s ease-out 3;
-  pointer-events: none;
-}
-@keyframes lp-chat-fab-pulse {
-  0%   { transform: scale(1);   opacity: 0.55; }
-  100% { transform: scale(1.7); opacity: 0;    }
-}
-
 /* When the global BottomNav is visible (phone-mode pages outside
    /location) the AppAssistant adds this modifier so the FAB clears
    the nav (50px tall + safe-area) with a comfortable gap. */
-.lp-chat-fab.is-above-nav {
+.lp-chat-fab-slot.is-above-nav {
   bottom: calc(76px + env(safe-area-inset-bottom, 0px));
+}
+
+/* 48, down from 54: still past the 44pt floor, and near enough the 44pt
+   the header capsules wear that the two read as the same family. No
+   background — `GlassButton` grounds its own fallback with
+   `.glass-control`, and native draws over it. */
+.lp-chat-fab {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  color: color-mix(in srgb, var(--ink) 88%, transparent);
+  transition: transform .16s var(--ease-out);
+}
+@media (hover: hover) {
+  .lp-chat-fab:hover { transform: translateY(-1px); }
+}
+.lp-chat-fab:active { transform: scale(0.93); }
+.lp-chat-fab svg {
+  width: 21px;
+  height: 21px;
 }
 
 .lp-chat-island {
@@ -1873,7 +1864,17 @@
   min-height: 360px;
   max-width: min(900px, calc(100vw - 32px));
   max-height: calc(100vh - 32px);
-  z-index: 50;
+  /* The modal layer (100), not the page-chrome layer (50).
+     At 50 this tied with every detail page's own floating chrome — the
+     restaurant page's save/share/ask capsule sits at z-50 too — and a tie
+     is decided by DOM order, which is not something either side controls.
+     It mattered because the glass buttons are drawn NATIVELY, above the
+     WebView: whether the page's capsule stands down is decided by
+     hit-testing its centre, so if the panel doesn't reliably win that
+     test, the page's capsule keeps drawing and the two sets of glass
+     circles pile up on each other in the top-right corner.
+     Deliberately still below the rating popup (200). */
+  z-index: 100;
   /* Explicit hex fallback in case the token isn't loaded yet (the
      chat is mounted globally so it can briefly render before
      LocationPage.css' :root vars have been applied — without the
@@ -1901,8 +1902,17 @@
      over bleeding through the keys.) Instead of shrinking the panel, we
      push its CONTENT up with padding-bottom = the keyboard height, so the
      composer sits just above the keyboard while the background fills
-     behind it. Entrance animation is opacity-only (a transform on a fixed
-     element breaks iOS keyboard positioning). Closed with the header ✕. */
+     behind it. Closed with the header ✕.
+     Framer Motion's `initial`/`animate` on the component stays opacity-
+     only — a transform HELD on this element for its whole open lifetime
+     is what broke iOS keyboard positioning before (see git blame: "drop
+     transform on fixed panel"). The slide-up below is a plain CSS
+     `animation` instead, which is a different mechanism from that bug:
+     with no `animation-fill-mode`, the browser only holds `transform` for
+     the declared 0.26s and then lets the element fall back to this
+     ruleset's OWN value — which never sets `transform` at all, so it
+     reads as `none` again well before anyone could focus the composer
+     and raise the keyboard. */
   top: 0;
   left: 0;
   right: 0;
@@ -1912,12 +1922,22 @@
   max-width: none;
   max-height: none;
   border-radius: 0;
+  animation: lp-chat-island-slide-in 0.26s var(--ease-out-strong);
   /* --kb-height jumps to the keyboard height the moment keyboardWillShow
      fires (native-keyboard.ts) and back to 0 on hide; easing it over ~the
      keyboard's own animation time makes the composer glide up with the
      keyboard instead of teleporting. */
   padding-bottom: var(--kb-height, 0px);
   transition: padding-bottom 0.25s var(--ease-out-strong);
+}
+@keyframes lp-chat-island-slide-in {
+  from { transform: translateY(36px); }
+  to { transform: translateY(0); }
+}
+/* A user who has already turned off motion doesn't want a 36px slide any
+   more than they wanted the rest of the app's springs. */
+@media (prefers-reduced-motion: reduce) {
+  .lp-chat-island.is-phone { animation: none; }
 }
 /* While the keyboard is up the home indicator is covered, so the
    composer's safe-area cushion would just be a dead gap between the
@@ -2073,6 +2093,10 @@ html.kb-open .lp-chat-island.is-phone .lp-chat-foot {
   letter-spacing: 0.02em;
 }
 .lp-chat-model-opt > svg { color: var(--ink); flex-shrink: 0; }
+/* The header's actions: three separate glass circles, spaced by the
+   header's own 12px gap. They carry no background of their own —
+   `GlassButton` grounds its own fallback with `.glass-control`, and two
+   grounds stacked read as a smudge. */
 .lp-chat-glass-btn {
   width: 34px;
   height: 34px;
@@ -2081,12 +2105,9 @@ html.kb-open .lp-chat-island.is-phone .lp-chat-foot {
   place-items: center;
   flex-shrink: 0;
   color: var(--ink);
-  background: rgba(28, 24, 22, 0.06);
   transition: background .15s, transform .12s;
 }
-.lp-chat-glass-btn:hover { background: rgba(28, 24, 22, 0.11); }
 .lp-chat-glass-btn:active { transform: scale(0.94); }
-.dark .lp-chat-glass-btn { background: rgba(255, 255, 255, 0.08); }
 
 .lp-chat-body {
   flex: 1;
@@ -2907,6 +2928,71 @@ html.kb-open .lp-chat-island.is-phone .lp-chat-foot {
   padding: 6px 14px calc(10px + env(safe-area-inset-bottom, 0px));
   background: transparent;
 }
+/* Pinned-subject chip — the restaurant or recipe this message is about.
+   Sits directly above the composer pill and shares its inset, so the two
+   read as one control: the chip is part of the message being written,
+   not a banner about the conversation. */
+.lp-chat-attach {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 4px 6px;
+  padding: 7px 8px 7px 10px;
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--color-primary) 9%, var(--surface));
+  border: 1px solid color-mix(in srgb, var(--color-primary) 26%, transparent);
+  animation: lp-chat-attach-in .2s var(--ease-out) both;
+}
+/* Local keyframe on purpose: borrowing RatingFlow's `rf-pop-in` would
+   make this chip depend on that component's stylesheet being loaded. */
+@keyframes lp-chat-attach-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.lp-chat-attach-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  color: #fff;
+  background: var(--color-primary);
+}
+.lp-chat-attach-text { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+.lp-chat-attach-name {
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--color-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.lp-chat-attach-sub {
+  font-size: 10.5px;
+  color: var(--color-ink-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-top: 1px;
+}
+.lp-chat-attach-x {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: none;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: var(--color-primary);
+  background: color-mix(in srgb, var(--color-primary) 14%, transparent);
+  transition: background .15s, transform .15s var(--ease-out);
+}
+.lp-chat-attach-x:active { transform: scale(.9); }
+
 .lp-chat-composer {
   display: flex;
   align-items: flex-end;

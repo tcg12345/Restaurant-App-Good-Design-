@@ -28,7 +28,6 @@ import {
   getFollowerIds, getSentRequestIds, sendFriendRequest, searchUsersByUsername,
   type FriendInfo, type FriendRequest, type UserProfile, type CommunityRating,
 } from '../lib/supabase-community';
-import { AddFriendSheet } from './AddFriendSheet';
 import { Collapse } from './Collapse';
 import { SearchField } from './SearchField';
 import { GlassButton } from '../lib/glass-buttons';
@@ -39,6 +38,11 @@ import { SKELETON_PULSE } from './LoadingSkeleton';
 
 type Tab = 'activity' | 'alerts';
 type TimeBucket = 'today' | 'week' | 'earlier';
+
+/** The add-friends push, and the friends list receding under it — same
+ *  spring family RestaurantPanel/RecipePanel/Sidebar use for a panel
+ *  taking over the screen. */
+const PUSH_SPRING = { type: 'spring' as const, damping: 30, stiffness: 300 };
 
 const AVATAR_PALETTE = [
   { bg: 'bg-rose-100', text: 'text-rose-700' },
@@ -157,7 +161,6 @@ export const CirclePanel: React.FC<CirclePanelProps> = ({ variant, onClose }) =>
   const [addOpen, setAddOpen] = useState(false);
   // The Add page's own query — global people search lives there now.
   const [addQuery, setAddQuery] = useState('');
-  const [inviteOpen, setInviteOpen] = useState(false);
 
   // Incoming friend requests (rows where the current user is the friend_id
   // and status is still 'pending'). Surfaced as a dedicated section so they
@@ -752,16 +755,15 @@ export const CirclePanel: React.FC<CirclePanelProps> = ({ variant, onClose }) =>
           <p className="mt-1.5 text-[12.5px] text-on-surface/45">Try a friend&rsquo;s name, a place, or a cuisine.</p>
         </div>
       ) : (
-        <>
-          {([['Today', activityBuckets.today], ['This week', activityBuckets.week], ['Earlier', activityBuckets.earlier]] as const).map(([label, list]) =>
-            list.length > 0 ? (
-              <div key={label}>
-                <BucketLabel>{label}</BucketLabel>
-                <ul>{list.map(renderActivityRow)}</ul>
-              </div>
-            ) : null,
-          )}
-        </>
+        // Bucketed newest-first, but no longer captioned. Every row already
+        // ends in its own relative time ("· 4w"), so a TODAY / THIS WEEK /
+        // EARLIER band above it restated what the row underneath was about
+        // to say — and on a feed with nothing recent, the only caption left
+        // was a lone "EARLIER" wedged under the filter chips.
+        <ul>
+          {[...activityBuckets.today, ...activityBuckets.week, ...activityBuckets.earlier]
+            .map(renderActivityRow)}
+        </ul>
       )}
     </section>
   );
@@ -1061,30 +1063,37 @@ export const CirclePanel: React.FC<CirclePanelProps> = ({ variant, onClose }) =>
   };
 
   const addPage = (
-    <div
-      className={cn(
-        'absolute inset-0 z-20 bg-surface flex flex-col transition-transform duration-[420ms] ease-[cubic-bezier(0.32,0.72,0,1)]',
-        addOpen ? 'translate-x-0' : 'translate-x-full',
-      )}
+    <motion.div
+      className="absolute inset-0 z-20 bg-surface flex flex-col"
+      initial={false}
+      animate={{ x: addOpen ? '0%' : '100%' }}
+      // A spring, not a fixed-duration ease: this is the same push the rest
+      // of the app uses for a panel taking over the screen (RestaurantPanel,
+      // RecipePanel, Sidebar all share this exact curve) — a tuned duration
+      // reads as "a page objectively appeared"; a spring reads as "this
+      // panel moved", which is the seam add-friends is supposed to have.
+      transition={PUSH_SPRING}
       aria-hidden={!addOpen || undefined}
     >
       <div className="px-5 pt-safe-4 pb-3 flex items-center gap-2.5 border-b border-on-surface/[0.08] flex-shrink-0">
-        <button
-          type="button"
+        <GlassButton
+          id="add-friends-back"
+          symbol="chevron.left"
+          label="Back"
           onClick={() => setAddOpen(false)}
-          aria-label="Back"
-          className="w-9 h-9 -ml-1.5 rounded-full grid place-items-center text-on-surface/60 active:bg-on-surface/[0.07]"
+          // Suspended while this page is the one sliding OUT of view: native
+          // glass is a layer drawn above the WebView, not inside its own
+          // stacking context, so an opaque CSS div covering this page (the
+          // Friends body, mid-close) can't hide a still-registered native
+          // control the way it hides everything else. Both pages stay
+          // mounted through the push — see PUSH_SPRING above — so only the
+          // page actually on top may register native glass at any moment.
+          suspended={!addOpen}
+          className="hit-44 flex-none w-9 h-9 -ml-1.5 rounded-full grid place-items-center text-on-surface/60 active:scale-95 transition-transform"
         >
           <ArrowLeft size={19} />
-        </button>
+        </GlassButton>
         <h3 className="flex-1 min-w-0 font-serif font-bold text-[19px] tracking-[-0.02em] truncate">Add friends</h3>
-        <button
-          type="button"
-          onClick={() => setInviteOpen(true)}
-          className="flex-shrink-0 text-[12.5px] font-bold text-primary active:opacity-70"
-        >
-          Invite
-        </button>
       </div>
       <div className="px-5 pt-3.5 flex-shrink-0">
         <SearchField
@@ -1092,6 +1101,9 @@ export const CirclePanel: React.FC<CirclePanelProps> = ({ variant, onClose }) =>
           onChange={setAddQuery}
           placeholder="Names or @usernames"
           aria-label="Search people"
+          // Same reasoning as the back button above, via the mechanism
+          // `useGlassField` actually offers: an absent id registers nothing.
+          glassId={addOpen ? 'add-friends-search' : undefined}
         />
       </div>
       <div className="flex-1 min-h-0 overflow-y-auto px-5 pt-2 pb-safe-6">
@@ -1128,17 +1140,24 @@ export const CirclePanel: React.FC<CirclePanelProps> = ({ variant, onClose }) =>
           </>
         )}
       </div>
-    </div>
+    </motion.div>
   );
 
   // ── Body ────────────────────────────────────────────────────────────
   const body = (
     <div className="relative flex-1 min-h-0 flex flex-col overflow-hidden">
-      <div
-        className={cn(
-          'flex-1 min-h-0 flex flex-col transition-[transform,opacity] duration-[420ms] ease-[cubic-bezier(0.32,0.72,0,1)]',
-          addOpen && 'translate-x-[-20%] scale-[0.975] opacity-45 pointer-events-none',
-        )}
+      <motion.div
+        className={cn('flex-1 min-h-0 flex flex-col', addOpen && 'pointer-events-none')}
+        initial={false}
+        // A real iOS push barely touches the outgoing screen — a small
+        // parallax drift and a hair of dimming, no shrinking. The previous
+        // version scaled this down to 97.5% and dropped it to 45% opacity,
+        // which is a MODAL's "you left" cue, not a push's "this moved over"
+        // one — on a panel whose own comment calls this "slides over" (a
+        // push), that mismatch is a good part of why it read as leaving to
+        // a different page rather than drilling into this one.
+        animate={{ x: addOpen ? '-22%' : '0%', opacity: addOpen ? 0.92 : 1 }}
+        transition={PUSH_SPRING}
       >
         {/* Header */}
         <div className="px-5 pt-safe-4 flex-shrink-0">
@@ -1149,24 +1168,34 @@ export const CirclePanel: React.FC<CirclePanelProps> = ({ variant, onClose }) =>
                 symbol="chevron.left"
                 label="Back"
                 onClick={() => navigate(-1)}
+                // See the matching note on "add-friends-back": while the Add
+                // Friends page covers this one, this button's native glass
+                // must stand down or it bleeds through the opaque page on
+                // top of it — native glass draws above the WebView, so CSS
+                // covering does nothing to it.
+                suspended={addOpen}
                 className="hit-44 flex-none w-9 h-9 -ml-1 rounded-full flex items-center justify-center text-on-surface active:scale-95 transition-transform"
               >
                 <ArrowLeft size={18} />
               </GlassButton>
             )}
             <h2 className="flex-1 font-serif text-[22px] font-bold leading-tight tracking-[-0.02em] text-on-surface truncate">Friends</h2>
-            <button
-              type="button"
+            <GlassButton
+              id="circle-search-toggle"
+              symbol="magnifyingglass"
+              label={searchOpen ? 'Close search' : 'Search'}
+              pressed={searchOpen}
+              prominent={searchOpen}
+              tint="label"
+              suspended={addOpen}
               onClick={() => { setSearchOpen((v) => { if (v) setSearchQuery(''); return !v; }); }}
-              aria-label={searchOpen ? 'Close search' : 'Search'}
-              aria-expanded={searchOpen}
               className={cn(
-                'w-9 h-9 rounded-full grid place-items-center transition-colors flex-shrink-0',
+                'hit-44 flex-none w-9 h-9 rounded-full grid place-items-center transition-colors',
                 searchOpen ? 'bg-on-surface text-surface' : 'text-on-surface/60 active:bg-on-surface/[0.07]',
               )}
             >
               <Search size={17} />
-            </button>
+            </GlassButton>
             <button
               type="button"
               onClick={() => { setAddQuery(''); setAddOpen(true); }}
@@ -1196,6 +1225,7 @@ export const CirclePanel: React.FC<CirclePanelProps> = ({ variant, onClose }) =>
                 placeholder="Friends, places, cuisines"
                 aria-label="Search activity and alerts"
                 autoFocus={searchOpen}
+                glassId={addOpen ? undefined : 'circle-search-field'}
               />
             </div>
           </div>
@@ -1214,10 +1244,9 @@ export const CirclePanel: React.FC<CirclePanelProps> = ({ variant, onClose }) =>
             ? (loading ? <ActivitySkeleton /> : renderActivity())
             : renderAlerts()}
         </div>
-      </div>
+      </motion.div>
 
       {addPage}
-      <AddFriendSheet open={inviteOpen} onClose={() => setInviteOpen(false)} />
     </div>
   );
 
@@ -1245,8 +1274,3 @@ export const CirclePanel: React.FC<CirclePanelProps> = ({ variant, onClose }) =>
   );
 };
 
-const BucketLabel: React.FC<{ children: React.ReactNode }> = ({ children }) => (
-  <h5 className="text-[10.5px] font-bold uppercase tracking-[0.14em] text-on-surface/40 mt-2 mb-1 first:mt-0">
-    {children}
-  </h5>
-);

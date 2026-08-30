@@ -42,6 +42,7 @@ import {
 import { cityFromAddress, cityFromAddressComponents } from '../lib/city';
 import { GuideLiveEditor } from './guide/GuideLiveEditor';
 import { getProfilesByIds, type UserProfile } from '../lib/supabase-community';
+import { SheetGrabArea } from './SheetGrabArea';
 import './GuideCreatorSheet.css';
 import './guide/GuideRender.css';
 import './guide/GuideLiveEditor.css';
@@ -1885,16 +1886,11 @@ export const GuideCreatorSheet: React.FC<GuideCreatorSheetProps> = ({ open, onCl
         >
           {/* ── Header ── */}
           <div className="gcx-head">
-            {phoneMode && (
-              <div
-                onPointerDown={startDrag}
-                className="flex justify-center pb-2 -mt-1 touch-none cursor-grab active:cursor-grabbing"
-                aria-label="Drag to dismiss"
-              >
-                <div className="w-9 h-1 rounded-full bg-on-surface/20" />
-              </div>
-            )}
-            <div className="gcx-head-row">
+            {/* Hugging the left, not centred: this header's Save-draft pill
+                reaches into the middle of the band, and the strip must not
+                sit over any part of a control. */}
+            {phoneMode && <SheetGrabArea onPointerDown={startDrag} className="left-4 right-auto translate-x-0 w-[45%]" />}
+            <div className="gcx-head-row relative z-10">
               {/* Phone keeps the chrome minimal: just Save draft + a
                   prominent close. Desktop keeps the eyebrow + Live edit. */}
               {!phoneMode && (

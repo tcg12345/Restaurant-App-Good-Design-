@@ -1,22 +1,23 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Map as MapIcon, ChevronRight, ChevronLeft, X, MapPin, Navigation, Loader2 } from 'lucide-react';
 import { MAPBOX_TOKEN } from '../lib/keys';
-import { FollowingFeed } from '../components/FollowingFeed';
 import { motion, AnimatePresence, useReducedMotion } from 'motion/react';
 import { useGlassSegments, useGlassButtonsActive, GlassButton } from '../lib/glass-buttons';
 import { SearchMain } from './SearchMain';
+import { RecipesForYou } from './RecipesForYou';
+import { PullToRefresh } from '../components/PullToRefresh';
 import { Discover } from './Discover';
 import { useSettings } from '../contexts/SettingsContext';
 import { cn } from '../lib/utils';
 import { SearchField, searchFieldChipWidth } from '../components/SearchField';
 import { setSearchTakeoverOpen } from '../lib/search-takeover';
 
-type SearchTab = 'discover' | 'following';
+type SearchTab = 'discover' | 'recipes';
 
 const TABS: ReadonlyArray<readonly [SearchTab, string]> = [
   ['discover', 'Discover'],
-  ['following', 'Following'],
+  ['recipes', 'Recipes'],
 ];
 
 /* ── The map is the search page ──────────────────────────────────────────
@@ -24,14 +25,17 @@ const TABS: ReadonlyArray<readonly [SearchTab, string]> = [
    the map as if it were a side feature. Now the Discover tab IS the map —
    the same engine the /map page runs (pins, the tri-snap results sheet, the
    filter sheet), worn as a tab root. The chrome floats on the map in glass:
-   the Discover/Following pill up top, the native-glass search field under
+   the Discover/Recipes pill up top, the native-glass search field under
    it, the filter chips under that. Tapping the field lifts a full-screen
    search takeover over the map — recents, live results — and submitting
    hands the query BACK to the map, which is the part that makes search and
    map one page rather than two.
 
-   Following stays exactly what it was: the feed, now simply layered over
-   the (hidden) map with the same pill switching between them. */
+   Following's feed moved INTO the map: the sheet header's toggle swaps
+   the sheet, chips and pins over to it (see Discover's followingView).
+   The slot that toggle vacated is now Recipes — the same Recipe Box the
+   home page's "see all" opens (/recipes-for-you), embedded so it wears
+   this page's chrome instead of its own. */
 
 const PhoneSearch: React.FC = () => {
   const navigate = useNavigate();
@@ -39,15 +43,46 @@ const PhoneSearch: React.FC = () => {
   const [tab, setTab] = useState<SearchTab>('discover');
   const [searching, setSearching] = useState(false);
   const [query, setQuery] = useState('');
-  // Following shares THE field but not the takeover: its text filters the
-  // feed live, in place. Separate draft so flipping tabs never leaks a map
-  // query into the feed or vice versa.
+  const mapSearchRef = useRef<((q: string) => void) | null>(null);
+  /* ── The Following view's field ───────────────────────────────────────
+     When the map sheet is showing the Following feed, the shared field
+     stops being the takeover's trigger and becomes the feed's live
+     filter — same capsule, same spot, different job. Discover reports
+     the view through onFollowingViewChange; the text flows back down as
+     a prop; and a tap with the sheet parked low asks the sheet to rise
+     first (through the bridge) so the filtered list is actually visible. */
+  const [followingActive, setFollowingActive] = useState(false);
   const [followQuery, setFollowQuery] = useState('');
   // Editable only after a tap — the field bridge re-asserts focus on every
-  // read-only → editable transition, so deriving editable from the active
-  // tab would summon the keyboard on the tab switch itself.
+  // read-only → editable transition, so deriving editable from the view
+  // would summon the keyboard on the toggle itself.
   const [followEditing, setFollowEditing] = useState(false);
-  const mapSearchRef = useRef<((q: string) => void) | null>(null);
+  const followingBridgeRef = useRef<{ raiseSheet: () => void } | null>(null);
+  /* ── The Recipes tab's field ──────────────────────────────────────────
+     Same arrangement as Following's, one tab up: the shared capsule is the
+     Recipe Box's filter rather than the takeover's trigger. Editable only
+     after a tap, for the same reason. The tab is mounted from the first
+     visit onwards and hidden thereafter, so flicking the pill doesn't
+     re-fetch the whole recipe pool or lose where you had scrolled to. */
+  const [recipeQuery, setRecipeQuery] = useState('');
+  const [recipeEditing, setRecipeEditing] = useState(false);
+  const [recipesOpened, setRecipesOpened] = useState(false);
+  const onRecipes = tab === 'recipes';
+  useEffect(() => { if (onRecipes) setRecipesOpened(true); }, [onRecipes]);
+  // Recipes' own scroller, and a real pull-to-refresh scoped to it. This
+  // page sits over the Discover map — the document itself never scrolls,
+  // so App.tsx's document-level instance can't see a drag here at all, and
+  // without one the gesture fell through to the map's own overscroll
+  // bounce, which read as "the map is showing through a hole" rather than
+  // as a refresh. State, not a plain ref: the effect that binds the touch
+  // listeners needs to fire the instant this div mounts.
+  const [recipesScrollEl, setRecipesScrollEl] = useState<HTMLDivElement | null>(null);
+  const [recipesReloadKey, setRecipesReloadKey] = useState(0);
+  const refreshRecipes = useCallback(() => {
+    recipesScrollEl?.scrollTo({ top: 0 });
+    setRecipeQuery('');
+    setRecipesReloadKey((k) => k + 1);
+  }, [recipesScrollEl]);
   /* ── Where the search is anchored ─────────────────────────────────────
      The takeover's top-right chip names the place being searched and
      changes it. The map owns the truth (its reference location); this
@@ -114,24 +149,6 @@ const PhoneSearch: React.FC = () => {
     // registry); the web fallback needs the nudge.
     if (!glassActive) requestAnimationFrame(() => inputRef.current?.focus());
   };
-  // Following: the same tap-to-edit move, minus the takeover. Once editable
-  // the field stays editable (tapping an editable field focuses it natively);
-  // leaving the tab resets it so returning doesn't raise the keyboard.
-  const openFollowSearch = () => {
-    setFollowEditing(true);
-    if (!glassActive) requestAnimationFrame(() => inputRef.current?.focus());
-  };
-  const endFollowSearch = () => {
-    setFollowEditing(false);
-    if (!glassActive) inputRef.current?.blur();
-  };
-  useEffect(() => {
-    if (tab !== 'following') {
-      setFollowEditing(false);
-      if (!glassActive) inputRef.current?.blur();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tab]);
 
   // Deep link from the home header's search field: land here with the
   // takeover already rising. State is consumed once and cleared, the same
@@ -159,6 +176,38 @@ const PhoneSearch: React.FC = () => {
     setLocOpen(false);
     setSearching(false);
   };
+  // Following: tap-to-edit, no takeover — and the sheet rises so the list
+  // the typing filters isn't parked behind the nav pill.
+  const openFollowSearch = () => {
+    followingBridgeRef.current?.raiseSheet();
+    setFollowEditing(true);
+    if (!glassActive) requestAnimationFrame(() => inputRef.current?.focus());
+  };
+  const endFollowSearch = () => {
+    setFollowEditing(false);
+    if (!glassActive) inputRef.current?.blur();
+  };
+  const openRecipeSearch = () => {
+    setRecipeEditing(true);
+    if (!glassActive) requestAnimationFrame(() => inputRef.current?.focus());
+  };
+  const endRecipeSearch = () => {
+    setRecipeEditing(false);
+    if (!glassActive) inputRef.current?.blur();
+  };
+  // Leaving the Following view (or either tab) puts the field down:
+  // returning must not raise the keyboard on its own.
+  useEffect(() => {
+    if (!followingActive || tab !== 'discover') {
+      setFollowEditing(false);
+      if (!glassActive) inputRef.current?.blur();
+    }
+    if (tab !== 'recipes') {
+      setRecipeEditing(false);
+      if (!glassActive) inputRef.current?.blur();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [followingActive, tab]);
 
   const seg = useGlassSegments({
     id: 'search-tabs',
@@ -195,22 +244,45 @@ const PhoneSearch: React.FC = () => {
           searchHandlerRef={mapSearchRef}
           dimChrome={searching}
           locationBridgeRef={locationBridgeRef}
+          onFollowingViewChange={setFollowingActive}
+          followingBridgeRef={followingBridgeRef}
+          followingQuery={followQuery}
+          onClearFollowingQuery={() => setFollowQuery('')}
         />
       </div>
 
-      {/* Following — the map sheet's raised-state material, worn as a
-          page: the same wash the sheet backdrop uses, over the live map,
-          with the shared glass field above and its own glass chip row in
-          the chips' spot. Content starts where the Discover chrome ends. */}
-      {tab === 'following' && (
+      {/* Recipes — the Recipe Box, worn as a tab rather than pushed as a
+          route. `embedded` drops its own sticky header (back button,
+          title, second search field): this page's pill already names the
+          view and its floating field already takes the query, so the
+          header would have repeated both in the same band. Its own
+          scroller, because this page is a fixed 100dvh box — the window
+          never scrolls here. Kept mounted once opened, hidden by
+          `visibility` (not unmounted, and not display:none — either loses
+          the scroll position and re-runs the fetch).
+
+          `hidden` or NOTHING — never an explicit `visible`. This page is a
+          keep-alive tab root, and the router hides the whole layer the
+          same way when you leave the tab; writing `visible` here overrode
+          that inherited `hidden` and left the recipe cards painting over
+          Reels, Lists and everything else. */}
+      {(onRecipes || recipesOpened) && (
         <div
-          className="absolute inset-0 z-20 bg-surface/[0.92] backdrop-blur-2xl overflow-y-auto no-scrollbar"
-          style={{ paddingTop: 'calc(env(safe-area-inset-top) + 176px)' }}
+          ref={setRecipesScrollEl}
+          className={cn('absolute inset-0 z-20 overflow-y-auto no-scrollbar', !onRecipes && 'pointer-events-none')}
+          style={onRecipes ? undefined : { visibility: 'hidden' }}
+          aria-hidden={!onRecipes || undefined}
         >
-          <div className="px-4 pb-32">
-            <FollowingFeed variant="searchTab" query={followQuery} onClearQuery={() => setFollowQuery('')} />
-          </div>
+          <RecipesForYou key={recipesReloadKey} embedded query={recipeQuery} onQueryChange={setRecipeQuery} />
         </div>
+      )}
+      {(onRecipes || recipesOpened) && (
+        <PullToRefresh
+          enabled={onRecipes}
+          onRefresh={refreshRecipes}
+          container={recipesScrollEl}
+          topOffset="calc(env(safe-area-inset-top) + 132px)"
+        />
       )}
 
       {/* ── The chrome the page itself owns ──────────────────────────────
@@ -229,7 +301,7 @@ const PhoneSearch: React.FC = () => {
           the chip's centre) believe the chip was covered — hiding its glass
           entirely. Children opt back in for themselves. */}
       <div className="absolute inset-x-0 z-50 pointer-events-none" style={{ top: 'calc(env(safe-area-inset-top) + 10px)' }}>
-        {/* Discover | Following — fades out as search opens. */}
+        {/* Discover | Recipes — fades out as search opens. */}
         {/* pointer-events: none on the strip, auto on the pill itself —
             the full-width wrapper otherwise eats taps aimed at the
             Search-this-area chip floating in its empty left half. */}
@@ -384,8 +456,8 @@ const PhoneSearch: React.FC = () => {
       </div>
 
       {/* THE field — the one element every state shares. On Discover it is
-          read-only until the takeover; on Following it edits in place and
-          its text filters the feed live. Same capsule, same spot. */}
+          read-only until the takeover; on Recipes it filters the Recipe
+          Box in place. Same capsule, same spot. */}
       <div
         className={cn(
           'absolute inset-x-0 z-50 px-3.5 transition-opacity duration-200',
@@ -398,14 +470,27 @@ const PhoneSearch: React.FC = () => {
           glassId="search-field"
           variant="floating"
           tall
-          readOnly={tab === 'discover' ? !searching : !followEditing}
-          onPress={tab === 'discover' ? openSearch : openFollowSearch}
-          value={tab === 'discover' ? query : followQuery}
-          onChange={tab === 'discover' ? setQuery : setFollowQuery}
-          onSubmit={tab === 'discover' ? submitToMap : endFollowSearch}
+          // Three postures, one capsule: the map's takeover trigger on
+          // Discover, the feed's live filter while the sheet shows
+          // Following, and the Recipe Box's filter on Recipes. The two
+          // filters are tap-to-edit — no takeover, the list under the
+          // field is already the thing being narrowed.
+          readOnly={onRecipes ? !recipeEditing : followingActive ? !followEditing : !searching}
+          onPress={onRecipes ? openRecipeSearch : followingActive ? openFollowSearch : openSearch}
+          value={onRecipes ? recipeQuery : followingActive ? followQuery : query}
+          onChange={onRecipes ? setRecipeQuery : followingActive ? setFollowQuery : setQuery}
+          onSubmit={onRecipes ? endRecipeSearch : followingActive ? endFollowSearch : submitToMap}
           inputRef={inputRef}
-          placeholder={tab === 'discover' ? 'Restaurants, cuisines, lists' : 'Search followed restaurants'}
-          aria-label={tab === 'discover' ? 'Search' : 'Search followed restaurants'}
+          placeholder={
+            onRecipes ? 'Recipes, ingredients, cuisines'
+              : followingActive ? 'Search followed restaurants'
+                : 'Restaurants, cuisines, lists'
+          }
+          aria-label={
+            onRecipes ? 'Search recipes'
+              : followingActive ? 'Search followed restaurants'
+                : 'Search'
+          }
         />
       </div>
 
@@ -590,7 +675,10 @@ const ClassicSearch: React.FC = () => {
             </motion.div>
           </div>
         ) : (
-          <FollowingFeed />
+          /* The Recipe Box, at its own desktop size — this branch is the
+             wide layout, so it brings its masthead and faceted browse
+             panel rather than the phone's embedded form. */
+          <RecipesForYou />
         )}
         </motion.div>
       </main>

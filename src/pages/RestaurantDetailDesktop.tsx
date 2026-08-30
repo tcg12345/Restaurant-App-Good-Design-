@@ -1,12 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import {
-  Star, MapPin, Phone, Globe,
-  ChevronLeft, ChevronRight, ChevronDown, Loader2,
-  Navigation, ExternalLink, X, Users, UserCircle, Share2, Bookmark,
-  Edit3, Send, Building2, TrendingUp, TrendingDown,
-  Car, Footprints, Trash2, RotateCw, Award, Plus, Image as ImageIcon, Pencil,
-} from 'lucide-react';
+import { Star, MapPin, Phone, Globe, ChevronLeft, ChevronRight, ChevronDown, Loader2, Navigation, ExternalLink, X, Users, UserCircle, Bookmark, Edit3, Send, Building2, TrendingUp, TrendingDown, Car, Footprints, Trash2, RotateCw, Award, Plus, Image as ImageIcon, Pencil } from 'lucide-react';
+import { ShareIcon } from '../components/icons/ShareIcon';
 import { cn, parseVisitDate } from '../lib/utils';
 import { tierOfScore } from '../lib/settleScores';
 import { TIER_LABELS } from '../lib/headToHeadRating';
@@ -285,7 +280,7 @@ export const RestaurantDetailDesktop: React.FC = () => {
               aria-label="Share"
               className="w-10 h-10 rounded-full grid place-items-center text-on-surface hover:bg-on-surface/[0.05] transition-colors"
             >
-              <Share2 size={18} />
+              <ShareIcon size={18} />
             </button>
             <button
               type="button"

@@ -22,7 +22,7 @@
 // spins. The full flows open as the usual overlays above this page.
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { motion } from 'motion/react';
 import {
   X, Film, ChefHat, ArrowRight, Link2, Camera, PenLine, ClipboardType,
@@ -63,17 +63,23 @@ const WHEEL_MASK =
 const ModeWheel: React.FC<{
   count: number;
   labels: string[];
+  /** Where the wheel starts. It is uncontrolled after that — it owns the
+   *  offset and reports changes out — so this is read once, on mount. It
+   *  exists because the page can open on a surface other than the first
+   *  one, and a wheel that always started at 0 then sat under the Recipe
+   *  surface reading POST. */
+  initial?: number;
   onChange: (idx: number) => void;
-}> = ({ count, labels, onChange }) => {
-  const [offset, setOffset] = useState(0);
-  const offsetRef = useRef(0);
+}> = ({ count, labels, initial = 0, onChange }) => {
+  const [offset, setOffset] = useState(initial);
+  const offsetRef = useRef(initial);
   const rafRef = useRef<number | null>(null);
   const draggingRef = useRef(false);
   const lastXRef = useRef(0);
   const movedRef = useRef(0);
   const lastTimeRef = useRef(0);
   const velRef = useRef(0);
-  const lastReportedRef = useRef(0);
+  const lastReportedRef = useRef(initial);
 
   const setOff = (v: number) => { offsetRef.current = v; setOffset(v); };
 
@@ -838,7 +844,15 @@ const RecipeSurface: React.FC = () => {
 
 export const Create: React.FC = () => {
   const navigate = useNavigate();
-  const [modeIdx, setModeIdx] = useState(0);
+  // Callers that already know what you're making land you on that surface —
+  // the Recipes page's + means "add a recipe", not "open the create page and
+  // then spin the wheel to Recipe". Unknown / absent state starts on Post as
+  // it always has.
+  const { state } = useLocation() as { state?: { mode?: Mode } };
+  const [modeIdx, setModeIdx] = useState(() => {
+    const i = state?.mode ? MODES.indexOf(state.mode) : -1;
+    return i >= 0 ? i : 0;
+  });
   // Post surface's gallery sheet is at full screen — hide the wheel.
   const [postSheetFull, setPostSheetFull] = useState(false);
   const mode = MODES[modeIdx];
@@ -894,6 +908,7 @@ export const Create: React.FC = () => {
       >
         <div className={wheelHidden ? 'pointer-events-none' : 'pointer-events-auto'}>
           <ModeWheel
+            initial={modeIdx}
             count={MODES.length}
             labels={MODES.map((m) => MODE_LABELS[m])}
             onChange={setModeIdx}

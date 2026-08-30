@@ -6,8 +6,9 @@
 // publish time, so the label says optional here.
 
 import React, { useCallback, useRef, useState } from 'react';
-import { Camera, X, ChevronDown } from 'lucide-react';
+import { Camera, Loader2, X, ChevronDown } from 'lucide-react';
 import { useSettings } from '../../contexts/SettingsContext';
+import { processPhoto } from '../../lib/images';
 import {
   CUISINE_OPTIONS,
   COURSE_OPTIONS,
@@ -31,29 +32,42 @@ export const StepDetails: React.FC<Props> = ({ state, dispatch }) => {
   const fileRef = useRef<HTMLInputElement | null>(null);
   const { phoneMode } = useSettings();
   const [cuisinePickerOpen, setCuisinePickerOpen] = useState(false);
+  const [uploading, setUploading] = useState(false);
 
-  // Cover photo upload — reads first file, encodes to base64. Mirrors
-  // the basic modal's cover-upload pattern (no resize since the cover
-  // can be embedded in the JSON home_meals blob).
-  const handleFile = useCallback((file: File) => {
+  // Cover photo upload — compress + push to Storage, same pipeline every
+  // other photo surface in the app uses (`processPhoto`: resize, re-encode,
+  // upload, return a short URL — falling back to a small inline data URL
+  // only when upload fails). This used to read the file straight to base64
+  // at full camera resolution with a comment arguing the size was fine
+  // "since the cover can be embedded in the JSON home_meals blob" — it
+  // is not: a multi-MB data URL is exactly the payload that blows the
+  // ~5MB localStorage quota (silently stripped back out on next write,
+  // see `saveToStorage`'s fallback) and risks the cloud write too, so the
+  // photo would vanish again on the next load with nothing durable to
+  // rehydrate from. A short Storage URL has neither problem.
+  const handleFile = useCallback(async (file: File) => {
     if (!file.type.startsWith('image/')) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      dispatch({ type: 'SET_FIELD', field: 'coverPhoto', value: String(reader.result || '') });
-    };
-    reader.readAsDataURL(file);
+    setUploading(true);
+    try {
+      const url = await processPhoto(file);
+      dispatch({ type: 'SET_FIELD', field: 'coverPhoto', value: url });
+    } catch {
+      // Undecodable file — leave the cover unchanged.
+    } finally {
+      setUploading(false);
+    }
   }, [dispatch]);
 
   const onFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0];
-    if (f) handleFile(f);
+    if (f) void handleFile(f);
     e.target.value = '';
   };
 
   const onDrop = (e: React.DragEvent) => {
     e.preventDefault();
     const f = e.dataTransfer.files?.[0];
-    if (f) handleFile(f);
+    if (f) void handleFile(f);
   };
 
   return (
@@ -145,15 +159,18 @@ export const StepDetails: React.FC<Props> = ({ state, dispatch }) => {
         ) : (
           <div
             className="rcx-photo-slot"
-            onClick={() => fileRef.current?.click()}
-            onDrop={onDrop}
+            onClick={() => { if (!uploading) fileRef.current?.click(); }}
+            onDrop={uploading ? undefined : onDrop}
             onDragOver={(e) => e.preventDefault()}
             role="button"
+            aria-disabled={uploading || undefined}
             tabIndex={0}
           >
-            <span className="rcx-photo-slot-icon"><Camera size={18} /></span>
+            <span className="rcx-photo-slot-icon">
+              {uploading ? <Loader2 size={18} className="animate-spin" /> : <Camera size={18} />}
+            </span>
             <span className="rcx-photo-slot-text">
-              <strong>Add a photo</strong> of the final dish
+              <strong>{uploading ? 'Uploading…' : 'Add a photo'}</strong>{uploading ? '' : ' of the final dish'}
             </span>
             <span className="rcx-photo-slot-sub">
               {phoneMode ? 'Needed to publish publicly.' : 'Drop one here or tap to browse. Needed to publish publicly.'}

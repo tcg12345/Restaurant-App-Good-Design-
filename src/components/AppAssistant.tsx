@@ -83,6 +83,25 @@ function shouldHideAssistant(pathname: string, isPhone: boolean): boolean {
   return false;
 }
 
+/** Routes that keep the assistant but drop its FAB.
+ *
+ *  Restaurant and recipe detail pages carry their OWN way in: the sparkle
+ *  in the top-right glass capsule, which additionally pins the thing you're
+ *  looking at to the conversation. The floating FAB there would be a
+ *  second, worse door to the same room — same chat, no attachment — sitting
+ *  over the page's content.
+ *
+ *  Only the launcher goes. Hiding the whole assistant here (the first cut
+ *  at this) unmounts the panel the capsule's sparkle is trying to open, so
+ *  the button did nothing at all. `/recipes` (the browse list) is
+ *  deliberately not matched: only `/recipe/:id`. */
+function shouldHideFab(pathname: string): boolean {
+  // `/restaurant/<id>` exactly — NOT `/restaurant/<id>/circle`, a sub-page
+  // with no capsule of its own, which needs the FAB to have any way in.
+  if (/^\/restaurant\/[^/]+$/.test(pathname)) return true;
+  return pathname.startsWith('/recipe/') || pathname.startsWith('/meal/');
+}
+
 /* ── Bottom-nav routes (mirror of App.tsx's showBottomNav logic).
      The FAB clears the nav with the `is-above-nav` modifier when
      this returns true. Phone-mode-only because desktop sidebars
@@ -364,7 +383,7 @@ export const AppAssistant: React.FC = () => {
   const guides = useGuideCreator();
   const homeLocation = useHomeLocation();
   const homeLoc = homeLocation?.location || null;
-  const { pageContext } = useAssistantContext();
+  const { pageContext, attachment, setAttachment, openRequest } = useAssistantContext();
 
   // The Search tab is the map now, and the FAB sat on the results sheet's
   // corner there. It stands down on the map and steps back in when the
@@ -988,9 +1007,13 @@ export const AppAssistant: React.FC = () => {
 
   return (
     <LocationChat
+      hideLauncher={shouldHideFab(location.pathname)}
       fabAboveBottomNav={fabAboveBottomNav}
       fabOverTakeover={onSearchMap && takeoverOpen}
       fabHidden={fabHidden}
+      attachment={attachment}
+      onClearAttachment={() => setAttachment(null)}
+      openRequest={openRequest}
       visible={visible}
       restaurantMeta={restaurantMeta}
       cityDisplay={cityDisplay}
