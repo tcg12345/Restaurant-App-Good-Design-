@@ -222,7 +222,7 @@
 /* ── Hero — split ─────────────────────────────────────────────── */
 .gle-scope.hero-split .gle-hero {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   align-items: stretch;
   min-height: calc(520px * var(--gle-scale));
 }
@@ -293,13 +293,17 @@
   margin: 0 auto;
   padding: calc(56px * var(--gle-scale)) 48px;
   display: grid;
-  grid-template-columns: 1fr 240px;
+  /* minmax(0, …) rather than a bare 1fr: `1fr` is minmax(auto, 1fr), and
+     that auto floor is the track's min-content — one long restaurant name
+     and the reading column grows past the viewport, taking the entry's
+     action buttons off the right edge with it. */
+  grid-template-columns: minmax(0, 1fr) 240px;
   gap: 56px;
 }
-.gle-scope .gle-layout.no-toc { grid-template-columns: 1fr; }
+.gle-scope .gle-layout.no-toc { grid-template-columns: minmax(0, 1fr); }
 .gle-scope .gle-main-col { min-width: 0; }
 @media (max-width: 960px) {
-  .gle-scope .gle-layout { grid-template-columns: 1fr; padding: 32px 20px; gap: 32px; }
+  .gle-scope .gle-layout { grid-template-columns: minmax(0, 1fr); padding: 32px 20px; gap: 32px; }
 }
 
 /* ── Intro ────────────────────────────────────────────────────── */
@@ -611,35 +615,13 @@
 
 .gle-scope .gle-entry-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: 32px;
   margin-top: 28px;
   padding-top: 24px;
   border-top: 1px solid var(--gle-line);
 }
-@media (max-width: 720px) {
-  .gle-scope .gle-entry-grid { grid-template-columns: 1fr; gap: 20px; }
 
-  /* ── Mobile hero ──────────────────────────────────────────────
-     Shrink the oversized desktop sizes and, crucially, pad the hero
-     content down far enough to clear the floating back / edit / share
-     bar (.gle-hero-top) so the eyebrow + title no longer sit under it. */
-  .gle-scope .gle-hero { min-height: 360px; }
-  .gle-scope .gle-hero-content {
-    padding: calc(env(safe-area-inset-top, 0px) + 88px) 20px 24px;
-    max-width: none;
-  }
-  .gle-scope .gle-hero-title { font-size: 38px; }
-  .gle-scope .gle-hero-sub { font-size: 15px; }
-  .gle-scope .gle-hero-eyebrow { font-size: 10px; flex-wrap: wrap; }
-
-  /* ── Mobile entries ───────────────────────────────────────────
-     Tighter rank column + smaller rank/name so the body column keeps
-     enough room for the meta / description (which no longer overflows). */
-  .gle-scope .gle-entry.layout-sidebar { grid-template-columns: 56px minmax(0, 1fr); gap: 16px; }
-  .gle-scope .gle-rank { font-size: 34px; }
-  .gle-scope .gle-entry-name { font-size: 26px; }
-}
 .gle-scope .gle-ib { min-width: 0; }
 .gle-scope .gle-ib-label {
   font-size: 10px;
@@ -893,3 +875,411 @@
 .gle-scope.is-dark .gle-meta-dot,
 .gle-scope.is-dark .gle-dot { background: rgba(255,255,255,0.35); }
 .gle-scope.is-dark .gle-must-chip { background: rgba(255,255,255,0.06); color: var(--gle-ink); }
+
+/* ══════════════════════════════════════════════════════════════════
+   PHONE — grouped lists, iOS
+   ──────────────────────────────────────────────────────────────────
+   Everything above is an editorial magazine drawn at desktop measure:
+   a 60px display title, a 48px terracotta rank in its own column, 32px
+   entry names, meta set in tracked uppercase, a filled slab under every
+   entry. Shrinking those numbers made it quieter but not different — it
+   was still a poster, printed small.
+
+   A phone wants a different object. This is the shape iOS uses for a
+   list of things you can act on: a grouped card inset from a slightly
+   darker page, hairline separators inset to the text, the value on the
+   trailing edge, and actions as plain tinted words rather than filled
+   rectangles. The app's serif stays on the two things that carry its
+   voice — the guide's title and each restaurant's name — and everything
+   around them is quiet system type.
+
+   TWO STRUCTURAL NOTES, both learned the hard way:
+
+   1. This block lives at the END of the file. The base rules it
+      overrides are declared under their own headings further up; at
+      equal specificity the last declaration wins, and a media query
+      adds none of its own.
+
+   2. The selectors double the scope class — `.gle-scope.gle-scope`.
+      The hero and entry VARIANTS are written `.gle-scope.hero-minimal
+      .gle-hero-content`, which at (0,3,0) outranks a plain
+      `.gle-scope .gle-hero-content`. Doubling ties them, source order
+      breaks the tie, and one rule covers every variant instead of this
+      block having to enumerate them.
+   ══════════════════════════════════════════════════════════════════ */
+@media (max-width: 720px) {
+  .gle-scope.gle-scope {
+    /* The grouped-list palette: cards sit on a page a shade behind them.
+       Both come from the guide's own theme, so an author's chosen surface
+       still drives it. */
+    --gle-ios-gap: 14px;
+    --gle-ios-radius: 18px;
+    --gle-ios-inset: 16px;
+    --gle-ios-tint: color-mix(in srgb, var(--gle-accent) 11%, transparent);
+  }
+
+  /* ── Hero ──────────────────────────────────────────────────────
+     One padded block, no reserved height, no art. Each hero variant
+     sets its own padding for desktop; on a phone there is one right
+     answer — clear the floating glass chrome, then stop. */
+  .gle-scope.gle-scope .gle-hero {
+    min-height: 0;
+    padding-block: 0;
+    border-bottom: 0;
+  }
+  .gle-scope.gle-scope .gle-hero-content {
+    padding: calc(env(safe-area-inset-top, 0px) + 78px) var(--gle-ios-inset) 18px;
+    max-width: none;
+  }
+  .gle-scope.gle-scope .gle-hero-top { padding-inline: 12px; }
+
+  /* Neutral and small. In terracotta caps this was the first thing the
+     eye hit on the page, ahead of the guide's own name.
+     Colour only for the flat heroes: `.dark` means this hero is text
+     laid over the guide's cover photo, where anything but white stops
+     being readable. Everything below follows the same split — size for
+     both, colour scoped to the ground it sits on. */
+  .gle-scope.gle-scope .gle-hero-eyebrow {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    text-transform: none;
+    margin-bottom: 8px;
+  }
+  .gle-scope.gle-scope .gle-hero-eyebrow:not(.dark) {
+    color: var(--gle-ink-muted);
+    opacity: 0.75;
+  }
+  .gle-scope.gle-scope .gle-crumb-sep { opacity: 0.5; }
+
+  .gle-scope.gle-scope .gle-hero-title {
+    font-size: 27px;
+    line-height: 1.16;
+    letter-spacing: -0.022em;
+    margin-bottom: 10px;
+  }
+  .gle-scope.gle-scope .gle-hero-sub {
+    font-family: var(--gle-font-sans);
+    font-size: 14.5px;
+    line-height: 1.45;
+    margin-bottom: 14px;
+  }
+
+  /* One quiet line — a 24px avatar, the name, then the numbers. The
+     bordered chip made the author a badge sitting on the page; here they
+     read as the byline they are. */
+  .gle-scope.gle-scope .gle-hero-meta { gap: 7px; margin-bottom: 16px; }
+  .gle-scope.gle-scope .gle-author-chip { gap: 7px; }
+  /* Flat hero: the byline is a line of text, not a badge. Over a photo
+     it keeps its translucent chip — that chip IS its legibility. */
+  .gle-scope.gle-scope .gle-author-chip:not(.dark) {
+    padding: 0;
+    background: transparent;
+    border: 0;
+    backdrop-filter: none;
+    color: var(--gle-ink);
+  }
+  .gle-scope.gle-scope .gle-author-chip.dark { padding: 3px 11px 3px 3px; }
+  .gle-scope.gle-scope .gle-author-avatar { width: 22px; height: 22px; font-size: 10px; }
+  .gle-scope.gle-scope .gle-author-id { display: flex; align-items: baseline; gap: 5px; }
+  .gle-scope.gle-scope .gle-author-name { font-size: 13px; font-weight: 600; }
+  .gle-scope.gle-scope .gle-author-handle { font-size: 12px; opacity: 0.5; }
+  .gle-scope.gle-scope .gle-stat { font-size: 13px; gap: 4px; }
+  .gle-scope.gle-scope .gle-stat-num { font-weight: 600; }
+  .gle-scope.gle-scope .gle-stat-lbl {
+    font-size: 13px;
+    font-weight: 400;
+    letter-spacing: 0;
+    text-transform: none;
+    opacity: 0.6;
+  }
+  .gle-scope.gle-scope .gle-hero-content .gle-dot { width: 3px; height: 3px; opacity: 0.35; }
+
+  /* Size for every hero; colour only for the flat ones. */
+  .gle-scope.gle-scope .gle-hero-actions { gap: 8px; }
+  .gle-scope.gle-scope .gle-pill-cta,
+  .gle-scope.gle-scope .gle-pill-ghost {
+    height: 36px;
+    padding: 0 14px;
+    gap: 6px;
+    font-size: 13.5px;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+  }
+  /* Tinted fills, iOS's own button style: the accent at low alpha with
+     accent text. Sets BOTH colours explicitly — the inherited pair was a
+     white fill with near-white text once the theme went dark.
+     Flat heroes only: 11% accent over a cover photo is not a button, it
+     is a rumour. Over a photo the pills keep their opaque white / frosted
+     white pair, which is the only thing that survives an arbitrary
+     image behind it. */
+  .gle-scope.gle-scope:is(.hero-minimal, .hero-split) .gle-pill-cta,
+  .gle-scope.gle-scope:is(.hero-minimal, .hero-split) .gle-pill-ghost {
+    border: 0;
+    background: var(--gle-ios-tint);
+    color: var(--gle-accent);
+    backdrop-filter: none;
+  }
+  .gle-scope.gle-scope:is(.hero-minimal, .hero-split) .gle-pill-cta.is-on {
+    background: var(--gle-accent);
+    color: #fff;
+  }
+
+  /* ── Body ──────────────────────────────────────────────────────── */
+  .gle-scope.gle-scope .gle-layout {
+    padding: 0 var(--gle-ios-inset) 28px;
+    gap: 0;
+  }
+  .gle-scope.gle-scope .gle-intro {
+    margin: 0 0 var(--gle-ios-gap);
+    padding: 16px;
+    background: var(--gle-card);
+    border: 1px solid var(--gle-line);
+    border-radius: var(--gle-ios-radius);
+  }
+  .gle-scope.gle-scope .gle-intro-body {
+    font-family: var(--gle-font-sans);
+    font-size: 15px;
+    line-height: 1.5;
+  }
+  .gle-scope.gle-scope .gle-intro-quote { display: none; }
+
+  /* ── Entries: one grouped card ─────────────────────────────────
+     Not four bordered tiles and not four bare rows with rules across
+     the page — a single card the whole list lives inside, which is what
+     makes a guide read as one object rather than a feed. */
+  .gle-scope.gle-scope .gle-entries {
+    display: block;
+    gap: 0;
+    background: var(--gle-card);
+    border: 1px solid var(--gle-line);
+    border-radius: var(--gle-ios-radius);
+    overflow: hidden;
+  }
+  .gle-scope.gle-scope .gle-entry {
+    position: relative;
+    padding: 14px var(--gle-ios-inset);
+    scroll-margin-top: 72px;
+  }
+  /* Separators inset to the text, not ruled edge to edge. */
+  .gle-scope.gle-scope .gle-entry + .gle-entry::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: calc(var(--gle-ios-inset) + 26px);
+    right: 0;
+    height: 1px;
+    background: var(--gle-line);
+  }
+
+  /* A narrow index column, the way a numbered iOS list carries its
+     position — instead of 80px of terracotta display type. */
+  .gle-scope.gle-scope .gle-entry.layout-sidebar {
+    grid-template-columns: 26px minmax(0, 1fr);
+    gap: 0;
+    align-items: start;
+  }
+  .gle-scope.gle-scope .gle-entry.layout-sidebar .gle-rank-col {
+    padding-top: 2px;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 6px;
+  }
+  .gle-scope.gle-scope .gle-rank {
+    font-family: var(--gle-font-sans);
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--gle-ink-muted);
+    opacity: 0.65;
+  }
+  /* "of 4" on every row is noise inside a card that shows all four. */
+  .gle-scope.gle-scope .gle-rank-of { display: none; }
+  .gle-scope.gle-scope .gle-rank-tools { margin: 0; opacity: 1; flex-direction: column; }
+
+  .gle-scope.gle-scope .gle-entry-head { gap: 8px; margin-bottom: 0; align-items: flex-start; }
+
+  /* Name leading, value trailing, meta beneath — the iOS row. The
+     children arrive score-then-name in the DOM (the editor needs that
+     order); named areas put them where a reader expects without the
+     markup having to change under the editor's feet. */
+  .gle-scope.gle-scope .gle-entry-titleblock {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas:
+      'name score'
+      'meta meta';
+    column-gap: 10px;
+    align-items: baseline;
+  }
+  .gle-scope.gle-scope .gle-entry-titleblock > .gle-score-row { grid-area: score; }
+  .gle-scope.gle-scope .gle-entry-titleblock > .gle-entry-name { grid-area: name; }
+  .gle-scope.gle-scope .gle-entry-titleblock > .gle-entry-meta { grid-area: meta; }
+
+  /* Clamped, which is what makes this a list: every row is one or two
+     lines tall, so the card has a rhythm instead of a ragged column of
+     different-height blocks. The full name is on the restaurant's page. */
+  .gle-scope.gle-scope .gle-entry-name {
+    font-size: 17.5px;
+    font-weight: 700;
+    line-height: 1.25;
+    letter-spacing: -0.015em;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+
+  /* The score as a trailing value: no star, no "/ 10". The scale is
+     already stated once in the byline, and repeating it on every row is
+     four more things to read past. */
+  .gle-scope.gle-scope .gle-score-row {
+    margin: 0;
+    font-size: 14px;
+    font-weight: 650;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+  .gle-scope.gle-scope .gle-star,
+  .gle-scope.gle-scope .gle-of,
+  .gle-scope.gle-scope .gle-rule { display: none; }
+
+  .gle-scope.gle-scope .gle-entry-meta {
+    font-size: 13px;
+    font-weight: 400;
+    letter-spacing: 0;
+    text-transform: none;
+    gap: 5px;
+    margin-top: 3px;
+    color: var(--gle-ink-muted);
+  }
+  .gle-scope.gle-scope .gle-meta-price { font-weight: 400; letter-spacing: 0; color: var(--gle-ink-muted); }
+  .gle-scope.gle-scope .gle-loc { color: var(--gle-ink-muted); }
+  .gle-scope.gle-scope .gle-loc-pin { display: none; }
+
+  /* Hours are off the list entirely. A full week of opening times does
+     not fit a row, and truncating it lands mid-value — "7:00 – 10:…" —
+     which reads as broken rather than abbreviated. The restaurant's own
+     page has them in full, one tap away. */
+  .gle-scope.gle-scope .gle-entry-hours { display: none; }
+
+  /* Plain tinted glyphs. The grey filled circles read as two more
+     buttons competing with the name; iOS puts these in the accent and
+     lets the whitespace separate them. */
+  .gle-scope.gle-scope .gle-entry-actions { gap: 2px; padding-top: 0; }
+  .gle-scope.gle-scope .gle-entry-act {
+    width: 30px;
+    height: 30px;
+    background: transparent;
+    color: var(--gle-accent);
+  }
+  .gle-scope.gle-scope .gle-entry-act:hover { background: var(--gle-ios-tint); }
+  .gle-scope.gle-scope .gle-entry-act.is-on { background: transparent; color: var(--gle-accent); }
+  .gle-scope.gle-scope .gle-entry-act svg { width: 17px; height: 17px; }
+
+  .gle-scope.gle-scope .gle-entry-blurb {
+    font-size: 14px;
+    line-height: 1.5;
+    margin-top: 8px;
+    color: var(--gle-ink-muted);
+  }
+  .gle-scope.gle-scope .gle-entry-photo { border-radius: 12px; margin-top: 12px; }
+
+  /* A word in the accent, not a slab. Four filled rectangles down a
+     page shout louder than anything they open. */
+  .gle-scope.gle-scope .gle-entry-cta {
+    height: auto;
+    padding: 0;
+    margin-top: 9px;
+    gap: 3px;
+    background: transparent;
+    border: 0;
+    border-radius: 0;
+    color: var(--gle-accent);
+    font-size: 14px;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+  }
+  .gle-scope.gle-scope .gle-entry-cta svg { width: 13px; height: 13px; }
+
+  /* ── Inside-blocks and custom sections ─────────────────────────── */
+  .gle-scope.gle-scope .gle-entry-grid {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 12px;
+    margin-top: 12px;
+    padding-top: 12px;
+  }
+  .gle-scope.gle-scope .gle-ib-label {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.01em;
+    text-transform: none;
+    opacity: 0.6;
+    margin-bottom: 3px;
+  }
+  .gle-scope.gle-scope .gle-ib-text { font-size: 13.5px; line-height: 1.45; }
+  .gle-scope.gle-scope .gle-ib-label.gle-ib-spacer { margin-top: 12px; }
+  .gle-scope.gle-scope .gle-must-chip { font-size: 12.5px; padding: 5px 11px 5px 26px; }
+  .gle-scope.gle-scope .gle-entry-sections { margin-top: 14px; gap: 14px; }
+
+  /* ── Author, end cap, contents — the same grouped card ──────────── */
+  .gle-scope.gle-scope .gle-author-panel {
+    margin-top: var(--gle-ios-gap);
+    padding: 16px;
+    border-radius: var(--gle-ios-radius);
+  }
+  .gle-scope.gle-scope .gle-ap-eyebrow {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.01em;
+    text-transform: none;
+    opacity: 0.6;
+    margin-bottom: 10px;
+  }
+  .gle-scope.gle-scope .gle-ap-row { gap: 12px; align-items: center; }
+  .gle-scope.gle-scope .gle-ap-avatar { width: 40px; height: 40px; font-size: 15px; }
+  .gle-scope.gle-scope .gle-ap-name { font-size: 16px; }
+  .gle-scope.gle-scope .gle-ap-handle { font-size: 12.5px; }
+  .gle-scope.gle-scope .gle-ap-bio { font-size: 13.5px; margin-top: 8px; }
+
+  /* The rule-and-monogram belongs to a printed page. */
+  .gle-scope.gle-scope .gle-end-cap { margin: 22px 0; gap: 12px; }
+  .gle-scope.gle-scope .gle-end-line { display: none; }
+  .gle-scope.gle-scope .gle-end-mono { width: 28px; height: 28px; font-size: 14px; margin: 0 auto; }
+
+  .gle-scope.gle-scope .gle-toc { margin-top: 0; }
+  .gle-scope.gle-scope .gle-toc-label {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.01em;
+    text-transform: none;
+    opacity: 0.6;
+    margin-bottom: 8px;
+    padding-left: 4px;
+  }
+  .gle-scope.gle-scope .gle-toc-list {
+    gap: 0;
+    background: var(--gle-card);
+    border: 1px solid var(--gle-line);
+    border-radius: var(--gle-ios-radius);
+    overflow: hidden;
+  }
+  .gle-scope.gle-scope .gle-toc-item {
+    position: relative;
+    padding: 11px var(--gle-ios-inset);
+    border-radius: 0;
+    font-size: 14px;
+  }
+  .gle-scope.gle-scope .gle-toc-item + .gle-toc-item::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: calc(var(--gle-ios-inset) + 26px);
+    right: 0;
+    height: 1px;
+    background: var(--gle-line);
+  }
+  .gle-scope.gle-scope .gle-toc-item.is-active { background: var(--gle-ios-tint); color: var(--gle-ink); }
+  .gle-scope.gle-scope .gle-toc-item.is-active .gle-toc-num { color: var(--gle-accent); }
+  .gle-scope.gle-scope .gle-toc-num { font-size: 12.5px; opacity: 0.6; }
+  .gle-scope.gle-scope .gle-toc-score { font-size: 13.5px; }
+}

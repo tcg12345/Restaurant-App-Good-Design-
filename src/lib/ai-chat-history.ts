@@ -11,6 +11,12 @@ export interface UiMessage {
   /** Rendered content blocks for this turn. Text deltas append into
    *  the last text block; tool_use cards become their own block. */
   blocks: UiBlock[];
+  /** Assistant turns only: the user's thumbs up / down on this answer.
+   *  Kept on the message (rather than in component state) so re-opening a
+   *  saved chat still shows the verdict the user already gave — the row in
+   *  ai_chat_feedback is the collected data, this is the UI's memory of it.
+   *  Absent on every turn nobody rated, and on all older saved chats. */
+  feedback?: 'up' | 'down';
 }
 
 export type UiBlock =

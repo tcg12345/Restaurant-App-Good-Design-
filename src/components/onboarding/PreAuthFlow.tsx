@@ -2,20 +2,15 @@ import React, { useEffect, useState } from 'react';
 import { motion } from 'motion/react';
 import { Star } from 'lucide-react';
 import * as OB from './OnboardingKit';
-import { TastePillGrid, AtmosphereGrid, TASTE_CUISINES, TASTE_PRICES } from './TasteSteps';
+import { TastePillGrid, CuisineGrid, TASTE_CUISINES, TASTE_PRICES } from './TasteSteps';
 import { CityAutocomplete } from '../CityAutocomplete';
 import { saveLastSelectedLocation } from '../HomeLocationBar';
 import { saveTasteQuiz } from '../../lib/taste-quiz';
 import { savePreauthCity, markPreauthDone, savePreauthOutcome } from '../../lib/preauth';
 import { logOnboardingEvent, markOnboardingStep } from '../../lib/onboarding-events';
-import {
-  buildTasteProfile, buildCandidateQueries, scoreCandidates,
-  type CandidateSignals, type ScoredPlace, type RecCandidate,
-} from '../../lib/recommendations';
-import {
-  searchPlacesByText, searchPlacesByTextPaged, isFoodPlace, isVenuePlace,
-  priceLevelToString, TEXT_EXACT_SUFFICIENT_POOL, type PlaceResult,
-} from '../../lib/places';
+import { fetchTastePreview } from '../../lib/taste-preview';
+import type { ScoredPlace } from '../../lib/recommendations';
+import { priceLevelToString } from '../../lib/places';
 import { cuisineLabel } from '../../lib/cuisine';
 import type { HomeLocation } from '../HomeLocationBar';
 
@@ -40,60 +35,8 @@ import type { HomeLocation } from '../HomeLocationBar';
  * 5.1.1(v)). Leaving in any direction marks the flow done for this device.
  */
 
-type PreStep = 'welcome' | 'cuisines' | 'prices' | 'atmosphere' | 'city' | 'preview';
-const ORDER: PreStep[] = ['welcome', 'cuisines', 'prices', 'atmosphere', 'city', 'preview'];
-
-const emptySignals = (): CandidateSignals => ({
-  expertUserIds: new Set(),
-  followedExpertIds: new Set(),
-  friendUserIds: new Set(),
-  communityByRestaurant: new Map(),
-  expertRecRestaurantIds: new Set(),
-});
-
-const PREVIEW_RADIUS_M = 12_000;
-
-/** Cold-start preview: quiz answers → taste profile → candidate queries →
- *  live search → scorer. At most 3 billed text searches, behind the search
- *  memo. Exported for reuse/tests. */
-export async function fetchTastePreview(
-  answers: { cuisines: string[]; prices: number[]; atmosphere: string | null },
-  city: HomeLocation,
-): Promise<ScoredPlace[]> {
-  // Same signal shape the flow persists — otherwise the preview would rank
-  // by different rules than the app the user is about to sign up for.
-  const profile = buildTasteProfile([], [], [], [], {
-    cuisines: answers.cuisines,
-    prices: answers.prices,
-    pricePrimary: answers.prices[0],
-    priceSecondary: answers.prices[1],
-    atmosphere: answers.atmosphere ?? undefined,
-    city: city.label,
-  });
-  const queries = buildCandidateQueries(profile, city).slice(0, 3);
-  const batches = await Promise.all(queries.map((q) =>
-    q.priceLevels && q.priceLevels.length > 0
-      ? searchPlacesByTextPaged(q.text, {
-          lat: city.lat, lng: city.lng, radiusMeters: PREVIEW_RADIUS_M,
-          useRestriction: true, priceLevels: q.priceLevels,
-        }).then((page) => page.places).catch(() => [] as PlaceResult[])
-      : searchPlacesByText(q.text, city.lat, city.lng, city.label, true, PREVIEW_RADIUS_M,
-          undefined, { minExactResults: TEXT_EXACT_SUFFICIENT_POOL })
-          .catch(() => [] as PlaceResult[]),
-  ));
-  const seen = new Set<string>();
-  const pool: RecCandidate[] = [];
-  for (const p of batches.flat()) {
-    if (seen.has(p.id)) continue;
-    seen.add(p.id);
-    // Light quality floor — the preview is a first impression, and a 3.4★
-    // with nine reviews makes the "made for your taste" claim ring false.
-    if (!isFoodPlace(p.types) || isVenuePlace(p)) continue;
-    if ((p.rating || 0) < 4.0 || (p.userRatingCount || 0) < 25) continue;
-    pool.push(p);
-  }
-  return scoreCandidates(pool, profile, emptySignals(), city, PREVIEW_RADIUS_M, { limit: 6 });
-}
+type PreStep = 'welcome' | 'cuisines' | 'prices' | 'city' | 'preview';
+const ORDER: PreStep[] = ['welcome', 'cuisines', 'prices', 'city', 'preview'];
 
 const PreviewCard: React.FC<{ place: ScoredPlace; index: number }> = ({ place, index }) => {
   const sub = [cuisineLabel(place), priceLevelToString(place.priceLevel)].filter(Boolean).join(' · ');
@@ -142,7 +85,6 @@ export const PreAuthFlow: React.FC<{
   const [dir, setDir] = useState(1);
   const [cuisineSel, setCuisineSel] = useState<string[]>([]);
   const [priceSel, setPriceSel] = useState<number[]>([]);
-  const [atmosphere, setAtmosphere] = useState<string | null>(null);
   const [cityText, setCityText] = useState('');
   const [cityGeo, setCityGeo] = useState<HomeLocation | null>(null);
   const [preview, setPreview] = useState<ScoredPlace[] | null>(null);
@@ -162,7 +104,7 @@ export const PreAuthFlow: React.FC<{
   /** Persist answers to the local mirror (no user yet) — ProfileSetup
    *  reads them back after signup and stamps the row. */
   const persistAnswers = () => {
-    if (cuisineSel.length === 0 && priceSel.length === 0 && !atmosphere && !cityGeo) return;
+    if (cuisineSel.length === 0 && priceSel.length === 0 && !cityGeo) return;
     void saveTasteQuiz(undefined, {
       cuisines: cuisineSel,
       // Both shapes: the flat array for anything still reading it, and the
@@ -172,7 +114,6 @@ export const PreAuthFlow: React.FC<{
       prices: priceSel,
       pricePrimary: priceSel[0],
       priceSecondary: priceSel[1],
-      atmosphere: atmosphere ?? undefined,
       city: cityGeo?.label,
       completedAt: Date.now(),
     });
@@ -196,14 +137,14 @@ export const PreAuthFlow: React.FC<{
   useEffect(() => {
     if (step !== 'preview' || !cityGeo || preview !== null) return;
     let cancelled = false;
-    fetchTastePreview({ cuisines: cuisineSel, prices: priceSel, atmosphere }, cityGeo)
+    fetchTastePreview({ cuisines: cuisineSel, prices: priceSel }, cityGeo)
       .then((places) => {
         if (cancelled) return;
         setPreview(places);
         if (places.length > 0) logOnboardingEvent('preauth_preview_shown');
       });
     return () => { cancelled = true; };
-  }, [step, cityGeo, preview, cuisineSel, priceSel, atmosphere]);
+  }, [step, cityGeo, preview, cuisineSel, priceSel]);
 
   const advanceFromCity = () => {
     if (cityGeo) {
@@ -223,11 +164,72 @@ export const PreAuthFlow: React.FC<{
     }
   };
 
+  // One footer per step, keyed so it re-plays its entrance on every step
+  // change (the content pane remounts the same way via `key={step}`) — but
+  // rendered OUTSIDE the scrollable pane, so "Continue" lands on the exact
+  // same pixel on 'cuisines' as it does on the much longer 'preview' list.
+  //
+  // The primary button is always the LAST element in the footer, never the
+  // first: a footer is only as tall as what's actually in it, so a ghost
+  // link stacked BELOW the button would push the button itself up on
+  // exactly the steps that have one — the same drifting-button bug one
+  // level down. Anything secondary goes ABOVE it instead, so the button's
+  // distance from the bottom edge never depends on what else is on screen.
+  const footer = (() => {
+    switch (step) {
+      case 'welcome':
+        return (
+          <OB.Reveal key={step} i={3}>
+            <div style={{ marginBottom: 4 }}>
+              <OB.GhostButton onClick={() => leave('signin')}>Already have an account? Sign in</OB.GhostButton>
+              {onBrowseAsGuest && (
+                <OB.GhostButton onClick={() => leave('guest')}>Browse without an account</OB.GhostButton>
+              )}
+            </div>
+            <OB.PrimaryButton onClick={() => go('cuisines')}>Get started</OB.PrimaryButton>
+          </OB.Reveal>
+        );
+      case 'cuisines':
+        return (
+          <OB.Reveal key={step} i={3}>
+            <OB.PrimaryButton onClick={() => go('prices')}>Continue</OB.PrimaryButton>
+          </OB.Reveal>
+        );
+      case 'prices':
+        return (
+          <OB.Reveal key={step} i={3}>
+            <OB.PrimaryButton onClick={() => go('city')}>Continue</OB.PrimaryButton>
+          </OB.Reveal>
+        );
+      case 'city':
+        return (
+          <OB.Reveal key={step} i={3}>
+            <div style={{ marginBottom: 4 }}>
+              <OB.GhostButton onClick={() => { persistAnswers(); go('preview'); }}>Skip for now</OB.GhostButton>
+            </div>
+            <OB.PrimaryButton onClick={advanceFromCity}>{cityGeo ? 'Show my picks' : 'Continue'}</OB.PrimaryButton>
+          </OB.Reveal>
+        );
+      case 'preview':
+        return (
+          <OB.Reveal key={step} i={3}>
+            <div style={{ marginBottom: 4 }}>
+              <OB.GhostButton onClick={() => leave('signin')}>Already have an account? Sign in</OB.GhostButton>
+              {onBrowseAsGuest && (
+                <OB.GhostButton onClick={() => leave('guest')}>Browse without an account</OB.GhostButton>
+              )}
+            </div>
+            <OB.PrimaryButton onClick={() => leave('signup')} trailing="check">Save my taste profile</OB.PrimaryButton>
+          </OB.Reveal>
+        );
+    }
+  })();
+
   return (
-    <OB.OnboardingScreen>
-      {step !== 'welcome' && (
-        <OB.ProgressHeader step={idx} total={ORDER.length - 1} onBack={back} />
-      )}
+    <OB.OnboardingScreen
+      header={step !== 'welcome' && <OB.ProgressHeader step={idx} total={ORDER.length - 1} onBack={back} />}
+      footer={footer}
+    >
       {/* Keyed div, no AnimatePresence — entrance plays per step (direction-
           aware) and nothing gates on an exit animation completing. */}
       <motion.div
@@ -249,33 +251,21 @@ export const PreAuthFlow: React.FC<{
             </motion.div>
             <div style={{ marginTop: 26 }}>
               <OB.Reveal blur i={1}><OB.Title size={36}>Find your next favorite table</OB.Title></OB.Reveal>
-              <OB.Reveal i={2}><OB.Subtitle>Three quick questions, and we'll show you where to eat.</OB.Subtitle></OB.Reveal>
+              <OB.Reveal i={2}><OB.Subtitle>A couple quick questions, and we'll show you where to eat.</OB.Subtitle></OB.Reveal>
             </div>
-            <OB.Reveal i={3} style={{ marginTop: 'auto', paddingTop: 30 }}>
-              <OB.PrimaryButton onClick={() => go('cuisines')}>Get started</OB.PrimaryButton>
-              <div style={{ marginTop: 4 }}>
-                <OB.GhostButton onClick={() => leave('signin')}>Already have an account? Sign in</OB.GhostButton>
-              </div>
-              {onBrowseAsGuest && (
-                <OB.GhostButton onClick={() => leave('guest')}>Browse without an account</OB.GhostButton>
-              )}
-            </OB.Reveal>
           </div>
         )}
 
         {step === 'cuisines' && (
           <div className="flex flex-1 flex-col">
             <OB.StepHeader title="Which cuisines do you love?" subtitle="Pick as many as you like." />
-            <div style={{ marginTop: 26 }}>
-              <TastePillGrid
-                options={TASTE_CUISINES.map((c) => ({ id: c, label: c }))}
+            <div style={{ marginTop: 22 }}>
+              <CuisineGrid
+                options={TASTE_CUISINES}
                 selected={cuisineSel}
                 onToggle={(id) => setCuisineSel((prev) => prev.includes(id) ? prev.filter((c) => c !== id) : [...prev, id])}
               />
             </div>
-            <OB.Reveal i={3} style={{ marginTop: 'auto', paddingTop: 24 }}>
-              <OB.PrimaryButton onClick={() => go('prices')}>Continue</OB.PrimaryButton>
-            </OB.Reveal>
           </div>
         )}
 
@@ -292,21 +282,6 @@ export const PreAuthFlow: React.FC<{
                 }}
               />
             </div>
-            <OB.Reveal i={3} style={{ marginTop: 'auto', paddingTop: 24 }}>
-              <OB.PrimaryButton onClick={() => go('atmosphere')}>Continue</OB.PrimaryButton>
-            </OB.Reveal>
-          </div>
-        )}
-
-        {step === 'atmosphere' && (
-          <div className="flex flex-1 flex-col">
-            <OB.StepHeader title="Your ideal atmosphere?" />
-            <div style={{ marginTop: 22 }}>
-              <AtmosphereGrid selected={atmosphere} onSelect={setAtmosphere} />
-            </div>
-            <OB.Reveal i={3} style={{ marginTop: 'auto', paddingTop: 24 }}>
-              <OB.PrimaryButton onClick={() => go('city')}>Continue</OB.PrimaryButton>
-            </OB.Reveal>
           </div>
         )}
 
@@ -320,12 +295,6 @@ export const PreAuthFlow: React.FC<{
                 onPick={(loc) => { setCityText(loc.label); setCityGeo(loc); }}
                 onSubmit={advanceFromCity}
               />
-            </OB.Reveal>
-            <OB.Reveal i={3} style={{ marginTop: 'auto', paddingTop: 24 }}>
-              <OB.PrimaryButton onClick={advanceFromCity}>{cityGeo ? 'Show my picks' : 'Continue'}</OB.PrimaryButton>
-              <div style={{ marginTop: 4 }}>
-                <OB.GhostButton onClick={() => { persistAnswers(); go('preview'); }}>Skip for now</OB.GhostButton>
-              </div>
             </OB.Reveal>
           </div>
         )}
@@ -353,15 +322,6 @@ export const PreAuthFlow: React.FC<{
                 )}
               </div>
             )}
-            <OB.Reveal i={3} style={{ marginTop: 'auto', paddingTop: 26 }}>
-              <OB.PrimaryButton onClick={() => leave('signup')} trailing="check">Save my taste profile</OB.PrimaryButton>
-              <div style={{ marginTop: 4 }}>
-                <OB.GhostButton onClick={() => leave('signin')}>Already have an account? Sign in</OB.GhostButton>
-              </div>
-              {onBrowseAsGuest && (
-                <OB.GhostButton onClick={() => leave('guest')}>Browse without an account</OB.GhostButton>
-              )}
-            </OB.Reveal>
           </div>
         )}
       </motion.div>

@@ -1,12 +1,45 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
-  ArrowLeft, Star, MapPin, Clock, Phone, Globe,
-  ChevronLeft, ChevronRight, ChevronDown, Loader2,
-  Navigation, ExternalLink, X, Users, UserCircle, Share2, Bookmark,
-  DollarSign, CalendarDays, Tag, Image, Edit3, Check, Send, Building2, TrendingUp, TrendingDown, StickyNote, Trash2, ImageOff,
-  Car, Footprints, Award, Images, Plus, Utensils, Lock,
+  ArrowLeft,
+  Star,
+  MapPin,
+  Clock,
+  Phone,
+  Globe,
+  ChevronLeft,
+  ChevronRight,
+  ChevronDown,
+  Loader2,
+  Navigation,
+  ExternalLink,
+  X,
+  Users,
+  UserCircle,
+  Bookmark,
+  DollarSign,
+  CalendarDays,
+  Tag,
+  Image,
+  Edit3,
+  Check,
+  Send,
+  Building2,
+  TrendingUp,
+  TrendingDown,
+  StickyNote,
+  Trash2,
+  ImageOff,
+  Car,
+  Footprints,
+  Award,
+  Images,
+  Plus,
+  Utensils,
+  Lock,
+  Sparkles,
 } from 'lucide-react';
+import { ShareIcon } from '../components/icons/ShareIcon';
 import { cn, parseVisitDate } from '../lib/utils';
 import { Collapse } from '../components/Collapse';
 import { GlassButton, GlassGroup } from '../lib/glass-buttons';
@@ -36,6 +69,7 @@ import { PhotoGallery } from '../components/PhotoGallery';
 import { RestaurantFeaturedReels } from '../components/RestaurantFeaturedReels';
 import { YourReviewComments } from '../components/YourReviewComments';
 import { getNextOpenLabel, restaurantLocalNow } from '../lib/hours';
+import { useAskAssistantAbout } from '../contexts/AssistantContext';
 import { LoadingSkeleton, LoadingSkeletonList } from '../components/LoadingSkeleton';
 
 /** Short "last week / last month" style recency label. */
@@ -110,6 +144,52 @@ export const RestaurantDetailMobile: React.FC = () => {
   const { showToast } = useToast();
 
   const { toggleWishlist, isWishlisted, getRating, openAddRestaurantModal, deleteVisit, scoresUnlocked } = useLists();
+
+  /* ── "Ask about this place" ────────────────────────────────────────
+     Pins the chat to this restaurant and opens it. The digest is built
+     HERE because this page is where the app's knowledge of the place is
+     already assembled — the user's own rating and notes, what their
+     circle scored it, hours, Michelin standing. Handing the model those
+     facts up front is what lets it answer "is it worth it?" from the
+     user's own data instead of searching the open web for a stranger's
+     opinion; it still searches for what these lines don't cover. */
+  const askAssistantAbout = useAskAssistantAbout();
+  const askAboutThisPlace = () => {
+    if (!place) return;
+    const mine = getRating(place.id);
+    const details: string[] = [];
+    if (place.fullAddress || place.address) details.push(`Address: ${place.fullAddress || place.address}`);
+    if (cuisine) details.push(`Cuisine: ${cuisine}`);
+    if (priceStr) details.push(`Price: ${priceStr}`);
+    if (michelin?.distinction) details.push(`Michelin: ${michelin.distinction}`);
+    if (place.rating) details.push(`Google rating: ${place.rating}/5`);
+    if (place.hours?.length) details.push(`Hours: ${place.hours.join('; ')}`);
+    if (place.phone) details.push(`Phone: ${place.phone}`);
+    if (place.website) details.push(`Website: ${place.website}`);
+    if (mine) {
+      details.push(`The user rated it ${mine.score.toFixed(1)}/10${mine.visitDate ? ` on ${mine.visitDate}` : ''}.`);
+      if (mine.notes?.trim()) details.push(`The user's notes: ${mine.notes.trim()}`);
+      if (mine.tags?.length) details.push(`The user's tags: ${mine.tags.join(', ')}`);
+      if (mine.favoriteDishes?.length) details.push(`The user's favourite dishes here: ${mine.favoriteDishes.join(', ')}`);
+      if (visitCount > 0) details.push(`The user has logged ${visitCount + 1} visits.`);
+    } else {
+      details.push('The user has NOT rated this restaurant.');
+    }
+    if (communityStats.totalRatings > 0) {
+      details.push(`Community: ${communityStats.avgScore.toFixed(1)}/10 from ${communityStats.totalRatings} rating(s).`);
+    }
+    if (friendsStats.totalRatings > 0) {
+      details.push(`People they follow: ${friendsStats.avgScore.toFixed(1)}/10 from ${friendsStats.totalRatings} rating(s).`);
+    }
+    askAssistantAbout({
+      kind: 'restaurant',
+      id: place.id,
+      name: place.name,
+      subtitle: [cuisine, priceStr, (place.fullAddress || place.address || '').split(',')[1]?.trim()]
+        .filter(Boolean).join(' · '),
+      details,
+    });
+  };
 
   // Swipe the hero to step through photos — a finger-following slide over a
   // 3-photo window (prev / current / next) that snaps on release. The hero
@@ -359,10 +439,20 @@ export const RestaurantDetailMobile: React.FC = () => {
                 },
                 {
                   id: 'share',
-                  symbol: 'square.and.arrow.up',
+                  symbol: 'app.paperplane',
                   label: 'Share',
                   onClick: () => { if (place) setChatShareTarget(buildShareTarget()); },
-                  icon: <Share2 size={16} />,
+                  icon: <ShareIcon size={16} />,
+                },
+                {
+                  // Third region of the same glass capsule rather than a
+                  // separate floating control — asking about the place is
+                  // the same kind of act as saving or sharing it.
+                  id: 'ask',
+                  symbol: 'sparkles',
+                  label: `Ask about ${place?.name ?? 'this restaurant'}`,
+                  onClick: askAboutThisPlace,
+                  icon: <Sparkles size={16} />,
                 },
               ]}
             />

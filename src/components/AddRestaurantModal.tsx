@@ -16,6 +16,7 @@ import { CuisinePicker, EditableCuisineLine } from './CuisinePicker';
 import { submitCuisineSuggestion } from '../lib/supabase-cuisine-suggestions';
 import { getFriends, getProfilesByIds, getVisitHistory, type UserProfile, type FriendInfo } from '../lib/supabase-community';
 import { useBottomSheet } from '../lib/useBottomSheet';
+import { SheetGrabArea } from './SheetGrabArea';
 import { useSubmitOnce } from '../lib/useSubmitOnce';
 import { useDeferredFocus } from '../lib/useDeferredFocus';
 import { type H2HState, initH2HTieBreak, placementOrder, TIER_LABELS } from '../lib/headToHeadRating';
@@ -505,7 +506,7 @@ export const AddRestaurantModal: React.FC = () => {
             transition={{ duration: 0.42, ease: [0.32, 0.72, 0, 1] }}
             {...dragProps}
             onClick={(e) => e.stopPropagation()}
-            className={cn("bg-surface w-full overflow-hidden flex flex-col kb-pad",
+            className={cn("relative bg-surface w-full overflow-hidden flex flex-col kb-pad",
               phoneMode
                 ? "h-full rounded-none"
                 // The Rate page hugs its content on desktop — a floating
@@ -515,15 +516,7 @@ export const AddRestaurantModal: React.FC = () => {
                   : "h-full sm:max-w-md sm:max-h-[92vh] sm:h-[92vh] rounded-none sm:rounded-3xl"
             )}
           >
-            {phoneMode && (
-              <div
-                onPointerDown={startDrag}
-                className="flex justify-center pt-safe-3 pb-1 flex-shrink-0 touch-none cursor-grab active:cursor-grabbing"
-                aria-label="Drag to dismiss"
-              >
-                <div className="w-9 h-1 rounded-full bg-on-surface/20" />
-              </div>
-            )}
+            {phoneMode && <SheetGrabArea onPointerDown={startDrag} />}
             {photoInput}
             <AnimatePresence mode="wait">
               {/* ═══════════ RATE PAGE — the score comes first ═══════════
@@ -687,7 +680,7 @@ export const AddRestaurantModal: React.FC = () => {
               {page === 'main' && (
                 <motion.div key="main" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0, x: -30 }} transition={{ duration: 0.15 }}
                   className="flex flex-col flex-1 min-h-0">
-                  <div className="px-5 pt-safe-4 sm:pt-5 pb-1 flex items-center justify-end flex-shrink-0">
+                  <div className="relative z-10 px-5 pt-safe-4 sm:pt-5 pb-1 flex items-center justify-end flex-shrink-0">
                     <GlassButton
                       id="rate-close-main"
                       symbol="xmark"

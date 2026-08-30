@@ -15,12 +15,8 @@ import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react'
 import { motion } from 'motion/react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useHeaderFade } from '../lib/useHeaderFade';
-import {
-  ArrowLeft, ArrowUpDown, BookOpen, Bookmark, Cake, Check, ChefHat,
-  ChevronDown, ChevronLeft, ChevronRight, ChevronRight as ChevRight, Clock, Crown,
-  LayoutGrid, List, Plus, Search, Share2, SlidersHorizontal, Soup, Sparkles, Star, Sun, Tag,
-  TrendingUp, UtensilsCrossed, Users, Wheat, Wine, X,
-} from 'lucide-react';
+import { ArrowLeft, ArrowUpDown, BookOpen, Bookmark, Cake, Check, ChefHat, ChevronDown, ChevronLeft, ChevronRight, ChevronRight as ChevRight, Clock, Crown, LayoutGrid, List, Plus, Search, SlidersHorizontal, Soup, Sparkles, Star, Sun, Tag, TrendingUp, UtensilsCrossed, Users, Wheat, Wine, X } from 'lucide-react';
+import { ShareIcon } from '../components/icons/ShareIcon';
 import { FilterSheet } from '../components/FilterSheet';
 import { FilterSection, Pill, PillRow, Segment, SegmentItem } from '../components/filterPrimitives';
 import { useAuth } from '../contexts/AuthContext';
@@ -47,6 +43,16 @@ const SORT_LABELS: Record<SortKey, string> = {
   az: 'A–Z',
 };
 
+// The browse segmented control. Shorter than SOURCE_LABELS: four words in
+// one segmented bar have to fit a phone, and the bar's own label says what
+// they're sources OF.
+const SEGMENT_LABELS: Record<SourceFilter, string> = {
+  all: 'All',
+  friend: 'Friends',
+  chef: 'Chefs',
+  home: 'Home',
+};
+
 const SOURCE_LABELS: Record<SourceFilter, string> = {
   all: 'All recipes',
   friend: 'Friends',
@@ -69,6 +75,15 @@ const MEAL_CATEGORIES: { key: MealKey; label: string; hue: number; icon: typeof 
   { key: 'drinks',    label: 'Drinks',    hue: 200, icon: Wine },
 ];
 
+
+// How many cards the grid shows before "Load more recipes".
+const PAGE_SIZE = 12;
+
+/** A quick-filter chip. `test` is the real predicate — a chip that can't
+ *  narrow anything is never offered (see `quickChips`). */
+interface QuickChip { key: string; label: string; test: (r: Recipe) => boolean }
+
+const totalMinutes = (r: Recipe): number => (r.prepTimeMinutes ?? 0) + (r.cookTimeMinutes ?? 0);
 
 // Stable seed-based number from a string — used only for deterministic
 // ordering (so mixed pools don't reshuffle between renders), never for
@@ -201,7 +216,19 @@ const SourceIcon: React.FC<{ source: SourceFilter; className?: string }> = ({ so
       ? <Users className={className} />
       : <ChefHat className={className} />;
 
-export const RecipesForYou: React.FC = () => {
+interface RecipesForYouProps {
+  /** Rendered inside another page's chrome — the Search tab's Recipes
+   *  pill — rather than as its own route. That page already carries the
+   *  pill naming this view and the one search field every tab shares, so
+   *  the sticky header would only repeat both; the host drives the query
+   *  instead. */
+  embedded?: boolean;
+  /** Embedded only: the host's field text. */
+  query?: string;
+  onQueryChange?: (q: string) => void;
+}
+
+export const RecipesForYou: React.FC<RecipesForYouProps> = ({ embedded = false, query, onQueryChange }) => {
   const navigate = useNavigate();
   const { user, isSignedIn } = useAuth();
   const { requireSignIn } = useSignInModal();
@@ -245,11 +272,32 @@ export const RecipesForYou: React.FC = () => {
   // bottom sheet as Discover and the public profile) instead of stacked
   // chip rows on the page.
   const [filterSheetOpen, setFilterSheetOpen] = useState(false);
+  // The header bookmark: your saved recipes, shown HERE rather than by
+  // throwing you into the Pantry list (which, opened from the Search tab,
+  // meant leaving the tab entirely to look at four cards).
+  const [savedOnly, setSavedOnly] = useState(false);
+  // The quick-filter row. A set, so they compose: "Under 30 min" plus a
+  // tag narrows to both. Every chip is derived from the library itself
+  // (see `quickChips`), so none of them can be a dead end.
+  const [quick, setQuick] = useState<Set<string>>(new Set());
+  const toggleQuick = useCallback((key: string) => {
+    setQuick((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      return next;
+    });
+  }, []);
+  // The grid pages in rather than dumping the whole library at once.
+  const [shown, setShown] = useState(PAGE_SIZE);
 
   // Search — discreet field tucked into the explore-bar so the legacy
   // search behavior still works without the old sticky header.
   const [searchOpen, setSearchOpen] = useState(false);
-  const [searchQuery, setSearchQuery] = useState('');
+  // Own state as a route, the host's when embedded — same name from here
+  // down, so every filter, facet and empty state reads one query.
+  const [ownQuery, setOwnQuery] = useState('');
+  const searchQuery = embedded ? (query ?? '') : ownQuery;
+  const setSearchQuery = embedded ? (onQueryChange ?? (() => {})) : setOwnQuery;
 
   // Desktop browse panel uses a multi-select faceted sidebar (Meal, Cuisine,
   // Dietary, Time, Difficulty, From). Kept separate from the mobile chips so
@@ -430,11 +478,34 @@ export const RecipesForYou: React.FC = () => {
       .slice(0, 3);
   }, [displayRecipes, authors]);
 
+  /* ── The quick-filter row ─────────────────────────────────────────────
+     Built FROM the library, not hard-coded. Two chips the data can always
+     answer — time and difficulty — then the most common real tags. A chip
+     is only offered if it actually matches something, so tapping one can
+     never land on "no recipes match", which is the failure mode a fixed
+     row of fashionable words (Vegetarian, One pan, High protein) has on a
+     library that doesn't happen to use those tags. */
+  const quickChips = useMemo<QuickChip[]>(() => {
+    const candidates: QuickChip[] = [
+      { key: 'quick30', label: 'Under 30 min', test: (r) => { const t = totalMinutes(r); return t > 0 && t <= 30; } },
+      { key: 'easy', label: 'Easy', test: (r) => r.difficulty === 'easy' },
+      ...allTags.slice(0, 6).map((t) => ({
+        key: `tag:${t}`,
+        label: prettyTag(t),
+        test: (r: Recipe) => r.tags.some((x) => x.toLowerCase() === t.toLowerCase()),
+      })),
+    ];
+    return candidates.filter((c) => displayRecipes.some(c.test)).slice(0, 6);
+  }, [displayRecipes, allTags]);
+
   // ── Filter + sort the explore grid ──
   const filtered = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
+    const active = quickChips.filter((c) => quick.has(c.key));
     let pool = displayRecipes.filter((r) => {
       if (!r.title) return false;
+      if (savedOnly && !savedIds.has(r.id)) return false;
+      if (active.length > 0 && !active.every((c) => c.test(r))) return false;
       if (source !== 'all' && recipeSource(r) !== source) return false;
       if (meal && recipeMeal(r) !== meal) return false;
       if (tag && !r.tags.map((t) => t.toLowerCase()).includes(tag.toLowerCase())) return false;
@@ -462,7 +533,7 @@ export const RecipesForYou: React.FC = () => {
       pool.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
     }
     return pool;
-  }, [recipes, authors, source, meal, tag, searchQuery, sortBy, recipeSource]);
+  }, [displayRecipes, authors, source, meal, tag, searchQuery, sortBy, recipeSource, savedOnly, savedIds, quick, quickChips]);
 
   // ── Stats strip ──
   const cookedCount = homeMeals.length;
@@ -479,9 +550,19 @@ export const RecipesForYou: React.FC = () => {
     setMeal(null);
     setTag(null);
     setSearchQuery('');
+    setQuick(new Set());
+    setSavedOnly(false);
   };
 
-  const filtersActive = source !== 'all' || meal !== null || tag !== null || searchQuery.trim().length > 0;
+  const filtersActive = source !== 'all' || meal !== null || tag !== null
+    || searchQuery.trim().length > 0 || quick.size > 0 || savedOnly;
+
+  // Narrowing the pool puts you back at the top of it — otherwise a filter
+  // applied while 60 cards deep leaves you looking at a page of results
+  // that no longer exists.
+  useEffect(() => {
+    setShown(PAGE_SIZE);
+  }, [source, meal, tag, searchQuery, sortBy, savedOnly, quick]);
 
   // ── Desktop facets: which keys a recipe matches per facet ──
   const facetGet = useCallback((fid: FacetId, r: Recipe): string[] => {
@@ -583,31 +664,98 @@ export const RecipesForYou: React.FC = () => {
     // Meal / tag / sort live in the FilterSheet — the chip on the search
     // row shows how many of them are set.
     const sheetFilterCount = (meal ? 1 : 0) + (tag ? 1 : 0) + (sortBy !== 'recent' ? 1 : 0);
-    const recipeOfDayCover = recipeOfDay?.photos?.[0] || '';
-    const rodAuthor = recipeOfDay ? authors[recipeOfDay.userId] : undefined;
-    const rodAuthorName = rodAuthor?.display_name || rodAuthor?.username || 'Anonymous';
-    const rodAuthorHue = recipeOfDay ? avatarHue(recipeOfDay.userId || 'x') : 0;
-    const rodTotal = recipeOfDay ? ((recipeOfDay.prepTimeMinutes ?? 0) + (recipeOfDay.cookTimeMinutes ?? 0)) : 0;
-    const rodTime = formatTime(rodTotal);
+
+    // ── Today's pick ──
+    const heroCover = recipeOfDay?.photos?.[0] || '';
+    const heroAuthor = recipeOfDay ? authors[recipeOfDay.userId] : undefined;
+    const heroAuthorName = heroAuthor?.display_name || heroAuthor?.username || 'Anonymous';
+    const heroHue = recipeOfDay ? avatarHue(recipeOfDay.userId || 'x') : 0;
+    const heroTime = recipeOfDay ? formatTime(totalMinutes(recipeOfDay)) : '';
+    const heroMeta = recipeOfDay
+      ? [heroTime, recipeOfDay.difficulty && DIFFICULTY_LABEL[recipeOfDay.difficulty],
+         recipeOfDay.servings ? `Serves ${recipeOfDay.servings}` : '']
+          .filter(Boolean).join(' · ')
+      : '';
+
+    /* Collections are the meal categories, carrying their real counts and
+       a cover borrowed from a recipe that's actually in them. Empty ones
+       are dropped rather than shown as a tile leading to nothing. */
+    const collections = MEAL_CATEGORIES
+      .map((c) => ({
+        ...c,
+        count: mealCounts[c.key],
+        cover: displayRecipes.find((r) => recipeMeal(r) === c.key && r.photos?.[0])?.photos?.[0] || '',
+      }))
+      .filter((c) => c.count > 0);
+
+    // The hero and the collections rail are the page's browse furniture:
+    // once you've asked for something specific, they're in the way of the
+    // answer.
+    const browsing = filtersActive;
+    const visible = filtered.slice(0, shown);
+
+    const savedBtn = (
+      <button
+        type="button"
+        className={cn('m-icon-btn', savedOnly && 'on')}
+        aria-pressed={savedOnly}
+        title={savedOnly ? 'Showing saved' : 'Show saved'}
+        aria-label={savedOnly ? 'Showing saved recipes' : 'Show saved recipes'}
+        onClick={() => setSavedOnly((v) => !v)}
+      >
+        <Bookmark fill={savedOnly ? 'currentColor' : 'none'} />
+      </button>
+    );
+    const addBtn = (
+      <button
+        type="button"
+        className="m-add-btn"
+        title="Add a recipe"
+        aria-label="Add a recipe"
+        onClick={() => {
+          if (!isSignedIn) { requireSignIn('Sign in to add a recipe'); return; }
+          navigate('/create', { state: { mode: 'recipe' } });
+        }}
+      >
+        <Plus />
+      </button>
+    );
+    const filterBtn = (
+      <button
+        type="button"
+        className={cn('m-filter-btn', sheetFilterCount > 0 && 'active')}
+        onClick={() => setFilterSheetOpen(true)}
+        aria-label="Filters"
+      >
+        <SlidersHorizontal />
+        {sheetFilterCount > 0 && <span className="badge">{sheetFilterCount}</span>}
+      </button>
+    );
 
     return (
-      <div className="recipes-page-root">
-        {/* ── Sticky header — app-standard chrome: round back button,
-            centered serif title, icon actions; search + filter row
-            beneath. ─────────────────────────────────────────────── */}
+      <div className={cn('recipes-page-root', embedded && 'is-embedded')}>
+        {/* ── The bar at the top ──────────────────────────────────────
+            As a route: back button, title, and the two things you come
+            here to do — see what you saved, add one of your own.
+            Embedded in the Search tab: the host's pill already names this
+            view and its floating field already takes the query, so only
+            the actions it can't carry stay. ─────────────────────────── */}
+        {embedded ? (
+          <div className="m-embed-actions">
+            {savedBtn}
+            {addBtn}
+            {filterBtn}
+          </div>
+        ) : (
         <motion.header ref={headerFade.headerRef} style={headerFade.headerStyle} className="m-header">
           <div className="m-header-row">
             <button type="button" className="m-back-btn" onClick={() => navigate(-1)} aria-label="Back">
-              <ArrowLeft />
+              <ChevronLeft />
             </button>
             <h1 className="m-header-title">Recipes</h1>
             <div className="m-header-actions">
-              <button type="button" className="m-icon-btn" title="Saved" aria-label="Saved" onClick={() => navigate(`/pantry?list=${DEFAULT_WANT_TO_COOK_ID}`)}>
-                <Bookmark />
-              </button>
-              <button type="button" className="m-icon-btn" title="Add Recipe" aria-label="Add Recipe" onClick={() => navigate('/create')}>
-                <Plus />
-              </button>
+              {savedBtn}
+              {addBtn}
             </div>
           </div>
           <div className="m-browse-bar">
@@ -616,150 +764,212 @@ export const RecipesForYou: React.FC = () => {
               className="flex-1 min-w-0"
               value={searchQuery}
               onChange={setSearchQuery}
-              placeholder="Search recipes, ingredients, cuisines…"
+              placeholder="Search recipes or ingredients"
             />
-            <button
-              type="button"
-              className={cn('m-filter-btn', sheetFilterCount > 0 && 'active')}
-              onClick={() => setFilterSheetOpen(true)}
-              aria-label="Filters"
-            >
-              <SlidersHorizontal />
-              {sheetFilterCount > 0 && <span className="badge">{sheetFilterCount}</span>}
-            </button>
+            {filterBtn}
           </div>
         </motion.header>
+        )}
 
-        {/* ── Recipe of the Day (stacked) — hidden while searching so
-            only the filtered results + filters show. ──────────────── */}
-        {recipeOfDay && !searchQuery.trim() && (
-          <article className="m-rod">
+        {/* ── Quick filters — the narrowings worth one tap ─────────── */}
+        {quickChips.length > 0 && (
+          <div className="m-quick" role="group" aria-label="Quick filters">
+            {quickChips.map((c) => (
+              <button
+                key={c.key}
+                type="button"
+                className={cn('m-quick-chip', quick.has(c.key) && 'on')}
+                aria-pressed={quick.has(c.key)}
+                onClick={() => toggleQuick(c.key)}
+              >
+                {c.label}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {/* ── Today's pick ────────────────────────────────────────── */}
+        {recipeOfDay && !browsing && (
+          <article
+            className="m-hero"
+            role="button"
+            tabIndex={0}
+            onClick={() => goToRecipe(recipeOfDay)}
+            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); goToRecipe(recipeOfDay); } }}
+          >
             <div
-              className="m-rod-img"
-              style={{ background: `linear-gradient(135deg, hsl(${rodAuthorHue} 50% 52%), hsl(${(rodAuthorHue + 25) % 360} 50% 42%))` }}
+              className="m-hero-img"
+              style={{ background: `linear-gradient(135deg, hsl(${heroHue} 50% 52%), hsl(${(heroHue + 25) % 360} 50% 42%))` }}
             >
-              {recipeOfDayCover ? (
-                <img className="m-rod-photo" src={recipeOfDayCover} alt={recipeOfDay.title} decoding="async" referrerPolicy="no-referrer" />
+              {heroCover ? (
+                <img src={heroCover} alt={recipeOfDay.title} decoding="async" referrerPolicy="no-referrer" />
               ) : (
                 <div className="ph-fallback"><ChefHat /></div>
               )}
-              <div className="badge"><Sparkles /> Recipe of the Day</div>
+              <span className="m-hero-badge"><Star /> Today&rsquo;s pick</span>
               <button
                 type="button"
-                className={cn('save', savedIds.has(recipeOfDay.id) && 'saved')}
-                onClick={() => toggleSave(recipeOfDay.id)}
+                className={cn('m-hero-save', savedIds.has(recipeOfDay.id) && 'saved')}
+                onClick={(e) => { e.stopPropagation(); toggleSave(recipeOfDay.id); }}
                 aria-label={savedIds.has(recipeOfDay.id) ? 'Saved' : 'Save'}
               >
                 <Bookmark fill={savedIds.has(recipeOfDay.id) ? 'currentColor' : 'none'} />
               </button>
+              <h2 className="m-hero-name">{recipeOfDay.title}</h2>
             </div>
-            <div className="m-rod-body">
-              <h2 className="m-rod-name">{recipeOfDay.title}</h2>
-              <div className="m-rod-meta">
-                {rodTime && <span><Clock /> {rodTime}</span>}
-                {rodTime && recipeOfDay.difficulty ? <span className="dot-sep" /> : null}
-                {recipeOfDay.difficulty && <span>{DIFFICULTY_LABEL[recipeOfDay.difficulty]}</span>}
+            <div className="m-hero-foot">
+              <div className="m-hero-by">
+                <span className="av" style={{ background: `hsl(${heroHue} 45% 38%)` }}>
+                  {(heroAuthorName[0] || '?').toUpperCase()}
+                </span>
+                <span className="m-hero-by-text">
+                  <span className="name">{heroAuthorName}</span>
+                  {heroMeta && <span className="meta">{heroMeta}</span>}
+                </span>
               </div>
-              <div className="m-rod-author">
-                <div className="av" style={{ background: `hsl(${rodAuthorHue} 45% 38%)` }}>
-                  {(rodAuthorName[0] || '?').toUpperCase()}
-                </div>
-                <div className="m-rod-author-info">
-                  <span className="name">{rodAuthorName}</span>
-                </div>
-              </div>
-              <div className="m-rod-cta">
-                <button type="button" className="m-btn m-btn-primary" onClick={() => goToRecipe(recipeOfDay)}>
-                  Start cooking <ChevRight />
-                </button>
-                <button
-                  type="button"
-                  className="m-btn m-btn-ghost"
-                  aria-label="Share"
-                  onClick={() => {
-                    const url = `${window.location.origin}/recipe/${recipeOfDay.userId}/${recipeOfDay.id}`;
-                    void shareExternally({ title: recipeOfDay.title, url });
-                  }}
-                >
-                  <Share2 />
-                </button>
-              </div>
+              <span className="m-hero-cta">Start cooking <ChevRight /></span>
             </div>
           </article>
         )}
 
-        {/* ── Explore (2-col grid / list) ─────────────────── */}
-        <section className="m-section m-explore" style={{ marginBottom: 12 }}>
-          <div className="m-explore-section-head">
-            <h2 className="m-explore-title">All recipes</h2>
-            <div className="m-er-view">
-              <button
-                type="button"
-                className={cn(view === 'grid' && 'on')}
-                onClick={() => setView('grid')}
-                aria-label="Grid view"
-                title="Grid"
-              >
-                <LayoutGrid />
+        {/* ── Collections — the meal categories, with what's in them ── */}
+        {collections.length > 0 && !browsing && (
+          <section className="m-sec">
+            <div className="m-sec-head">
+              <h2 className="m-sec-title">Collections</h2>
+              <button type="button" className="m-sec-link" onClick={() => setFilterSheetOpen(true)}>
+                See all
               </button>
-              <button
-                type="button"
-                className={cn(view === 'list' && 'on')}
-                onClick={() => setView('list')}
-                aria-label="List view"
-                title="List"
-              >
-                <List />
-              </button>
+            </div>
+            <div className="m-rail no-scrollbar">
+              {collections.map((c) => (
+                <button
+                  key={c.key}
+                  type="button"
+                  className="m-coll"
+                  onClick={() => setMeal(c.key)}
+                >
+                  <span
+                    className="m-coll-img"
+                    style={{ background: `linear-gradient(135deg, hsl(${c.hue} 46% 46%), hsl(${(c.hue + 24) % 360} 46% 34%))` }}
+                  >
+                    {c.cover
+                      ? <img src={c.cover} alt="" loading="lazy" decoding="async" referrerPolicy="no-referrer" />
+                      : <c.icon />}
+                    <span className="m-coll-text">
+                      <span className="m-coll-name">{c.label}</span>
+                      <span className="m-coll-count">{c.count} {c.count === 1 ? 'recipe' : 'recipes'}</span>
+                    </span>
+                  </span>
+                </button>
+              ))}
+            </div>
+          </section>
+        )}
+
+        {/* ── Browse all ──────────────────────────────────────────── */}
+        <section className="m-sec m-browse">
+          <div className="m-sec-head">
+            <h2 className="m-sec-title">Browse all</h2>
+            <div className="m-sec-right">
+              <span className="m-count">{filtered.length} {filtered.length === 1 ? 'recipe' : 'recipes'}</span>
+              <div className="m-view">
+                <button
+                  type="button"
+                  className={cn(view === 'grid' && 'on')}
+                  onClick={() => setView('grid')}
+                  aria-label="Grid view"
+                  aria-pressed={view === 'grid'}
+                >
+                  <LayoutGrid />
+                </button>
+                <button
+                  type="button"
+                  className={cn(view === 'list' && 'on')}
+                  onClick={() => setView('list')}
+                  aria-label="List view"
+                  aria-pressed={view === 'list'}
+                >
+                  <List />
+                </button>
+              </div>
             </div>
           </div>
 
-          {/* Single source row — every other filter lives in the sheet. */}
-          <div className="m-source-tabs">
-            {(['all', 'friend', 'chef', 'home'] as SourceFilter[]).map((s) => (
+          <div className="m-seg" role="tablist" aria-label="Recipe source">
+            {(['all', 'friend', 'chef', 'home'] as SourceFilter[]).map((sk) => (
               <button
-                key={s}
+                key={sk}
                 type="button"
-                className={cn('m-source-tab', source === s && 'active')}
-                onClick={() => setSource(s)}
+                role="tab"
+                aria-selected={source === sk}
+                className={cn('m-seg-item', source === sk && 'on')}
+                onClick={() => setSource(sk)}
               >
-                {SOURCE_LABELS[s]}
+                {SEGMENT_LABELS[sk]}
               </button>
             ))}
           </div>
 
-          <div className="m-result-count">
-            <span><span className="n">{filtered.length}</span> {filtered.length === 1 ? 'recipe' : 'recipes'}</span>
-            {(filtersActive || sortBy !== 'recent') && (
-              <button type="button" className="m-result-clear" onClick={() => { clearFilters(); setSortBy('recent'); }}>
+          {filtersActive && (
+            <div className="m-active">
+              <span className="m-active-text">
+                {savedOnly ? 'Saved recipes' : 'Filtered'}
+              </span>
+              <button type="button" className="m-active-clear" onClick={() => { clearFilters(); setSortBy('recent'); }}>
                 Clear all
               </button>
-            )}
-          </div>
+            </div>
+          )}
 
           {loading ? (
             <div className={cn('m-er-grid', view === 'list' && 'list')}>
               {Array.from({ length: 6 }).map((_, i) => (
-                <div key={i} className="skeleton" style={{ height: view === 'list' ? 130 : 200 }} />
+                <div key={i} className="skeleton" style={{ height: view === 'list' ? 130 : 210 }} />
               ))}
             </div>
           ) : filtered.length === 0 ? (
-            <div className="m-empty">No recipes match those filters.</div>
-          ) : (
-            <div className={cn('m-er-grid', view === 'list' && 'list')}>
-              {filtered.map((r) => (
-                <MobileExploreCard
-                  key={r.id}
-                  r={r}
-                  source={recipeSource(r)}
-                  author={authors[r.userId]}
-                  saved={savedIds.has(r.id)}
-                  onSave={toggleSave}
-                  view={view}
-                  onClick={() => goToRecipe(r)}
-                />
-              ))}
+            <div className="m-empty">
+              <p className="m-empty-lead">
+                {savedOnly ? 'Nothing saved yet' : 'No recipes match those filters'}
+              </p>
+              <p className="m-empty-sub">
+                {savedOnly
+                  ? 'Tap the bookmark on any recipe and it lands here.'
+                  : 'Try clearing a filter or two.'}
+              </p>
+              {filtersActive && (
+                <button type="button" className="m-empty-btn" onClick={() => { clearFilters(); setSortBy('recent'); }}>
+                  Clear all filters
+                </button>
+              )}
             </div>
+          ) : (
+            <>
+              <div className={cn('m-er-grid', view === 'list' && 'list')}>
+                {visible.map((r) => (
+                  <MobileExploreCard
+                    key={r.id}
+                    r={r}
+                    source={recipeSource(r)}
+                    author={authors[r.userId]}
+                    saved={savedIds.has(r.id)}
+                    onSave={toggleSave}
+                    view={view}
+                    onClick={() => goToRecipe(r)}
+                  />
+                ))}
+              </div>
+              {filtered.length > visible.length && (
+                <button
+                  type="button"
+                  className="m-more"
+                  onClick={() => setShown((n) => n + PAGE_SIZE)}
+                >
+                  Load more recipes
+                </button>
+              )}
+            </>
           )}
         </section>
 
@@ -1122,7 +1332,7 @@ const RecipeOfTheDay: React.FC<{
                   void shareExternally({ title: recipe.title, url });
                 }}
               >
-                <Share2 />
+                <ShareIcon />
               </button>
             </div>
           </div>
@@ -1172,10 +1382,16 @@ const MobileExploreCard: React.FC<{
     </div>
   );
 
+  const meta = (
+    <div className="m-er-meta">
+      {time && <span className="t"><Clock /> {time}</span>}
+      {time && r.cuisine ? <span className="bar" /> : null}
+      {r.cuisine && <span className="c">{r.cuisine}</span>}
+      {!time && !r.cuisine && r.difficulty && <span className="c">{DIFFICULTY_LABEL[r.difficulty]}</span>}
+    </div>
+  );
+
   if (view === 'list') {
-    const authorName = author?.display_name || author?.username || 'Anonymous';
-    const visibleTags = r.tags.slice(0, 2);
-    const extraTags = r.tags.length - 2;
     return (
       <article
         className="m-er-card"
@@ -1187,25 +1403,8 @@ const MobileExploreCard: React.FC<{
         {ImageBlock}
         <div className="m-er-body">
           <h3 className="m-er-name">{r.title}</h3>
-          <div className="m-er-cuisine">
-            {[r.cuisine, r.difficulty && DIFFICULTY_LABEL[r.difficulty]].filter(Boolean).join(' · ') || 'Recipe'}
-          </div>
           {r.description && <p className="m-er-desc">{r.description}</p>}
-          {visibleTags.length > 0 && (
-            <div className="m-er-tags">
-              {visibleTags.map((t) => <span key={t} className="m-er-tag">{t}</span>)}
-              {extraTags > 0 && <span className="m-er-tag more">+{extraTags}</span>}
-            </div>
-          )}
-          <div className="m-er-footer">
-            <span className="av" style={{ background: `hsl(${hue} 45% 40%)` }}>
-              {(authorName[0] || '?').toUpperCase()}
-            </span>
-            <span className="author">{authorName}</span>
-            <span className="sep" />
-            {time && <span className="item"><Clock /> {time}</span>}
-            {r.servings ? <span className="item"><UtensilsCrossed /> {r.servings}</span> : null}
-          </div>
+          {meta}
         </div>
       </article>
     );
@@ -1222,13 +1421,7 @@ const MobileExploreCard: React.FC<{
       {ImageBlock}
       <div className="m-er-body">
         <h3 className="m-er-name">{r.title}</h3>
-        <div className="m-er-cuisine">
-          {[r.cuisine, r.difficulty && DIFFICULTY_LABEL[r.difficulty]].filter(Boolean).join(' · ') || 'Recipe'}
-        </div>
-        <div className="m-er-meta">
-          {time && <span><Clock /> {time}</span>}
-          {r.servings ? <span><UtensilsCrossed /> Serves {r.servings}</span> : null}
-        </div>
+        {meta}
       </div>
     </article>
   );

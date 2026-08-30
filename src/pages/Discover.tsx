@@ -1,7 +1,7 @@
 import React, { useState, useRef, useCallback, useEffect, useMemo, useLayoutEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate, useLocation, Link } from 'react-router-dom';
-import { motion, AnimatePresence, useMotionValue, useTransform, animate } from 'motion/react';
+import { motion, AnimatePresence, useMotionValue, useMotionTemplate, useTransform, animate } from 'motion/react';
 import { Search, Star, Plus, Navigation, RotateCw, SlidersHorizontal, Users, MapPinned, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, ArrowRight, Layers, X, Box, Square, Loader2, ArrowUpDown, UtensilsCrossed, DollarSign, Check, Clock, Sparkles, MapPin, ChevronsUp, Eye, Map as MapIcon, ChefHat, BookOpen, ImageOff, RefreshCw, Footprints, Tag, Bookmark, MessageCircle, BadgeCheck } from 'lucide-react';
 import mapboxgl, { type Marker as MapboxMarker } from 'mapbox-gl';
 import { attachMapErrorFallback } from '../lib/map-error';
@@ -47,10 +47,11 @@ import { useWarmHoursForFilter } from '../lib/useWarmHours';
 import { geocodePlace } from '../components/HomeLocationBar';
 import { useSetAssistantPageContext, type AssistantPageContext } from '../contexts/AssistantContext';
 import { RestaurantCard } from '../components/RestaurantCard';
+import { FollowingFeed } from '../components/FollowingFeed';
 import { RestaurantPanelBody, type RestaurantPanelSnapshot } from '../components/RestaurantPanel';
 import { useBottomSheet } from '../lib/useBottomSheet';
 import { SocialFeed, type FeedFilter } from '../components/SocialFeed';
-import { SearchField, searchFieldChipWidth } from '../components/SearchField';
+import { SearchField } from '../components/SearchField';
 import { TopBar } from '../components/TopBar';
 import {
   HomeLocationBar,
@@ -130,6 +131,7 @@ function shuffleInPlace<T>(arr: T[]): T[] {
 import { supabase, supabaseConfigured } from '../lib/supabase';
 import { saveRecentViews } from '../lib/supabase-db';
 import { useViewportSize } from '../lib/useViewportSize';
+import { setGlassNavMinimized } from '../lib/native-glass';
 import 'mapbox-gl/dist/mapbox-gl.css';
 
 // Fix mapbox-gl worker for Vite production builds
@@ -288,6 +290,19 @@ interface DiscoverProps {
   /** searchTab only: reports when the sheet reaches / leaves `full`, so the
    *  host can fade the tab pill in step with the chrome. */
   onSheetFullChange?: (full: boolean) => void;
+  /** searchTab only: reports when the Following view toggles, so the host
+   *  can repoint the shared search field at the feed instead of the map's
+   *  search takeover. */
+  onFollowingViewChange?: (active: boolean) => void;
+  /** searchTab only: imperative asks from the host's shared field while
+   *  the Following view is up — currently just "raise the sheet so the
+   *  filtered list is visible under the keyboard". Assigned fresh every
+   *  render, like the search handler. */
+  followingBridgeRef?: React.MutableRefObject<{ raiseSheet: () => void } | null>;
+  /** searchTab only: live text from the shared field, filtering the
+   *  Following feed in place (the takeover never opens for it). */
+  followingQuery?: string;
+  onClearFollowingQuery?: () => void;
 }
 
 /** Quiet "See all / Browse all" text link for section headers — label +
@@ -355,7 +370,7 @@ const IntentPair: React.FC<{
   </div>
 );
 
-export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, searchHandlerRef, dimChrome = false, onSheetFullChange, locationBridgeRef }) => {
+export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, searchHandlerRef, dimChrome = false, onSheetFullChange, locationBridgeRef, onFollowingViewChange, followingBridgeRef, followingQuery, onClearFollowingQuery }) => {
   const searchTab = variant === 'searchTab';
   const navigate = useNavigate();
   const location = useLocation();
@@ -732,6 +747,65 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, sear
     setRatingPrice(null);
     setRatingCities([]);
   };
+  /* ── Following view (Search tab) ─────────────────────────────────────
+     The old top-level Following tab, folded into this page: a toggle on
+     the sheet header swaps the sheet's content for the followed-people
+     feed, the chrome chips for the feed's chips, and the map pins for the
+     feed's rows — and a Discover button swaps it all back. The feed
+     component stays the single owner of its data and filters; it reports
+     its filtered rows up (onMapRows) and this page only plots them. */
+  const [followingView, setFollowingView] = useState(false);
+  const [followingRows, setFollowingRows] = useState<CommunityRating[]>([]);
+  const [followingProfiles, setFollowingProfiles] = useState<Record<string, UserProfile>>({});
+  const handleFollowingRows = useCallback((rows: CommunityRating[], profiles: Record<string, UserProfile>) => {
+    setFollowingRows(rows);
+    setFollowingProfiles(profiles);
+  }, []);
+  const enterFollowing = () => {
+    // Canonical base state under the overlay view, so leaving it lands on
+    // plain Nearby rather than whatever rating mode was selected before.
+    if (mapModeRef.current !== 'discover') { setMapMode('discover'); setSelectedListId(null); }
+    setFollowingView(true);
+  };
+
+  // Tell the host page which way the shared field should point. Ref'd so a
+  // host that recreates the callback per render doesn't re-fire this.
+  const onFollowingViewChangeRef = useRef(onFollowingViewChange);
+  onFollowingViewChangeRef.current = onFollowingViewChange;
+  useEffect(() => {
+    onFollowingViewChangeRef.current?.(followingView);
+  }, [followingView]);
+  // Rows without coordinates: shared geo cache only. Every surface that
+  // plots community rows persists into it (see the friends/experts geocode
+  // pass), so a fresh mapbox pass here would mostly re-do that work.
+  const followingGeoTriedRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    if (!followingView || followingRows.length === 0) return;
+    const missing = followingRows.filter((r) =>
+      (!r.lat || !r.lng || (Math.abs(r.lat) < 1 && Math.abs(r.lng) < 1))
+      && !followingGeoTriedRef.current.has(r.restaurant_id));
+    if (missing.length === 0) return;
+    missing.forEach((r) => followingGeoTriedRef.current.add(r.restaurant_id));
+    let cancelled = false;
+    void getRestaurantGeoBatch(missing.map((r) => r.restaurant_id)).then((geo) => {
+      if (cancelled) return;
+      let hits = 0;
+      for (const r of missing) {
+        const g = geo[r.restaurant_id];
+        if (g) { r.lat = g.lat; r.lng = g.lng; hits++; }
+      }
+      // Anything the shared cache didn't know, the locally cached meta
+      // might — same second source the row tap uses.
+      for (const r of missing) {
+        if (r.lat && r.lng) continue;
+        const meta = restaurantMetaRef.current?.[r.restaurant_id] as { lat?: number; lng?: number } | undefined;
+        if (meta?.lat && meta?.lng) { r.lat = meta.lat; r.lng = meta.lng; hits++; }
+      }
+      if (hits > 0) setFollowingRows((prev) => [...prev]);
+    }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [followingView, followingRows]);
+
   // Recipes mode: friends' public home meals + the meal we're viewing in modal.
   const [friendRecipes, setFriendRecipes] = useState<FriendHomeMeal[]>(() => tabDataCache.friendRecipes);
   const [friendRecipesLoading, setFriendRecipesLoading] = useState(false);
@@ -978,6 +1052,18 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, sear
   // Where the floating chrome ends — safe area, tab pill, search field,
   // chip row. The Search tab's sheet never rises past this line.
   const CHROME_BOTTOM = safeTop + 176;
+  /* ── Where the peek rests ─────────────────────────────────────────────
+     Mirrored from the native tab bar's collapsed geometry
+     (MainViewController.swift: `condensedBarHeight` is 71pt, and the bar
+     is pinned flush to the bottom edge), so the top of the shrunken nav
+     pill sits 71pt up from the bottom. The peek is parked just clear of
+     it, showing the grabber and nothing else — the count and the source
+     picker that used to peek out under it are information the map is
+     already showing, and reading them meant reading past the nav pill
+     they sat behind. */
+  const COLLAPSED_NAV_HEIGHT = 71;
+  /** Sheet visible above the collapsed nav at peek — the grabber's band. */
+  const PEEK_STRIP = 40;
   const getSheetY = (state: 'peek' | 'half' | 'full') => {
     // The Search tab's sheet has three REAL snap points, like the reference:
     // a peek that clears the floating tab bar, a half that splits the screen
@@ -990,7 +1076,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, sear
       // one page without the sheet's body ever sliding through the chrome.
       if (state === 'full') return CHROME_BOTTOM;
       if (state === 'half') return Math.round(FULL_HEIGHT * 0.5);
-      return FULL_HEIGHT - PEEK_HEIGHT - 36;
+      return FULL_HEIGHT - COLLAPSED_NAV_HEIGHT - PEEK_STRIP;
     }
     let y = state === 'full' ? 0 : state === 'half' ? FULL_HEIGHT - HALF_HEIGHT : FULL_HEIGHT - PEEK_HEIGHT;
     // Hard cap on the map page: the sheet top can never rise above its 'half'
@@ -1021,7 +1107,11 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, sear
   const dragVelRef = useRef(0);
   const dragLastRef = useRef({ y: 0, t: 0 });
   const sheetMinY = () => (mode === 'map' ? getSheetY(searchTab ? 'full' : 'half') : 0);
-  const sheetMaxY = () => FULL_HEIGHT - PEEK_HEIGHT;
+  // The Search tab's peek sits lower than the shared PEEK_HEIGHT floor
+  // (it parks against the collapsed nav pill), so the drag's bottom stop
+  // has to be its real resting place or the finger hits rubber-band
+  // resistance short of the snap it is dragging toward.
+  const sheetMaxY = () => (searchTab ? getSheetY('peek') : FULL_HEIGHT - PEEK_HEIGHT);
   const applySheetDrag = (clientY: number) => {
     if (!isDraggingRef.current) return;
     const now = performance.now();
@@ -1068,7 +1158,23 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, sear
     setSheetState(next);
     animate(sheetY, getSheetY(next), SHEET_SPRING);
   };
+  /* ── Using the page shrinks the tab bar ───────────────────────────────
+     The scroll listener in `useGlassScrollMinimize` drives this everywhere
+     else, but the map page produces no scroll events: dragging the sheet
+     and panning the map ARE the interaction here, so the bar would stand
+     at full height through a whole session of using the page. These are
+     the two gestures that mean "I'm working with the map", so they say so.
+     Only on the Search tab's map — the home page still scrolls, and the
+     scroll listener already has it. */
+  const noteMapInteraction = useCallback(() => {
+    if (searchTab) setGlassNavMinimized(true);
+  }, [searchTab]);
+  // The map's own listeners are installed once, in an effect with no deps.
+  const noteMapInteractionRef = useRef(noteMapInteraction);
+  noteMapInteractionRef.current = noteMapInteraction;
+
   const beginSheetDrag = (clientY: number) => {
+    noteMapInteraction();
     dragStartYRef.current = clientY;
     dragCurrentYRef.current = 0;
     dragVelRef.current = 0;
@@ -1161,10 +1267,67 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, sear
      grabber reading as one page. Lowering plays it backwards — the
      backdrop thins and the map re-emerges. */
   const backdropOpacity = useTransform(sheetY, [CHROME_BOTTOM, CHROME_BOTTOM + 140], [1, 0]);
+  // The lift under the sheet's top edge fades out over that same stretch.
+  // Fully raised the sheet rests on ground of its own colour, and a 50px
+  // black blur cast upward onto it is not a shadow any more — it's a dark
+  // band ruled across the page exactly where the two surfaces meet.
+  const sheetShadowAlpha = useTransform(sheetY, [CHROME_BOTTOM, CHROME_BOTTOM + 140], [0, 0.1]);
+  const sheetShadow = useMotionTemplate`0 -20px 50px rgba(0, 0, 0, ${sheetShadowAlpha})`;
   // The grabber melts away over the same stretch: fully raised, the sheet
   // meets the chrome with the header first — no bar, no blank strip.
   const handleHeight = useTransform(sheetY, [CHROME_BOTTOM, CHROME_BOTTOM + 120], [0, 34]);
   const handleOpacity = useTransform(sheetY, [CHROME_BOTTOM, CHROME_BOTTOM + 120], [0, 1]);
+  /* The body goes with the sheet on the way down. At the peek only the
+     grabber is left — a strip that reads as a handle to pull, not as a
+     row of facts truncated by the nav pill in front of it. It's a fade
+     off `sheetY` rather than a swap on `sheetState` so the content
+     dissolves *during* the drag instead of blinking out at the snap. */
+  const PEEK_Y = FULL_HEIGHT - COLLAPSED_NAV_HEIGHT - PEEK_STRIP;
+  const bodyOpacity = useTransform(sheetY, [PEEK_Y - 150, PEEK_Y - 40], [1, 0]);
+
+  /* Where a followed row actually is. The community row carries its own
+     lat/lng when whoever rated it had them, but plenty of rows predate
+     that or were written without — so the cached restaurant meta (which
+     the map has been filling in all along) is the second source, and the
+     one that makes a tap land for places the viewer has opened before. */
+  const followingCoords = useCallback((r: CommunityRating): { lat: number; lng: number } | null => {
+    if (r.lat && r.lng && !(Math.abs(r.lat) < 1 && Math.abs(r.lng) < 1)) {
+      return { lat: r.lat, lng: r.lng };
+    }
+    const meta = restaurantMetaRef.current?.[r.restaurant_id] as { lat?: number; lng?: number } | undefined;
+    if (meta?.lat && meta?.lng) return { lat: meta.lat, lng: meta.lng };
+    return null;
+  }, []);
+
+  /* A row tap in the Following list means one of two things, and the
+     sheet's own position is what says which. Raised to full the sheet IS
+     the page — the map is out of sight behind it, so a tap can only
+     sensibly mean "open this". Half or peek, the map is the thing you're
+     looking at and the list is an index into it, so a tap flies the map
+     to that restaurant and leaves you there. Returning false hands the
+     row back to the feed's default (open the restaurant page), which is
+     also the honest answer for a row we have no coordinates for. */
+  const sheetStateRef = useRef(sheetState);
+  sheetStateRef.current = sheetState;
+  const handleFollowingRowSelect = useCallback((r: CommunityRating) => {
+    if (sheetStateRef.current === 'full') return false;
+    const map = mapRef.current;
+    const at = followingCoords(r);
+    if (!map || !at) return false;
+    map.easeTo({
+      center: [at.lng, at.lat],
+      zoom: Math.max(map.getZoom(), 15),
+      duration: 600,
+      // Land the pin in the middle of the strip that is actually visible:
+      // between the floating chrome's lower edge and the sheet's top. The
+      // map's own centre is neither — the sheet covers the bottom half and
+      // the tab pill / field / chips cover the top ~230px, so a pin placed
+      // at either arrives behind something.
+      offset: [0, (CHROME_BOTTOM + sheetY.get()) / 2 - FULL_HEIGHT / 2],
+    });
+    return true;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [FULL_HEIGHT, CHROME_BOTTOM]);
   useEffect(() => {
     const controls = animate(sheetY, getSheetY(sheetState), SHEET_SPRING);
     return () => controls.stop();
@@ -2734,6 +2897,17 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, sear
     };
     map.on('click', clearPopup);
     map.on('dragstart', clearOnDrag);
+    // Panning or zooming the map is "using the page" — shrink the tab bar,
+    // the way scrolling a list does everywhere else. `zoomstart` fires for
+    // programmatic camera moves too, so it's filtered to gestures: `e`
+    // carries an `originalEvent` only when a finger caused it.
+    const noteGesture = (e: unknown) => {
+      if ((e as { originalEvent?: unknown } | undefined)?.originalEvent) {
+        noteMapInteractionRef.current();
+      }
+    };
+    map.on('dragstart', noteGesture);
+    map.on('zoomstart', noteGesture);
 
     // The desktop sidebar expands on hover and collapses on leave, which
     // changes the map container's width. Mapbox doesn't track container
@@ -2965,12 +3139,26 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, sear
       }
       if (!discoverSearchActive) preSearchPlacesRef.current = places;
       if (mapMode !== 'discover') { setMapMode('discover'); setSelectedListId(null); }
+      // A map search is a Discover act — leave the Following view so the
+      // results it produces are actually visible.
+      setFollowingView(false);
       setDiscoverSearchActive(true);
       // The debounced auto-search effect runs the actual query.
       setSearchQuery(trimmed);
       setSheetState('half');
     };
     return () => { searchHandlerRef.current = null; };
+  });
+  // The Following field's asks — assigned fresh every render for the same
+  // reason as the search handler above.
+  useEffect(() => {
+    if (!followingBridgeRef) return;
+    followingBridgeRef.current = {
+      // A tap on the field with the sheet parked low: the list is what the
+      // typing filters, so bring it up where the results can be seen.
+      raiseSheet: () => setSheetState('full'),
+    };
+    return () => { followingBridgeRef.current = null; };
   });
 
   // The takeover's location chip. Same fresh-closure pattern as the search
@@ -3377,7 +3565,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, sear
     // discover mode — a dedicated effect manages the overlay in discover.
     customMarkersRef.current.forEach((m) => m.remove());
     customMarkersRef.current = [];
-    if (mapMode !== 'discover') {
+    if (mapMode !== 'discover' || followingView) {
       expertOverlayMarkersRef.current.forEach((m) => m.remove());
       expertOverlayMarkersRef.current = [];
     }
@@ -3391,15 +3579,16 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, sear
     (Object.values(markersRef.current) as MapboxMarker[]).forEach((marker) => {
       try {
         const el = marker.getElement();
-        if (el) el.style.display = mapMode === 'discover' ? '' : 'none';
+        if (el) el.style.display = mapMode === 'discover' && !followingView ? '' : 'none';
       } catch {}
     });
 
     // Also close any open popups
     if (popupRef.current) { popupRef.current.remove(); popupRef.current = null; }
 
-    const ratings = mapMode === 'myratings' ? filteredMyRatings : mapMode === 'friends' ? filteredFriendRatings : mapMode === 'experts' ? filteredExpertRatings : [];
-    if (mapMode === 'discover') {
+    const ratings = followingView ? followingRows
+      : mapMode === 'myratings' ? filteredMyRatings : mapMode === 'friends' ? filteredFriendRatings : mapMode === 'experts' ? filteredExpertRatings : [];
+    if (mapMode === 'discover' && !followingView) {
       // Returning to the Discover tab: the rating modes overwrote `places`
       // with their own rows and nothing else repopulates it — without this
       // restore the pins (un-hidden above) and the results list disagree
@@ -3423,7 +3612,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, sear
 
     const bounds = new mapboxgl.LngLatBounds();
     let hasMarkers = false;
-    const strokeColor = mapMode === 'friends' ? '#9f3012' : mapMode === 'experts' ? '#9f3012' : '#333';
+    const strokeColor = mapMode === 'friends' || followingView ? '#9f3012' : mapMode === 'experts' ? '#9f3012' : '#333';
 
     for (const r of ratings) {
       if (!r.lat || !r.lng) continue;
@@ -3439,8 +3628,11 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, sear
       let fillColor = '#94a3b8';
       let iconHtml = '';               // static markup / numbers only
       let iconEl: HTMLElement | null = null; // for user-derived content
-      if (mapMode === 'friends') {
-        const profile = friendProfiles[r.user_id];
+      if (mapMode === 'friends' || followingView) {
+        // Following pins: same identity-avatar construction as Friends,
+        // with the profile map the feed reported (it covers experts the
+        // viewer follows, who are not in friendProfiles).
+        const profile = (followingView ? followingProfiles : friendProfiles)[r.user_id];
         const initial = profile?.display_name?.charAt(0)?.toUpperCase() || '?';
         fillColor = strokeColor;
         // display_name is user-controlled — set via textContent, not markup.
@@ -3498,7 +3690,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, sear
     if (hasMarkers) {
       map.fitBounds(bounds, { padding: 50, maxZoom: 13 });
     }
-  }, [mapMode, filteredMyRatings, filteredFriendRatings, filteredExpertRatings, friendProfiles, isWishlisted, isFocusOnly]);
+  }, [mapMode, filteredMyRatings, filteredFriendRatings, filteredExpertRatings, friendProfiles, isWishlisted, isFocusOnly, followingView, followingRows, followingProfiles]);
 
   // ── Desktop map panel: helpers, derived data, and JSX ──
   // The panel replaces the bottom-sheet pop-up on wide viewports. It owns
@@ -4299,29 +4491,28 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, sear
         {mode === 'home' && (() => {
           const cityLabel = homeLocation?.label?.split(',')[0]?.trim() || 'Set location';
           return (
-            /* The takeover's location-chip construction: a read-only glass
-               FIELD, not a pill — a field fills its web box exactly, so the
-               chip can't outgrow its slot and crowd the search bar the way
-               a self-sizing native pill did. The box is set from the label
-               measured at the field's own type metrics, so the capsule hugs
-               "Miami" and "Central Park" alike — shrink-to-fit was tried
-               and the fallback input's intrinsic width inflated it. */
-            <div
-              className="relative flex-none max-w-[45%]"
-              style={{ width: Math.max(96, searchFieldChipWidth(cityLabel)) }}
+            /* A fixed 36pt marker, not a labelled capsule. The chip used to
+               size itself from the city name, so "200 West 45th Street" ate
+               nearly half the row and truncated to "200 West 45t…" — a label
+               that wide costs the search bar its width and still doesn't
+               finish the address. The pin says "location" on its own; the
+               name it resolves to belongs on the picker this opens. 36pt
+               matches `.ios-search`'s min-height so the two sit level. */
+            <GlassButton
+              id="home-location"
+              // Not an SF Symbol: `app.mappin` is one of the app's own drawn
+              // glyphs (AppGlyph in MainViewController.swift). SF Symbols has
+              // no teardrop map marker — its whole `mappin`/`pin` family is a
+              // pushpin, which is a different object from the Maps drop-pin —
+              // so the mark had to be drawn to get the real lens and the
+              // right icon at the same time.
+              symbol="app.mappin"
+              label={`Change location — currently ${cityLabel}`}
+              onClick={() => setMobileLocationPickerOpen(true)}
+              className="flex-none w-9 h-9 rounded-full flex items-center justify-center text-on-surface/70 active:scale-95 transition-transform"
             >
-              <SearchField
-                glassId="home-location"
-                glassSymbol="location"
-                leadingIcon={<Navigation size={14} strokeWidth={2.2} />}
-                readOnly
-                onPress={() => setMobileLocationPickerOpen(true)}
-                value={cityLabel}
-                onChange={() => {}}
-                placeholder="Location"
-                aria-label="Change location"
-              />
-            </div>
+              <MapPin size={17} strokeWidth={2.2} />
+            </GlassButton>
           );
         })()}
       </div>
@@ -4444,7 +4635,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, sear
           UNDER the floating glass, which lands as a page with the search
           field and chips at its top — the reference's morph. Only the
           search takeover still fades it. */}
-      {searchTab && (
+      {searchTab && !followingView && (
         <div
           className="absolute inset-x-0 top-0 z-50 flex flex-col gap-2.5 px-3.5 transition-[opacity,transform] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)]"
           style={{
@@ -4520,7 +4711,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, sear
           small glass chip tucked to the leading edge under the chip row,
           out of the map's face; the plain map page keeps its centred card. */}
       <AnimatePresence>
-        {showSearchHere && mapMode === 'discover' && !(searchTab && dimChrome) && (
+        {showSearchHere && mapMode === 'discover' && !followingView && !(searchTab && dimChrome) && (
           searchTab ? (
             sheetState !== 'full' && (
             <motion.div
@@ -4971,7 +5162,13 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, sear
           Below the sheet in z; the chrome floats above both. */}
       {searchTab && (
         <motion.div
-          className="absolute inset-0 z-[35] bg-surface/[0.92] backdrop-blur-2xl pointer-events-none"
+          // Opaque bg-surface, matching the sheet exactly. At 92% the map
+          // tinted this band, so the raised state was two near-whites with
+          // a seam at the sheet's edge instead of one page. (The frosted
+          // blur went with it: behind a fully opaque fill backdrop-filter
+          // renders nothing, so it was only paying for a compositing
+          // layer.) The fade in/out still carries the melt.
+          className="absolute inset-0 z-[35] bg-surface pointer-events-none"
           style={{ opacity: backdropOpacity }}
           aria-hidden
         />
@@ -4984,7 +5181,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, sear
       {!isDesktopMapMode && (
       <motion.div
         ref={sheetRef}
-        style={{ y: sheetY, height: FULL_HEIGHT }}
+        style={{ y: sheetY, height: FULL_HEIGHT, ...(searchTab ? { boxShadow: sheetShadow } : null) }}
         className={cn(
           // NB: the white top hairline (frosted-glass edge) is applied only to
           // the glass sheet states below — NOT the home full state. On the home
@@ -4992,7 +5189,11 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, sear
           // there rendered as a stray grayish line across the very top in dark
           // mode (only `bg-white`, not `border-white`, is remapped to the dark
           // paper token).
-          "absolute bottom-0 left-0 right-0 shadow-[0_-20px_50px_rgba(0,0,0,0.1)] flex flex-col will-change-transform",
+          "absolute bottom-0 left-0 right-0 flex flex-col will-change-transform",
+          // Every other surface keeps the static lift — there the sheet
+          // really is floating over a map. The Search tab drives it from
+          // sheetY instead (see `sheetShadow`).
+          !searchTab && "shadow-[0_-20px_50px_rgba(0,0,0,0.1)]",
           // In the desktop sidebar layout the sheet must stay BELOW the
           // fixed nav rail (z-30): its z-index competes globally (every
           // ancestor is z-auto), so z-40 painted the page over the rail's
@@ -5447,7 +5648,16 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, sear
         {/* ══════ HALF STATE — filter bar + results (the Search tab keeps
             this content at `full` too: its full state IS the list page) ══════ */}
         {(sheetState !== 'full' || searchTab) && (
-        <>
+        <motion.div
+          /* One wrapper so the whole body — title row, filters, list —
+             fades together as the sheet descends. Same flex geometry the
+             children had as direct kids of the sheet, so nothing about the
+             expanded layout changes. */
+          className="flex-1 flex flex-col min-h-0 overflow-hidden"
+          // Inert once it's invisible, so the strip behind the grabber
+          // can't take a tap meant for the map.
+          style={searchTab ? { opacity: bodyOpacity, pointerEvents: sheetState === 'peek' ? 'none' : 'auto' } : undefined}
+        >
         {/* Search Bar & Filters — only on discover tab */}
         <div ref={filterBarRef} className={cn("pb-4 flex-shrink-0 relative", searchTab && "pt-2", phoneMode ? "px-3" : "px-6")}>
           {/* Sheet title. On the Search tab it is the reference's header —
@@ -5462,10 +5672,42 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, sear
               {...sheetDrag}
             >
               <span className="min-w-0 truncate text-[13px] font-semibold text-on-surface/60">
-                {panelResultCount} {panelResultCount === 1 ? 'place' : 'places'}
-                {discoverSearchActive && searchQuery.trim() ? ` · \u201c${searchQuery.trim()}\u201d` : mapMode === 'discover' ? ' nearby' : ''}
+                {followingView ? (
+                  /* The feed prints its own richer count line ("N restaurants
+                     · from M people you follow") in the body — the header
+                     just names the view. */
+                  'Following'
+                ) : (
+                  <>
+                    {panelResultCount} {panelResultCount === 1 ? 'place' : 'places'}
+                    {discoverSearchActive && searchQuery.trim() ? ` · \u201c${searchQuery.trim()}\u201d` : mapMode === 'discover' ? ' nearby' : ''}
+                  </>
+                )}
               </span>
               <div className="flex items-center gap-1.5 flex-shrink-0">
+                {followingView ? (
+                  /* The way back. Same pill language as the source control
+                     it replaces, chevron first so it reads as "return". */
+                  <button
+                    type="button"
+                    onClick={() => setFollowingView(false)}
+                    className="flex items-center gap-1 rounded-full border border-on-surface/[0.16] bg-on-surface/[0.03] pl-2 pr-3 h-9 text-[11.5px] font-bold text-on-surface active:bg-on-surface/[0.08] transition-colors"
+                  >
+                    <ChevronLeft size={13} strokeWidth={2.6} className="flex-shrink-0" />
+                    Discover
+                  </button>
+                ) : (
+                <>
+                {/* Into the Following view — the old top-level tab, now a
+                    mode of this sheet. */}
+                <button
+                  type="button"
+                  onClick={enterFollowing}
+                  className="flex items-center gap-1.5 rounded-full border border-on-surface/[0.16] bg-on-surface/[0.03] px-3 h-9 text-[11.5px] font-bold text-on-surface active:bg-on-surface/[0.08] transition-colors"
+                >
+                  <Users size={12} strokeWidth={2.4} className="flex-shrink-0" />
+                  Following
+                </button>
                 {/* WHAT is plotted — the pills row folded into one control. */}
                 <div className="relative">
                   <button
@@ -5518,6 +5760,8 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, sear
                 </div>
                 {/* Sorting lives in the filter sheet's SORT BY — a second
                     control for the same value was one pill too many. */}
+                </>
+                )}
               </div>
             </div>
           ) : (
@@ -5736,6 +5980,20 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, sear
 
         {/* Results List */}
         <div ref={panelListRef} className={cn("flex-1 overflow-y-auto overflow-x-hidden overscroll-x-none no-scrollbar pb-32", searchTab && "overscroll-y-contain", phoneMode ? "px-3" : "px-6")}>
+          {/* ── Following view — the feed component, whole, inside the
+              sheet. It owns its data, filters and chips; this page just
+              gives it the scroller and plots what it reports. ── */}
+          {searchTab && followingView ? (
+            <FollowingFeed
+              variant="searchTab"
+              query={followingQuery ?? ''}
+              onClearQuery={onClearFollowingQuery}
+              onMapRows={handleFollowingRows}
+              onRowSelect={handleFollowingRowSelect}
+              chromeVisible={ownsRoute && !dimChrome}
+            />
+          ) : (
+          <>
           {/* My Ratings tab content */}
           {mapMode === 'myratings' && (
             <div className="divide-y divide-on-surface/[0.06]">
@@ -5927,8 +6185,10 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, sear
                   )}
             </div>
           )}
+          </>
+          )}
         </div>
-        </>
+        </motion.div>
         )}
       </motion.div>
       )}

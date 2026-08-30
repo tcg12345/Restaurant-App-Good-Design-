@@ -15,7 +15,8 @@
 import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
-import { Heart, MessageCircle, Bookmark, Share2, ChefHat, ChevronRight, Trash2, MapPin, PlayCircle } from 'lucide-react';
+import { Heart, MessageCircle, Bookmark, ChefHat, ChevronRight, Trash2, MapPin, PlayCircle } from 'lucide-react';
+import { ShareIcon } from './icons/ShareIcon';
 import { cn } from '../lib/utils';
 import { scoreColor, scoreColorLight } from '../lib/score';
 import { VerifiedBadge } from './VerifiedBadge';
@@ -101,7 +102,7 @@ const ActionRail: React.FC<{
     </button>
     <button type="button" onClick={onShare} className="flex flex-col items-center gap-1 group" aria-label="Share">
       <motion.span whileTap={PRESS} className="w-11 h-11 rounded-full flex items-center justify-center text-white group-hover:text-white/80">
-        <Share2 size={26} strokeWidth={2.2} />
+        <ShareIcon size={26} strokeWidth={2.2} />
       </motion.span>
       <span className="text-white text-[12px] font-bold tabular-nums drop-shadow">Share</span>
     </button>
@@ -782,7 +783,7 @@ export const DesktopPostSideActions: React.FC<DesktopPostSideActionsProps> = ({ 
       </button>
       <button type="button" onClick={onShare} className="flex flex-col items-center gap-1 group" aria-label="Share">
         <span className="w-12 h-12 rounded-full bg-on-surface/[0.06] hover:bg-on-surface/10 text-on-surface flex items-center justify-center">
-          <Share2 size={22} strokeWidth={2.2} />
+          <ShareIcon size={22} strokeWidth={2.2} />
         </span>
       </button>
       {isMine && (

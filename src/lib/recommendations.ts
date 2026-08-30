@@ -724,19 +724,37 @@ export function buildCandidateQueries(
   // Tier 3: price anchors. "cheap X" only when the LOW tiers genuinely hold
   // real mass (≥ 35%) — a premium rater's couple of good $$ spots used to be
   // enough to inject cheap queries into their pool.
+  //
+  // Cuisine-bearing anchors are emitted HERE; the city-wide ones ("fine
+  // dining Manhattan", "tasting menu Manhattan") are deferred to the tail.
+  // They name no cuisine, and callers with a small query budget take the
+  // first N — so a stated Japanese/$$$$ palate was spending two of its three
+  // cold-start searches on generic city fine dining and coming back with a
+  // wine bar and a brasserie, while "Japanese fine dining" sat below the
+  // cut. A query that knows what you like must outrank one that only knows
+  // where you are.
+  const deferred: Array<() => void> = [];
   if (priceDist) {
     if (premiumShare >= 0.5) {
-      push(`fine dining${city ? ' ' + city : ' restaurants'}`);
-      push(`tasting menu${city ? ' ' + city : ' restaurants'}`);
-      push(`michelin star restaurants${city ? ' in ' + city : ''}`);
       for (const cuisine of topCuisines.slice(0, 3)) {
-        push(`${cuisine} fine dining${city ? ' ' + city : ''}`);
+        push(`${cuisine} fine dining${city ? ' ' + city : ''}`, restrict ? allowedTiers : undefined);
       }
+      deferred.push(() => {
+        // Restricted like every other band-aware query: an unfiltered "fine
+        // dining" is how $$$ rooms reach someone who said $$$$.
+        push(`fine dining${city ? ' ' + city : ' restaurants'}`, restrict ? allowedTiers : undefined);
+        push(`tasting menu${city ? ' ' + city : ' restaurants'}`, restrict ? allowedTiers : undefined);
+        // Left unrestricted on purpose — starred rooms are often unpriced in
+        // Google, and a price filter drops exactly those.
+        push(`michelin star restaurants${city ? ' in ' + city : ''}`);
+      });
     } else if (Math.max(...(topPrices.length ? topPrices : [0])) >= 3) {
-      push(`fine dining${city ? ' ' + city : ' restaurants'}`);
       for (const cuisine of topCuisines.slice(0, 3)) {
-        push(`${cuisine} fine dining${city ? ' ' + city : ''}`);
+        push(`${cuisine} fine dining${city ? ' ' + city : ''}`, restrict ? allowedTiers : undefined);
       }
+      deferred.push(() => {
+        push(`fine dining${city ? ' ' + city : ' restaurants'}`, restrict ? allowedTiers : undefined);
+      });
     }
     if (lowShare >= 0.35) {
       for (const cuisine of topCuisines.slice(0, 3)) {
@@ -760,6 +778,11 @@ export function buildCandidateQueries(
     push(`top rated ${cuisine} restaurants${city ? ' in ' + city : ''}`);
     push(`hidden gem ${cuisine} restaurants${city ? ' ' + city : ''}`);
   }
+
+  // The city-wide anchors held back from tier 3, now that every query that
+  // names a cuisine has had its turn.
+  for (const emit of deferred) emit();
+
   if (city) {
     push(`trending restaurants ${city}`);
     push(`popular restaurants ${city}`);

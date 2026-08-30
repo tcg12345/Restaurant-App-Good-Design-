@@ -130,7 +130,8 @@
    Named for the job, not the shape:
      --ease-out-strong  things arriving and leaving. The default.
      --ease-lens        the tighter one the newer glass chrome uses.
-     --ease-drawer      iOS's own sheet curve, for anything from an edge. */
+     --ease-drawer      iOS's own sheet curve, for anything from an edge.
+     --ease-out         the plain decelerate, for short in-place moves. */
 @keyframes fadeIn {
   from { opacity: 0; }
   to { opacity: 1; }
@@ -141,6 +142,10 @@
      accents are — #a2191f disappears into the graphite ground. */
   --michelin-red: #a2191f;
   --ease-out-strong: cubic-bezier(0.22, 1, 0.36, 1);
+  /* The design system's plain decelerate — the rating flow's short moves
+     (chip presses, toggles, step content) ride this rather than the
+     overshoot-free-but-slower strong curve. */
+  --ease-out: cubic-bezier(0, 0, 0.2, 1);
   --ease-lens: cubic-bezier(0.16, 1, 0.3, 1);
   --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
 }

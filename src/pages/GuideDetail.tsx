@@ -9,7 +9,8 @@
  */
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
-import { ArrowLeft, Share2, BookOpen, Edit3, EyeOff, Loader2 } from 'lucide-react';
+import { ArrowLeft, BookOpen, Edit3, EyeOff, Loader2 } from 'lucide-react';
+import { ShareIcon } from '../components/icons/ShareIcon';
 import { cn } from '../lib/utils';
 import { useAuth } from '../contexts/AuthContext';
 import { useLists } from '../contexts/ListsContext';
@@ -18,6 +19,8 @@ import { useSignInModal } from '../contexts/SignInModalContext';
 import { getGuideById, saveGuideBookmark, removeGuideBookmark, getSavedGuideIds, setGuidePublished, getTheme, type Guide, type GuideEntry } from '../lib/supabase-guides';
 import { getProfilesByIds, type UserProfile } from '../lib/supabase-community';
 import { ShareDialog } from '../components/ShareDialog';
+import { GlassButton } from '../lib/glass-buttons';
+import { useSettings } from '../contexts/SettingsContext';
 import { canonicalShareUrl } from '../lib/native-share';
 import { RestaurantPanel, type RestaurantPanelSnapshot } from '../components/RestaurantPanel';
 import { RecipePanel, type RecipePanelSnapshot } from '../components/RecipePanel';
@@ -75,6 +78,7 @@ export const GuideDetail: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { user } = useAuth();
+  const { phoneMode } = useSettings();
   const { showToast } = useToast();
   const { requireSignIn } = useSignInModal();
   const { isWishlisted, toggleWishlist, openAddToListModal, getRestaurantInfo } = useLists();
@@ -215,46 +219,79 @@ export const GuideDetail: React.FC = () => {
     avatar: theme.authorOverrides?.avatar || undefined,
   };
 
-  // Top bar (back + owner controls + share/save) — passed as `topChrome`
-  // so it sits inside the hero overlay.
+  /* Top bar (back + owner controls + share) — passed as `topChrome` so it
+     sits inside the hero overlay.
+
+     Liquid glass, like every other piece of floating chrome in the app.
+     These were flat `bg-white/95` pills, which read as a different app the
+     moment you arrived from a screen whose header refracts what's behind
+     it. The owner's controls collapse to glyphs on a phone: "Edit" and
+     "Unpublish" spelled out pushed the row into the title behind it, and
+     the pencil and the crossed-out eye say the same thing in a third of
+     the width. */
   const topChrome = (
     <>
-      <button
-        type="button"
+      <GlassButton
+        id="guide-back"
+        symbol="chevron.left"
+        title={phoneMode ? undefined : 'Discover'}
+        titleStyle="chip"
+        label="Back to Discover"
         onClick={() => navigate(-1)}
-        className="inline-flex items-center gap-1.5 pl-2 pr-3 py-1.5 rounded-full bg-white/95 hover:bg-white text-on-surface/85 text-sm font-semibold shadow-sm"
+        className={cn(
+          'hit-44 inline-flex items-center gap-1.5 rounded-full text-on-surface text-[13px] font-semibold active:scale-95 transition-transform',
+          phoneMode ? 'w-10 h-10 justify-center' : 'h-10 pl-3 pr-4',
+        )}
       >
-        <ArrowLeft size={16} />
-        Discover
-      </button>
+        <ArrowLeft size={17} />
+        {!phoneMode && 'Discover'}
+      </GlassButton>
       <div className="flex items-center gap-2">
         {isOwner && (
           <>
-            <Link
-              to={`/guides/${guide.id}/edit`}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white/95 hover:bg-white text-on-surface/85 text-sm font-semibold shadow-sm"
+            <GlassButton
+              id="guide-edit"
+              symbol="pencil"
+              title={phoneMode ? undefined : 'Edit'}
+              titleStyle="chip"
+              label="Edit guide"
+              onClick={() => navigate(`/guides/${guide.id}/edit`)}
+              className={cn(
+                'hit-44 inline-flex items-center gap-1.5 rounded-full text-on-surface text-[13px] font-semibold active:scale-95 transition-transform',
+                phoneMode ? 'w-10 h-10 justify-center' : 'h-10 px-4',
+              )}
             >
-              <Edit3 size={14} />
-              Edit
-            </Link>
+              <Edit3 size={16} />
+              {!phoneMode && 'Edit'}
+            </GlassButton>
             {guide.isPublished && (
-              <button
+              <GlassButton
+                id="guide-unpublish"
+                symbol="eye.slash"
+                title={phoneMode ? undefined : 'Unpublish'}
+                titleStyle="chip"
+                label="Unpublish guide"
                 onClick={onUnpublish}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white/95 hover:bg-white text-on-surface/85 text-sm font-semibold shadow-sm"
+                className={cn(
+                  'hit-44 inline-flex items-center gap-1.5 rounded-full text-on-surface text-[13px] font-semibold active:scale-95 transition-transform',
+                  phoneMode ? 'w-10 h-10 justify-center' : 'h-10 px-4',
+                )}
               >
-                <EyeOff size={14} />
-                Unpublish
-              </button>
+                <EyeOff size={16} />
+                {!phoneMode && 'Unpublish'}
+              </GlassButton>
             )}
           </>
         )}
-        <button
+        <GlassButton
+          id="guide-share"
+          symbol="app.paperplane"
+          label="Share guide"
           onClick={() => setShareOpen(true)}
-          aria-label="Share"
-          className="w-9 h-9 rounded-full bg-white/95 hover:bg-white flex items-center justify-center text-on-surface/85 shadow-sm"
+          className="hit-44 w-10 h-10 rounded-full flex items-center justify-center text-on-surface active:scale-95 transition-transform"
         >
-          <Share2 size={16} />
-        </button>
+          <ShareIcon size={16} />
+        </GlassButton>
       </div>
     </>
   );

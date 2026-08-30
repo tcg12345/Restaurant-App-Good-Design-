@@ -338,9 +338,55 @@ export async function getCircleRatingsForRestaurant(
 export async function removeCommunityPhotos(userId: string, restaurantId: string): Promise<boolean> {
   if (!supabaseConfigured || !userId) return false;
   try {
-    await supabase.from('community_photos').delete().eq('user_id', userId).eq('restaurant_id', restaurantId);
+    // The error was previously discarded and `true` returned regardless, so a
+    // failed delete (offline, RLS, transient) looked exactly like a success —
+    // and nothing retried, because nothing knew. Orphaned galleries outlive
+    // the rating that owned them that way; `reconcileCommunityRows` is the
+    // net that catches whatever still slips through.
+    const { error } = await supabase.from('community_photos')
+      .delete().eq('user_id', userId).eq('restaurant_id', restaurantId);
+    if (error) { console.error('[Community] removePhotos error:', error); return false; }
     return true;
-  } catch { return false; }
+  } catch (err) { console.error('[Community] removePhotos exception:', err); return false; }
+}
+
+/**
+ * Every restaurant this user has a published community row for — ratings and
+ * photo galleries alike.
+ *
+ * Used by the delete reconciliation: the app's source of truth is the local
+ * ratings list, so any id here that ISN'T in that list is a leftover from a
+ * deletion whose cleanup didn't land.
+ */
+export async function listMyCommunityRestaurantIds(
+  userId: string,
+): Promise<{ ratings: string[]; photos: string[] }> {
+  if (!supabaseConfigured || !userId) return { ratings: [], photos: [] };
+  try {
+    const [r, p] = await Promise.all([
+      supabase.from('community_ratings').select('restaurant_id').eq('user_id', userId),
+      supabase.from('community_photos').select('restaurant_id').eq('user_id', userId),
+    ]);
+    const ids = (rows: { restaurant_id: string }[] | null) =>
+      [...new Set((rows ?? []).map((x) => x.restaurant_id).filter(Boolean))];
+    return { ratings: ids(r.data), photos: ids(p.data) };
+  } catch (err) {
+    console.error('[Community] listMyCommunityRestaurantIds exception:', err);
+    return { ratings: [], photos: [] };
+  }
+}
+
+/** The Storage URLs this user published for `restaurantIds`, so the objects
+ *  behind them can be removed along with the rows. */
+export async function getMyCommunityPhotoUrls(
+  userId: string, restaurantIds: string[],
+): Promise<string[]> {
+  if (!supabaseConfigured || !userId || restaurantIds.length === 0) return [];
+  try {
+    const { data } = await supabase.from('community_photos')
+      .select('url').eq('user_id', userId).in('restaurant_id', restaurantIds);
+    return (data ?? []).map((r: { url: string }) => r.url).filter(Boolean);
+  } catch { return []; }
 }
 
 /**

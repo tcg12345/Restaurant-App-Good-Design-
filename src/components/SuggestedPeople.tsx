@@ -25,6 +25,35 @@ import { followPublicAccount, sendFriendRequest, type SuggestedProfile } from '.
 
 type FollowState = 'none' | 'pending' | 'following' | 'requested';
 
+const FollowButton: React.FC<{
+  name: string;
+  state: FollowState;
+  onFollow: () => void;
+  className?: string;
+}> = ({ name, state, onFollow, className }) => {
+  const busy = state === 'pending';
+  const done = state === 'following' || state === 'requested';
+  return (
+    <button
+      type="button"
+      onClick={onFollow}
+      disabled={busy || done}
+      aria-label={done ? `Following ${name}` : `Follow ${name}`}
+      className={cn(
+        'rounded-full inline-flex items-center justify-center gap-1 transition-opacity active:opacity-80 disabled:opacity-100',
+        done ? 'bg-on-surface/[0.06] text-on-surface/55' : 'bg-primary text-white',
+        className,
+      )}
+      style={{ fontSize: '12px', fontWeight: 700 }}
+    >
+      {busy ? <Loader2 size={12} className="animate-spin" />
+        : done ? <Check size={12} strokeWidth={2.6} />
+        : <UserPlus size={12} strokeWidth={2.6} />}
+      {state === 'requested' ? 'Requested' : done ? 'Following' : 'Follow'}
+    </button>
+  );
+};
+
 const PersonCard: React.FC<{
   profile: SuggestedProfile;
   state: FollowState;
@@ -32,8 +61,6 @@ const PersonCard: React.FC<{
 }> = ({ profile, state, onFollow }) => {
   const name = profile.display_name || profile.username || 'Someone';
   const hue = avatarHue(profile.user_id);
-  const busy = state === 'pending';
-  const done = state === 'following' || state === 'requested';
 
   return (
     <div className="flex-none w-[148px] snap-start rounded-[22px] border border-on-surface/[0.09] bg-paper px-3.5 pt-4 pb-3.5 flex flex-col items-center text-center">
@@ -59,22 +86,46 @@ const PersonCard: React.FC<{
           {suggestionSubtitle(profile)}
         </span>
       </Link>
-      <button
-        type="button"
-        onClick={() => onFollow(profile)}
-        disabled={busy || done}
-        aria-label={done ? `Following ${name}` : `Follow ${name}`}
-        className={cn(
-          'mt-3 w-full h-8 rounded-full inline-flex items-center justify-center gap-1 transition-opacity active:opacity-80 disabled:opacity-100',
-          done ? 'bg-on-surface/[0.06] text-on-surface/55' : 'bg-primary text-white',
-        )}
-        style={{ fontSize: '12px', fontWeight: 700 }}
-      >
-        {busy ? <Loader2 size={12} className="animate-spin" />
-          : done ? <Check size={12} strokeWidth={2.6} />
-          : <UserPlus size={12} strokeWidth={2.6} />}
-        {state === 'requested' ? 'Requested' : done ? 'Following' : 'Follow'}
-      </button>
+      <FollowButton name={name} state={state} onFollow={() => onFollow(profile)} className="mt-3 w-full h-8" />
+    </div>
+  );
+};
+
+/** Full-width row for the vertical 'list' layout — the shape a person picks
+ *  out of a long stack, not a shape you scroll past three-at-a-time. */
+const PersonRow: React.FC<{
+  profile: SuggestedProfile;
+  state: FollowState;
+  onFollow: (p: SuggestedProfile) => void;
+}> = ({ profile, state, onFollow }) => {
+  const name = profile.display_name || profile.username || 'Someone';
+  const hue = avatarHue(profile.user_id);
+
+  return (
+    <div className="flex items-center gap-3 py-2.5">
+      <Link to={`/user/${profile.username || ''}`} className="flex-none active:opacity-75 transition-opacity">
+        <Avatar
+          src={profile.avatar_url}
+          name={name}
+          size={48}
+          fallbackStyle={{ backgroundColor: `hsl(${hue} 52% 92%)`, color: `hsl(${hue} 45% 34%)` }}
+        />
+      </Link>
+      <Link to={`/user/${profile.username || ''}`} className="min-w-0 flex-1 active:opacity-75 transition-opacity">
+        <span className="flex items-center gap-1 min-w-0">
+          <span
+            className="truncate font-serif text-on-surface"
+            style={{ fontSize: '15px', fontWeight: 700, lineHeight: 1.2, letterSpacing: '-0.02em' }}
+          >
+            {name}
+          </span>
+          {profile.is_verified && <VerifiedBadge size={12} className="flex-none" />}
+        </span>
+        <span className="mt-[2px] block truncate text-on-surface/45" style={{ fontSize: '12.5px', lineHeight: 1.25 }}>
+          {suggestionSubtitle(profile)}
+        </span>
+      </Link>
+      <FollowButton name={name} state={state} onFollow={() => onFollow(profile)} className="flex-none h-9 px-4" />
     </div>
   );
 };
@@ -92,7 +143,11 @@ export const SuggestedPeople: React.FC<{
   /** Cards only, no section heading — for hosts (onboarding) that supply
    *  their own question-style header above the rail. */
   bare?: boolean;
-}> = ({ people, userId, onRequireSignIn, onFollowed, loading, bare }) => {
+  /** 'rail' (default): horizontal snap-scroll cards, for a feed with other
+   *  content below it. 'list': a full-width vertical stack — for a host
+   *  screen where this IS the content, not a rail sharing space with it. */
+  layout?: 'rail' | 'list';
+}> = ({ people, userId, onRequireSignIn, onFollowed, loading, bare, layout = 'rail' }) => {
   const [states, setStates] = useState<Record<string, FollowState>>({});
 
   const handleFollow = useCallback(async (p: SuggestedProfile) => {
@@ -125,6 +180,44 @@ export const SuggestedPeople: React.FC<{
       </p>
     </div>
   );
+
+  if (layout === 'list') {
+    if (loading) {
+      return (
+        <section className={cn(!bare && 'px-5')}>
+          {header}
+          <div className={cn('flex flex-col divide-y divide-on-surface/[0.06]', !bare && 'mt-4')}>
+            {[0, 1, 2, 3, 4].map((i) => (
+              <div key={i} className="flex items-center gap-3 py-2.5">
+                <div className="flex-none w-12 h-12 rounded-full bg-on-surface/[0.05] animate-pulse" />
+                <div className="flex-1 space-y-2">
+                  <div className="h-3.5 w-28 rounded-full bg-on-surface/[0.05] animate-pulse" />
+                  <div className="h-3 w-20 rounded-full bg-on-surface/[0.05] animate-pulse" />
+                </div>
+                <div className="flex-none h-9 w-20 rounded-full bg-on-surface/[0.05] animate-pulse" />
+              </div>
+            ))}
+          </div>
+        </section>
+      );
+    }
+    if (people.length === 0) return null;
+    return (
+      <section className={cn(!bare && 'px-5')}>
+        {header}
+        <div className={cn('flex flex-col divide-y divide-on-surface/[0.06]', !bare && 'mt-4')}>
+          {people.map((p) => (
+            <PersonRow
+              key={p.user_id}
+              profile={p}
+              state={states[p.user_id] ?? 'none'}
+              onFollow={handleFollow}
+            />
+          ))}
+        </div>
+      </section>
+    );
+  }
 
   if (loading) {
     return (

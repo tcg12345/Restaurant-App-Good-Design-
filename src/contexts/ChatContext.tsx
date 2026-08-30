@@ -121,6 +121,11 @@ export interface SharePayload {
 
 interface ChatContextValue {
   conversations: Conversation[];
+  /** True while the first server load for this user is still in flight.
+   *  The cached conversations render underneath it, so a view should only
+   *  reach for a skeleton when this is true AND `conversations` is empty —
+   *  i.e. there is genuinely nothing to show yet. */
+  loading: boolean;
   createConversation: (participantIds: string[], name?: string) => Conversation;
   sendMessage: (conversationId: string, text: string, sharedRestaurant?: SharedRestaurant, sharedRecipe?: SharedRecipe, sharedReel?: SharedReel, sharedPost?: SharedPost, sharedGuide?: SharedGuide) => void;
   /** Find an existing 1:1 chat with the friend, or create one and return it. */
@@ -255,6 +260,7 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   userIdRef.current = userId;
 
   const [conversations, setConversations] = useState<Conversation[]>([]);
+  const [loading, setLoading] = useState(false);
   // Mirror for callbacks that need the freshest list without re-binding
   // (retryMessage, markRead's server-timestamp clamp).
   const conversationsRef = useRef<Conversation[]>([]);
@@ -326,6 +332,7 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       setConversations([]);
       setReadTimestamps({});
       setOtherReads({});
+      setLoading(false);
       return;
     }
 
@@ -341,9 +348,10 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     setReadTimestamps(cached?.read && typeof cached.read === 'object' ? cached.read : {});
     hydratedForRef.current = userId;
 
-    if (!supabaseConfigured) return;
+    if (!supabaseConfigured) { setLoading(false); return; }
 
     let cancelled = false;
+    setLoading(true);
     (async () => {
       try {
         const { data: convRows, error: convErr } = await supabase
@@ -391,6 +399,8 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         saveToStorage(cacheKey(userId), { conversations: convs, read });
       } catch (err) {
         console.warn('[Chat] load failed:', err);
+      } finally {
+        if (!cancelled) setLoading(false);
       }
     })();
 
@@ -727,7 +737,7 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   return (
     <ChatContext.Provider value={{
-      conversations, createConversation, sendMessage, getConversation,
+      conversations, loading, createConversation, sendMessage, getConversation,
       findDirectConversation, getOrCreateDirectConversation, shareToTargets,
       deleteConversation, renameConversation, retryMessage, markRead,
       unreadCount, getUnreadForConversation, otherReads,

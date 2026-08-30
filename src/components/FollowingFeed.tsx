@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import { Search as SearchIcon, X, ChevronDown, Loader2, Users, UserPlus, SlidersHorizontal, ArrowUpDown, Bookmark } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
@@ -158,7 +159,21 @@ export const FollowingFeed: React.FC<{
   variant?: 'searchTab';
   query?: string;
   onClearQuery?: () => void;
-}> = ({ variant, query: externalQuery, onClearQuery }) => {
+  /** Map integration (the Search tab's Following view): reports the
+   *  filtered, sorted rows and the reviewer profiles whenever they
+   *  change, so the host can plot the same list as pins. */
+  onMapRows?: (rows: CommunityRating[], profiles: Record<string, UserProfile>) => void;
+  /** Map integration: what a row tap means. The host may want the tap to
+   *  move the map rather than leave the page; returning false hands the
+   *  row back to the default (open the restaurant page). */
+  onRowSelect?: (rating: CommunityRating) => boolean;
+  /** searchTab only: whether the host page is the one on screen. The chip
+   *  row is portaled to <body> to escape the sheet's transform, which also
+   *  escapes every ancestor that would otherwise hide it — so the host has
+   *  to say when it is no longer visible, or the chips float over whatever
+   *  route the user navigated to. */
+  chromeVisible?: boolean;
+}> = ({ variant, query: externalQuery, onClearQuery, onMapRows, onRowSelect, chromeVisible = true }) => {
   const searchTab = variant === 'searchTab';
   const { user } = useAuth();
   const { phoneMode, setHideBottomNav } = useSettings();
@@ -334,6 +349,21 @@ export const FollowingFeed: React.FC<{
     return result;
   }, [uniqueRestaurants, query, sortBy, scoreRange, priceFilter, cuisineFilter, cityFilter, hoursFilter, restaurantMeta]);
 
+  // A row tap: the host gets first refusal (see `onRowSelect`), and the
+  // restaurant page is what happens when it declines.
+  const openRow = (r: CommunityRating) => {
+    if (onRowSelect?.(r)) return;
+    navigate(`/restaurant/${r.restaurant_id}`);
+  };
+
+  // Hand the filtered list to the host for pin-plotting. Ref'd so a parent
+  // that recreates the callback doesn't re-fire the report loop.
+  const onMapRowsRef = useRef(onMapRows);
+  onMapRowsRef.current = onMapRows;
+  useEffect(() => {
+    onMapRowsRef.current?.(filtered, profiles);
+  }, [filtered, profiles]);
+
   // Backfill hours for the feed's restaurants while the hours filter is
   // active — the filter reads cached meta, which is empty for places the
   // viewer never opened, and unknown hours are never hidden.
@@ -453,10 +483,14 @@ export const FollowingFeed: React.FC<{
       )}
 
       {searchTab ? (
+        chromeVisible &&
         /* Glass chips in the page's chrome position — the same geometry as
-           the Discover tab's row, so flipping the pill swaps the chips'
-           contents without moving them. Fixed: the page chrome floats; the
-           list scrolls beneath it. */
+           the Discover tab's row, so entering the Following view swaps the
+           chips' contents without moving them. PORTALED to <body>: this
+           component now mounts inside the map's bottom sheet, whose
+           translateY transform would otherwise trap `fixed` and pin the
+           row to the sheet instead of the viewport. */
+        createPortal(
         <div className="fixed inset-x-0 z-30 px-3.5" style={{ top: 'calc(env(safe-area-inset-top) + 130px)' }}>
           <GlassChipRow
             id="follow-chips"
@@ -509,7 +543,9 @@ export const FollowingFeed: React.FC<{
               }] : []),
             ]}
           />
-        </div>
+        </div>,
+        document.body,
+        )
       ) : (
         /* Filter pill row — mirrors the Pantry / All Recipes chrome so every
            filterable list shares the same affordance. Each pill opens the
@@ -591,12 +627,17 @@ export const FollowingFeed: React.FC<{
         </div>
       ) : (
         <>
-          {/* Count line — doubles as the page's purpose statement. */}
-          <p className="pt-1 text-[10px] font-bold uppercase tracking-[0.15em] text-on-surface/40">
-            {filtered.length} {filtered.length === 1 ? 'restaurant' : 'restaurants'}
-            <span className="mx-1.5 text-on-surface/20">·</span>
-            from {reviewerCount} {reviewerCount === 1 ? 'person' : 'people'} you follow
-          </p>
+          {/* Count line — the standalone page's purpose statement. Inside
+              the map sheet it's redundant chrome: the sheet header already
+              says "Following", and the rows themselves name who rated
+              each place. */}
+          {!searchTab && (
+            <p className="pt-1 text-[10px] font-bold uppercase tracking-[0.15em] text-on-surface/40">
+              {filtered.length} {filtered.length === 1 ? 'restaurant' : 'restaurants'}
+              <span className="mx-1.5 text-on-surface/20">·</span>
+              from {reviewerCount} {reviewerCount === 1 ? 'person' : 'people'} you follow
+            </p>
+          )}
           {/* Rows — built from the unified card kit (thumbnail / name / meta /
               score + save + add), hairline-divided on phone, boxed on desktop,
               with a compact "who rated it" attribution line. */}
@@ -629,11 +670,11 @@ export const FollowingFeed: React.FC<{
                     <div
                       role="button"
                       tabIndex={0}
-                      onClick={() => navigate(`/restaurant/${r.restaurant_id}`)}
+                      onClick={() => openRow(r)}
                       onKeyDown={(e) => {
                         if (e.key === 'Enter' || e.key === ' ') {
                           e.preventDefault();
-                          navigate(`/restaurant/${r.restaurant_id}`);
+                          openRow(r);
                         }
                       }}
                       aria-label={`View ${r.restaurant_name}`}
@@ -702,11 +743,11 @@ export const FollowingFeed: React.FC<{
                     surface="boxed"
                     role="button"
                     tabIndex={0}
-                    onClick={() => navigate(`/restaurant/${r.restaurant_id}`)}
+                    onClick={() => openRow(r)}
                     onKeyDown={(e) => {
                       if (e.key === 'Enter' || e.key === ' ') {
                         e.preventDefault();
-                        navigate(`/restaurant/${r.restaurant_id}`);
+                        openRow(r);
                       }
                     }}
                     aria-label={`View ${r.restaurant_name}`}

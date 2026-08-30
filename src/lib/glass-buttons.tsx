@@ -117,6 +117,43 @@ let frame = 0;
 let budget = 0;
 const IDLE_FRAMES = 45;
 
+/** Layers that cover the page — a full-screen modal panel, the assistant's
+ *  island. Every glass control whose centre falls inside one of these, and
+ *  which does not itself ride on it, stands down.
+ *
+ *  This is a second answer to the same question `occluded` asks below, and
+ *  it exists because the hit-test one is only as good as what the DOM
+ *  reports at a point. A panel that covers the whole screen is a fact about
+ *  the page that does not need discovering: it said so itself. Declaring it
+ *  is exact where a probe is circumstantial, and it is the only thing that
+ *  reaches a control the probe misses for any reason at all — a stacking
+ *  context nobody meant to create, a `pointer-events` value on some wrapper
+ *  in between, a hit that lands on a shared ancestor (which the containment
+ *  test below reads as "not covered"). The chat island is the case that
+ *  forced it: opened from a tab root, the page's own header capsule kept
+ *  drawing over the panel, natively, above the WebView.
+ *
+ *  Geometry, not paint order: the rect has to actually contain the control's
+ *  centre, so a small floating panel only stands down what is under IT. */
+const occluders = new Set<HTMLElement>();
+
+/** Returns a `ref` to put on the covering element. A ref rather than a
+ *  boolean so registration follows the element's real life: an exit
+ *  animation keeps it mounted after whatever opened it says it is closed,
+ *  and standing the page's chrome back up while the panel is still 80%
+ *  opaque is its own flicker. The opacity check at the point of use is what
+ *  ends it, mid-fade, without anyone having to time it. */
+export function useGlassOccluder(): (el: HTMLElement | null) => void {
+  const held = useRef<HTMLElement | null>(null);
+  return useCallback((el: HTMLElement | null) => {
+    if (held.current === el) return;
+    if (held.current) occluders.delete(held.current);
+    held.current = el;
+    if (el) occluders.add(el);
+    wake();
+  }, []);
+}
+
 const activeListeners = new Set<(active: boolean) => void>();
 
 function setSupported(next: boolean): void {
@@ -138,14 +175,44 @@ function setSupported(next: boolean): void {
  *  apart, which mattered the moment modals grew glass close buttons of their
  *  own. Hit-testing the button's centre answers the real question — "is this
  *  element what the user actually sees at this spot?" — for scrims, nested
- *  sheets, toasts, and anything else, with no bookkeeping to drift. */
+ *  sheets, toasts, and anything else, with no bookkeeping to drift.
+ *
+ *  A closing sheet or an outgoing route is exactly the case a plain hit-test
+ *  gets wrong: Framer Motion drives its exit by writing inline styles every
+ *  frame, not a CSS transition/animation, so it fires neither
+ *  `transitionend` nor `animationend` — `bindListeners` below has nothing to
+ *  wake the sampler with once the fade finishes. A dismissed sheet's
+ *  full-screen backdrop stays mounted and exactly as hit-testable at 1% of
+ *  its exit as it was at 100% — only its OPACITY says it is really gone. Not
+ *  checking that is what let a page's own header sit invisible for up to a
+ *  couple of seconds after closing something over it: the found element
+ *  still won the hit-test, `occluded` kept saying yes, and with the reading
+ *  never changing there was nothing left to re-arm the sampler until some
+ *  unrelated scroll or resize happened to. So: a hit that's part of THIS
+ *  button wins as before, but a hit that has faded to nothing doesn't count
+ *  as covering anything, and the sampler picks the real state back up on its
+ *  own the next time it looks, however many frames that took. */
 function occluded(el: HTMLElement, rect: DOMRect): boolean {
   const cx = rect.left + rect.width / 2;
   const cy = rect.top + rect.height / 2;
   if (cx < 0 || cy < 0 || cx > window.innerWidth || cy > window.innerHeight) return true;
+  for (const layer of occluders) {
+    // A control ON the layer is not under it.
+    if (layer === el || layer.contains(el)) continue;
+    if (effectiveOpacity(layer) < 0.05) continue;
+    const r = layer.getBoundingClientRect();
+    if (r.width < 1 || r.height < 1) continue;
+    if (cx >= r.left && cx <= r.right && cy >= r.top && cy <= r.bottom) return true;
+  }
   const found = document.elementFromPoint(cx, cy);
   if (!found) return true;
-  return !(el.contains(found) || found.contains(el));
+  if (el.contains(found) || found.contains(el)) return false;
+  // elementFromPoint's return type is the generic `Element` (it could in
+  // principle land on an SVG node); effectiveOpacity only reads
+  // style/parentElement, both of which every Element has, so the narrower
+  // HTMLElement parameter type is stricter than the check needs.
+  if (effectiveOpacity(found as HTMLElement) < 0.05) return false;
+  return true;
 }
 
 /** Effective opacity, including every ancestor's — the mobile headers fade by

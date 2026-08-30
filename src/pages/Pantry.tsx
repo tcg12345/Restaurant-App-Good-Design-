@@ -1,7 +1,8 @@
 import React, { useState, useRef, useMemo, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { createPortal } from 'react-dom';
-import { Star, ChevronRight, Plus, Trash2, ArrowLeft, ListPlus, MapPin, SlidersHorizontal, X, ChevronDown, Bookmark, Upload, Search, Check, Edit3, Globe, Lock, LayoutGrid, List, ArrowUpDown, MoreHorizontal, Download, Plane, StickyNote, CalendarDays, Tag, Image, Loader2, Building2, ChevronLeft, GripVertical, Crown, ChefHat, UtensilsCrossed, Clock, Flame, Users, Hash, FileText, Share2, Sparkles } from 'lucide-react';
+import { Star, ChevronRight, Plus, Trash2, ArrowLeft, ListPlus, MapPin, SlidersHorizontal, X, ChevronDown, Bookmark, Upload, Search, Check, Edit3, Globe, Lock, LayoutGrid, List, ArrowUpDown, MoreHorizontal, Download, Plane, StickyNote, CalendarDays, Tag, Image, Loader2, Building2, ChevronLeft, GripVertical, Crown, ChefHat, UtensilsCrossed, Clock, Flame, Users, Hash, FileText, Sparkles } from 'lucide-react';
+import { ShareIcon } from '../components/icons/ShareIcon';
 import { ShareDialog } from '../components/ShareDialog';
 import type { SharedRecipe } from '../contexts/ChatContext';
 import { cn, localISODate } from '../lib/utils';
@@ -41,6 +42,7 @@ import { useToast } from '../contexts/ToastContext';
 import { ALL_TAGS, PRICE_RANGES, priceIndexFromAmount, Calendar } from '../components/RatingShared';
 import { RecommendationsBrowser } from '../components/RecommendationsBrowser';
 import { useBottomSheet } from '../lib/useBottomSheet';
+import { SheetGrabArea } from '../components/SheetGrabArea';
 import { Collapse } from '../components/Collapse';
 import { GlassButton } from '../lib/glass-buttons';
 import { SearchField } from '../components/SearchField';
@@ -1334,7 +1336,7 @@ const ListMoreMenu: React.FC<{
   }, [open]);
   if (items.length === 0) return null;
   const triggerClass = glass
-    ? 'hit-44 w-[34px] h-[34px] rounded-full flex items-center justify-center text-on-surface active:scale-95 transition-transform'
+    ? 'hit-44 w-10 h-10 rounded-full flex items-center justify-center text-on-surface active:scale-95 transition-transform'
     : 'w-9 h-9 rounded-full flex items-center justify-center text-on-surface/55 hover:text-on-surface hover:bg-on-surface/[0.06] transition-colors';
   return (
     <div ref={wrapRef} className="relative flex-shrink-0">
@@ -1884,7 +1886,7 @@ const ListDetailView: React.FC<{
             symbol="chevron.left"
             label="Back"
             onClick={onBack}
-            className="hit-44 flex-none w-[34px] h-[34px] rounded-full flex items-center justify-center text-on-surface active:scale-95 transition-transform"
+            className="hit-44 flex-none w-10 h-10 rounded-full flex items-center justify-center text-on-surface active:scale-95 transition-transform"
           >
             <ChevronLeft size={18} strokeWidth={2.1} />
           </GlassButton>
@@ -1895,7 +1897,7 @@ const ListDetailView: React.FC<{
                 type="button"
                 onClick={() => navigate('/map', { state: { listView: { id: list.id } } })}
                 aria-label="View this list on the map"
-                className="flex-none inline-flex items-center gap-1.5 rounded-full border border-on-surface/20 text-on-surface px-3 py-[9px] active:bg-on-surface/[0.06] transition-colors"
+                className="flex-none inline-flex h-10 items-center gap-1.5 rounded-full border border-on-surface/20 text-on-surface px-3.5 active:bg-on-surface/[0.06] transition-colors"
                 style={{ fontSize: '12px', fontWeight: 700 }}
               >
                 <MapPin size={13} />
@@ -1909,7 +1911,7 @@ const ListDetailView: React.FC<{
               label={isHomeCooking ? 'Add Recipe' : 'Add Rating'}
               onClick={handlePlusClick}
               className={cn(
-                'hit-44 flex-none w-[34px] h-[34px] rounded-full text-white flex items-center justify-center active:scale-95 transition-transform',
+                'hit-44 flex-none w-10 h-10 rounded-full text-white flex items-center justify-center active:scale-95 transition-transform',
                 isHomeCooking ? 'bg-emerald-600' : 'bg-primary',
               )}
             >
@@ -2690,6 +2692,9 @@ const AddToNightSheet: React.FC<{
 }> = ({ open, nightIndex, nightDate, tripId, tripLat, tripLng, tripDestination, onDestinationResolved, existingRestaurantIds, ratings, addRestaurantToTrip, openAddRestaurantModal, onClose }) => {
   const { phoneMode } = useSettings();
   const { scoresUnlocked } = useLists();
+  // The full-screen sheet's swipe-down. Handle-only (an invisible strip in
+  // the status-bar band) because the pages inside scroll and search.
+  const { dragProps: nightDragProps, startDrag: startNightDrag } = useBottomSheet(open, onClose);
   const [page, setPage] = useState<AddNightPage>('select');
   const [mealType, setMealType] = useState<TripRestaurant['mealType']>('dinner');
   const [reservationTime, setReservationTime] = useState('');
@@ -2794,18 +2799,19 @@ const AddToNightSheet: React.FC<{
         <motion.div
           initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
           transition={{ type: 'spring', damping: 30, stiffness: 300 }}
+          {...nightDragProps}
           onClick={(e) => e.stopPropagation()}
-          className={cn("bg-surface w-full overflow-hidden flex flex-col",
+          className={cn("relative bg-surface w-full overflow-hidden flex flex-col",
             phoneMode ? "h-full rounded-none" : "h-full sm:h-auto sm:max-w-md sm:max-h-[92vh] rounded-none sm:rounded-3xl")}
         >
-          {phoneMode && <div className="flex justify-center pt-3 pb-1 flex-shrink-0"><div className="w-10 h-1 rounded-full bg-on-surface/15" /></div>}
+          {phoneMode && <SheetGrabArea onPointerDown={startNightDrag} />}
 
           <AnimatePresence mode="wait">
             {/* ═══ PAGE 1: SELECT MODE ═══ */}
             {page === 'select' && (
               <motion.div key="select" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0, x: -30 }} transition={{ duration: 0.15 }}
                 className="flex flex-col flex-1 min-h-0">
-                <div className="px-5 pt-4 pb-3 flex items-center justify-between flex-shrink-0">
+                <div className="relative z-10 px-5 pt-safe-4 pb-3 flex items-center justify-between flex-shrink-0">
                   <div>
                     <h2 className="font-serif font-bold text-lg">Add to Night {nightIndex + 1}</h2>
                     <p className="text-xs text-on-surface/40">{nightDate}</p>
@@ -2866,7 +2872,7 @@ const AddToNightSheet: React.FC<{
               <motion.div key="from-rated" initial={{ x: '100%', opacity: 0.5 }} animate={{ x: 0, opacity: 1 }} exit={{ x: '100%', opacity: 0.5 }}
                 transition={{ type: 'tween', duration: 0.25, ease: [0.32, 0.72, 0, 1] }}
                 className="flex flex-col h-full">
-                <div className="px-5 pt-4 pb-3 flex items-center gap-3 flex-shrink-0 border-b border-on-surface/6">
+                <div className="relative z-10 px-5 pt-safe-4 pb-3 flex items-center gap-3 flex-shrink-0 border-b border-on-surface/6">
                   <button onClick={() => setPage('select')} className="p-1.5 -ml-1.5 rounded-full hover:bg-on-surface/5 text-on-surface/40"><ChevronLeft size={22} /></button>
                   <h2 className="font-serif font-bold text-lg flex-1">From My Ratings</h2>
                 </div>
@@ -2935,7 +2941,7 @@ const AddToNightSheet: React.FC<{
               <motion.div key="search-new" initial={{ x: '100%', opacity: 0.5 }} animate={{ x: 0, opacity: 1 }} exit={{ x: '100%', opacity: 0.5 }}
                 transition={{ type: 'tween', duration: 0.25, ease: [0.32, 0.72, 0, 1] }}
                 className="flex flex-col h-full">
-                <div className="px-5 pt-4 pb-3 flex items-center gap-3 flex-shrink-0 border-b border-on-surface/6">
+                <div className="relative z-10 px-5 pt-safe-4 pb-3 flex items-center gap-3 flex-shrink-0 border-b border-on-surface/6">
                   <button onClick={() => setPage('select')} className="p-1.5 -ml-1.5 rounded-full hover:bg-on-surface/5 text-on-surface/40"><ChevronLeft size={22} /></button>
                   <h2 className="font-serif font-bold text-lg flex-1">Search Restaurant</h2>
                 </div>
@@ -3903,7 +3909,7 @@ const HomeCookingTab: React.FC<{
         <div className="flex-1" />
         <button onClick={() => setShareRecipeData(buildSharedRecipe())}
           className="p-2 text-on-surface/40 hover:text-emerald-600 rounded-full transition-colors" title="Share recipe">
-          <Share2 size={20} />
+          <ShareIcon size={20} />
         </button>
         {!isSavedFromOtherUser(selectedMeal) && (
           <button onClick={() => onOpenModal(selectedMeal)}
@@ -6533,7 +6539,7 @@ export const Pantry: React.FC = () => {
                       symbol="chevron.left"
                       label="Back"
                       onClick={() => setShowAllRated(false)}
-                      className="hit-44 flex-none w-[34px] h-[34px] rounded-full flex items-center justify-center text-on-surface active:scale-95 transition-transform"
+                      className="hit-44 flex-none w-10 h-10 rounded-full flex items-center justify-center text-on-surface active:scale-95 transition-transform"
                     >
                       <ChevronLeft size={18} strokeWidth={2.1} />
                     </GlassButton>
@@ -6543,7 +6549,7 @@ export const Pantry: React.FC = () => {
                       symbol="magnifyingglass"
                       label="Search this list"
                       onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
-                      className="hit-44 flex-none w-[34px] h-[34px] rounded-full flex items-center justify-center text-on-surface active:scale-95 transition-transform"
+                      className="hit-44 flex-none w-10 h-10 rounded-full flex items-center justify-center text-on-surface active:scale-95 transition-transform"
                     >
                       <Search size={17} />
                     </GlassButton>
@@ -6553,7 +6559,7 @@ export const Pantry: React.FC = () => {
                       label="Filters"
                       badge={activeFilterCount > 0 ? String(activeFilterCount) : undefined}
                       onClick={() => { openFiltersOn(null); closeAllDropdowns(); }}
-                      className="hit-44 relative flex-none w-[34px] h-[34px] rounded-full flex items-center justify-center text-on-surface active:scale-95 transition-transform"
+                      className="hit-44 relative flex-none w-10 h-10 rounded-full flex items-center justify-center text-on-surface active:scale-95 transition-transform"
                     >
                       <SlidersHorizontal size={16} />
                       {activeFilterCount > 0 && (
@@ -6568,7 +6574,7 @@ export const Pantry: React.FC = () => {
                       tint="primary"
                       label="Add Rating"
                       onClick={() => { setSearchPopupMode('rate-new'); setSearchPopupOpen(true); }}
-                      className="hit-44 flex-none w-[34px] h-[34px] rounded-full bg-primary text-white flex items-center justify-center active:scale-95 transition-transform"
+                      className="hit-44 flex-none w-10 h-10 rounded-full bg-primary text-white flex items-center justify-center active:scale-95 transition-transform"
                     >
                       <Plus size={17} strokeWidth={2.4} />
                     </GlassButton>
@@ -6590,7 +6596,7 @@ export const Pantry: React.FC = () => {
                       symbol="chevron.left"
                       label="Back"
                       onClick={() => setShowAllRated(false)}
-                      className="hit-44 flex-none w-[34px] h-[34px] rounded-full flex items-center justify-center text-on-surface active:scale-95 transition-transform"
+                      className="hit-44 flex-none w-10 h-10 rounded-full flex items-center justify-center text-on-surface active:scale-95 transition-transform"
                     >
                       <ChevronLeft size={18} strokeWidth={2.1} />
                     </GlassButton>
@@ -6599,7 +6605,7 @@ export const Pantry: React.FC = () => {
                   <button
                     type="button"
                     onClick={() => navigate('/pantry/recommended')}
-                    className="flex-none inline-flex items-center gap-1.5 rounded-full border border-primary/30 bg-primary/10 text-primary px-3 py-[9px] active:opacity-80 transition-opacity"
+                    className="flex-none inline-flex h-10 items-center gap-1.5 rounded-full border border-primary/30 bg-primary/10 text-primary px-3.5 active:opacity-80 transition-opacity"
                     style={{ fontSize: '12px', fontWeight: 700 }}
                   >
                     <Sparkles size={13} />
@@ -6611,7 +6617,7 @@ export const Pantry: React.FC = () => {
                     tint="primary"
                     label="Add Rating"
                     onClick={() => { setSearchPopupMode('rate-new'); setSearchPopupOpen(true); }}
-                    className="hit-44 flex-none w-[34px] h-[34px] rounded-full bg-primary text-white flex items-center justify-center active:scale-95 transition-transform"
+                    className="hit-44 flex-none w-10 h-10 rounded-full bg-primary text-white flex items-center justify-center active:scale-95 transition-transform"
                   >
                     <Plus size={17} strokeWidth={2.4} />
                   </GlassButton>

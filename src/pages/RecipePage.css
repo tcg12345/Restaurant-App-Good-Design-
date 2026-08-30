@@ -2673,12 +2673,16 @@
 }
 .recipe-detail-page .rdm-stepper {
   display: inline-flex; align-items: center;
-  border: 1px solid rgba(31, 26, 23, 0.07);
+  /* Tokens, not the literal white + dark-tinted border/shadow this had —
+     those read fine on the light page but left the pill an invisible
+     white-on-white square (with near-invisible ink-on-white text inside
+     it) once the page flipped to its dark tokens. */
+  border: 1px solid var(--border);
   border-radius: 999px;
   height: 38px;
   padding: 3px;
-  background: #FFFFFF;
-  box-shadow: 0 2px 8px rgba(24, 20, 18, 0.05);
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
 }
 .recipe-detail-page .rdm-stepper button {
   width: 30px; height: 30px;
@@ -2852,13 +2856,13 @@
 /* ---- COOK MODE FAB ---- */
 .recipe-detail-page .rdm-cookmode-fab {
   position: fixed;
-  /* Stacked above the global assistant button, not beside it. That FAB is
-     56px tall sitting at `36px + safe-area` from the bottom and 24px from
-     the right (`.lp-chat-fab`), so anything on the same baseline lands
-     underneath it — which is exactly what was happening. Clearing its top
-     edge (36 + 56) plus a 12px gap puts this in a clean column with it, and
-     matching its 24px right edge is what makes the column read as one. */
-  bottom: calc(104px + env(safe-area-inset-bottom, 0px));
+  /* The recipe page no longer has a floating assistant button of its own
+     to stack above (it moved into the header's glass pill, and the FAB is
+     hidden here — see AppAssistant's route exclusions) — so this is free
+     to sit at the corner itself, the same 36px-from-bottom / 24px-from-
+     right baseline that FAB used to own. Sitting well above that instead
+     read as floating in the middle of the page, over the ingredients. */
+  bottom: calc(36px + env(safe-area-inset-bottom, 0px));
   right: 24px;
   z-index: 25;
   display: inline-flex; align-items: center; gap: 8px;

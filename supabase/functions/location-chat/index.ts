@@ -735,6 +735,14 @@ interface ChatRequest {
   /** Human-readable label for the current page (e.g. "the Pantry",
    *  "your Profile") — used in the system prompt directly. */
   currentPageLabel?: string;
+  /** The subject the user pinned the conversation to from a detail page. */
+  attachment?: {
+    kind: 'restaurant' | 'recipe';
+    id: string;
+    name: string;
+    subtitle?: string;
+    details?: string[];
+  };
   model?: string;
 }
 
@@ -778,6 +786,36 @@ function buildSystemPrompt(body: ChatRequest): string {
   );
   lines.push('');
   lines.push(`The user is currently on: ${currentPageLabel} (route: ${currentPath}).`);
+
+  /* ── Pinned subject ────────────────────────────────────────────────
+     The user tapped "ask about this" on a detail page, so the whole
+     conversation is about one place or recipe until they unpin it. This
+     block goes near the TOP of the prompt, above the location defaults,
+     because it overrides them: a bare "is it any good?" is about THIS,
+     not about the city's pool. The app's own facts are listed so the
+     model answers from them first and only searches for what they don't
+     cover (current press, closures, reservations). */
+  const att = body.attachment;
+  if (att && att.name) {
+    const kindWord = att.kind === 'recipe' ? 'recipe' : 'restaurant';
+    lines.push('');
+    lines.push(
+      `PINNED SUBJECT — the user opened this chat from the ${kindWord}'s page and attached it, so EVERY question is about this ${kindWord} unless they clearly change topic:`,
+    );
+    lines.push(`  ${kindWord === 'recipe' ? 'Recipe' : 'Restaurant'}: ${ugc(att.name, UGC_MAX_NAME)}`);
+    if (att.subtitle) lines.push(`  ${ugc(att.subtitle, UGC_MAX_TITLE)}`);
+    if (att.kind === 'restaurant' && att.id) lines.push(`  id: ${att.id} (use this for recommend_restaurants / toggle_wishlist / open_* tools)`);
+    if (att.kind === 'recipe' && att.id) lines.push(`  id: ${att.id} (use this for recipe tools)`);
+    if (att.details && att.details.length > 0) {
+      lines.push(`  What the app already knows about it:`);
+      for (const d of att.details.slice(0, 40)) {
+        lines.push(`    - ${ugc(d, 300)}`);
+      }
+    }
+    lines.push(
+      `  Answer from those app facts FIRST — they are the user's own data and the app's records, and they are more relevant to this user than anything you can find elsewhere. Use web_search when the question needs information the facts above don't contain (recent reviews or press, whether it's still open, current menu or pricing, awards, how to book, substitutions and technique for a recipe). Do not ask which ${kindWord} they mean; it is the one named above.`,
+    );
+  }
   if (onLocationPage) {
     lines.push(
       `That page shows restaurants for ${city}, so that's your DEFAULT location: when they say "where should I eat?" or "what looks good?" without specifying a city, recommend things in ${city}.`,

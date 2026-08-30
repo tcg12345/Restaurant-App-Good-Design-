@@ -754,6 +754,30 @@ describe('v3 candidate queries', () => {
     expect(qs.some((q) => q.priceLevels && q.priceLevels.every((t) => t >= 3))).toBe(true);
   });
 
+  it('a stated cuisine leads every city-wide anchor', () => {
+    // The cold-start preview runs only the first few queries. Generic
+    // anchors ("fine dining Manhattan", "tasting menu Manhattan") name no
+    // cuisine, and when they sorted above the cuisine-bearing ones they ate
+    // two of the three searches a Japanese/$$$$ profile had — which is how
+    // that profile's "first picks" came back a wine bar and a brasserie.
+    const p = buildTasteProfile([], [], [], [], {
+      cuisines: ['Japanese'], prices: [4], pricePrimary: 4, city: 'Manhattan, NY',
+    });
+    const qs = buildCandidateQueries(p, { label: 'Manhattan, NY', lat: 40.75, lng: -73.98 });
+    const firstGeneric = qs.findIndex((q) => !/japanese/i.test(q.text));
+    const lastCuisine = qs.map((q) => /japanese/i.test(q.text)).lastIndexOf(true);
+    expect(lastCuisine).toBeLessThan(firstGeneric);
+    // And the three the preview actually runs are all on-cuisine.
+    expect(qs.slice(0, 3).every((q) => /japanese/i.test(q.text))).toBe(true);
+  });
+
+  it('a concentrated premium palate price-restricts its generic anchors too', () => {
+    // An unfiltered "fine dining" is how $$$ rooms reach someone who said $$$$.
+    const qs = buildCandidateQueries(premium70(), TARGET);
+    const fine = qs.find((q) => /^fine dining/.test(q.text));
+    expect(fine?.priceLevels?.every((t) => t >= 3)).toBe(true);
+  });
+
   it('a genuinely value-leaning palate keeps its cheap queries', () => {
     const p = buildTasteProfile(
       Array.from({ length: 10 }, (_, i) => rating({ restaurantId: `v${i}`, cuisine: 'Mexican', price: i % 2 ? '$' : '$$', score: 9 })),

@@ -8,9 +8,22 @@ import { loadUserData, saveRatings, saveLists, saveWishlistData, saveMetaData, s
 import { mergeRatings, mergeLists, mergeWishlist, mergeTrips, mergeHomeMeals } from '../lib/mergeUserData';
 import { MAX_INLINE_PHOTO_BYTES, uploadPhoto } from '../lib/images';
 import { collectPendingPhotoUploads, countPendingPhotoUploads, applyPhotoUrlReplacements, dropDeadPhotos } from '../lib/pendingPhotos';
+import { deletePhotoObjects } from '../lib/images';
 import { publishRatingShare, findRatingShare, syncRatingShare } from '../lib/shareRating';
 import { listPosts, deletePost } from '../lib/supabase-posts';
-import { publishCommunityRating, removeCommunityRating, publishCommunityPhotos, removeCommunityPhotos, saveVisitRecord, deleteVisitRecord, deleteAllVisitRecordsForRestaurant, getVisitHistory, getUserRatings } from '../lib/supabase-community';
+import {
+  publishCommunityRating,
+  removeCommunityRating,
+  publishCommunityPhotos,
+  removeCommunityPhotos,
+  saveVisitRecord,
+  deleteVisitRecord,
+  deleteAllVisitRecordsForRestaurant,
+  getVisitHistory,
+  getUserRatings,
+  listMyCommunityRestaurantIds,
+  getMyCommunityPhotoUrls,
+} from '../lib/supabase-community';
 import type { ActivityStamp } from '../lib/ratingPayload';
 import { useAuth } from './AuthContext';
 import { useSignInModal } from './SignInModalContext';
@@ -1149,10 +1162,29 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
    *    publish for when the profile lands. Never delete on "unknown" — that
    *    branch is what silently wiped a public user's existing gallery.
    */
-  const syncCommunityPhotos = useCallback((restaurantId: string, photos: PhotoItem[] | undefined) => {
+  const syncCommunityPhotos = useCallback((restaurantId: string, currentPhotos: PhotoItem[] | undefined) => {
     const uid = userIdRef.current;
     if (!uid) return;
-    if (!photos || photos.length === 0) {
+    /* The gallery is every photo the user has taken AT this restaurant, not
+       just the ones on the visit they're editing.
+       `publishCommunityPhotos` replaces the whole set for (user, restaurant)
+       — which is what makes removing a photo from a review actually remove
+       it — so publishing only the current rating's photos silently dropped
+       every earlier visit's. Logging a new visit archives the old rating
+       (photos and all) into visit history and starts the current one empty,
+       so the very next publish wiped the gallery clean. Fold the archive
+       back in, oldest first, de-duped by URL. */
+    const archived: PhotoItem[] = [];
+    const seen = new Set((currentPhotos ?? []).map((p) => p.url));
+    for (const visit of readLocalVisitHistory(restaurantId)) {
+      for (const ph of visit.photos || []) {
+        if (!ph.url || seen.has(ph.url)) continue;
+        seen.add(ph.url);
+        archived.push({ url: ph.url, caption: ph.caption || '', isFavorite: !!ph.isFavorite });
+      }
+    }
+    const photos = [...(currentPhotos ?? []), ...archived];
+    if (photos.length === 0) {
       pendingPhotoPublishRef.current.delete(restaurantId);
       removeCommunityPhotos(uid, restaurantId);
       return;
@@ -2869,11 +2901,71 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       pendingPhotoPublishRef.current.delete(restaurantId);
       removeCommunityRating(userIdRef.current, restaurantId);
       removeCommunityPhotos(userIdRef.current, restaurantId);
+      // And the photo FILES, not just the rows that point at them. Deleting a
+      // rating used to leave every uploaded photo in the Storage bucket for
+      // good: invisible to the app, still billed for, still fetchable by
+      // anyone holding the URL. `deletePhotoObjects` ignores anything that
+      // isn't one of this user's own objects.
+      if (removed?.photos?.length) {
+        void deletePhotoObjects(removed.photos.map((ph) => ph.url)).catch(() => {});
+      }
       deleteAllVisitRecordsForRestaurant(userIdRef.current, restaurantId).catch(() => {
         console.warn('[VisitHistory] Failed to delete visit records for', restaurantId);
       });
     }
   }, [syncRatingsToCloud, syncListsToCloud, tombstone, syncVisitHistoryToCloud, applySettledScores]);
+
+  /* ── Orphaned community rows ───────────────────────────────────────────
+     The local ratings list is the source of truth; `community_ratings` and
+     `community_photos` are publications OF it. `removeRating` clears both,
+     but that's one fire-and-forget request per table with nothing watching:
+     an offline moment, a backgrounded app, a transient error, and the rows
+     outlive the rating forever. There is no other way for them to go — the
+     rating they belonged to no longer exists to re-delete them — so a
+     deleted restaurant kept showing a community score, and its photos kept
+     appearing in the gallery.
+
+     This is the net. Once per session, after the cloud load has settled (so
+     local ratings are real and not a half-loaded empty array), anything
+     published under an id the user no longer rates gets swept: rows first,
+     then the Storage objects those photo rows pointed at.
+
+     The `cloudLoaded` guard is load-bearing. Running this against an empty
+     pre-load ratings array would read as "the user rates nothing" and
+     delete their entire published history. */
+  const communitySweepDoneForRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!cloudLoaded || !userId || !supabaseConfigured) return;
+    if (communitySweepDoneForRef.current === userId) return;
+    // A signed-in user with zero local ratings is the one state this cannot
+    // tell apart from a failed load, so it stands down rather than guess.
+    const localIds = new Set(ratingsRef.current.map((r) => r.restaurantId));
+    if (localIds.size === 0) return;
+    communitySweepDoneForRef.current = userId;
+    void (async () => {
+      try {
+        const published = await listMyCommunityRestaurantIds(userId);
+        const orphanRatings = published.ratings.filter((id) => !localIds.has(id));
+        const orphanPhotos = published.photos.filter((id) => !localIds.has(id));
+        if (orphanRatings.length === 0 && orphanPhotos.length === 0) return;
+        // Grab the URLs before the rows go — afterwards there's nothing left
+        // to say which Storage objects belonged to them.
+        const urls = orphanPhotos.length > 0 ? await getMyCommunityPhotoUrls(userId, orphanPhotos) : [];
+        await Promise.all([
+          ...orphanRatings.map((id) => removeCommunityRating(userId, id)),
+          ...orphanPhotos.map((id) => removeCommunityPhotos(userId, id)),
+        ]);
+        if (urls.length > 0) await deletePhotoObjects(urls).catch(() => 0);
+        console.info(
+          `[Community sweep] Removed ${orphanRatings.length} orphaned rating row(s), `
+          + `${orphanPhotos.length} orphaned gallery(ies), ${urls.length} storage object(s).`,
+        );
+      } catch (err) {
+        // Best-effort: the next session sweeps again.
+        console.warn('[Community sweep] failed:', err);
+      }
+    })();
+  }, [cloudLoaded, userId, ratings.length]);
 
   // ── Legacy hotels purge ──
   // migrateRatings / migrateWishlist silently drop legacy hotel entries
