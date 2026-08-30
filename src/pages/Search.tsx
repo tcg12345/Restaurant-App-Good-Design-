@@ -485,7 +485,12 @@ const PhoneSearch: React.FC = () => {
           placeholder={
             onRecipes ? 'Recipes, ingredients, cuisines'
               : followingActive ? 'Search followed restaurants'
-                : 'Restaurants, cuisines, lists'
+                // Names the three things the takeover actually searches. It
+                // used to say "lists", which this field cannot search, and
+                // omitted people and recipes, which it can — so the one
+                // affordance telling you that you can look someone up was
+                // the thing it left out.
+                : 'Restaurants, recipes, people'
           }
           aria-label={
             onRecipes ? 'Search recipes'
@@ -642,7 +647,7 @@ const ClassicSearch: React.FC = () => {
                 value={query}
                 onChange={setQuery}
                 inputRef={inputRef}
-                placeholder="Restaurants, cuisines, lists"
+                placeholder="Restaurants, recipes, people"
                 aria-label="Search"
               />
             </div>

@@ -16,6 +16,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { getPublicRecipes, type Recipe } from '../lib/supabase-recipes';
 import { loadLastSelectedLocation } from '../components/HomeLocationBar';
 import { getCuisineLabel } from './useRestaurantDetail';
+import { rankBy, bestScore, type Rankable } from '../lib/search-ranking';
 import {
   searchUsersByUsername, getFriends, getSentRequestIds, getPendingRequests,
   getFollowerIds, sendFriendRequest, acceptFriendRequest, followPublicAccount,
@@ -373,13 +374,72 @@ export const SearchMain: React.FC<{
     return () => { cancelled = true; };
   }, [userId]);
 
-  const recipeResults = useMemo(() => {
+  const rawRecipeResults = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
     if (!q) return [];
     return recipePool
       .filter((r) => r.title.toLowerCase().includes(q) || (r.cuisine || '').toLowerCase().includes(q))
       .slice(0, 24);
   }, [searchQuery, recipePool]);
+
+  /* ── Relevance ranking ────────────────────────────────────────────────
+     The three kinds used to render in a fixed order — Restaurants, then
+     Recipes, then People — so a search for a person put every restaurant
+     that merely contained those letters above the person you meant.
+     Typing "Jenifer" buried Jenifer. Now each group is scored against the
+     query and the SECTIONS are ordered by how well they answer it, so a
+     name-like query leads with People and a food-like one still leads with
+     Restaurants. See lib/search-ranking.ts. */
+
+  const asPersonRankable = useCallback((p: UserProfile): Rankable => ({
+    kind: 'person',
+    primary: p.display_name || p.username || '',
+    secondary: p.username,
+    connected: !!relationships[p.user_id],
+    verified: p.is_verified,
+  }), [relationships]);
+
+  const asRecipeRankable = useCallback((r: Recipe): Rankable => ({
+    kind: 'recipe', primary: r.title, secondary: r.cuisine,
+  }), []);
+
+  const asPlaceRankable = useCallback((r: PlaceResult): Rankable => ({
+    kind: 'restaurant', primary: r.name, secondary: getCuisineLabel(r),
+  }), []);
+
+  const friendResultsRanked = useMemo(
+    () => rankBy(friendResults, searchQuery, asPersonRankable),
+    [friendResults, searchQuery, asPersonRankable],
+  );
+  const recipeResults = useMemo(
+    () => rankBy(rawRecipeResults, searchQuery, asRecipeRankable),
+    [rawRecipeResults, searchQuery, asRecipeRankable],
+  );
+
+  /**
+   * Section order, best-answering first.
+   *
+   * Restaurants keep their own INTERNAL order: those come back from Places
+   * already sorted by Google's relevance, which folds in distance and
+   * prominence that a string comparison here cannot reproduce. Re-sorting
+   * them by name match alone would push the nearby obvious answer below a
+   * far-away exact spelling. So the ranker decides where the restaurant
+   * section SITS, never what leads it.
+   */
+  const sectionOrder = useMemo<SectionKey[]>(() => {
+    const scores: Record<SectionKey, number> = {
+      restaurants: bestScore(results, searchQuery, asPlaceRankable),
+      recipes: bestScore(recipeResults, searchQuery, asRecipeRankable),
+      friends: bestScore(friendResultsRanked, searchQuery, asPersonRankable),
+    };
+    // Ties keep the historical order, so nothing shuffles without a reason.
+    const fallback: SectionKey[] = ['restaurants', 'recipes', 'friends'];
+    return fallback
+      .map((key, i) => ({ key, i, score: scores[key] }))
+      .sort((a, b) => (b.score - a.score) || (a.i - b.i))
+      .map((s) => s.key);
+  }, [results, recipeResults, friendResultsRanked, searchQuery,
+      asPlaceRankable, asRecipeRankable, asPersonRankable]);
 
   // Load the current user's directional edges once so friend rows show the
   // right follow control. Precedence matches AddFriendSheet.
@@ -696,7 +756,7 @@ export const SearchMain: React.FC<{
     );
   };
 
-  const anyResults = results.length > 0 || recipeResults.length > 0 || friendResults.length > 0;
+  const anyResults = results.length > 0 || recipeResults.length > 0 || friendResultsRanked.length > 0;
   const anyLoading = loading || friendsLoading || poolLoading;
 
   // ── Desktop layout ──────────────────────────────────────────────────────
@@ -850,19 +910,19 @@ export const SearchMain: React.FC<{
       { key: 'all', label: 'All', count: null },
       { key: 'restaurants', label: 'Restaurants', count: hasQuery ? results.length : null },
       { key: 'recipes', label: 'Recipes', count: hasQuery ? recipeResults.length : null },
-      { key: 'friends', label: 'People', count: hasQuery ? friendResults.length : null },
+      { key: 'friends', label: 'People', count: hasQuery ? friendResultsRanked.length : null },
     ];
     const showRestaurants = (scope === 'all' || scope === 'restaurants') && results.length > 0;
     const showRecipes = (scope === 'all' || scope === 'recipes') && recipeResults.length > 0;
-    const showFriends = (scope === 'all' || scope === 'friends') && friendResults.length > 0;
+    const showFriends = (scope === 'all' || scope === 'friends') && friendResultsRanked.length > 0;
     const scopedAnyResults = scope === 'all'
       ? anyResults
       : scope === 'restaurants' ? results.length > 0
         : scope === 'recipes' ? recipeResults.length > 0
-          : friendResults.length > 0;
+          : friendResultsRanked.length > 0;
     const restaurantsShown = (scope === 'restaurants' || expanded.restaurants) ? results : results.slice(0, 6);
     const recipesShown = (scope === 'recipes' || expanded.recipes) ? recipeResults : recipeResults.slice(0, 6);
-    const friendsShown = (scope === 'friends' || expanded.friends) ? friendResults : friendResults.slice(0, 6);
+    const friendsShown = (scope === 'friends' || expanded.friends) ? friendResultsRanked : friendResultsRanked.slice(0, 6);
 
     return (
       <div className="min-h-screen bg-surface pb-24">
@@ -924,30 +984,37 @@ export const SearchMain: React.FC<{
                 <EmptyState icon={<SearchIcon size={48} />} heading="No results" description="Try a different search or scope." />
               ) : (
                 <div className="space-y-10">
-                  {showRestaurants && (
-                    <section>
-                      {sectionHeader('Restaurants', results.length, 'restaurants')}
-                      <div className="grid grid-cols-2 2xl:grid-cols-3 gap-3">
-                        {restaurantsShown.map(desktopRestaurantCard)}
-                      </div>
-                    </section>
-                  )}
-                  {showRecipes && (
-                    <section>
-                      {sectionHeader('Recipes', recipeResults.length, 'recipes')}
-                      <div className="grid grid-cols-2 2xl:grid-cols-3 gap-3">
-                        {recipesShown.map(desktopRecipeCard)}
-                      </div>
-                    </section>
-                  )}
-                  {showFriends && (
-                    <section>
-                      {sectionHeader('People', friendResults.length, 'friends')}
-                      <div className="grid grid-cols-2 gap-3">
-                        {friendsShown.map(desktopPersonRow)}
-                      </div>
-                    </section>
-                  )}
+                  {/* Same relevance order the phone layout uses. */}
+                  {sectionOrder.map((key) => {
+                    if (key === 'restaurants') {
+                      return !showRestaurants ? null : (
+                        <section key="restaurants">
+                          {sectionHeader('Restaurants', results.length, 'restaurants')}
+                          <div className="grid grid-cols-2 2xl:grid-cols-3 gap-3">
+                            {restaurantsShown.map(desktopRestaurantCard)}
+                          </div>
+                        </section>
+                      );
+                    }
+                    if (key === 'recipes') {
+                      return !showRecipes ? null : (
+                        <section key="recipes">
+                          {sectionHeader('Recipes', recipeResults.length, 'recipes')}
+                          <div className="grid grid-cols-2 2xl:grid-cols-3 gap-3">
+                            {recipesShown.map(desktopRecipeCard)}
+                          </div>
+                        </section>
+                      );
+                    }
+                    return !showFriends ? null : (
+                      <section key="friends">
+                        {sectionHeader('People', friendResultsRanked.length, 'friends')}
+                        <div className="grid grid-cols-2 gap-3">
+                          {friendsShown.map(desktopPersonRow)}
+                        </div>
+                      </section>
+                    );
+                  })}
                 </div>
               )
             ) : (
@@ -1106,44 +1173,47 @@ export const SearchMain: React.FC<{
             <EmptyState icon={<SearchIcon size={48} />} heading="No results" description="Try a different search." />
           ) : (
             <div className="space-y-6 pb-4">
-              {/* ── Restaurants ── */}
-              {results.length > 0 && (
-                <section className="scroll-mt-[84px]">
-                  <SectionHeading label="Restaurants" count={results.length} phoneMode={phoneMode} />
-                  <ul className="divide-y divide-on-surface/[0.06]">
-                    {(expanded.restaurants ? results : results.slice(0, PREVIEW_COUNT)).map(renderRestaurantRow)}
-                  </ul>
-                  {results.length > PREVIEW_COUNT && (
-                    <ShowAllRow expanded={expanded.restaurants} total={results.length} phoneMode={phoneMode} onClick={() => toggleSection('restaurants')} />
-                  )}
-                </section>
-              )}
-
-              {/* ── Recipes ── */}
-              {recipeResults.length > 0 && (
-                <section ref={recipesSectionRef} className="scroll-mt-[84px]">
-                  <SectionHeading label="Recipes" count={recipeResults.length} phoneMode={phoneMode} />
-                  <ul className="divide-y divide-on-surface/[0.06]">
-                    {(expanded.recipes ? recipeResults : recipeResults.slice(0, PREVIEW_COUNT)).map(renderRecipeRow)}
-                  </ul>
-                  {recipeResults.length > PREVIEW_COUNT && (
-                    <ShowAllRow expanded={expanded.recipes} total={recipeResults.length} phoneMode={phoneMode} onClick={() => toggleSection('recipes')} />
-                  )}
-                </section>
-              )}
-
-              {/* ── Friends ── */}
-              {friendResults.length > 0 && (
-                <section ref={friendsSectionRef} className="scroll-mt-[84px]">
-                  <SectionHeading label="Friends" count={friendResults.length} phoneMode={phoneMode} />
-                  <ul className="space-y-1">
-                    {(expanded.friends ? friendResults : friendResults.slice(0, PREVIEW_COUNT)).map(renderFriendRow)}
-                  </ul>
-                  {friendResults.length > PREVIEW_COUNT && (
-                    <ShowAllRow expanded={expanded.friends} total={friendResults.length} phoneMode={phoneMode} onClick={() => toggleSection('friends')} />
-                  )}
-                </section>
-              )}
+              {/* Sections render in relevance order (see `sectionOrder`), so
+                  a person can lead the results when you typed a name. */}
+              {sectionOrder.map((key) => {
+                if (key === 'restaurants') {
+                  return results.length === 0 ? null : (
+                    <section key="restaurants" className="scroll-mt-[84px]">
+                      <SectionHeading label="Restaurants" count={results.length} phoneMode={phoneMode} />
+                      <ul className="divide-y divide-on-surface/[0.06]">
+                        {(expanded.restaurants ? results : results.slice(0, PREVIEW_COUNT)).map(renderRestaurantRow)}
+                      </ul>
+                      {results.length > PREVIEW_COUNT && (
+                        <ShowAllRow expanded={expanded.restaurants} total={results.length} phoneMode={phoneMode} onClick={() => toggleSection('restaurants')} />
+                      )}
+                    </section>
+                  );
+                }
+                if (key === 'recipes') {
+                  return recipeResults.length === 0 ? null : (
+                    <section key="recipes" ref={recipesSectionRef} className="scroll-mt-[84px]">
+                      <SectionHeading label="Recipes" count={recipeResults.length} phoneMode={phoneMode} />
+                      <ul className="divide-y divide-on-surface/[0.06]">
+                        {(expanded.recipes ? recipeResults : recipeResults.slice(0, PREVIEW_COUNT)).map(renderRecipeRow)}
+                      </ul>
+                      {recipeResults.length > PREVIEW_COUNT && (
+                        <ShowAllRow expanded={expanded.recipes} total={recipeResults.length} phoneMode={phoneMode} onClick={() => toggleSection('recipes')} />
+                      )}
+                    </section>
+                  );
+                }
+                return friendResultsRanked.length === 0 ? null : (
+                  <section key="friends" ref={friendsSectionRef} className="scroll-mt-[84px]">
+                    <SectionHeading label="People" count={friendResultsRanked.length} phoneMode={phoneMode} />
+                    <ul className="space-y-1">
+                      {(expanded.friends ? friendResultsRanked : friendResultsRanked.slice(0, PREVIEW_COUNT)).map(renderFriendRow)}
+                    </ul>
+                    {friendResultsRanked.length > PREVIEW_COUNT && (
+                      <ShowAllRow expanded={expanded.friends} total={friendResultsRanked.length} phoneMode={phoneMode} onClick={() => toggleSection('friends')} />
+                    )}
+                  </section>
+                );
+              })}
             </div>
           )
         ) : recentSearches.length > 0 ? (
