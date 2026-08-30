@@ -65,7 +65,7 @@ export const MIN_LIST_SIZE = 4;
 /** Preview length on a cover card. */
 const PREVIEW_SIZE = 3;
 
-const storageKey = (userId: string | null | undefined) => `gourmad-top-lists-${userId || 'anon'}`;
+const storageKey = (userId: string | null | undefined) => `goodeats-top-lists-${userId || 'anon'}`;
 
 /**
  * The city out of a formatted address.

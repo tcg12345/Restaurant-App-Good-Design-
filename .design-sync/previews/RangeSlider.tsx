@@ -1,5 +1,5 @@
 import React from 'react';
-import { FilterSection, RangeSlider } from 'gourmet-canvas';
+import { FilterSection, RangeSlider } from 'goodeats';
 
 /**
  * Dual-thumb range. Two transparent `<input type="range">` elements stack

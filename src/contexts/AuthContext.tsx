@@ -108,17 +108,17 @@ interface AuthContextType {
 }
 
 /** Which user this device's localStorage caches belong to. */
-const ACTIVE_USER_KEY = 'gourmad-active-user';
+const ACTIVE_USER_KEY = 'goodeats-active-user';
 
 /** Persisted flag for "Browse without an account" so guest mode survives
  *  navigation and reloads (App.tsx would otherwise re-show Auth on every
  *  paint because there's no Supabase session). */
-const GUEST_MODE_KEY = 'gourmad-guest-mode';
+const GUEST_MODE_KEY = 'goodeats-guest-mode';
 
 /** Set between OTP verification and password creation on the verify-first
  *  signup path, so a relaunch mid-flow still lands on the choose-password
  *  screen instead of leaving a passwordless account behind. */
-const NEEDS_PASSWORD_KEY = 'gourmad-needs-password';
+const NEEDS_PASSWORD_KEY = 'goodeats-needs-password';
 
 /**
  * Cross-account leak guard. Several stores cache personal data in
@@ -213,11 +213,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const continueAsGuest = useCallback(() => {
     // Purge any app data a previous signed-in user left on this device BEFORE
-    // raising the guest flag (clearLocalAppData drops gourmad-* keys, which
+    // raising the guest flag (clearLocalAppData drops goodeats-* keys, which
     // includes GUEST_MODE_KEY — so clear first, then set it), so a guest never
     // sees the prior account's ratings / meals / cached private-bucket URLs.
     //
-    // ONLY when there actually was one. The purge matches every `gourmad-`
+    // ONLY when there actually was one. The purge matches every `goodeats-`
     // key, which now includes what the pre-auth onboarding just collected —
     // so on a fresh install, where there is no prior account to protect
     // against, it did nothing but destroy the taste answers, the city and

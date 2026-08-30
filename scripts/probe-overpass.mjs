@@ -148,7 +148,7 @@ async function ask(query) {
         method: 'POST',
         headers: {
           'Content-Type': 'application/x-www-form-urlencoded',
-          'User-Agent': 'GourmetCanvas/1.0 (cuisine lookup probe)',
+          'User-Agent': 'GoodEats/1.0 (cuisine lookup probe)',
         },
         body: new URLSearchParams({ data: query }),
         signal: AbortSignal.timeout(60_000),

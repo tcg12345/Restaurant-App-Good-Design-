@@ -1,5 +1,5 @@
 import React from 'react';
-import { NumberWheelPicker } from 'gourmet-canvas';
+import { NumberWheelPicker } from 'goodeats';
 
 /**
  * One iOS wheel over the app's shared picker sheet, for a single integer:

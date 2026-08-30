@@ -1,5 +1,5 @@
 import React from 'react';
-import { FilterSection, Segment, SegmentItem } from 'gourmet-canvas';
+import { FilterSection, Segment, SegmentItem } from 'goodeats';
 
 /**
  * The track of the segmented control: a rounded 999px rail on `--fs-bg-2`

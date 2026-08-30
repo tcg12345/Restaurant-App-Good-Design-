@@ -8,7 +8,7 @@ import { Scene5CTA } from './Scene5CTA';
 import './fonts';
 
 /**
- * Gourmet Canvas — 9:16 promo, 20.5s @30fps (615 frames).
+ * GoodEats — 9:16 promo, 20.5s @30fps (615 frames).
  *
  *   0–115   Hook     every restaurant is a 4.3
  * 115–235   Reveal   the URR — one number that means something
@@ -28,7 +28,7 @@ const Dip: React.FC<{ at: number; color?: string }> = ({ at, color = '#fbf4f0' }
   return <AbsoluteFill style={{ background: color, opacity, pointerEvents: 'none' }} />;
 };
 
-export const GourmetCanvasAd: React.FC = () => {
+export const GoodEatsAd: React.FC = () => {
   return (
     <AbsoluteFill style={{ background: '#fbf4f0' }}>
       <Sequence from={0} durationInFrames={115}>

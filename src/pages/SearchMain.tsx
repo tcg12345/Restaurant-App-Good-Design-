@@ -23,7 +23,7 @@ import {
   type UserProfile, type FriendHomeMeal,
 } from '../lib/supabase-community';
 
-const RECENT_SEARCHES_KEY = 'gourmet-canvas-recent-searches-v2';
+const RECENT_SEARCHES_KEY = 'goodeats-recent-searches-v2';
 const MAX_RECENT = 10;
 const DEFAULT_LAT = 40.735;
 const DEFAULT_LNG = -73.99;

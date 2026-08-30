@@ -1,4 +1,4 @@
-# FEATURE AUDIT — Gourmet Canvas
+# FEATURE AUDIT — GoodEats
 
 Generated 2026-03-29. Pre-implementation audit for the next 6 planned features.
 
@@ -36,15 +36,15 @@ The persistence layer (`src/lib/supabase-db.ts`) uses `ensureRow()` before every
 **localStorage keys** (cache, also serves offline-first):
 | Key | Data |
 |---|---|
-| `gourmad-ratings` | RestaurantRating[] |
-| `gourmad-lists` | CustomList[] |
-| `gourmad-wishlist` | WishlistItem[] |
-| `gourmad-restaurant-meta` | Record<string, RestaurantMeta> |
-| `gourmad-trips` | Trip[] |
-| `gourmad-recent-views` | RecentView[] |
-| `gourmad-user-id` | Current user ID (for multi-account cache busting) |
+| `goodeats-ratings` | RestaurantRating[] |
+| `goodeats-lists` | CustomList[] |
+| `goodeats-wishlist` | WishlistItem[] |
+| `goodeats-restaurant-meta` | Record<string, RestaurantMeta> |
+| `goodeats-trips` | Trip[] |
+| `goodeats-recent-views` | RecentView[] |
+| `goodeats-user-id` | Current user ID (for multi-account cache busting) |
 
-On sign-in, `ListsContext` detects if the cached `gourmad-user-id` differs from the current user and clears all localStorage keys before loading cloud data. If cloud data exists, it overwrites local state; otherwise it starts fresh and saves empty state to cloud.
+On sign-in, `ListsContext` detects if the cached `goodeats-user-id` differs from the current user and clears all localStorage keys before loading cloud data. If cloud data exists, it overwrites local state; otherwise it starts fresh and saves empty state to cloud.
 
 **Community/shared data** lives in separate Supabase tables (NOT JSONB):
 | Table | Purpose | Key |

@@ -9,8 +9,8 @@
  * that interrupts the tour). Same pattern as lib/preauth.ts.
  */
 
-const PENDING_KEY = 'gourmad-tour-pending';
-const DONE_KEY = 'gourmad-tour-done';
+const PENDING_KEY = 'goodeats-tour-pending';
+const DONE_KEY = 'goodeats-tour-done';
 
 /** Queue the tour for the next time a tab root is on screen. A no-op for
  *  anyone who has already seen it — re-onboarding (username lost, second

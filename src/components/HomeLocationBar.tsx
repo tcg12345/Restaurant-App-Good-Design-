@@ -11,8 +11,8 @@ import { GlassButton } from '../lib/glass-buttons';
 
 export type HomeLocation = { label: string; lat: number; lng: number };
 
-const RECENT_KEY = 'gourmad-home-recent-locations';
-const LAST_SELECTED_KEY = 'gourmad-home-last-location';
+const RECENT_KEY = 'goodeats-home-recent-locations';
+const LAST_SELECTED_KEY = 'goodeats-home-last-location';
 const MAX_RECENTS = 8;
 
 // Small curated seed so the picker has content before the user has searched

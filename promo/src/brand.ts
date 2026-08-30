@@ -1,5 +1,5 @@
 /**
- * Gourmet Canvas brand tokens — extracted verbatim from the app:
+ * GoodEats brand tokens — extracted verbatim from the app:
  *   src/index.css @theme + --ob-* onboarding tokens,
  *   src/pages/LocationPage.css :root editorial tokens,
  *   src/lib/score.ts score bands.

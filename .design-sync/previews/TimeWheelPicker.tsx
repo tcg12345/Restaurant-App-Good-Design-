@@ -1,5 +1,5 @@
 import React from 'react';
-import { TimeWheelPicker } from 'gourmet-canvas';
+import { TimeWheelPicker } from 'goodeats';
 
 /**
  * Two iOS wheels — hours 0–12, minutes in steps of 5 — in the app's shared

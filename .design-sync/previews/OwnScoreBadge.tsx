@@ -1,5 +1,5 @@
 import React from 'react';
-import { OwnScoreBadge } from 'gourmet-canvas';
+import { OwnScoreBadge } from 'goodeats';
 
 const RATINGS = [9.4, 8.2, 7.1, 5.6, 3.4];
 

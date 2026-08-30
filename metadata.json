@@ -1,5 +1,5 @@
 {
-  "name": "Gourmet Canvas",
+  "name": "GoodEats",
   "description": "A curated dining exploration platform for the discerning palate, featuring expert reviews, social circles, and personalized taste profiles.",
   "requestFramePermissions": ["geolocation"]
 }

@@ -1,5 +1,5 @@
 import React from 'react';
-import { SearchField } from 'gourmet-canvas';
+import { SearchField } from 'goodeats';
 import { Navigation } from 'lucide-react';
 
 /**

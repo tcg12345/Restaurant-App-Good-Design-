@@ -1,5 +1,5 @@
 import React from 'react';
-import { CardActionMenu } from 'gourmet-canvas';
+import { CardActionMenu } from 'goodeats';
 import { Pencil, Lock, Globe, Trash2, Share, Bookmark, EyeOff } from 'lucide-react';
 
 /**

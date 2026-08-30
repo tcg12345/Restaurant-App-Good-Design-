@@ -1,5 +1,5 @@
 import React from 'react';
-import { FilterDrillSection } from 'gourmet-canvas';
+import { FilterDrillSection } from 'goodeats';
 
 /**
  * The one-liner most filter sheets use for cuisine / city / friends: a

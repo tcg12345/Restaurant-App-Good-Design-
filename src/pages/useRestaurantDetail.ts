@@ -218,7 +218,7 @@ export function useRestaurantDetail() {
   useEffect(() => {
     if (!place) return;
     try {
-      const key = 'gourmad-recent-views';
+      const key = 'goodeats-recent-views';
       const raw = localStorage.getItem(key);
       const views: any[] = raw ? JSON.parse(raw) : [];
       const entry = {

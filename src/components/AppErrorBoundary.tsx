@@ -1,5 +1,6 @@
 import React from 'react';
 import { reportClientError } from '../lib/error-reporting';
+import { Logo } from './Logo';
 
 /**
  * Root crash screen + global error hooks.
@@ -16,9 +17,7 @@ import { reportClientError } from '../lib/error-reporting';
 
 const AppErrorFallback: React.FC<{ onTryAgain: () => void }> = ({ onTryAgain }) => (
   <div className="min-h-screen bg-surface flex flex-col items-center justify-center gap-5 px-8 text-center">
-    <div className="w-12 h-12 rounded-full bg-primary flex items-center justify-center text-white font-serif italic text-2xl">
-      G
-    </div>
+    <Logo size={48} className="text-primary" />
     <div className="space-y-1.5">
       <p className="font-serif text-xl text-on-surface">Something went wrong</p>
       <p className="text-sm text-on-surface/60 max-w-[280px]">
@@ -101,7 +100,16 @@ function renderDetachedFallback() {
   const fg = dark ? '#ededed' : '#1e1b1a';
   root.innerHTML = `
     <div style="min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:20px;padding:0 32px;text-align:center;background:${bg};color:${fg};font-family:Manrope,system-ui,sans-serif;">
-      <div style="width:48px;height:48px;border-radius:9999px;background:#9f3012;color:#fff;display:flex;align-items:center;justify-content:center;font-family:'Noto Serif',serif;font-style:italic;font-size:24px;">G</div>
+      <!-- The mark, hand-inlined. This path runs when the bundle itself
+           failed to evaluate, so it cannot import components/Logo.tsx and
+           cannot rely on a webfont having loaded — the geometry and the
+           terracotta are literal here on purpose. Keep in sync with
+           Logo.tsx and public/logo.svg. -->
+      <svg width="48" height="48" viewBox="0 0 100 100" aria-hidden="true">
+        <circle cx="50" cy="50" r="48" fill="#9f3012"/>
+        <rect x="23" y="40" width="54" height="6.5" rx="3.25" fill="#fff"/>
+        <path d="M28 52 Q50 75 72 52 Z" fill="#fff"/>
+      </svg>
       <div>
         <p style="margin:0 0 6px;font-family:'Noto Serif',serif;font-size:20px;">Something went wrong</p>
         <p style="margin:0;font-size:14px;opacity:0.6;max-width:280px;">An unexpected error occurred. Reload to pick up where you left off.</p>

@@ -10,7 +10,7 @@ import { motion, useReducedMotion } from 'motion/react';
 /**
  * Pantry landing — used on phone and desktop. Two top-level tabs:
  *
- *   • Restaurants (default) — Wishlist + "Your canvas" (rated) essentials,
+ *   • Restaurants (default) — Wishlist + "Your rankings" (rated) essentials,
  *     plus a card grid of user-created restaurant lists. The "+ New list"
  *     card opens the create-list sheet seeded for restaurant lists.
  *   • Recipes — "All Recipes" essential (the cookbook of every home meal
@@ -375,7 +375,7 @@ const RestaurantsTab: React.FC<{
                 <Star size={18} strokeWidth={2.1} />
               </span>
             }
-            title="Your canvas"
+            title="Your rankings"
             meta={ratedCount > 0 ? `${ratedCount} place${ratedCount === 1 ? '' : 's'} rated` : 'Rate your first place'}
             trailing={ratedTopScores.length > 0 ? (
               <span className="flex-none flex items-center">

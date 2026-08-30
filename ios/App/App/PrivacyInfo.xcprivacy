@@ -2,7 +2,7 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<!-- Gourmet Canvas app-target privacy manifest.
+	<!-- GoodEats app-target privacy manifest.
 	     Data flows this declares (keep in sync with the App Store Connect
 	     nutrition labels):
 	       - Email + name + user ID: Supabase auth via Sign in with Apple /

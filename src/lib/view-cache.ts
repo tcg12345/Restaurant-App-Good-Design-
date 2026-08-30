@@ -13,7 +13,7 @@
  * snapshot's shape retires the old ones instead of hydrating garbage.
  */
 
-const PREFIX = 'gourmad-view-cache';
+const PREFIX = 'goodeats-view-cache';
 const VERSION = 1;
 
 const keyFor = (name: string, userId: string) => `${PREFIX}:v${VERSION}:${name}:${userId}`;

@@ -48,8 +48,8 @@ const SettingsContext = createContext<SettingsContextType>({
 
 export const useSettings = () => useContext(SettingsContext);
 
-const DARK_MODE_KEY = 'gourmad-dark-mode';
-const SCORE_DECIMALS_KEY = 'gourmad-score-decimals';
+const DARK_MODE_KEY = 'goodeats-dark-mode';
+const SCORE_DECIMALS_KEY = 'goodeats-score-decimals';
 const DARK_QUERY = '(prefers-color-scheme: dark)';
 
 /** Detect a Capacitor-wrapped native runtime. Returns false on the

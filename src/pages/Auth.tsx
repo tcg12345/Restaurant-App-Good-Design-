@@ -209,7 +209,7 @@ const StepEmail: React.FC<SharedProps> = ({
   <div className="space-y-4">
     <header>
       <h1 className="font-serif font-bold text-3xl xl:text-4xl tracking-tight leading-[1.05] text-on-surface mb-2">
-        {saveTaste ? 'Save your taste profile' : <>Welcome to Gourmet&nbsp;Canvas</>}
+        {saveTaste ? 'Save your taste profile' : <>Welcome to&nbsp;GoodEats</>}
       </h1>
       <p className="text-sm text-on-surface/55 font-light leading-relaxed max-w-md">
         {saveTaste
@@ -791,7 +791,7 @@ export const Auth: React.FC<{
   if (useDesktopLayout) {
     const headerRight =
       step === 'email' ? (
-        <span className="text-on-surface/45">New to Gourmet Canvas?</span>
+        <span className="text-on-surface/45">New to GoodEats?</span>
       ) : step === 'setpassword' ? (
         // Email is verified and the session exists — no going back from here.
         <span className="text-on-surface/45">One last step</span>
@@ -830,7 +830,7 @@ export const Auth: React.FC<{
               </>
             ) : (
               <>
-                <OB.Title>Welcome to<br />Gourmet Canvas</OB.Title>
+                <OB.Title>Welcome to GoodEats</OB.Title>
                 <OB.Subtitle>Enter your email — we'll sign you in, or set you up if you're new.</OB.Subtitle>
               </>
             )}

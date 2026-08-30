@@ -46,36 +46,6 @@ export const MeshBackground: React.FC = () => (
   </div>
 );
 
-// ── Brand mark with halo / disc / glyph + optional pulse ────────────────
-export const MobileBrandMark: React.FC<{ size?: number; pulse?: boolean }> = ({
-  size = 48,
-  pulse = false,
-}) => (
-  <div className="relative flex items-center justify-center" style={{ width: size, height: size }}>
-    {pulse && (
-      <>
-        <motion.span
-          className="absolute inset-0 rounded-full bg-primary/30"
-          animate={{ scale: [1, 1.55, 1], opacity: [0.55, 0, 0.55] }}
-          transition={{ duration: 2.6, repeat: Infinity, ease: 'easeOut' }}
-        />
-        <motion.span
-          className="absolute inset-0 rounded-full bg-primary/20"
-          animate={{ scale: [1, 1.8, 1], opacity: [0.4, 0, 0.4] }}
-          transition={{ duration: 2.6, repeat: Infinity, ease: 'easeOut', delay: 0.8 }}
-        />
-      </>
-    )}
-    <span className="absolute inset-0 rounded-full bg-gradient-to-br from-primary to-[#7a230b] shadow-lg shadow-primary/35" />
-    <span
-      className="relative font-display italic font-bold text-white z-10 select-none"
-      style={{ fontSize: size * 0.5, lineHeight: 1 }}
-    >
-      G
-    </span>
-  </div>
-);
-
 // ── Mobile field with stacked label inside the surface ──────────────────
 export const MobileField: React.FC<{
   label: string;

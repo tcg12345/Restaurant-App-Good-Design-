@@ -1381,7 +1381,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, sear
   // Recent views from localStorage
   const [recentViews, setRecentViews] = useState<Array<PlaceResult & { viewedAt: number }>>(() => {
     try {
-      const raw = localStorage.getItem('gourmad-recent-views');
+      const raw = localStorage.getItem('goodeats-recent-views');
       return raw ? JSON.parse(raw) : [];
     } catch { return []; }
   });
@@ -1389,7 +1389,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, sear
   const removeRecentView = useCallback((id: string) => {
     setRecentViews((prev) => {
       const next = prev.filter((v) => v.id !== id);
-      localStorage.setItem('gourmad-recent-views', JSON.stringify(next));
+      localStorage.setItem('goodeats-recent-views', JSON.stringify(next));
       if (userId && supabaseConfigured) saveRecentViews(userId, next);
       return next;
     });

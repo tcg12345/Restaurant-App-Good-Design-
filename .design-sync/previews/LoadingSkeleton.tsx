@@ -1,5 +1,5 @@
 import React from 'react';
-import { LoadingSkeleton } from 'gourmet-canvas';
+import { LoadingSkeleton } from 'goodeats';
 
 /**
  * The app's one pending state. It replaced the assorted spinners and

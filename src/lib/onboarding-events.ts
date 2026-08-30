@@ -14,7 +14,7 @@ import { supabase, supabaseConfigured } from './supabase';
  * re-mount freely, and a funnel with duplicates measures React, not users.
  */
 
-const ANON_KEY = 'gourmad-onboarding-anon';
+const ANON_KEY = 'goodeats-onboarding-anon';
 
 function anonId(): string {
   try {

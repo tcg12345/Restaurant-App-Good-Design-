@@ -1,7 +1,7 @@
 {
   "projectId": "e98e9e74-33c9-4ba3-abec-68c57d093107",
-  "pkg": "gourmet-canvas",
-  "globalName": "GourmetCanvas",
+  "pkg": "goodeats",
+  "globalName": "GoodEats",
   "shape": "package",
   "srcDir": "src",
   "tsconfig": "tsconfig.json",

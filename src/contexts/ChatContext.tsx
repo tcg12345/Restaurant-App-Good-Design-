@@ -160,12 +160,12 @@ interface ChatContextValue {
  *
  * localStorage is ONLY a per-user display cache so the messages screen
  * paints instantly on reload; the server is the source of truth. The old
- * single-player keys (gourmad-chats / gourmad-chats-read) are discarded on
+ * single-player keys (goodeats-chats / goodeats-chats-read) are discarded on
  * startup — that data was never delivered to anyone.
  */
 
-const LEGACY_KEYS = ['gourmad-chats', 'gourmad-chats-read'];
-const cacheKey = (uid: string) => `gourmad-chats-v2:${uid}`;
+const LEGACY_KEYS = ['goodeats-chats', 'goodeats-chats-read'];
+const cacheKey = (uid: string) => `goodeats-chats-v2:${uid}`;
 
 function loadFromStorage<T>(key: string, fallback: T): T {
   try {

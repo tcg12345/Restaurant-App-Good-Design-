@@ -1834,7 +1834,7 @@ export const AddPostModal: React.FC = () => {
                         <label className="block text-[11px] font-bold uppercase tracking-widest text-on-surface/45 mb-2">Visibility</label>
                         <div className="flex gap-2">
                           {([
-                            { value: true, label: 'Public', sub: 'Anyone on Gourmet Canvas' },
+                            { value: true, label: 'Public', sub: 'Anyone on GoodEats' },
                             { value: false, label: 'Followers only', sub: 'Only people who follow you' },
                           ] as const).map((opt) => {
                             const active = isPublic === opt.value;
@@ -2525,7 +2525,7 @@ export const AddPostModal: React.FC = () => {
                             <label className="block text-[11px] font-bold uppercase tracking-widest text-on-surface/45 mb-2">Visibility</label>
                             <div className="flex flex-col gap-2">
                               {([
-                                { value: true, label: 'Public', sub: 'Anyone on Gourmet Canvas can see this', Icon: Globe },
+                                { value: true, label: 'Public', sub: 'Anyone on GoodEats can see this', Icon: Globe },
                                 { value: false, label: 'Followers only', sub: 'Only people who follow you', Icon: UsersIcon },
                               ] as const).map((opt) => {
                                 const active = isPublic === opt.value;

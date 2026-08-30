@@ -1,5 +1,5 @@
 import React from 'react';
-import { Collapse } from 'gourmet-canvas';
+import { Collapse } from 'goodeats';
 import { ChevronDown } from 'lucide-react';
 
 const HOURS: Array<[string, string, boolean]> = [

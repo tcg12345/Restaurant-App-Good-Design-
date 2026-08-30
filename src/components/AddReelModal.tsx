@@ -88,7 +88,7 @@ function fmtDuration(seconds: number | null): string {
 }
 
 const VISIBILITY_OPTIONS = [
-  { value: true, label: 'Public', sub: 'Anyone on Gourmet Canvas can see this', subShort: 'Anyone on Gourmet Canvas', Icon: Globe },
+  { value: true, label: 'Public', sub: 'Anyone on GoodEats can see this', subShort: 'Anyone on GoodEats', Icon: Globe },
   { value: false, label: 'Followers only', sub: 'Only people who follow you', subShort: 'Only people who follow you', Icon: UsersIcon },
 ] as const;
 

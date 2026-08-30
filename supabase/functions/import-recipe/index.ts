@@ -375,7 +375,7 @@ async function fetchPage(u: URL): Promise<{ html?: string; error?: string }> {
       redirect: 'follow',
       signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
       headers: {
-        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36 GourmetCanvasImporter/1.0',
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36 GoodEatsImporter/1.0',
         'Accept': 'text/html,application/xhtml+xml',
         'Accept-Language': 'en',
       },

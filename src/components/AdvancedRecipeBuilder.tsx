@@ -559,8 +559,8 @@ function canLeaveStep(state: AdvancedRecipeState, step: number): { ok: boolean }
      the Activity drafts list. ─ */
 function resumeSlotKey(userId: string | null, mealId: string | null, seeded = false): string {
   const u = userId || 'anon';
-  if (mealId) return `gourmad-recipe-draft-${u}-edit-${mealId}`;
-  return seeded ? `gourmad-recipe-draft-${u}-seed` : `gourmad-recipe-draft-${u}`;
+  if (mealId) return `goodeats-recipe-draft-${u}-edit-${mealId}`;
+  return seeded ? `goodeats-recipe-draft-${u}-seed` : `goodeats-recipe-draft-${u}`;
 }
 
 interface ResumeSlot {

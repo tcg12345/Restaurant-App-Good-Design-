@@ -23,7 +23,7 @@ import { supabase, supabaseConfigured } from './supabase';
 /** Shared with lib/onboarding-events so one install is one identity across
  *  both sinks. Reading it never creates it — if onboarding never ran, a
  *  per-install id is minted here instead. */
-const ANON_KEY = 'gourmad-onboarding-anon';
+const ANON_KEY = 'goodeats-onboarding-anon';
 
 function anonId(): string {
   try {

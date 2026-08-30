@@ -3,6 +3,7 @@ import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import { Compass, Search, Map as MapIcon, Bookmark, Users, User, Plus, MessageCircle, Film, Image as ImageIcon, BookOpen, ChefHat, Star } from 'lucide-react';
 import { cn } from '../lib/utils';
+import { Logo } from './Logo';
 import { useAuth } from '../contexts/AuthContext';
 import { useLists } from '../contexts/ListsContext';
 import { useChat } from '../contexts/ChatContext';
@@ -159,12 +160,10 @@ export const Sidebar: React.FC = () => {
         collapsed ? 'flex-col gap-2 px-3' : 'px-5',
       )}>
         <div className={cn('flex items-center gap-3 min-w-0', !collapsed && 'flex-1')}>
-          <div className="w-9 h-9 rounded-full bg-primary flex items-center justify-center text-white font-serif italic text-lg flex-shrink-0">
-            G
-          </div>
+          <Logo size={36} className="text-primary flex-shrink-0" />
           {!collapsed && (
             <h1 className="font-serif font-bold text-[17px] text-on-surface leading-tight truncate">
-              Gourmet Canvas
+              GoodEats
             </h1>
           )}
         </div>

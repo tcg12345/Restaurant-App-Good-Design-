@@ -145,8 +145,8 @@ const GUIDE_GRADIENTS = [
 ];
 
 function guideToCard(g: MyGuide, author: UserProfile | undefined, i: number): Guide {
-  const name = author?.display_name || author?.username || 'Gourmet Canvas cook';
-  const initials = name.split(/\s+/).map((w) => w[0]).filter(Boolean).slice(0, 2).join('').toUpperCase() || 'GC';
+  const name = author?.display_name || author?.username || 'GoodEats cook';
+  const initials = name.split(/\s+/).map((w) => w[0]).filter(Boolean).slice(0, 2).join('').toUpperCase() || 'GE';
   return {
     id: g.id,
     title: g.title,

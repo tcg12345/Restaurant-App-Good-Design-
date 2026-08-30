@@ -328,13 +328,13 @@ const SuggestionsRail: React.FC<{
   return (
     <aside className="space-y-9">
       {/* People to follow — rendered as editorial cards (matches the
-          Gourmet Canvas mock's rail-suggestion pattern). */}
+          GoodEats mock's rail-suggestion pattern). */}
       <section>
         <div className="flex items-center justify-between mb-3.5">
           <h4 className="text-[11px] font-bold uppercase tracking-[0.13em] text-on-surface/65">Suggested for you</h4>
           <Link to="/circle" className="text-[12px] font-semibold text-primary hover:underline underline-offset-2">See all</Link>
         </div>
-        {/* Prefer restaurant cards (Gourmet Canvas style) when the parent
+        {/* Prefer restaurant cards (GoodEats style) when the parent
             page has supplied them; fall back to people-to-follow when
             there's nothing else to show. */}
         {restaurantCards.length > 0 ? (
@@ -1347,7 +1347,7 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
             From the community
           </h2>
           <p className="mt-1.5 text-on-surface/45" style={{ fontSize: '12.5px', lineHeight: 1.35 }}>
-            Public posts from people across Gourmet Canvas.
+            Public posts from people across GoodEats.
           </p>
         </div>
       )}

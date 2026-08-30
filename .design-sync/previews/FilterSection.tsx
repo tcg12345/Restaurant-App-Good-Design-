@@ -1,5 +1,5 @@
 import React from 'react';
-import { FilterSection, PillRow, Pill, Segment, SegmentItem, RangeSlider } from 'gourmet-canvas';
+import { FilterSection, PillRow, Pill, Segment, SegmentItem, RangeSlider } from 'goodeats';
 import { Footprints } from 'lucide-react';
 
 /**

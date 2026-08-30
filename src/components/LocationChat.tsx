@@ -151,7 +151,7 @@ export interface ActionResult {
    The legacy 'claude-opus-4-7' pref is accepted on load and migrated
    to 4.8 so a persisted choice from before the bump still resolves. */
 export type ChatModelPref = 'auto' | 'claude-sonnet-4-6' | 'claude-opus-4-8';
-const CHAT_MODEL_STORAGE_KEY = 'gourmad-chat-model';
+const CHAT_MODEL_STORAGE_KEY = 'goodeats-chat-model';
 const VALID_MODEL_PREFS: readonly ChatModelPref[] = ['auto', 'claude-sonnet-4-6', 'claude-opus-4-8'];
 function loadModelPref(): ChatModelPref {
   try {
@@ -932,7 +932,7 @@ interface ChatSuggestion { prompt: string; title: string; subtitle: string; icon
  *  advances a persisted counter, and the four visible cards are a sliding
  *  window over the pool below — so the page never greets you with the
  *  same four twice in a row. */
-const STARTER_ROT_KEY = 'gourmad-chat-starter-rot';
+const STARTER_ROT_KEY = 'goodeats-chat-starter-rot';
 function nextStarterSeed(): number {
   try {
     const n = ((parseInt(localStorage.getItem(STARTER_ROT_KEY) || '0', 10) || 0) + 1) % 10000;

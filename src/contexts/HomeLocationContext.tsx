@@ -71,7 +71,7 @@ export function HomeLocationProvider({ children }: { children: React.ReactNode }
   // sync without a hard reload.
   useEffect(() => {
     const onStorage = (e: StorageEvent) => {
-      if (e.key !== 'gourmad-home-last-location') return;
+      if (e.key !== 'goodeats-home-last-location') return;
       const fresh = loadLastSelectedLocation();
       if (fresh) setLocationState(fresh);
     };

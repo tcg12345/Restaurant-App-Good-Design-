@@ -41,10 +41,17 @@ export async function deleteAccount(): Promise<{ ok: boolean; error?: string }> 
   }
 }
 
-/** localStorage prefixes that hold app data. `gourmad-` covers ratings,
- *  meals, chats, drafts and prefs; `lp-chat-` is the AI assistant's
- *  saved-conversation cache; `gourmet-canvas-` covers recent searches. */
-const APP_STORAGE_PREFIXES = ['gourmad-', 'lp-chat-', 'gourmet-canvas-'];
+/** localStorage prefixes that hold app data. `goodeats-` covers ratings,
+ *  meals, chats, drafts, recent searches and prefs; `lp-chat-` is the AI
+ *  assistant's saved-conversation cache.
+ *
+ *  The two legacy prefixes stay listed on purpose. lib/storage-migration.ts
+ *  COPIES a pre-rename install's keys forward rather than moving them (so a
+ *  rollback to an older bundle still finds its data), which leaves the
+ *  originals on the device. They hold the same personal data as their
+ *  renamed twins, so a purge that skipped them would leave one account's
+ *  ratings readable by the next account on the same device. */
+const APP_STORAGE_PREFIXES = ['goodeats-', 'lp-chat-', 'gourmad-', 'gourmet-canvas-'];
 
 /** Exact app-data keys that don't share those prefixes. `sb-signed-urls-v1`
  *  is the signed-URL cache: tokens into PRIVATE reel/post buckets, valid for
@@ -54,11 +61,13 @@ const APP_STORAGE_PREFIXES = ['gourmad-', 'lp-chat-', 'gourmet-canvas-'];
  *  it to reload as the new user). */
 const APP_STORAGE_KEYS = [SIGNED_URL_CACHE_LS_KEY];
 
-/** Device-scoped keys that survive every purge. `gourmad-preauth-done`
+/** Device-scoped keys that survive every purge. `goodeats-preauth-done`
  *  records that this DEVICE has already been through first-launch
  *  onboarding — it is not any user's data, and dropping it re-walls a
- *  returning user with a flow they already completed. */
-const DEVICE_SCOPED_KEYS = ['gourmad-preauth-done'];
+ *  returning user with a flow they already completed. The pre-rename spelling
+ *  is spared for the same reason: it is the only copy an older bundle can
+ *  see, so purging it would re-wall anyone who rolled back. */
+const DEVICE_SCOPED_KEYS = ['goodeats-preauth-done', 'gourmad-preauth-done'];
 
 /**
  * Drop every app-owned localStorage key (ratings cache, home meals,

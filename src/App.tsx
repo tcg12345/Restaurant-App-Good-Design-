@@ -76,6 +76,7 @@ import { GuideCreatorSheet } from './components/GuideCreatorSheet';
 import { CirclePanel } from './components/CirclePanel';
 import { AppAssistant } from './components/AppAssistant';
 import { FeatureTour } from './components/FeatureTour';
+import { Logo } from './components/Logo';
 import { AppErrorBoundary } from './components/AppErrorBoundary';
 import { SignInModalProvider } from './contexts/SignInModalContext';
 import { RequireAuthRoute } from './components/RequireAuthRoute';
@@ -174,9 +175,7 @@ const ProfileLoadError: React.FC = () => {
   return (
     <div className="min-h-screen bg-surface flex items-center justify-center px-6">
       <div className="w-full max-w-sm text-center">
-        <div className="w-12 h-12 mx-auto rounded-full bg-primary/10 flex items-center justify-center text-primary font-serif italic text-2xl">
-          G
-        </div>
+        <Logo size={48} variant="tint" className="mx-auto text-primary" />
         <h1 className="mt-5 font-serif font-bold text-2xl text-on-surface">Couldn't load your profile</h1>
         <p className="mt-2 text-sm text-on-surface/55 leading-relaxed">
           Check your connection and try again — your profile is safe, we just couldn't reach it.
@@ -247,7 +246,7 @@ const AppContent: React.FC = () => {
   // How the pre-auth taste flow was left — 'signup' carries the "save your
   // taste profile" framing into the Auth screen it hands off to. Seeded from
   // the durable record so a relaunch ON the gate keeps that framing instead
-  // of falling back to the generic "Welcome to Gourmet Canvas" sign-in copy.
+  // of falling back to the generic "Welcome to GoodEats" sign-in copy.
   const [preauthExited, setPreauthExited] = React.useState<null | 'signup' | 'signin'>(() => {
     const o = getPreauthOutcome();
     return o === 'signup' || o === 'signin' ? o : null;
@@ -308,9 +307,7 @@ const AppContent: React.FC = () => {
   if (loading) {
     return (
       <div className="min-h-screen bg-surface flex items-center justify-center">
-        <div className="w-12 h-12 rounded-full bg-primary flex items-center justify-center text-white font-serif italic text-2xl animate-pulse">
-          G
-        </div>
+        <Logo size={48} className="text-primary animate-pulse" />
       </div>
     );
   }
@@ -373,9 +370,7 @@ const AppContent: React.FC = () => {
   if (isSignedIn && !profileComplete && profileLoading) {
     return (
       <div className="min-h-screen bg-surface flex items-center justify-center">
-        <div className="w-12 h-12 rounded-full bg-primary flex items-center justify-center text-white font-serif italic text-2xl animate-pulse">
-          G
-        </div>
+        <Logo size={48} className="text-primary animate-pulse" />
       </div>
     );
   }

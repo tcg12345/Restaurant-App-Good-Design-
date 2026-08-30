@@ -18,6 +18,7 @@ import React from 'react';
 import { motion } from 'motion/react';
 import { ArrowLeft, ArrowRight, Check, Loader2 } from 'lucide-react';
 import { GlassButton } from '../../lib/glass-buttons';
+import { Logo } from '../Logo';
 
 /* Colour values resolve through CSS custom properties (index.css) so the
    whole flow flips with the app's `.dark` class. */
@@ -118,17 +119,19 @@ export const OnboardingScreen: React.FC<{
   </div>
 );
 
-/* ── Brand mark (G in a terracotta disc) ────────────────────────────────── */
+/* ── Brand mark (the GoodEats bowl, in a terracotta disc) ───────────────── */
+/** Onboarding's mark: the shared Logo, tinted with the flow's own terracotta
+ *  (`--ob-terra`) rather than `--color-primary`, and carrying the soft lift
+ *  every disc on these screens has. */
 export const BrandMark: React.FC<{ size?: number }> = ({ size = 54 }) => (
-  <div
-    className="flex items-center justify-center"
+  <Logo
+    size={size}
+    className="rounded-full"
     style={{
-      width: size, height: size, borderRadius: '50%', background: TERRA,
+      color: TERRA,
       boxShadow: '0 10px 26px -8px color-mix(in srgb, var(--ob-terra) 55%, transparent)',
     }}
-  >
-    <span style={{ fontFamily: SERIF, fontStyle: 'italic', fontWeight: 600, fontSize: size * 0.52, color: '#fff', lineHeight: 1 }}>G</span>
-  </div>
+  />
 );
 
 /* ── Typography ─────────────────────────────────────────────────────────── */

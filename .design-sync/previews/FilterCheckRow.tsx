@@ -1,5 +1,5 @@
 import React from 'react';
-import { FilterCheckRow } from 'gourmet-canvas';
+import { FilterCheckRow } from 'goodeats';
 import { Star, Soup, Utensils } from 'lucide-react';
 
 /**

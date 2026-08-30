@@ -1,5 +1,5 @@
 import React from 'react';
-import { FilterDrillRow, FilterOptionList } from 'gourmet-canvas';
+import { FilterDrillRow, FilterOptionList } from 'goodeats';
 
 /**
  * A choose-from-a-list filter rendered as a settings row: bold 13.5px label
