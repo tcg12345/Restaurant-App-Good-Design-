@@ -4275,7 +4275,10 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, sear
             symbol="plus"
             label="Create"
             onClick={() => navigate('/create')}
-            className="w-11 h-11 rounded-full flex items-center justify-center text-on-surface/80 transition-colors"
+            // tour-create: anchor for the feature tour's first card
+            // (components/FeatureTour.tsx) — a class because GlassButton
+            // forwards className but not data attributes.
+            className="tour-create w-11 h-11 rounded-full flex items-center justify-center text-on-surface/80 transition-colors"
           >
             <Plus size={20} />
           </GlassButton>
@@ -4329,7 +4332,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, sear
           control language as every filter sheet), not three floating
           bordered chips. */}
       {mode === 'home' && phoneMode && (
-        <div className="mx-3 mt-2 mb-3 flex p-1 rounded-full bg-on-surface/[0.05]">
+        <div data-tour="feed-filter" className="mx-3 mt-2 mb-3 flex p-1 rounded-full bg-on-surface/[0.05]">
           {([['friends', 'Your circle'], ['experts', 'Verified'], ['recipes', 'Recipes']] as const).map(([key, label]) => {
             const on = feedFilter === key;
             return (

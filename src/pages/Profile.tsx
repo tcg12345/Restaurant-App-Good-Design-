@@ -930,7 +930,7 @@ export const Profile: React.FC = () => {
             row beside it. They used to be centred columns under a
             gradient disc — three centred numbers next to a left-aligned
             everything-else is two grids fighting over the same block. */}
-        <div className="flex items-center gap-[18px]">
+        <div data-tour="profile-stats" className="flex items-center gap-[18px]">
           <div className="relative flex-none">
             <Avatar src={profile?.avatar_url} name={displayName} size={84} letterSize={34} />
             {profile?.is_verified && (

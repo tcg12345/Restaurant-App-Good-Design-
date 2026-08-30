@@ -21,6 +21,7 @@ import { loadLastSelectedLocation } from '../components/HomeLocationBar';
 import { saveTasteQuiz, getTasteQuiz } from '../lib/taste-quiz';
 import { getPreauthCity } from '../lib/preauth';
 import { logOnboardingEvent, markOnboardingStep } from '../lib/onboarding-events';
+import { armFeatureTour } from '../lib/feature-tour';
 
 type StepKey =
   | 'name' | 'handle' | 'city'
@@ -195,7 +196,7 @@ export const ProfileSetup: React.FC = () => {
       // Desktop goes straight into the app: the taste steps are part of the
       // MOBILE wizard (the product's real signup surface). A desktop signup
       // just starts with default priors until they rate.
-      if (res.ok) await refreshProfile();
+      if (res.ok) { armFeatureTour(); await refreshProfile(); }
       else setError(friendlyError(res.error));
       setSubmitting(false);
     };
@@ -208,6 +209,9 @@ export const ProfileSetup: React.FC = () => {
       setSubmitting(true);
       const res = await persistProfile();
       if (res.ok) {
+        // The tour waits for a tab root (FeatureTour START_ROUTES), so it
+        // holds until the verification flow is left, not interrupting it.
+        armFeatureTour();
         navigate('/verify/apply');
         await refreshProfile();
       } else setError(friendlyError(res.error));
@@ -453,7 +457,7 @@ export const ProfileSetup: React.FC = () => {
             </p>
           </OB.Reveal>
           <OB.Reveal i={3} style={{ marginTop: 'auto', paddingTop: 34, width: '100%' }}>
-            <OB.PrimaryButton onClick={() => { void refreshProfile(); }}>Start exploring</OB.PrimaryButton>
+            <OB.PrimaryButton onClick={() => { armFeatureTour(); void refreshProfile(); }}>Start exploring</OB.PrimaryButton>
           </OB.Reveal>
         </div>
       </OB.OnboardingScreen>

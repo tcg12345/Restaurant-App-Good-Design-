@@ -387,6 +387,7 @@ const PhoneSearch: React.FC = () => {
           read-only until the takeover; on Following it edits in place and
           its text filters the feed live. Same capsule, same spot. */}
       <div
+        data-tour="search-field"
         className={cn(
           'absolute inset-x-0 z-50 px-3.5 transition-opacity duration-200',
           locOpen && 'opacity-0 pointer-events-none',
