@@ -71,6 +71,15 @@ export interface ChatRequest {
   /** Human-readable label for the current page, e.g. "the Pantry",
    *  "your Profile", "the Discover feed". */
   currentPageLabel?: string;
+  /** A restaurant or recipe the user pinned the conversation to from its
+   *  detail page. Present only while the composer shows its chip. */
+  attachment?: {
+    kind: 'restaurant' | 'recipe';
+    id: string;
+    name: string;
+    subtitle?: string;
+    details?: string[];
+  };
   model?: string;
 }
 

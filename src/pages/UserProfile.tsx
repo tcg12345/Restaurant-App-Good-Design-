@@ -1,10 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import {
-  ArrowLeft, Lock, UserCircle, Loader2, Check, Star, MapPin,
-  ChevronDown, Search, SlidersHorizontal, X, Map as MapIcon,
-  Share2, Send, ArrowUpDown, Image as ImageIcon, Plus,
-} from 'lucide-react';
+import { ArrowLeft, Lock, UserCircle, Loader2, Check, Star, MapPin, ChevronDown, Search, SlidersHorizontal, X, Map as MapIcon, Send, ArrowUpDown, Image as ImageIcon, Plus } from 'lucide-react';
+import { ShareIcon } from '../components/icons/ShareIcon';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
 import { scoreHex, scoreColor } from '../lib/score';
@@ -937,7 +934,7 @@ export const UserProfile: React.FC = () => {
                     onClick={handleShare}
                     className="w-12 h-12 flex-none rounded-full bg-paper border border-line-2 grid place-items-center text-on-surface hover:bg-on-surface/[0.04] hover:border-ink-2 transition-colors"
                   >
-                    {copied ? <Check size={18} className="text-primary" /> : <Share2 size={18} />}
+                    {copied ? <Check size={18} className="text-primary" /> : <ShareIcon size={18} />}
                   </button>
                 </>
               ) : (
@@ -946,7 +943,7 @@ export const UserProfile: React.FC = () => {
                   onClick={handleShare}
                   className="h-12 flex-1 rounded-full bg-paper border border-line-2 inline-flex items-center justify-center gap-2 text-[14px] font-bold text-on-surface hover:bg-on-surface/[0.04] hover:border-ink-2 transition-colors"
                 >
-                  {copied ? <><Check size={16} className="text-primary" /> Link copied</> : <><Share2 size={16} /> Share profile</>}
+                  {copied ? <><Check size={16} className="text-primary" /> Link copied</> : <><ShareIcon size={16} /> Share profile</>}
                 </button>
               )}
             </div>
@@ -1323,12 +1320,12 @@ export const UserProfile: React.FC = () => {
           </div>
           <GlassButton
             id="pubprofile-share"
-            symbol="square.and.arrow.up"
+            symbol="app.paperplane"
             label={copied ? 'Link copied' : 'Share profile'}
             onClick={handleShare}
             className="hit-44 flex-none w-9 h-9 -mr-0.5 rounded-full flex items-center justify-center text-on-surface bg-on-surface/[0.05] active:scale-95 transition-transform"
           >
-            {copied ? <Check size={16} className="text-primary" /> : <Share2 size={16} />}
+            {copied ? <Check size={16} className="text-primary" /> : <ShareIcon size={16} />}
           </GlassButton>
         </div>
       </header>
@@ -1394,7 +1391,7 @@ export const UserProfile: React.FC = () => {
             onClick={handleShare}
             className="w-full rounded-full border border-on-surface/20 inline-flex items-center justify-center gap-2 py-[13px] text-[13.5px] font-bold text-on-surface active:bg-on-surface/[0.06] transition-colors"
           >
-            {copied ? <><Check size={15} className="text-primary" /> Link copied</> : <><Share2 size={15} /> Share profile</>}
+            {copied ? <><Check size={15} className="text-primary" /> Link copied</> : <><ShareIcon size={15} /> Share profile</>}
           </button>
         </div>
       ) : null}

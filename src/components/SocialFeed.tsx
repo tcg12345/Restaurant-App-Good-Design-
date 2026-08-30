@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { Heart, MessageSquare, Send, ChefHat, Plus, Star, ChevronDown, ChevronRight, BookOpen, Share2, Bookmark, X, MapPin, UtensilsCrossed, Clock, Layers } from 'lucide-react';
+import { Heart, MessageSquare, Send, ChefHat, Plus, Star, ChevronDown, ChevronRight, BookOpen, Bookmark, X, MapPin, UtensilsCrossed, Clock, Layers } from 'lucide-react';
 import { VerifiedBadge } from './VerifiedBadge';
 
 import { ShareDialog } from './ShareDialog';

@@ -143,9 +143,6 @@ export const ProfilePostsSection: React.FC<ProfilePostsSectionProps> = ({
   if (!phoneMode) {
     return (
       <section>
-        <div className="text-[11px] font-bold uppercase tracking-[0.18em] text-[var(--color-ink-4)] mb-[18px]">
-          {withMedia.length} {withMedia.length === 1 ? 'Post' : 'Posts'}
-        </div>
         <div className="grid grid-cols-3 gap-3.5">
           {visible.map((p) => {
             const cover = p.items[0];
@@ -198,9 +195,6 @@ export const ProfilePostsSection: React.FC<ProfilePostsSectionProps> = ({
   // ── Mobile: full-bleed 3-up tiles with caption / likes overlay ───────
   return (
     <section>
-      <div className="text-[11px] font-bold uppercase tracking-[0.18em] text-[var(--color-ink-4)] px-6 mb-3.5">
-        {withMedia.length} {withMedia.length === 1 ? 'Post' : 'Posts'}
-      </div>
       <div className="grid grid-cols-3">
         {visible.map((p) => {
           const cover = p.items[0];
@@ -315,9 +309,6 @@ export const ProfileReelsSection: React.FC<ProfileReelsSectionProps> = ({
   if (!phoneMode) {
     return (
       <section>
-        <div className="text-[11px] font-bold uppercase tracking-[0.18em] text-[var(--color-ink-4)] mb-[18px]">
-          {reels.length} {reels.length === 1 ? 'Reel' : 'Reels'}
-        </div>
         <div className="grid grid-cols-3 gap-3.5">
           {visible.map((r) => {
             const heroTitle = r.caption?.trim() || (r.kind === 'restaurant' ? r.restaurant?.name : r.recipe?.title) || 'Untitled';
@@ -364,9 +355,6 @@ export const ProfileReelsSection: React.FC<ProfileReelsSectionProps> = ({
   // ── Mobile: full-bleed 3-up 9:16 tiles with play badge + caption ─────
   return (
     <section>
-      <div className="text-[11px] font-bold uppercase tracking-[0.18em] text-[var(--color-ink-4)] px-6 mb-3.5">
-        {reels.length} {reels.length === 1 ? 'Reel' : 'Reels'}
-      </div>
       <div className="grid grid-cols-3">
         {visible.map((r) => {
           const heroTitle = r.caption?.trim() || (r.kind === 'restaurant' ? r.restaurant?.name : r.recipe?.title) || 'Untitled';
@@ -494,9 +482,6 @@ export const ProfileGuidesSection: React.FC<ProfileGuidesSectionProps> = ({
   if (!phoneMode) {
     return (
       <section>
-        <div className="text-[11px] font-bold uppercase tracking-[0.18em] text-[var(--color-ink-4)] mb-[18px]">
-          {guides.length} {guides.length === 1 ? 'Guide' : 'Guides'} curated
-        </div>
         <div className="flex flex-col gap-[18px]">
           {visible.map((g) => {
             const isRecipes = g.type === 'recipes';
@@ -567,9 +552,6 @@ export const ProfileGuidesSection: React.FC<ProfileGuidesSectionProps> = ({
   // ── Mobile: full-bleed 2-up square tiles with overlaid guide banner ──
   return (
     <section>
-      <div className="text-[11px] font-bold uppercase tracking-[0.18em] text-[var(--color-ink-4)] px-6 mb-3.5">
-        {guides.length} {guides.length === 1 ? 'Guide' : 'Guides'} curated
-      </div>
       <div className="grid grid-cols-2">
         {visible.map((g) => {
           const isRecipes = g.type === 'recipes';

@@ -20,14 +20,12 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate, useParams, Link } from 'react-router-dom';
-import {
-  ArrowLeft, Award, Camera, Check, ChefHat, ChevronLeft, ChevronRight, Clock,
-  Bookmark, Edit3, FileDown, Flame, ImagePlus, Loader2, Lock, Pause, Play,
-  Plus, Printer, Share2, Sparkles, Star, Trash2, Users, X,
-} from 'lucide-react';
+import { ArrowLeft, Award, Camera, Check, ChefHat, ChevronLeft, ChevronRight, Clock, Bookmark, Edit3, FileDown, Flame, ImagePlus, Loader2, Lock, Pause, Play, Plus, Printer, Sparkles, Star, Trash2, Users, X } from 'lucide-react';
+import { ShareIcon } from '../components/icons/ShareIcon';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../contexts/ToastContext';
 import { GlassButton, GlassGroup } from '../lib/glass-buttons';
+import { useAskAssistantAbout } from '../contexts/AssistantContext';
 import { useSettings } from '../contexts/SettingsContext';
 import { useLists, recipeToHomeMeal, DEFAULT_COOKED_ID, type HomeMeal, type LinkedRecipeRef, type PhotoItem } from '../contexts/ListsContext';
 import { compressImage } from '../lib/media-compress';
@@ -1036,6 +1034,50 @@ export const RecipePage: React.FC = () => {
     setShareSheetOpen(true);
   }, [data]);
 
+  /* ── "Ask about this recipe" ───────────────────────────────────────
+     The recipe's own text IS the answer to most questions about it —
+     substitutions, scaling, technique, what to serve alongside — so the
+     digest carries the actual ingredients and method rather than just a
+     title for the model to go looking up. It searches only for what the
+     recipe doesn't say. */
+  const askAssistantAbout = useAskAssistantAbout();
+  const askAboutThisRecipe = useCallback(() => {
+    if (!data) return;
+    const details: string[] = [];
+    if (data.description || data.summary) details.push(`Summary: ${data.summary || data.description}`);
+    if (data.cuisine) details.push(`Cuisine: ${data.cuisine}`);
+    if (data.difficulty) details.push(`Difficulty: ${data.difficulty}`);
+    if (data.course?.length) details.push(`Course: ${data.course.join(', ')}`);
+    if (data.servings) details.push(`Serves: ${data.servings}${data.yieldDescription ? ` (${data.yieldDescription})` : ''}`);
+    const t: string[] = [];
+    if (data.prepMinutes) t.push(`${data.prepMinutes}m prep`);
+    if (data.cookMinutes) t.push(`${data.cookMinutes}m cook`);
+    if (data.chillMinutes) t.push(`${data.chillMinutes}m rest`);
+    if (t.length) details.push(`Time: ${t.join(' + ')}`);
+    if (data.tags?.length) details.push(`Tags: ${data.tags.join(', ')}`);
+    if (data.equipment?.length) details.push(`Equipment: ${data.equipment.join(', ')}`);
+    const ings = data.ingredientGroups?.length
+      ? data.ingredientGroups.flatMap((g) => g.ingredients.map((i) => `${g.name}: ${[i.quantity, i.unit, i.name].filter(Boolean).join(' ')}`))
+      : data.ingredients.map((i) => [i.quantity, i.unit, i.name].filter(Boolean).join(' '));
+    if (ings.length) details.push(`Ingredients: ${ings.join('; ')}`);
+    const steps = data.stepGroups?.length
+      ? data.stepGroups.flatMap((g) => g.steps.map((st, i) => `${g.name} ${i + 1}: ${st.body}`))
+      : (data.stepDetails?.length ? data.stepDetails.map((st, i) => `${i + 1}. ${st.body}`) : data.steps.map((st, i) => `${i + 1}. ${st}`));
+    if (steps.length) details.push(`Method: ${steps.join(' ')}`);
+    if (data.notes?.length) details.push(`Notes: ${data.notes.map((n) => n.text).join(' ')}`);
+    askAssistantAbout({
+      kind: 'recipe',
+      id: data.id,
+      name: data.title,
+      subtitle: [
+        data.cuisine,
+        data.servings ? `serves ${data.servings}` : '',
+        (data.prepMinutes + data.cookMinutes) > 0 ? `${data.prepMinutes + data.cookMinutes} min` : '',
+      ].filter(Boolean).join(' · '),
+      details,
+    });
+  }, [data, askAssistantAbout]);
+
   // Payload + URL for the share sheet. The dialog renders a recipe
   // preview chip, lets the user pick friends / groups (auto-creates a
   // 1:1 chat when needed), and falls back to the OS share sheet (or
@@ -1228,6 +1270,7 @@ export const RecipePage: React.FC = () => {
     return (
       <div className="recipe-detail-page">
         <MobileRecipeView
+          onAskAssistant={askAboutThisRecipe}
           data={data}
           authorProfile={authorProfile}
           reviews={reviews}
@@ -1310,7 +1353,7 @@ export const RecipePage: React.FC = () => {
             <button type="button" className={cn('icon-btn', saved && 'saved')} title={saved ? 'Saved' : 'Save'} onClick={handleSave} aria-label="Save">
               <Bookmark fill={saved ? 'currentColor' : 'none'} />
             </button>
-            <button type="button" className="icon-btn" title="Share" onClick={handleShare} aria-label="Share"><Share2 /></button>
+            <button type="button" className="icon-btn" title="Share" onClick={handleShare} aria-label="Share"><ShareIcon /></button>
             {isOwner && (
               <button type="button" className="icon-btn" title="Edit" onClick={handleEdit} aria-label="Edit"><Edit3 /></button>
             )}
@@ -1477,7 +1520,7 @@ export const RecipePage: React.FC = () => {
           {cooked ? <Check /> : <ChefHat />}
           {cooked ? "I've cooked this" : 'Mark as cooked'}
         </button>
-        <button type="button" className="rd-action-btn" onClick={handleShare}><Share2 /> Share</button>
+        <button type="button" className="rd-action-btn" onClick={handleShare}><ShareIcon /> Share</button>
         <button type="button" className="rd-action-btn" onClick={handlePrint}><Printer /> Print</button>
         {isOwner && (
           <button type="button" className="rd-action-btn" onClick={handleEdit}><Edit3 /> Edit</button>
@@ -2421,6 +2464,10 @@ const ReviewCard: React.FC<{
    ──────────────────────────────────────────────────────────────────── */
 
 interface MobileViewProps {
+  /** Pin the chat to this recipe and open it. Built by the page (which
+   *  holds the recipe) rather than here — this view is an expression-bodied
+   *  component, so it can't call hooks. */
+  onAskAssistant: () => void;
   data: UnifiedRecipe;
   authorProfile: UserProfile | null;
   reviews: UnifiedReview[];
@@ -2476,7 +2523,7 @@ const MobileRecipeView: React.FC<MobileViewProps> = ({
   saved, cooked, heroPhotos, cookPhotoCount, openCookPhotos, isOwner, cookMode, setCookMode, reviewOpen, setReviewOpen,
   handleSave, handleCooked, handleShare, handleEdit, submitReview,
   renderStars, authorName, authorRole, authorInitial, authorInitials, authorBg,
-  authorUsername, currentUserId, currentUserName, navigate,
+  authorUsername, currentUserId, currentUserName, navigate, onAskAssistant,
 }) => (
   <div className="rdm">
     {/* ── Floating chrome ──
@@ -2515,13 +2562,17 @@ const MobileRecipeView: React.FC<MobileViewProps> = ({
               },
               {
                 id: 'share',
-                // The system's share glyph, the same one the restaurant page
-                // asks for — not the three-dot network icon the web set was
-                // drawing here.
-                symbol: 'square.and.arrow.up',
+                symbol: 'app.paperplane',
                 label: 'Share',
                 onClick: handleShare,
-                icon: <Share2 size={16} />,
+                icon: <ShareIcon size={16} />,
+              },
+              {
+                id: 'ask',
+                symbol: 'sparkles',
+                label: `Ask about ${data.title || 'this recipe'}`,
+                onClick: onAskAssistant,
+                icon: <Sparkles size={16} />,
               },
             ]}
           />

@@ -39,7 +39,7 @@ import { RecipesProvider } from './contexts/RecipesContext';
 import { configureNativeKeyboard } from './lib/native-keyboard';
 import { VerificationOutcomeModal } from './components/VerificationOutcomeModal';
 import { AddToListModal } from './components/AddToListModal';
-import { AddRestaurantModal } from './components/AddRestaurantModal';
+import { RatingFlow } from './components/RatingFlow';
 import { AddRecipeModal } from './components/AddRecipeModal';
 import { AddHomeMealModal } from './components/AddHomeMealModal';
 import { AddReelModal } from './components/AddReelModal';
@@ -585,7 +585,7 @@ const AppContent: React.FC = () => {
     <>
       <VerificationOutcomeModal />
       <AddToListModal />
-      <AddRestaurantModal />
+      <RatingFlow />
       <AddRecipeModal />
       <AddHomeMealModal />
       <AddReelModal />

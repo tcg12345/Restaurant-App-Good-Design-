@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useCallback, useEffect } from 'react';
+import React, { createContext, useContext, useState, useCallback, useEffect, useRef } from 'react';
 import { applyNativeTheme } from '../lib/native-theme';
 
 interface SettingsContextType {
@@ -50,6 +50,7 @@ export const useSettings = () => useContext(SettingsContext);
 
 const DARK_MODE_KEY = 'gourmad-dark-mode';
 const SCORE_DECIMALS_KEY = 'gourmad-score-decimals';
+const DARK_QUERY = '(prefers-color-scheme: dark)';
 
 /** Detect a Capacitor-wrapped native runtime. Returns false on the
  *  plain web app and during SSR. */
@@ -67,14 +68,27 @@ function isNativePlatform(): boolean {
  *  1023.98px (not 1023px) closes the sub-pixel seam on fractional widths. */
 const NARROW_QUERY = '(max-width: 1023.98px)';
 
-function loadDarkMode(): boolean {
+/** The side the user picked in Settings, or null if they never have.
+ *  The null case is the whole point: "hasn't chosen" is what lets the app
+ *  mirror the system, and it only survives because nothing is written to
+ *  storage until the toggle is actually used. */
+function storedDarkMode(): boolean | null {
   try {
-    // Default to light mode unless the user explicitly opted into dark
-    // via the Settings toggle. We deliberately ignore the OS-level
-    // prefers-color-scheme so the app's first run is always the light
-    // editorial palette.
-    return localStorage.getItem(DARK_MODE_KEY) === '1';
-  } catch { return false; }
+    const raw = localStorage.getItem(DARK_MODE_KEY);
+    return raw === null ? null : raw === '1';
+  } catch { return null; }
+}
+
+function systemPrefersDark(): boolean {
+  try { return window.matchMedia(DARK_QUERY).matches; } catch { return false; }
+}
+
+/** A fresh install has no choice to honour, so it opens in whatever the
+ *  system is set to; the app only overrides the OS once the user has
+ *  picked a side. (index.html runs this same rule inline so <html> is
+ *  already the right colour on the first paint — keep the two in step.) */
+function loadDarkMode(): boolean {
+  return storedDarkMode() ?? systemPrefersDark();
 }
 
 function loadTwoDecimalScores(): boolean {
@@ -103,23 +117,48 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const [hideBottomNav, setHideBottomNav] = useState(false);
   const [keyboardOpen, setKeyboardOpen] = useState(false);
   const [darkMode, setDarkModeState] = useState<boolean>(() => loadDarkMode());
+  const darkModeRef = useRef(darkMode);
+  darkModeRef.current = darkMode;
+  // Whether the user has picked a side. This used to be written on mount,
+  // which meant a first run recorded a "choice" nobody made — after one
+  // launch there was no way to tell "never chose" from "chose light", and
+  // the app could never defer to the system again.
+  const themeChosenRef = useRef<boolean>(storedDarkMode() !== null);
 
   // Apply the dark class to <html> so Tailwind's @custom-variant dark
-  // selector matches everywhere, persist the user's choice, and mirror
-  // the theme onto the native chrome (status-bar style + the window's
-  // interface style) so it can never disagree with the page.
+  // selector matches everywhere, and mirror the theme onto the native
+  // chrome (status-bar style + the window's interface style) so it can
+  // never disagree with the page. Persisting is NOT done here — only an
+  // explicit choice is written (see setDarkMode).
   useEffect(() => {
-    const root = document.documentElement;
-    if (darkMode) root.classList.add('dark');
-    else root.classList.remove('dark');
-    try { localStorage.setItem(DARK_MODE_KEY, darkMode ? '1' : '0'); } catch {}
+    document.documentElement.classList.toggle('dark', darkMode);
     void applyNativeTheme(darkMode);
   }, [darkMode]);
 
-  const setDarkMode = useCallback((on: boolean) => setDarkModeState(on), []);
-  const toggleDarkMode = useCallback(() => {
-    setDarkModeState((prev) => !prev);
+  // Follow the system for as long as the user hasn't picked a side, so a
+  // phone that flips to dark at sunset takes the app with it.
+  //
+  // Native builds effectively only get this at launch: applyNativeTheme
+  // pins the window's overrideUserInterfaceStyle, and from then on the web
+  // view's prefers-color-scheme reports that override rather than the OS.
+  // The window is never overridden before the web app asks for it, so a
+  // cold launch still reads the real system setting — which is the case
+  // that matters here.
+  useEffect(() => {
+    const mq = window.matchMedia(DARK_QUERY);
+    const handler = (e: MediaQueryListEvent) => {
+      if (!themeChosenRef.current) setDarkModeState(e.matches);
+    };
+    mq.addEventListener('change', handler);
+    return () => mq.removeEventListener('change', handler);
   }, []);
+
+  const setDarkMode = useCallback((on: boolean) => {
+    themeChosenRef.current = true;
+    try { localStorage.setItem(DARK_MODE_KEY, on ? '1' : '0'); } catch { /* private mode: the choice lasts the session */ }
+    setDarkModeState(on);
+  }, []);
+  const toggleDarkMode = useCallback(() => setDarkMode(!darkModeRef.current), [setDarkMode]);
 
   const [twoDecimalScores, setTwoDecimalScores] = useState<boolean>(() => loadTwoDecimalScores());
   useEffect(() => {

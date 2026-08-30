@@ -206,6 +206,35 @@ function scrollTopOf(target: EventTarget | null): number {
   return (target as HTMLElement).scrollTop ?? 0;
 }
 
+/* What the native side is believed to be doing. Module-level rather than a
+   ref inside the hook because it is genuinely one shared belief: exactly one
+   tab bar exists, and pages that drive it by gesture rather than by scroll
+   (see `setGlassNavMinimized`) have to share the same state or the two would
+   swallow each other's transitions. Not React state — nothing renders from
+   it, and a re-render per scroll frame is what this is avoiding. */
+let navMinimized = false;
+
+/** Cross the bridge only on a transition. */
+function pushNavMinimized(next: boolean): void {
+  if (next === navMinimized) return;
+  navMinimized = next;
+  void LiquidGlass.setMinimized({ minimized: next, animated: true }).catch(() => {});
+}
+
+/**
+ * Shrink or restore the tab bar from a page, for gestures the scroll
+ * listener above cannot see.
+ *
+ * The map pages are the case this exists for: panning the map and dragging
+ * the bottom sheet are the whole interaction there, and neither produces a
+ * `scroll` event, so the bar would sit at full height through a session that
+ * is nothing but "using the page". Routed through the same belief state as
+ * the scroll path so the two agree about what native is showing.
+ */
+export function setGlassNavMinimized(minimized: boolean): void {
+  pushNavMinimized(minimized);
+}
+
 function useGlassScrollMinimize(options: {
   active: boolean;
   pathname: string;
@@ -213,20 +242,16 @@ function useGlassScrollMinimize(options: {
   suspended: boolean;
 }): void {
   const { active, pathname, suspended } = options;
-  // What the native side is believed to be doing. Kept in a ref rather than
-  // state: nothing in React renders from it, and a re-render per scroll frame
-  // is exactly what this is trying to avoid.
-  const minimized = useRef(false);
 
   // The bar can also shrink or grow on its own — a touch on a collapsed bar
-  // expands it, and so does coming back from hidden. Without this the ref
+  // expands it, and so does coming back from hidden. Without this the belief
   // drifts out of agreement and starts swallowing real transitions.
   useEffect(() => {
     if (!active) return;
     let cancelled = false;
     let handle: PluginListenerHandle | null = null;
     void LiquidGlass.addListener('minimizedChanged', ({ minimized: next }) => {
-      minimized.current = next;
+      navMinimized = next;
     }).then((h) => {
       if (cancelled) void h.remove();
       else handle = h;
@@ -237,7 +262,7 @@ function useGlassScrollMinimize(options: {
   // Install, and every edge in and out of hidden, leave the native bar
   // expanded. Mirror that without crossing the bridge.
   useEffect(() => {
-    minimized.current = false;
+    navMinimized = false;
   }, [active, suspended]);
 
   // A route change lands at the top of a fresh page, and nothing on the
@@ -246,7 +271,7 @@ function useGlassScrollMinimize(options: {
   // Home indefinitely.
   useEffect(() => {
     if (!active) return;
-    minimized.current = false;
+    navMinimized = false;
     void LiquidGlass.setMinimized({ minimized: false, animated: false }).catch(() => {});
   }, [active, pathname]);
 
@@ -262,11 +287,7 @@ function useGlassScrollMinimize(options: {
     let judgedTarget: EventTarget | null = null;
     let judgedOffscreen = false;
 
-    const push = (next: boolean) => {
-      if (next === minimized.current) return;
-      minimized.current = next;
-      void LiquidGlass.setMinimized({ minimized: next, animated: true }).catch(() => {});
-    };
+    const push = pushNavMinimized;
 
     const handle = () => {
       raf = 0;

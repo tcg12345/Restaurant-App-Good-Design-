@@ -32,9 +32,26 @@ interface Props {
   enabled: boolean;
   /** Runs the soft refresh; the spinner stays until it (and MIN_SPIN) resolve. */
   onRefresh: () => void | Promise<void>;
+  /** Scope the gesture to one scroll container instead of the document.
+   *  For a page embedded inside another route's own scroller (the Search
+   *  tab's Recipes pill, sitting over the Discover map) the document never
+   *  scrolls there, so the document-scoped instance can't see this gesture
+   *  at all -- the map showing through a plain overscroll bounce reads as
+   *  a bug rather than as "there is a page under this one". Giving the
+   *  gesture a real refresh is both the fix and the more honest read.
+   *
+   *  A DOM node, not a ref object: the effect below needs to know the
+   *  instant it's mounted, and a `RefObject` doesn't cause a re-render
+   *  when `.current` changes. The caller supplies it with the ordinary
+   *  `useState<HTMLElement|null>` + callback-ref pattern. */
+  container?: HTMLElement | null;
+  /** Resting distance from the viewport top. The document instance sits at
+   *  the safe-area inset; a scoped instance nested under floating chrome
+   *  (a tab pill, a search field) needs to clear it instead. */
+  topOffset?: string;
 }
 
-export const PullToRefresh: FC<Props> = ({ enabled, onRefresh }) => {
+export const PullToRefresh: FC<Props> = ({ enabled, onRefresh, container, topOffset }) => {
   const bubbleRef = useRef<HTMLDivElement>(null);
   const ringRef = useRef<SVGSVGElement>(null);
   // Keep the latest onRefresh reachable from the long-lived touch handlers
@@ -48,9 +65,14 @@ export const PullToRefresh: FC<Props> = ({ enabled, onRefresh }) => {
 
   useEffect(() => {
     if (!enabled || overlayOpen) return;
+    if (container === null) return; // scoped instance whose node isn't mounted yet
     const bubble = bubbleRef.current;
     const ring = ringRef.current;
     if (!bubble || !ring) return;
+    // Listeners bind to this — the document instance still wants `window`
+    // (touches over position:fixed chrome outside the scroller need to
+    // count too; a scoped instance's chrome is all inside its own box).
+    const target: EventTarget = container ?? window;
 
     let startY = 0;
     let startX = 0;
@@ -60,14 +82,21 @@ export const PullToRefresh: FC<Props> = ({ enabled, onRefresh }) => {
     let refreshing = false;
 
     const scrollTop = () =>
-      window.scrollY || document.documentElement.scrollTop || 0;
+      container
+        ? container.scrollTop
+        : window.scrollY || document.documentElement.scrollTop || 0;
+    // Ceiling for the inner-scroller climb below: the document instance
+    // climbs to the document root; a scoped instance climbs only up to
+    // its OWN container, because that container is the intended target,
+    // not something to stand down for.
+    const ceiling: Element = container ?? document.documentElement;
 
     // Climb from the touch target to the nearest vertically scrollable
-    // ancestor. Returns it if found (→ inner container, skip PTR) or null
-    // when the gesture belongs to the page itself.
+    // ancestor (stopping at `ceiling`). Returns it if found (→ inner
+    // container, skip PTR) or null when the gesture belongs to the target.
     const innerScroller = (node: EventTarget | null): Element | null => {
       let el = node instanceof Element ? node : null;
-      while (el && el !== document.body && el !== document.documentElement) {
+      while (el && el !== ceiling && el !== document.body && el !== document.documentElement) {
         const s = getComputedStyle(el);
         if (
           (s.overflowY === 'auto' || s.overflowY === 'scroll') &&
@@ -109,12 +138,12 @@ export const PullToRefresh: FC<Props> = ({ enabled, onRefresh }) => {
     const bindMove = () => {
       if (moveBound) return;
       moveBound = true;
-      window.addEventListener('touchmove', onMove, { passive: false });
+      target.addEventListener('touchmove', onMove as EventListener, { passive: false });
     };
     const unbindMove = () => {
       if (!moveBound) return;
       moveBound = false;
-      window.removeEventListener('touchmove', onMove);
+      target.removeEventListener('touchmove', onMove as EventListener);
     };
     const stopTracking = () => {
       tracking = false;
@@ -171,16 +200,16 @@ export const PullToRefresh: FC<Props> = ({ enabled, onRefresh }) => {
       }
     };
 
-    window.addEventListener('touchstart', onStart, { passive: true });
-    window.addEventListener('touchend', onEnd, { passive: true });
-    window.addEventListener('touchcancel', onEnd, { passive: true });
+    target.addEventListener('touchstart', onStart as EventListener, { passive: true });
+    target.addEventListener('touchend', onEnd, { passive: true });
+    target.addEventListener('touchcancel', onEnd, { passive: true });
     return () => {
-      window.removeEventListener('touchstart', onStart);
+      target.removeEventListener('touchstart', onStart as EventListener);
       unbindMove();
-      window.removeEventListener('touchend', onEnd);
-      window.removeEventListener('touchcancel', onEnd);
+      target.removeEventListener('touchend', onEnd);
+      target.removeEventListener('touchcancel', onEnd);
     };
-  }, [enabled, overlayOpen]);
+  }, [enabled, overlayOpen, container]);
 
   return (
     <div
@@ -188,7 +217,7 @@ export const PullToRefresh: FC<Props> = ({ enabled, onRefresh }) => {
       aria-hidden
       style={{
         position: 'fixed',
-        top: 'calc(env(safe-area-inset-top) + 6px)',
+        top: topOffset ?? 'calc(env(safe-area-inset-top) + 6px)',
         left: '50%',
         transform: 'translate(-50%, 0px) scale(0.7)',
         opacity: 0,

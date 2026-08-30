@@ -24,8 +24,12 @@ interface LoadingSkeletonProps {
   className?: string;
 }
 
-// Base pulse tint reused everywhere so dividers and skeletons share one color.
-const PULSE = 'animate-pulse bg-on-surface/[0.06]';
+// Base pulse tint reused everywhere so dividers and skeletons share one
+// color. Exported because screens with their own row geometry (the
+// messages list, the circle's activity feed) build bespoke placeholders
+// that still have to pulse at exactly this tint.
+export const SKELETON_PULSE = 'animate-pulse bg-on-surface/[0.06]';
+const PULSE = SKELETON_PULSE;
 
 export const LoadingSkeleton: React.FC<LoadingSkeletonProps> = ({
   variant = 'card',

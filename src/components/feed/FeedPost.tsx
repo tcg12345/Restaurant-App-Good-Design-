@@ -1,6 +1,7 @@
 import React, { useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Heart, MessageSquare, Share2, Bookmark, MoreHorizontal, MapPin } from 'lucide-react';
+import { Heart, MessageSquare, Bookmark, MoreHorizontal, MapPin } from 'lucide-react';
+import { ShareIcon } from '../icons/ShareIcon';
 import { cn } from '../../lib/utils';
 import { scoreTint } from '../../lib/score';
 
@@ -233,7 +234,7 @@ export const FeedPost: React.FC<FeedPostProps> = ({
             type="button" onClick={onShare} aria-label="Share"
             className="w-9 h-9 rounded-full bg-on-surface/[0.06] text-on-surface flex items-center justify-center active:opacity-75 transition-opacity"
           >
-            <Share2 size={15} />
+            <ShareIcon size={15} />
           </button>
         )}
         {extraAction}

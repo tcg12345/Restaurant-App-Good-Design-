@@ -15,7 +15,8 @@
  * live here as exported constants so the Inspector can iterate them.
  */
 import React, { type CSSProperties, type ReactNode } from 'react';
-import { Bookmark, Share2, MapIcon, ChefHat, BookOpen, Plus, Clock, MapPin, Check, ArrowUpRight } from 'lucide-react';
+import { Bookmark, MapIcon, ChefHat, BookOpen, Plus, Clock, MapPin, Check, ArrowUpRight } from 'lucide-react';
+import { ShareIcon } from '../icons/ShareIcon';
 import { cn } from '../../lib/utils';
 import { ScoreBadge } from '../ScoreBadge';
 import {
@@ -467,7 +468,7 @@ export const DefaultHeroCtas: React.FC<{
       <span>{saved ? 'Saved' : 'Save guide'}</span>
     </button>
     <button type="button" onClick={onShare} className="gle-pill-ghost">
-      <Share2 size={14} />
+      <ShareIcon size={14} />
       <span>Share</span>
     </button>
     {showMap && mapHref && (

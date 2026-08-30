@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useLocation, useParams, Link } from 'react-router-dom';
-import { Heart, MessageCircle, Bookmark, Share2, Volume1, Volume2, VolumeX, ChefHat, ChevronRight, ChevronDown, Plus, Trash2, Loader2, X, MoreHorizontal, Play, Pause, ArrowLeft, ArrowUp, MapPin, RefreshCw } from 'lucide-react';
+import { Heart, MessageCircle, Bookmark, Volume1, Volume2, VolumeX, ChefHat, ChevronRight, ChevronDown, Plus, Trash2, Loader2, X, MoreHorizontal, Play, Pause, ArrowLeft, ArrowUp, MapPin, RefreshCw } from 'lucide-react';
+import { ShareIcon } from '../components/icons/ShareIcon';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
 import { scoreColor, scoreColorLight } from '../lib/score';
@@ -115,7 +116,7 @@ const ActionRail: React.FC<ActionRailProps> = ({ reel, onLike, onSave, onComment
 
       <button type="button" onClick={onShare} className="flex flex-col items-center gap-1 group" aria-label="Share">
         <span className="w-11 h-11 rounded-full flex items-center justify-center text-white group-hover:text-white/80 transition-colors">
-          <Share2 size={26} strokeWidth={2.2} />
+          <ShareIcon size={26} strokeWidth={2.2} />
         </span>
         <span className="text-white text-[12px] font-bold tabular-nums drop-shadow">Share</span>
       </button>
@@ -1294,7 +1295,7 @@ const DesktopSideActions: React.FC<DesktopSideActionsProps> = ({ reel, isMine, o
       </Btn>
 
       <Btn onClick={onShare} label="Share">
-        <Share2 size={22} strokeWidth={2.2} />
+        <ShareIcon size={22} strokeWidth={2.2} />
       </Btn>
 
       {/* More menu (copy link + owner delete) */}

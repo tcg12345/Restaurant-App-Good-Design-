@@ -669,6 +669,33 @@ export const RestaurantPanelBody: React.FC<{
           />
         </div>
 
+        {/* The two things you actually DO with a restaurant, one row, up
+            top. They used to sit at the bottom of the sheet, stacked,
+            below Ratings and Hours — so the primary action on the page was
+            the last thing you reached, and only after scrolling past
+            reference material. Both states render the same pair so the
+            controls don't move when a restaurant becomes rated. */}
+        <div className="flex gap-2">
+          <button
+            type="button"
+            onClick={onRate}
+            className="flex-1 inline-flex items-center justify-center gap-1.5 h-11 rounded-full bg-on-surface text-surface text-[13.5px] font-bold hover:bg-on-surface/90 transition-colors shadow-sm"
+          >
+            <Star size={15} className="fill-current" />
+            {myRating ? 'Re-rate' : 'Rate'}
+          </button>
+          <button
+            type="button"
+            onClick={onAddToList}
+            className="flex-1 inline-flex items-center justify-center gap-1.5 h-11 rounded-full bg-on-surface/[0.05] text-on-surface text-[13px] font-semibold hover:bg-on-surface/[0.09] transition-colors"
+          >
+            <Plus size={14} />
+            {myLists.length > 0
+              ? `In ${myLists.length} list${myLists.length === 1 ? '' : 's'}`
+              : 'Add to a list'}
+          </button>
+        </div>
+
         {/* Ratings — three tinted discs over a name and a count, the
             same tier palette every score wears everywhere. */}
         <section>
@@ -908,40 +935,9 @@ export const RestaurantPanelBody: React.FC<{
                 )}
               </AnimatePresence>
 
-              <button
-                type="button"
-                onClick={onAddToList}
-                className="mt-4 w-full inline-flex items-center justify-center gap-1.5 h-10 rounded-full bg-on-surface/[0.05] text-on-surface text-[13px] font-semibold hover:bg-on-surface/[0.09] transition-colors"
-              >
-                <Plus size={14} />
-                {myLists.length > 0
-                  ? `In ${myLists.length} list${myLists.length === 1 ? '' : 's'}`
-                  : 'Add to a list'}
-              </button>
             </div>
           </section>
-        ) : (
-          <div className="space-y-2">
-            <button
-              type="button"
-              onClick={onRate}
-              className="w-full inline-flex items-center justify-center gap-1.5 h-12 rounded-full bg-on-surface text-surface text-[14px] font-bold hover:bg-on-surface/90 transition-colors shadow-sm"
-            >
-              <Star size={15} className="fill-current" />
-              Rate this restaurant
-            </button>
-            <button
-              type="button"
-              onClick={onAddToList}
-              className="w-full inline-flex items-center justify-center gap-1.5 h-11 rounded-full bg-on-surface/[0.05] text-on-surface text-[13px] font-semibold hover:bg-on-surface/[0.09] transition-colors"
-            >
-              <Plus size={14} />
-              {myLists.length > 0
-                ? `In ${myLists.length} list${myLists.length === 1 ? '' : 's'} · Edit`
-                : 'Add to a list'}
-            </button>
-          </div>
-        )}
+        ) : null}
 
         {/* Photos — small 4-up grid of community photos. Tapping any
             thumbnail (or the count chip) opens the full-screen

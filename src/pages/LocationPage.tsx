@@ -6,30 +6,8 @@ import { attachMapErrorFallback } from '../lib/map-error';
 import MapboxWorker from 'mapbox-gl/dist/mapbox-gl-csp-worker?worker';
 import 'mapbox-gl/dist/mapbox-gl.css';
 import { MAPBOX_TOKEN } from '../lib/keys';
-import {
-  ArrowLeft,
-  BookOpen,
-  Car,
-  Check,
-  ChevronDown,
-  ChevronLeft,
-  ChevronRight,
-  Clock,
-  Footprints,
-  LayoutGrid,
-  Loader2,
-  Map as MapIcon,
-  MapPin,
-  Maximize2,
-  Minimize2,
-  Search,
-  Share2,
-  SlidersHorizontal,
-  Soup,
-  UserCheck,
-  Users,
-  X,
-} from 'lucide-react';
+import { ArrowLeft, BookOpen, Car, Check, ChevronDown, ChevronLeft, ChevronRight, Clock, Footprints, LayoutGrid, Loader2, Map as MapIcon, MapPin, Maximize2, Minimize2, Search, SlidersHorizontal, Soup, UserCheck, Users, X } from 'lucide-react';
+import { ShareIcon } from '../components/icons/ShareIcon';
 import './LocationPage.css';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
@@ -2308,7 +2286,7 @@ export const LocationPage: React.FC = () => {
           </div>
           <GlassButton
             id="loc-share"
-            symbol="square.and.arrow.up"
+            symbol="app.paperplane"
             label="Share"
             // canonicalShareUrl: window.location.href inside the native shell
             // is capacitor://localhost/… — build the link from the public web
@@ -2317,7 +2295,7 @@ export const LocationPage: React.FC = () => {
             className="hit-44 w-10 h-10 flex items-center justify-center rounded-full transition-transform active:scale-95"
             style={{ color: 'var(--ink)', background: 'rgba(var(--overlay-ink), 0.06)' }}
           >
-            <Share2 size={18} />
+            <ShareIcon size={18} />
           </GlassButton>
         </div>
         {mobileChipsRow}

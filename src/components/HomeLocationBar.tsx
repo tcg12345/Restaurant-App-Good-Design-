@@ -1,11 +1,13 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
-import { ChevronDown, Search, MapPin, X, Navigation, Loader2 } from 'lucide-react';
+import { ChevronDown, ChevronRight, MapPin, X, Navigation, Loader2, Check } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { MAPBOX_TOKEN } from '../lib/keys';
 import { useSettings } from '../contexts/SettingsContext';
 import { useBottomSheet } from '../lib/useBottomSheet';
 import { cn } from '../lib/utils';
+import { SearchField } from './SearchField';
+import { GlassButton } from '../lib/glass-buttons';
 
 export type HomeLocation = { label: string; lat: number; lng: number };
 
@@ -171,7 +173,7 @@ export async function searchCities(
  *    the cold-GPS wait that was making the picker sit on "Locating…"
  *    indefinitely indoors.
  */
-export async function getCurrentHomeLocation(): Promise<HomeLocation> {
+export async function getCurrentHomeLocation(opts?: { cityOnly?: boolean }): Promise<HomeLocation> {
   if (typeof navigator === 'undefined' || !navigator.geolocation) {
     throw Object.assign(new Error('Geolocation is not available in this browser.'), { code: 2 });
   }
@@ -203,7 +205,7 @@ export async function getCurrentHomeLocation(): Promise<HomeLocation> {
     );
   });
   const { latitude: lat, longitude: lng } = pos.coords;
-  const label = await reverseGeocode(lat, lng);
+  const label = await reverseGeocode(lat, lng, opts);
   return { label, lat, lng };
 }
 
@@ -211,13 +213,17 @@ export async function getCurrentHomeLocation(): Promise<HomeLocation> {
 // ("123 Main St, San Francisco, CA") using Mapbox. Falls back to the
 // city/locality label if no address feature is returned, and to
 // "Current location" if the geocoder is unreachable.
-export async function reverseGeocode(lat: number, lng: number): Promise<string> {
+//
+// `cityOnly` skips the address lookup entirely and goes straight to the
+// city/locality fallback below — for callers asking "which city do you
+// live in", a street number is noise, not precision.
+export async function reverseGeocode(lat: number, lng: number, opts?: { cityOnly?: boolean }): Promise<string> {
   try {
-    const addrRes = await fetch(
+    const addrRes = opts?.cityOnly ? null : await fetch(
       `https://api.mapbox.com/geocoding/v5/mapbox.places/${lng},${lat}.json?access_token=${MAPBOX_TOKEN}&types=address&limit=1`,
     );
-    const addrData = await addrRes.json();
-    const a = addrData.features?.[0];
+    const addrData = addrRes ? await addrRes.json() : null;
+    const a = addrData?.features?.[0];
     if (a) {
       // Mapbox splits an address into `address` (house number) and `text`
       // (street name). Combine them, then synthesise "{street}, {city},
@@ -486,7 +492,14 @@ export const HomeLocationBar: React.FC<Props> = ({ location, onChange, onUseCurr
               className={cn(
                 'z-50 bg-surface flex flex-col overflow-hidden',
                 phoneMode
-                  ? 'fixed bottom-0 left-0 right-0 rounded-t-3xl h-[85vh] shadow-2xl'
+                  // A FIXED height, not max-h. Sizing to content meant the
+                  // sheet resized under the finger the moment you typed —
+                  // eight popular cities collapsing to two matches yanked
+                  // the whole surface (and the field you were typing in)
+                  // down the screen. A picker that changes size while you
+                  // use it is worse than one with room to spare at the
+                  // bottom, so the height is settled once, on open.
+                  ? 'fixed bottom-0 left-0 right-0 rounded-t-3xl h-[88vh] shadow-2xl'
                   // Spotlight-style centered card. Position fixed with
                   // explicit centering rather than wrapping in a flex
                   // container so the backdrop above stays clickable to
@@ -495,118 +508,125 @@ export const HomeLocationBar: React.FC<Props> = ({ location, onChange, onUseCurr
               )}
             >
               {phoneMode && (
-                <div className="flex justify-center pt-3 pb-1 flex-shrink-0 cursor-grab active:cursor-grabbing">
-                  <div className="w-10 h-1 rounded-full bg-on-surface/15" />
+                <div className="flex justify-center pt-2.5 pb-1 flex-shrink-0 cursor-grab active:cursor-grabbing">
+                  <div className="w-9 h-1 rounded-full bg-on-surface/15" />
                 </div>
               )}
-              <div className="flex items-center justify-between px-5 pt-1 pb-3 border-b border-on-surface/6 flex-shrink-0">
-                <h3 className="text-[11px] font-bold uppercase tracking-[0.15em] text-on-surface/60">
-                  Change location
-                </h3>
-                <button
-                  onClick={() => setOpen(false)}
-                  className="w-8 h-8 rounded-full bg-on-surface/5 flex items-center justify-center hover:bg-on-surface/10 transition-colors"
-                  aria-label="Close"
-                >
-                  <X size={16} className="text-on-surface/60" />
-                </button>
-              </div>
-
-              <div className="px-5 py-3 flex-shrink-0">
-                <div className="relative">
-                  <Search size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-on-surface/40" />
-                  <input
-                    ref={inputRef}
-                    type="text"
-                    value={query}
-                    onChange={(e) => setQuery(e.target.value)}
-                    placeholder="Search address, city, or neighborhood"
-                    className="w-full bg-on-surface/[0.04] rounded-full py-3 pl-11 pr-4 text-sm font-medium focus:outline-none focus:bg-on-surface/[0.06]"
-                    autoCapitalize="off"
-                    autoCorrect="off"
-                  />
+              {/* The identity block: the sheet leads with WHERE YOU ARE, at
+                  headline size, instead of a generic "Change location"
+                  caption. The live dot and the accent eyebrow are what make
+                  it read as a current state rather than a page title. */}
+              <div className="flex items-start justify-between gap-3 px-5 pt-1.5 pb-4 flex-shrink-0">
+                <div className="min-w-0">
+                  <span className="flex items-center gap-1.5">
+                    <span className="w-[5px] h-[5px] rounded-full bg-primary flex-none" />
+                    <span className="text-[10.5px] font-bold uppercase tracking-[0.16em] text-primary">
+                      Currently browsing
+                    </span>
+                  </span>
+                  <h3 className="mt-1.5 font-serif font-bold text-[27px] leading-[1.1] tracking-[-0.03em] text-on-surface truncate">
+                    {primaryOf(location?.label) || 'Set a location'}
+                  </h3>
+                  {location?.label && (
+                    <p className="mt-0.5 text-[13px] leading-snug text-on-surface/45 truncate">{location.label}</p>
+                  )}
                 </div>
+                <GlassButton
+                  id="location-picker-close"
+                  symbol="xmark"
+                  label="Close"
+                  onClick={() => setOpen(false)}
+                  className="hit-44 flex-none w-9 h-9 rounded-full flex items-center justify-center text-on-surface/60 active:scale-95 transition-transform"
+                >
+                  <X size={16} />
+                </GlassButton>
               </div>
 
-              <div ref={sheetScrollRef} className="flex-1 overflow-y-auto px-5 pb-safe-5 space-y-5">
+              <div className="px-5 pb-4 flex-shrink-0">
+                <SearchField
+                  glassId="location-picker-search"
+                  inputRef={inputRef}
+                  value={query}
+                  onChange={setQuery}
+                  placeholder="Search city, neighborhood, or address"
+                  aria-label="Search locations"
+                />
+              </div>
+
+              {/* Pinned under the search rather than sitting at the top of the
+                  scroller: it is the one-tap answer to the question the sheet
+                  asks, so it should not be something you can scroll past. */}
+              {!query.trim() && (
+                <div className="flex-shrink-0">
+                  <button
+                    onClick={useCurrent}
+                    disabled={currentLoading}
+                    className="w-full flex items-center gap-3 px-5 py-3.5 text-left border-t border-on-surface/[0.07] bg-primary/[0.06] active:bg-primary/[0.12] transition-colors disabled:opacity-60"
+                  >
+                    <span className="flex-none grid place-items-center w-6">
+                      {currentLoading
+                        ? <Loader2 size={18} className="text-primary animate-spin" />
+                        : <Navigation size={18} className="text-primary" />}
+                    </span>
+                    <span className="flex-1 min-w-0">
+                      <span className="block font-serif font-bold text-[15.5px] leading-tight tracking-[-0.02em] text-primary">
+                        {currentLoading ? 'Locating…' : 'Use my current location'}
+                      </span>
+                      <span className="block mt-[2px] text-[12.5px] text-on-surface/50">Find places around you right now</span>
+                    </span>
+                    <ChevronRight size={16} className="flex-none text-on-surface/25" />
+                  </button>
+                  {currentError && (
+                    <p className="px-5 py-2 text-[12px] leading-snug text-red-600 border-t border-on-surface/[0.07]">{currentError}</p>
+                  )}
+                </div>
+              )}
+
+              {/* Edge-to-edge from here down. The rows used to sit in inset
+                  rounded cards, which stacked a second set of corners inside
+                  the sheet's own and made the whole thing read as boxes in a
+                  box; running them full width lets the sheet be the only
+                  container and the hairlines do the separating. */}
+              <div ref={sheetScrollRef} className="flex-1 min-h-0 overflow-y-auto pb-safe-5">
                 {query.trim() ? (
-                  <div className="space-y-0.5">
-                    {searching && (
-                      <p className="text-xs text-on-surface/40 px-2 py-2">Searching…</p>
-                    )}
-                    {!searching && results.length === 0 && (
-                      <p className="text-xs text-on-surface/40 px-2 py-2">No locations match</p>
-                    )}
-                    {results.map((r, i) => (
-                      <LocationRow key={`s-${r.label}-${i}`} location={r} onClick={() => select(r)} />
-                    ))}
-                  </div>
+                  searching && results.length === 0 ? (
+                    <div className="flex items-center gap-2.5 px-5 py-4">
+                      <Loader2 size={14} className="animate-spin text-on-surface/35" />
+                      <span className="text-[13.5px] text-on-surface/45">Searching…</span>
+                    </div>
+                  ) : results.length === 0 ? (
+                    <div className="px-5 py-10 text-center">
+                      <p className="font-serif font-bold text-[16px] tracking-[-0.02em] text-on-surface">No matches</p>
+                      <p className="mt-1 text-[12.5px] text-on-surface/45">Try a city, neighborhood, or street address.</p>
+                    </div>
+                  ) : (
+                    results.map((r, i) => (
+                      <LocationRow key={`s-${r.label}-${i}`} location={r} onClick={() => select(r)} selected={!!location && sameLoc(location, r)} />
+                    ))
+                  )
                 ) : (
                   <>
-                    <div>
-                      <p className="text-[10px] font-bold uppercase tracking-[0.15em] text-on-surface/40 mb-2 px-2">
-                        Near you
-                      </p>
-                      <button
-                        onClick={useCurrent}
-                        disabled={currentLoading}
-                        className="w-full flex items-center gap-3 py-2.5 text-left hover:bg-on-surface/[0.03] rounded-lg px-2 transition-colors disabled:opacity-60"
-                      >
-                        <div className="w-10 h-10 rounded-xl bg-accent/20 flex items-center justify-center flex-shrink-0">
-                          {currentLoading ? (
-                            <Loader2 size={16} className="text-accent animate-spin" />
-                          ) : (
-                            <Navigation size={16} className="text-accent" />
-                          )}
-                        </div>
-                        <div className="min-w-0">
-                          <p className="font-serif font-bold text-base">
-                            {currentLoading ? 'Locating…' : 'Current location'}
-                          </p>
-                          <p className="text-xs text-on-surface/50 mt-0.5">Use your device's GPS</p>
-                        </div>
-                      </button>
-                      {currentError && (
-                        <p className="mt-1 px-2 text-[11px] text-red-600 leading-snug">{currentError}</p>
-                      )}
-                    </div>
-
                     {recents.length > 0 && (
-                      <div>
-                        <div className="flex items-center justify-between mb-2 px-2">
-                          <p className="text-[10px] font-bold uppercase tracking-[0.15em] text-on-surface/40">
-                            Recent searches
-                          </p>
-                          <button
-                            onClick={clearRecents}
-                            className="text-[10px] font-bold uppercase tracking-wider text-primary hover:text-primary/80"
-                          >
-                            Clear all
-                          </button>
-                        </div>
-                        <div className="space-y-0.5">
-                          {recents.map((r, i) => (
-                            <LocationRow
-                              key={`r-${r.label}-${i}`}
-                              location={r}
-                              onClick={() => select(r)}
-                              onDelete={() => removeRecent(r)}
-                            />
-                          ))}
-                        </div>
-                      </div>
+                      <>
+                        <SectionLabel action={<button onClick={clearRecents} className="text-[12.5px] font-bold text-primary active:opacity-70">Clear</button>}>
+                          Recent
+                        </SectionLabel>
+                        {recents.map((r, i) => (
+                          <LocationRow
+                            key={`r-${r.label}-${i}`}
+                            location={r}
+                            onClick={() => select(r)}
+                            onDelete={() => removeRecent(r)}
+                            selected={!!location && sameLoc(location, r)}
+                          />
+                        ))}
+                      </>
                     )}
 
-                    <div>
-                      <p className="text-[10px] font-bold uppercase tracking-[0.15em] text-on-surface/40 mb-2 px-2">
-                        Popular cities
-                      </p>
-                      <div className="space-y-0.5">
-                        {POPULAR_CITIES.map((c) => (
-                          <LocationRow key={c.label} location={c} onClick={() => select(c)} />
-                        ))}
-                      </div>
-                    </div>
+                    <SectionLabel>Popular cities</SectionLabel>
+                    {POPULAR_CITIES.map((c) => (
+                      <LocationRow key={c.label} location={c} onClick={() => select(c)} selected={!!location && sameLoc(location, c)} />
+                    ))}
                   </>
                 )}
               </div>
@@ -620,30 +640,55 @@ export const HomeLocationBar: React.FC<Props> = ({ location, onChange, onUseCurr
   );
 };
 
+/** The city out of a full label — "New York" from "New York, NY". */
+const primaryOf = (label?: string): string =>
+  (label || '').split(',')[0]?.trim() || label || '';
+
+/** A section caption with an optional trailing action. Full-bleed like the
+ *  rows it heads, on the sheet's own tinted band rather than floating. */
+const SectionLabel: React.FC<{ children: React.ReactNode; action?: React.ReactNode }> = ({ children, action }) => (
+  <div className="flex items-center justify-between gap-3 px-5 py-2.5 border-t border-on-surface/[0.07] bg-on-surface/[0.02]">
+    <p className="text-[10.5px] font-bold uppercase tracking-[0.16em] text-on-surface/40">{children}</p>
+    {action}
+  </div>
+);
+
 const LocationRow: React.FC<{
   location: HomeLocation;
   onClick: () => void;
   onDelete?: () => void;
-}> = ({ location, onClick, onDelete }) => {
-  const primary = location.label.split(',')[0]?.trim() || location.label;
+  selected?: boolean;
+}> = ({ location, onClick, onDelete, selected }) => {
+  // "New York" over "New York, NY" — the old row put the city on the first
+  // line and then the SAME string again, region and all, on the second.
+  const primary = primaryOf(location.label);
+  const secondary = location.label.split(',').map((s) => s.trim()).filter(Boolean).slice(1).join(', ');
   return (
-    <div className="flex items-center gap-3 py-2 hover:bg-on-surface/[0.03] rounded-lg px-2 transition-colors group">
-      <button type="button" onClick={onClick} className="flex-1 flex items-center gap-3 text-left min-w-0">
-        <div className="w-10 h-10 rounded-xl bg-on-surface/[0.05] flex items-center justify-center flex-shrink-0">
-          <MapPin size={16} className="text-on-surface/60" />
-        </div>
-        <div className="flex-1 min-w-0">
-          <p className="font-serif font-bold text-base truncate">{primary}</p>
-          <p className="text-xs text-on-surface/50 mt-0.5 truncate">{location.label}</p>
-        </div>
+    // Full-bleed, hairline-separated, and the whole row tints when it is the
+    // one you're on — a row that IS the answer shouldn't need a checkmark to
+    // carry that alone.
+    <div className={cn('relative flex items-center border-t border-on-surface/[0.07]', selected && 'bg-primary/[0.07]')}>
+      <button
+        type="button"
+        onClick={onClick}
+        className="flex-1 min-w-0 flex items-center gap-3 px-5 py-3 text-left active:bg-on-surface/[0.05] transition-colors"
+      >
+        <span className="flex-none grid place-items-center w-6">
+          <MapPin size={17} className={selected ? 'text-primary' : 'text-on-surface/40'} />
+        </span>
+        <span className="flex-1 min-w-0">
+          <span className={cn('block truncate font-serif font-bold text-[15.5px] leading-tight tracking-[-0.02em]', selected ? 'text-primary' : 'text-on-surface')}>{primary}</span>
+          {secondary && <span className="block truncate mt-[2px] text-[12.5px] text-on-surface/45">{secondary}</span>}
+        </span>
+        {selected && <Check size={17} strokeWidth={2.6} className="flex-none text-primary" />}
       </button>
       {onDelete && (
         <button
           onClick={onDelete}
-          className="w-8 h-8 rounded-full flex items-center justify-center text-on-surface/30 hover:text-primary hover:bg-on-surface/[0.04] transition-colors flex-shrink-0"
+          className="w-10 h-10 mr-1 rounded-full flex items-center justify-center text-on-surface/25 active:text-on-surface/60 transition-colors flex-shrink-0"
           aria-label={`Remove ${primary}`}
         >
-          <X size={14} />
+          <X size={15} />
         </button>
       )}
     </div>

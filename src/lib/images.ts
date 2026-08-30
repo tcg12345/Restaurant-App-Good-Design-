@@ -162,6 +162,44 @@ export async function uploadPhoto(input: string | Blob): Promise<string> {
   return data.publicUrl;
 }
 
+/**
+ * Delete photo objects from Storage by their public URL.
+ *
+ * The upload side has existed since migration 039; this is its missing
+ * counterpart. Without it a deleted rating left every one of its photos
+ * sitting in the bucket forever — invisible to the app, still costing
+ * storage, and still reachable by anyone who kept the URL.
+ *
+ * Only paths inside the caller's own `<uid>/` folder are attempted: that's
+ * what the bucket's RLS allows, and a public URL is not proof of ownership
+ * (a community photo from another user resolves to their folder). Anything
+ * that isn't one of our own Storage URLs — a `data:` URL, a Google Places
+ * photo, another user's object — is skipped rather than failed on.
+ */
+export async function deletePhotoObjects(urls: string[]): Promise<number> {
+  if (!supabaseConfigured || urls.length === 0) return 0;
+  const { data: sessionData } = await supabase.auth.getSession();
+  const uid = sessionData.session?.user?.id;
+  if (!uid) return 0;
+  // Public URLs look like …/storage/v1/object/public/photos/<uid>/<file>.
+  const marker = `/storage/v1/object/public/${PHOTOS_BUCKET}/`;
+  const paths: string[] = [];
+  for (const url of urls) {
+    if (typeof url !== 'string') continue;
+    const at = url.indexOf(marker);
+    if (at === -1) continue;
+    const path = decodeURIComponent(url.slice(at + marker.length).split('?')[0]);
+    if (path.startsWith(`${uid}/`)) paths.push(path);
+  }
+  if (paths.length === 0) return 0;
+  const { error } = await supabase.storage.from(PHOTOS_BUCKET).remove(paths);
+  if (error) {
+    console.warn('[Photos] Storage delete failed:', error.message);
+    return 0;
+  }
+  return paths.length;
+}
+
 /** Decode an existing data/blob/URL string via <img> (with an error handler,
  *  so an undecodable source rejects instead of hanging), then re-encode it to
  *  a size-capped JPEG data URL over a white background. Used for
