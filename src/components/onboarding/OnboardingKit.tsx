@@ -273,6 +273,37 @@ export const GhostButton: React.FC<{ children: React.ReactNode; onClick?: () => 
   </button>
 );
 
+/** The outlined sibling of PrimaryButton — for the action that deserves a
+ *  real button but must not compete with the primary (the landing screen's
+ *  "Sign in", the city step's "Use my location"). A GhostButton is a line
+ *  of text; this is a surface you can aim a thumb at. */
+export const SecondaryButton: React.FC<{
+  children: React.ReactNode;
+  icon?: React.ReactNode;
+  onClick?: () => void;
+  disabled?: boolean;
+  loading?: boolean;
+}> = ({ children, icon, onClick, disabled, loading }) => (
+  <motion.button
+    type="button"
+    onClick={onClick}
+    disabled={disabled || loading}
+    whileTap={!disabled && !loading ? { scale: 0.98 } : undefined}
+    transition={SPRING}
+    className="w-full flex items-center justify-center gap-2.5 rounded-full font-semibold cursor-pointer transition-colors disabled:opacity-60"
+    style={{ height: 52, background: 'var(--ob-card)', border: `1.5px solid ${BORDER}`, color: INK, fontSize: 15.5, boxShadow: '0 1px 2px rgba(0,0,0,0.04)' }}
+    onMouseEnter={(e) => { if (!disabled && !loading) (e.currentTarget as HTMLButtonElement).style.background = 'var(--ob-card-hover)'; }}
+    onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'var(--ob-card)'; }}
+  >
+    {loading ? <Loader2 size={17} className="animate-spin" /> : (
+      <>
+        {icon}
+        <span>{children}</span>
+      </>
+    )}
+  </motion.button>
+);
+
 export const SocialButton: React.FC<{ children: React.ReactNode; icon: React.ReactNode; onClick?: () => void; disabled?: boolean }> = ({ children, icon, onClick, disabled }) => (
   <motion.button
     type="button"

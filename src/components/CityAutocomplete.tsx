@@ -8,12 +8,14 @@
  * the first searchable keystroke and says whether it is searching or came
  * back empty, instead of looking like a plain text box until results land.
  *
- * The wizard variant also asks the device for its location the moment the
- * screen appears: "where do you eat" has an honest one-tap answer before
- * anyone types a letter, and it silently becomes the field's value if
- * nothing is typed first. The 'form' variant (desktop signup) does not —
- * a browser geolocation prompt firing under a web form is a worse first
- * impression than an empty field.
+ * Device location, wizard variant: if permission is ALREADY granted the
+ * city resolves silently on mount and fills an untouched field — the
+ * "automatically selects" case. If it has never been asked, a visible
+ * "Use my location" button carries the ask, and only a tap on it fires
+ * the OS dialog. The old behavior — firing the dialog the moment the
+ * step appeared — ambushed people mid-form with a system prompt they
+ * hadn't invited, which is how reflexive denials happen. The 'form'
+ * variant (desktop signup) never prompts at all.
  */
 import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
@@ -93,13 +95,10 @@ export const CityAutocomplete: React.FC<{
   const valueRef = useRef(value);
   valueRef.current = value;
 
-  useEffect(() => {
-    if (!wizard) return;
-    let cancelled = false;
+  const runLocate = React.useCallback((silent: boolean) => {
     setLocateStatus('locating');
     getCurrentHomeLocation({ cityOnly: true })
       .then((loc) => {
-        if (cancelled) return;
         setDetected(loc);
         setLocateStatus('done');
         // Only autofill a field that's still exactly as it started —
@@ -111,10 +110,29 @@ export const CityAutocomplete: React.FC<{
           onPick(loc);
         }
       })
-      .catch(() => { if (!cancelled) setLocateStatus('unavailable'); });
+      .catch(() => setLocateStatus(silent ? 'idle' : 'unavailable'));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    if (!wizard) return;
+    let cancelled = false;
+    // Silent path only: resolve on mount when the permission ALREADY
+    // exists, so nothing here can ever surface the OS dialog uninvited.
+    // The Permissions API is the only way to know without asking; where
+    // it's missing (older WKWebViews), fall through to the button.
+    const query = (navigator as Navigator & { permissions?: Permissions }).permissions?.query?.bind(navigator.permissions);
+    if (!query) return;
+    query({ name: 'geolocation' as PermissionName })
+      .then((status) => {
+        if (cancelled) return;
+        if (status.state === 'granted') runLocate(true);
+        else if (status.state === 'denied') setLocateStatus('unavailable');
+        // 'prompt' → stay idle; the button carries the ask.
+      })
+      .catch(() => { /* API missing or throwing — button path */ });
     return () => { cancelled = true; };
-    // Intentionally once per mount — re-asking on every keystroke elsewhere
-    // in this file would re-fire the OS permission machinery for nothing.
+    // Intentionally once per mount.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [wizard]);
 
@@ -147,7 +165,10 @@ export const CityAutocomplete: React.FC<{
     setSuggestions([]);
   };
 
-  const showDetectedRow = wizard && !!detected && value.trim() !== detected.label.trim();
+  // Only while the field is empty. Pinning the detected city ABOVE the
+  // results of a query for a different one — "San Francisco" in accent
+  // while you're typing "New York" — read as the search being wrong.
+  const showDetectedRow = wizard && !!detected && !value.trim();
   const reopen = () => { if (searching || suggestions.length || showDetectedRow || locateStatus === 'locating') setOpen(true); };
   const close = () => { setTimeout(() => setOpen(false), 150); };
   const usingDetected = wizard && !!detected && value.trim() === detected.label.trim();
@@ -175,6 +196,23 @@ export const CityAutocomplete: React.FC<{
         />
       )}
 
+      {wizard && locateStatus === 'idle' && !value.trim() && (
+        <div style={{ marginTop: 12 }}>
+          <OB.SecondaryButton
+            icon={<LocateFixed size={16} strokeWidth={2.2} />}
+            onClick={() => runLocate(false)}
+          >
+            Use my location
+          </OB.SecondaryButton>
+        </div>
+      )}
+      {wizard && locateStatus === 'unavailable' && !value.trim() && (
+        <div className="flex items-center gap-1.5" style={{ marginTop: 9, paddingLeft: 3 }}>
+          <span style={{ fontSize: 12.5, color: 'var(--ob-label)' }}>
+            Location is off for GoodEats — type your city instead.
+          </span>
+        </div>
+      )}
       {wizard && (usingDetected || (locateStatus === 'locating' && !value.trim())) && (
         <div className="flex items-center gap-1.5" style={{ marginTop: 9, paddingLeft: 3 }}>
           {usingDetected ? (

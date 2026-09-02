@@ -20,14 +20,14 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate, useParams, Link } from 'react-router-dom';
-import { ArrowLeft, Award, Camera, Check, ChefHat, ChevronLeft, ChevronRight, Clock, Bookmark, Edit3, FileDown, Flame, ImagePlus, Loader2, Lock, Pause, Play, Plus, Printer, Sparkles, Star, Trash2, Users, X } from 'lucide-react';
+import { ArrowLeft, Award, Camera, Check, ChefHat, ChevronLeft, ChevronRight, Clock, Bookmark, Edit3, FileDown, Flame, ImagePlus, Loader2, Lock, Pause, Play, Plus, Printer, Sparkles, Star, Trash2, Users, X, GitMerge} from 'lucide-react';
 import { ShareIcon } from '../components/icons/ShareIcon';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../contexts/ToastContext';
 import { GlassButton, GlassGroup } from '../lib/glass-buttons';
 import { useAskAssistantAbout } from '../contexts/AssistantContext';
 import { useSettings } from '../contexts/SettingsContext';
-import { useLists, recipeToHomeMeal, DEFAULT_COOKED_ID, type HomeMeal, type LinkedRecipeRef, type PhotoItem } from '../contexts/ListsContext';
+import { useLists, recipeToHomeMeal, DEFAULT_COOKED_ID, type HomeMeal, type LinkedRecipeRef, type PhotoItem, type CombinedFromRef} from '../contexts/ListsContext';
 import { compressImage } from '../lib/media-compress';
 import { useRecipes, type Recipe, type RecipeIngredient, type RecipeReview } from '../contexts/RecipesContext';
 import {
@@ -50,6 +50,10 @@ import { normalizeQuantityToken } from '../lib/ingredient-parsing';
 import { parseQuantity } from '../lib/recipe-display';
 import { SaveRecipeToListSheet } from '../components/SaveRecipeToListSheet';
 import { ShareDialog } from '../components/ShareDialog';
+import { RecipeLinkPicker, type PickedRecipe, type PickedRecipeFull } from '../components/RecipeLinkPicker';
+import {
+  combineRecipes, homeMealToBuildInput, formalRecipeToBuildInput,
+} from '../lib/build-recipe-client';
 import type { SharedRecipe } from '../contexts/ChatContext';
 import './RecipePage.css';
 import { avatarHue } from '../lib/avatar';
@@ -341,6 +345,9 @@ type UnifiedRecipe = {
   /** Import provenance (source URL, or 'photo' / 'text'). When set, the
    *  page shows an "Imported from …" note instead of the AI note. */
   importedFrom?: string;
+  /** Combine provenance — the parents this recipe was AI-merged from.
+   *  Outranks both the Imported and AI notes. */
+  combinedFrom?: CombinedFromRef[];
   raw: Recipe | FriendHomeMeal;
 };
 
@@ -355,6 +362,37 @@ function importedNote(raw: string): { label: string; href?: string } {
     return { label: 'Imported' };
   }
 }
+
+/**
+ * "Combined from A and B" — the provenance note for AI-merged recipes.
+ * Each parent routes to its own page by store; a parent that has since
+ * been deleted or made private still names itself (the link 404s into
+ * the page's own not-found state, which is honest — the note is history,
+ * not a live dependency). Shared by the desktop and phone layouts via
+ * the className prop, like the AI/import notes it outranks.
+ */
+const CombinedFromNote: React.FC<{ refs: CombinedFromRef[]; className: string }> = ({ refs, className }) => {
+  if (refs.length === 0) return null;
+  const parts: React.ReactNode[] = [];
+  refs.forEach((r, i) => {
+    if (i > 0) parts.push(i === refs.length - 1 ? ' and ' : ', ');
+    parts.push(
+      <Link
+        key={r.id}
+        to={r.source === 'homeMeal' ? `/meal/${r.ownerId}/${r.id}` : `/recipe/${r.ownerId}/${r.id}`}
+        className="rd-combined-link"
+      >
+        {r.title || 'a recipe'}
+      </Link>,
+    );
+  });
+  return (
+    <div className={className} role="note">
+      <Sparkles />
+      <span>Combined from {parts}</span>
+    </div>
+  );
+};
 
 // Description may be a long multi-paragraph chef's note. Split on blank
 // lines so each paragraph gets its own <p> and the drop cap applies to the
@@ -479,6 +517,7 @@ function adaptHomeMeal(m: FriendHomeMeal): UnifiedRecipe {
     linkedRecipes: adv.linkedRecipes,
     createdWithAi: adv.createdWithAi,
     importedFrom: adv.importedFrom,
+    combinedFrom: adv.combinedFrom,
     sourceAuthorName: m.sourceAuthorName,
     sourceAuthorUsername: m.sourceAuthorUsername,
     raw: m,
@@ -994,6 +1033,7 @@ export const RecipePage: React.FC = () => {
       notes: data.notes,
       createdWithAi: data.createdWithAi || undefined,
       importedFrom: data.importedFrom || undefined,
+      combinedFrom: data.combinedFrom,
       builderVersion: data.ingredientGroups || data.stepDetails ? 'advanced' : 'basic',
       ...(isAnotherUsers ? {
         sourceAuthorId: data.ownerId,
@@ -1033,6 +1073,82 @@ export const RecipePage: React.FC = () => {
     if (!data) return;
     setShareSheetOpen(true);
   }, [data]);
+
+  /* ── Combine with another recipe ──
+     Pick a second recipe (any you can see), optionally say what you want
+     from each, and the AI merges them into a NEW draft that opens in the
+     Add-Recipe modal's preview — the published result carries a linked
+     "Combined from" note naming both parents. */
+  const [combinePickerOpen, setCombinePickerOpen] = useState(false);
+  const [combineTarget, setCombineTarget] = useState<{ ref: PickedRecipe; full: PickedRecipeFull } | null>(null);
+  const [combineNotes, setCombineNotes] = useState('');
+  const [combining, setCombining] = useState(false);
+  const [combineElapsed, setCombineElapsed] = useState(0);
+  const [combineError, setCombineError] = useState<string | null>(null);
+  const combineAbortRef = useRef<AbortController | null>(null);
+
+  useEffect(() => {
+    if (!combining) { setCombineElapsed(0); return; }
+    const started = Date.now();
+    const t = setInterval(() => setCombineElapsed(Math.floor((Date.now() - started) / 1000)), 1000);
+    return () => clearInterval(t);
+  }, [combining]);
+  useEffect(() => () => combineAbortRef.current?.abort(), []);
+
+  const handleOpenCombine = useCallback(() => {
+    if (!data || !currentUserId) return; // the button is signed-in only
+    setCombineError(null);
+    setCombineNotes('');
+    setCombinePickerOpen(true);
+  }, [data, currentUserId]);
+
+  const handleRunCombine = useCallback(async () => {
+    if (!data || !saveMeal || !combineTarget || combining) return;
+    setCombineError(null);
+    setCombining(true);
+    const controller = new AbortController();
+    combineAbortRef.current = controller;
+    const currentRef = {
+      id: data.id,
+      ownerId: data.ownerId,
+      source: data.source,
+      title: data.title,
+      coverPhoto: data.coverPhoto || undefined,
+      authorName: data.sourceAuthorName || undefined,
+    };
+    const pickedInput = combineTarget.full.kind === 'homeMeal'
+      ? homeMealToBuildInput(combineTarget.full.meal)
+      : formalRecipeToBuildInput(combineTarget.full.recipe);
+    const result = await combineRecipes(
+      [
+        { kind: 'recipe', recipe: homeMealToBuildInput(saveMeal), ref: currentRef },
+        {
+          kind: 'recipe',
+          recipe: pickedInput,
+          ref: {
+            id: combineTarget.ref.id,
+            ownerId: combineTarget.ref.ownerId,
+            source: combineTarget.ref.source,
+            title: combineTarget.ref.title,
+            coverPhoto: combineTarget.ref.coverPhoto,
+            authorName: combineTarget.ref.authorName,
+          },
+        },
+      ],
+      { notes: combineNotes, signal: controller.signal },
+    );
+    if (controller.signal.aborted) return;
+    combineAbortRef.current = null;
+    setCombining(false);
+    if (result.ok && result.meal) {
+      setCombineTarget(null);
+      // The modal's external-seed path: a NEW draft to review, never an
+      // edit of either parent.
+      openHomeMealModal(undefined, { seed: result.meal, seedKind: 'combine' });
+    } else {
+      setCombineError(result.error || 'Something went wrong. Try again.');
+    }
+  }, [data, saveMeal, combineTarget, combining, combineNotes, openHomeMealModal]);
 
   /* ── "Ask about this recipe" ───────────────────────────────────────
      The recipe's own text IS the answer to most questions about it —
@@ -1303,6 +1419,7 @@ export const RecipePage: React.FC = () => {
           handleSave={handleSave}
           handleCooked={handleCooked}
           handleShare={handleShare}
+          handleCombine={handleOpenCombine}
           handleEdit={handleEdit}
           submitReview={submitReview}
           renderStars={renderStars}
@@ -1316,6 +1433,59 @@ export const RecipePage: React.FC = () => {
           currentUserName={user?.email?.split('@')[0] || 'You'}
           navigate={navigate}
         />
+
+        <RecipeLinkPicker
+          open={combinePickerOpen}
+          onClose={() => setCombinePickerOpen(false)}
+          linkedIds={[]}
+          excludeId={data?.id}
+          onPick={() => {}}
+          onPickFull={(ref, full) => { setCombineTarget({ ref, full }); }}
+          title="Combine with…"
+          kicker="Pick the second recipe"
+          pickLabel="Choose"
+        />
+        {combineTarget && (
+          <div className="rd-combine-overlay" onClick={() => { if (!combining) setCombineTarget(null); }}>
+            <div className="rd-combine-sheet" onClick={(e) => e.stopPropagation()}>
+              <h4 className="rd-combine-title">
+                Combine {data?.title} + {combineTarget.ref.title}
+              </h4>
+              {combining ? (
+                <div className="rd-combine-progress">
+                  <p>{combineElapsed >= 18 ? 'Almost there…' : 'Merging them into one dish…'}</p>
+                  {combineElapsed >= 3 && <span>{combineElapsed}s</span>}
+                  <button
+                    type="button"
+                    className="rd-combine-cancel"
+                    onClick={() => { combineAbortRef.current?.abort(); combineAbortRef.current = null; setCombining(false); }}
+                  >
+                    Cancel
+                  </button>
+                </div>
+              ) : (
+                <>
+                  <p className="rd-combine-sub">What do you want from each? <span>Optional.</span></p>
+                  <textarea
+                    className="rd-combine-notes"
+                    value={combineNotes}
+                    onChange={(e) => setCombineNotes(e.target.value)}
+                    placeholder="e.g. this one's sauce, the other's crust"
+                    rows={2}
+                    maxLength={600}
+                  />
+                  {combineError && <p className="rd-combine-error">{combineError}</p>}
+                  <div className="rd-combine-actions">
+                    <button type="button" className="rd-combine-cancel" onClick={() => setCombineTarget(null)}>Back</button>
+                    <button type="button" className="rd-combine-go" onClick={() => void handleRunCombine()}>
+                      <Sparkles size={14} /> Combine
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+        )}
         <SaveRecipeToListSheet open={saveSheetOpen} onClose={() => setSaveSheetOpen(false)} meal={saveMeal} allowCookbook={!isOwner} />
         <ShareDialog
           open={shareSheetOpen}
@@ -1430,7 +1600,9 @@ export const RecipePage: React.FC = () => {
               </div>
             </button>
           )}
-          {data.importedFrom ? (() => {
+          {data.combinedFrom && data.combinedFrom.length > 0 ? (
+            <CombinedFromNote refs={data.combinedFrom} className="rd-ai-note" />
+          ) : data.importedFrom ? (() => {
             const note = importedNote(data.importedFrom);
             return note.href ? (
               <a className="rd-ai-note" href={note.href} target="_blank" rel="noopener noreferrer" role="note">
@@ -1521,6 +1693,9 @@ export const RecipePage: React.FC = () => {
           {cooked ? "I've cooked this" : 'Mark as cooked'}
         </button>
         <button type="button" className="rd-action-btn" onClick={handleShare}><ShareIcon /> Share</button>
+        {currentUserId && (
+          <button type="button" className="rd-action-btn" onClick={handleOpenCombine}><GitMerge /> Combine</button>
+        )}
         <button type="button" className="rd-action-btn" onClick={handlePrint}><Printer /> Print</button>
         {isOwner && (
           <button type="button" className="rd-action-btn" onClick={handleEdit}><Edit3 /> Edit</button>
@@ -1924,6 +2099,59 @@ export const RecipePage: React.FC = () => {
       )}
 
 
+
+      <RecipeLinkPicker
+        open={combinePickerOpen}
+        onClose={() => setCombinePickerOpen(false)}
+        linkedIds={[]}
+        excludeId={data?.id}
+        onPick={() => {}}
+        onPickFull={(ref, full) => { setCombineTarget({ ref, full }); }}
+        title="Combine with…"
+        kicker="Pick the second recipe"
+        pickLabel="Choose"
+      />
+      {combineTarget && (
+        <div className="rd-combine-overlay" onClick={() => { if (!combining) setCombineTarget(null); }}>
+          <div className="rd-combine-sheet" onClick={(e) => e.stopPropagation()}>
+            <h4 className="rd-combine-title">
+              Combine {data?.title} + {combineTarget.ref.title}
+            </h4>
+            {combining ? (
+              <div className="rd-combine-progress">
+                <p>{combineElapsed >= 18 ? 'Almost there…' : 'Merging them into one dish…'}</p>
+                {combineElapsed >= 3 && <span>{combineElapsed}s</span>}
+                <button
+                  type="button"
+                  className="rd-combine-cancel"
+                  onClick={() => { combineAbortRef.current?.abort(); combineAbortRef.current = null; setCombining(false); }}
+                >
+                  Cancel
+                </button>
+              </div>
+            ) : (
+              <>
+                <p className="rd-combine-sub">What do you want from each? <span>Optional.</span></p>
+                <textarea
+                  className="rd-combine-notes"
+                  value={combineNotes}
+                  onChange={(e) => setCombineNotes(e.target.value)}
+                  placeholder="e.g. this one's sauce, the other's crust"
+                  rows={2}
+                  maxLength={600}
+                />
+                {combineError && <p className="rd-combine-error">{combineError}</p>}
+                <div className="rd-combine-actions">
+                  <button type="button" className="rd-combine-cancel" onClick={() => setCombineTarget(null)}>Back</button>
+                  <button type="button" className="rd-combine-go" onClick={() => void handleRunCombine()}>
+                    <Sparkles size={14} /> Combine
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
       <SaveRecipeToListSheet open={saveSheetOpen} onClose={() => setSaveSheetOpen(false)} meal={saveMeal} allowCookbook={!isOwner} />
       <ShareDialog
         open={shareSheetOpen}
@@ -2502,6 +2730,7 @@ interface MobileViewProps {
   handleSave: () => void;
   handleCooked: () => void;
   handleShare: () => void;
+  handleCombine: () => void;
   handleEdit: () => void;
   submitReview: (rating: number, title: string, body: string, cookedIt: boolean) => Promise<boolean>;
   renderStars: (value: number, size?: number) => React.ReactNode;
@@ -2521,7 +2750,7 @@ const MobileRecipeView: React.FC<MobileViewProps> = ({
   stars5, ratingsCount, ratingBreakdown, totalMinutes, baseServings, scale,
   servings, setServings, checked, toggleCheck, doneSteps, toggleStep,
   saved, cooked, heroPhotos, cookPhotoCount, openCookPhotos, isOwner, cookMode, setCookMode, reviewOpen, setReviewOpen,
-  handleSave, handleCooked, handleShare, handleEdit, submitReview,
+  handleSave, handleCooked, handleShare, handleCombine, handleEdit, submitReview,
   renderStars, authorName, authorRole, authorInitial, authorInitials, authorBg,
   authorUsername, currentUserId, currentUserName, navigate, onAskAssistant,
 }) => (
@@ -2566,6 +2795,13 @@ const MobileRecipeView: React.FC<MobileViewProps> = ({
                 label: 'Share',
                 onClick: handleShare,
                 icon: <ShareIcon size={16} />,
+              },
+              {
+                id: 'combine',
+                symbol: 'arrow.triangle.merge',
+                label: 'Combine with another recipe',
+                onClick: handleCombine,
+                icon: <GitMerge size={16} />,
               },
               {
                 id: 'ask',
@@ -2638,7 +2874,9 @@ const MobileRecipeView: React.FC<MobileViewProps> = ({
           </div>
         )}
 
-        {data.importedFrom ? (() => {
+        {data.combinedFrom && data.combinedFrom.length > 0 ? (
+          <CombinedFromNote refs={data.combinedFrom} className="rdm-ai-note" />
+        ) : data.importedFrom ? (() => {
           const note = importedNote(data.importedFrom);
           return note.href ? (
             <a className="rdm-ai-note" href={note.href} target="_blank" rel="noopener noreferrer" role="note">

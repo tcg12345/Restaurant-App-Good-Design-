@@ -12,6 +12,9 @@ import { useSettings } from '../contexts/SettingsContext';
 import { cn } from '../lib/utils';
 import { SearchField, searchFieldChipWidth } from '../components/SearchField';
 import { setSearchTakeoverOpen } from '../lib/search-takeover';
+import { useHomeLocation } from '../contexts/HomeLocationContext';
+import { isExactAddress } from '../components/HomeLocationBar';
+import { useLists } from '../contexts/ListsContext';
 
 type SearchTab = 'discover' | 'recipes';
 
@@ -68,6 +71,24 @@ const PhoneSearch: React.FC = () => {
   const [recipeEditing, setRecipeEditing] = useState(false);
   const [recipesOpened, setRecipesOpened] = useState(false);
   const onRecipes = tab === 'recipes';
+  /* ── Arrived from the AI creator's ideas ("Find existing") ──
+     Only that route in gets a back arrow: it reopens the creator, which
+     picks the parked brainstorm back up (lib/ideas-session). A plain
+     visit to this tab has no "back" to offer. */
+  const { openHomeMealModal } = useLists();
+  const [fromIdeas, setFromIdeas] = useState(false);
+  // Not in the tab effect: on a fresh mount that effect runs in the same
+  // commit as the deep link above and its reset would win. A deliberate
+  // switch away from Recipes is what ends the "came from ideas" state.
+  const switchTab = (key: SearchTab) => {
+    setTab(key);
+    if (key !== 'recipes') setFromIdeas(false);
+  };
+  const backToIdeas = () => {
+    setFromIdeas(false);
+    navigate(-1);
+    openHomeMealModal(undefined, { initialMethod: 'ai', initialAiView: 'ideas' });
+  };
   useEffect(() => { if (onRecipes) setRecipesOpened(true); }, [onRecipes]);
   // Recipes' own scroller, and a real pull-to-refresh scoped to it. This
   // page sits over the Discover map — the document itself never scrolls,
@@ -94,6 +115,22 @@ const PhoneSearch: React.FC = () => {
     useCurrent: () => void;
   } | null>(null);
   const [cityLabel, setCityLabel] = useState('Current location');
+  /* The chip names the app's shared location, and follows it: this page
+     stays mounted for the whole session, so a city picked on the Home tab
+     (or a device fix landing a second after launch) used to leave the chip
+     naming a place the map had already left. A reverse-geocoded fix reads
+     "1 Main St" first — for a chip that answers "where am I searching", the
+     city is the useful half. */
+  const homeLocationCtx = useHomeLocation();
+  const anchor = homeLocationCtx?.location ?? null;
+  const anchorLabel = React.useMemo(() => {
+    if (!anchor) return '';
+    const parts = anchor.label.split(',').map((s) => s.trim()).filter(Boolean);
+    return (isExactAddress(anchor) ? parts[1] ?? parts[0] : parts[0]) ?? '';
+  }, [anchor]);
+  useEffect(() => {
+    if (anchorLabel) setCityLabel(anchorLabel);
+  }, [anchorLabel]);
   const [locOpen, setLocOpen] = useState(false);
   // The collapsed chip hugs its label: the city is measured at the
   // field's own type metrics and the wrapper's max-width animates
@@ -113,7 +150,7 @@ const PhoneSearch: React.FC = () => {
     const t = setTimeout(async () => {
       try {
         const res = await fetch(
-          `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(locQuery)}.json?access_token=${MAPBOX_TOKEN}&types=place,locality,neighborhood,address,poi&limit=5`,
+          `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(locQuery)}.json?access_token=${MAPBOX_TOKEN}&types=place,locality,neighborhood,address,poi&language=en&limit=5`,
           { signal: abort.signal },
         );
         const data = await res.json();
@@ -144,7 +181,7 @@ const PhoneSearch: React.FC = () => {
 
   const openSearch = () => {
     setSearching(true);
-    setCityLabel(locationBridgeRef.current?.label || 'Current location');
+    setCityLabel(anchorLabel || locationBridgeRef.current?.label || 'Current location');
     // The native glass field raises its own keyboard (autoFocus through the
     // registry); the web fallback needs the nudge.
     if (!glassActive) requestAnimationFrame(() => inputRef.current?.focus());
@@ -156,9 +193,17 @@ const PhoneSearch: React.FC = () => {
   // because this page stays mounted (keep-alive) while other routes show.
   useEffect(() => {
     if (routerLocation.pathname !== '/search') return;
-    if ((routerLocation.state as { openTakeover?: boolean } | null)?.openTakeover) {
+    const state = routerLocation.state as { openTakeover?: boolean; recipeQuery?: string } | null;
+    if (state?.openTakeover) {
       setTab('discover');
       openSearch();
+      navigate('/search', { replace: true, state: null });
+    } else if (typeof state?.recipeQuery === 'string') {
+      // "Find existing" on an AI idea card: land on the Recipes tab with the
+      // idea's title already filtering the Recipe Box.
+      setTab('recipes');
+      setRecipeQuery(state.recipeQuery);
+      setFromIdeas(true);
       navigate('/search', { replace: true, state: null });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -218,7 +263,7 @@ const PhoneSearch: React.FC = () => {
       label,
       tint: 'label' as const,
       active: tab === key,
-      onClick: () => setTab(key),
+      onClick: () => switchTab(key),
     })),
   });
 
@@ -301,6 +346,19 @@ const PhoneSearch: React.FC = () => {
           the chip's centre) believe the chip was covered — hiding its glass
           entirely. Children opt back in for themselves. */}
       <div className="absolute inset-x-0 z-50 pointer-events-none" style={{ top: 'calc(env(safe-area-inset-top) + 10px)' }}>
+        {fromIdeas && onRecipes && !searching && (
+          <div className="absolute left-4 top-[3px] pointer-events-auto">
+            <GlassButton
+              id="search-back-ideas"
+              symbol="chevron.left"
+              label="Back to ideas"
+              onClick={backToIdeas}
+              className="relative z-20 hit-44 w-11 h-11 rounded-full flex items-center justify-center text-on-surface active:scale-95 transition-transform"
+            >
+              <ChevronLeft size={20} />
+            </GlassButton>
+          </div>
+        )}
         {/* Discover | Recipes — fades out as search opens. */}
         {/* pointer-events: none on the strip, auto on the pill itself —
             the full-width wrapper otherwise eats taps aimed at the
@@ -325,7 +383,7 @@ const PhoneSearch: React.FC = () => {
               <button
                 key={key}
                 type="button"
-                onClick={() => setTab(key)}
+                onClick={() => switchTab(key)}
                 aria-pressed={tab === key}
                 aria-hidden={seg.active || undefined}
                 tabIndex={seg.active ? -1 : undefined}
@@ -399,8 +457,10 @@ const PhoneSearch: React.FC = () => {
                   <button
                     type="button"
                     onClick={() => {
+                      // The label follows the anchor (effect above) once the
+                      // fix lands — writing "Current location" here would
+                      // stick when the fix resolves to where we already are.
                       locationBridgeRef.current?.useCurrent();
-                      setCityLabel('Current location');
                       setLocOpen(false);
                     }}
                     className="w-full flex items-center gap-3 px-4 py-3.5 text-left active:bg-on-surface/[0.05] transition-colors"

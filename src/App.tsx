@@ -70,6 +70,7 @@ import { PageAddActionProvider } from './contexts/PageAddActionContext';
 import { CirclePanelProvider, useCirclePanel } from './contexts/CirclePanelContext';
 import { GuideCreatorProvider, useGuideCreator } from './contexts/GuideCreatorContext';
 import { HomeLocationProvider } from './contexts/HomeLocationContext';
+import { FindAPlaceHost } from './components/FindAPlaceHost';
 import { AssistantProvider } from './contexts/AssistantContext';
 import { AiChatHistoryProvider } from './contexts/AiChatHistoryContext';
 import { GuideCreatorSheet } from './components/GuideCreatorSheet';
@@ -241,7 +242,7 @@ const AppContent: React.FC = () => {
   const isMapPage = location.pathname === '/map';
   const isReelsPage = location.pathname === '/reels';
   const isFocusedReel = location.pathname.startsWith('/r/');
-  const showBottomNav = !['/messages', '/reorder', '/location', '/location/map', '/map', '/create', '/recipes-for-you', '/circle', '/settings'].includes(location.pathname) && !location.pathname.startsWith('/restaurant/') && !location.pathname.startsWith('/user/') && !location.pathname.startsWith('/recipe/') && !location.pathname.startsWith('/meal/') && !location.pathname.startsWith('/review/') && !location.pathname.startsWith('/activity') && !location.pathname.startsWith('/guides/') && !isFocusedReel;
+  const showBottomNav = !['/messages', '/reorder', '/location', '/location/map', '/map', '/create', '/recipes-for-you', '/circle', '/settings'].includes(location.pathname) && !location.pathname.startsWith('/restaurant/') && !location.pathname.startsWith('/user/') && !location.pathname.startsWith('/profile/top/') && !location.pathname.startsWith('/recipe/') && !location.pathname.startsWith('/meal/') && !location.pathname.startsWith('/review/') && !location.pathname.startsWith('/activity') && !location.pathname.startsWith('/guides/') && !isFocusedReel;
   const { isSignedIn, isGuest, continueAsGuest, loading, profile, profileComplete, profileError, profileLoading, needsPasswordSetup } = useAuth();
   // How the pre-auth taste flow was left — 'signup' carries the "save your
   // taste profile" framing into the Auth screen it hands off to. Seeded from
@@ -348,6 +349,11 @@ const AppContent: React.FC = () => {
                   // would leave the gate up forever.
                   onBrowseAsGuest={askGuestToSave ? () => setAskGuestToSave(false) : continueAsGuest}
                   saveTasteFraming={preauthExited === 'signup' || askGuestToSave}
+                  // Reached via "Sign in": unknown identifiers error
+                  // instead of silently starting a signup. (Survives
+                  // relaunch — preauthExited is seeded from the stored
+                  // outcome.)
+                  signInOnly={preauthExited === 'signin'}
                 />
               )}
           />
@@ -592,6 +598,7 @@ const AppContent: React.FC = () => {
           the route exclusion list). Mounted alongside modals so its
           z-index stacks correctly. */}
       <AppAssistant />
+      <FindAPlaceHost />
     </>
   );
 

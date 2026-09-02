@@ -167,6 +167,7 @@ export interface Recipe {
   stepDetails?: RecipeStepDetail[];
   stepGroups?: RecipeStepGroup[];
   linkedRecipes?: LinkedRecipeRef[];
+  combinedFrom?: CombinedFromRef[];
 }
 
 export interface CustomList {
@@ -297,6 +298,18 @@ export interface LinkedRecipeRef {
   inMethod: boolean;
 }
 
+/** Where a combined recipe came from — the two (or three) parents the
+ *  recipe page's "Combined from" note links. LinkedRecipeRef minus the
+ *  placement flags: provenance has no ingredients/method placement. */
+export interface CombinedFromRef {
+  id: string;
+  ownerId: string;
+  source: 'homeMeal' | 'recipe';
+  title: string;
+  coverPhoto?: string;
+  authorName?: string;
+}
+
 export interface HomeMeal {
   id: string;
   name: string;
@@ -368,6 +381,11 @@ export interface HomeMeal {
    *  (chat or Add Recipe modal). Drives the "Created with AI" note on the
    *  recipe page. Stays set after the user edits + publishes the draft. */
   createdWithAi?: boolean;
+  /** Set when this recipe was produced by the AI combine flow: the
+   *  recipes it was merged from. Drives the "Combined from" note on the
+   *  recipe page (which outranks the AI and Imported notes). Absent for
+   *  idea-only combines — there is nothing real to link. */
+  combinedFrom?: CombinedFromRef[];
   /** Set when this recipe came in through the Import tab: the source URL,
    *  or 'photo' / 'text'. Drives the "Imported from …" note on the recipe
    *  page (shown INSTEAD of the AI note). Survives editing + publishing. */
@@ -534,10 +552,18 @@ interface ListsContextValue {
    *  on a list page), the created meal is also added to this list on
    *  save — every builder tab (Basic / Advanced / AI) honors it. */
   homeMealModalTargetListId: string | null;
-  openHomeMealModal: (meal?: HomeMeal, opts?: { onBackToDraft?: () => void; targetListId?: string; initialMethod?: 'link' | 'photo' | 'text' | 'custom' | 'ai' }) => void;
+  openHomeMealModal: (meal?: HomeMeal, opts?: { onBackToDraft?: () => void; targetListId?: string; initialMethod?: 'link' | 'photo' | 'text' | 'custom' | 'ai'; initialAiView?: 'recipe' | 'ideas'; seed?: HomeMeal; seedKind?: 'ai' | 'import' | 'combine' }) => void;
   /** Creation method preselected by the caller (Create page surface) —
    *  the modal skips its chooser and opens that flow directly. */
   homeMealModalInitialMethod: 'link' | 'photo' | 'text' | 'custom' | 'ai' | null;
+  /** Which view the AI flow opens on when preselected — the Pantry
+   *  "Ideas" pill lands on the brainstorm grid instead of the prompt
+   *  hero. Consumed once by the modal (see its open effect). */
+  homeMealModalInitialAiView: 'recipe' | 'ideas' | null;
+  /** A NEW draft handed in from outside (recipe-page Combine) — the
+   *  modal opens it in the draft-preview flow rather than treating it
+   *  as an edit of an existing meal the way `meal` does. */
+  homeMealModalSeed: { meal: HomeMeal; kind: 'ai' | 'import' | 'combine' } | null;
   closeHomeMealModal: () => void;
 }
 
@@ -947,6 +973,7 @@ export function recipeToHomeMeal(r: Recipe): HomeMeal {
     stepDetails: r.stepDetails,
     stepGroups: r.stepGroups,
     linkedRecipes: r.linkedRecipes,
+    combinedFrom: r.combinedFrom,
   };
 }
 
@@ -987,6 +1014,7 @@ function homeMealToRecipe(m: HomeMeal): Recipe {
     stepDetails: m.stepDetails,
     stepGroups: m.stepGroups,
     linkedRecipes: m.linkedRecipes,
+    combinedFrom: m.combinedFrom,
   };
 }
 
@@ -2393,6 +2421,8 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   const [homeMealModalData, setHomeMealModalData] = useState<HomeMeal | null>(null);
   const [homeMealModalBackToDraft, setHomeMealModalBackToDraft] = useState<(() => void) | null>(null);
   const [homeMealModalInitialMethod, setHomeMealModalInitialMethod] = useState<'link' | 'photo' | 'text' | 'custom' | 'ai' | null>(null);
+  const [homeMealModalInitialAiView, setHomeMealModalInitialAiView] = useState<'recipe' | 'ideas' | null>(null);
+  const [homeMealModalSeed, setHomeMealModalSeed] = useState<{ meal: HomeMeal; kind: 'ai' | 'import' | 'combine' } | null>(null);
   const [homeMealModalTargetListId, setHomeMealModalTargetListId] = useState<string | null>(null);
 
   // Restaurant metadata cache
@@ -3457,7 +3487,7 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     setAddRestaurantModalOpen(true);
   }, [cacheRestaurantMeta, requireSignIn]);
   const closeAddRestaurantModal = useCallback(() => { setAddRestaurantModalOpen(false); setAddRestaurantModalMeta(null); setAddRestaurantModalInitialPage(null); }, []);
-  const openHomeMealModal = useCallback((meal?: HomeMeal, opts?: { onBackToDraft?: () => void; targetListId?: string; initialMethod?: 'link' | 'photo' | 'text' | 'custom' | 'ai' }) => {
+  const openHomeMealModal = useCallback((meal?: HomeMeal, opts?: { onBackToDraft?: () => void; targetListId?: string; initialMethod?: 'link' | 'photo' | 'text' | 'custom' | 'ai'; initialAiView?: 'recipe' | 'ideas'; seed?: HomeMeal; seedKind?: 'ai' | 'import' | 'combine' }) => {
     if (!userIdRef.current) { requireSignIn('Sign in to log a home meal'); return; }
     setHomeMealModalData(meal || null);
     // Store as a value-returning thunk so React doesn't treat the
@@ -3465,6 +3495,8 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     setHomeMealModalBackToDraft(() => opts?.onBackToDraft ?? null);
     setHomeMealModalTargetListId(opts?.targetListId ?? null);
     setHomeMealModalInitialMethod(opts?.initialMethod ?? null);
+    setHomeMealModalInitialAiView(opts?.initialAiView ?? null);
+    setHomeMealModalSeed(opts?.seed ? { meal: opts.seed, kind: opts.seedKind ?? 'ai' } : null);
     setHomeMealModalOpen(true);
   }, []);
   const closeHomeMealModal = useCallback(() => {
@@ -3473,6 +3505,8 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     setHomeMealModalBackToDraft(null);
     setHomeMealModalTargetListId(null);
     setHomeMealModalInitialMethod(null);
+    setHomeMealModalInitialAiView(null);
+    setHomeMealModalSeed(null);
   }, []);
 
   // Derived pending-upload badge for the settings sheet — recomputed only
@@ -3496,7 +3530,7 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       trips, createTrip, updateTrip, deleteTrip, addRestaurantToTrip, updateTripRestaurant, removeRestaurantFromTrip,
       customOrder, setCustomOrder,
       homeMeals, createHomeMeal, createHomeMealsBulk, updateHomeMeal, deleteHomeMeal, getHomeMeal,
-      homeMealModalOpen, homeMealModalData, homeMealModalBackToDraft, homeMealModalTargetListId, homeMealModalInitialMethod, openHomeMealModal, closeHomeMealModal,
+      homeMealModalOpen, homeMealModalData, homeMealModalBackToDraft, homeMealModalTargetListId, homeMealModalInitialMethod, homeMealModalInitialAiView, homeMealModalSeed, openHomeMealModal, closeHomeMealModal,
     }}>
       {children}
     </ListsContext.Provider>

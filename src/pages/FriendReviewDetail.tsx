@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { useParams, useNavigate, Link } from 'react-router-dom';
+import { useParams, useNavigate, useLocation, Link } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   ArrowLeft, MapPin, Heart, MessageSquare, Send, X,
@@ -39,7 +39,6 @@ const initialOf = (name: string) => (name || 'U').trim().charAt(0).toUpperCase()
 /** Page gutter + max width. One container for the header and the body so
  *  they stay in the same column on wide screens. */
 const SHELL = 'mx-auto w-full max-w-[1060px] px-4 sm:px-6 lg:px-8';
-const CARD = 'bg-white border border-on-surface/[0.07] rounded-2xl';
 const EYEBROW = 'text-[10.5px] font-bold uppercase tracking-[0.16em] text-on-surface/40';
 
 const timeAgo = (date: string) => {
@@ -78,6 +77,7 @@ export const FriendReviewDetail: React.FC = () => {
   const [liked, setLiked] = useState(false);
   const [commentCount, setCommentCount] = useState(0);
 
+  const routerLocation = useLocation();
   const [commentsOpen, setCommentsOpen] = useState(false);
   const [comments, setComments] = useState<ActivityComment[]>([]);
   const [commentProfiles, setCommentProfiles] = useState<Record<string, UserProfile>>({});
@@ -163,6 +163,20 @@ export const FriendReviewDetail: React.FC = () => {
     }
     setCommentsLoading(false);
   }, [rating, commentsOpen]);
+
+  /* Arriving from a card whose comment button was tapped: open the thread
+     rather than landing on a collapsed toggle the user has to find and
+     press again. The feed's compact "Also rated this week" cards have no
+     room for an inline thread, so their comment button routes HERE — and
+     it has to arrive on the thing it promised. Runs once, when the rating
+     it belongs to has loaded. */
+  const openOnArrival = (routerLocation.state as { openComments?: boolean } | null)?.openComments === true;
+  const openedOnArrivalRef = useRef(false);
+  useEffect(() => {
+    if (!openOnArrival || !rating || openedOnArrivalRef.current) return;
+    openedOnArrivalRef.current = true;
+    void handleToggleComments();
+  }, [openOnArrival, rating, handleToggleComments]);
 
   const handleAddComment = async () => {
     const text = newComment.trim();
@@ -261,12 +275,15 @@ export const FriendReviewDetail: React.FC = () => {
 
           {/* ── Gallery: contained lead image + small thumbnails ── */}
           {hasGallery && (
-            <section className={cn(CARD, 'overflow-hidden')}>
+            <section className="-mx-4 sm:mx-0 sm:rounded-[20px] overflow-hidden">
+              {/* Full-bleed on the phone — the photo IS the top of the page,
+                  not a picture inside a frame inside a page. Wide screens
+                  keep a soft corner so it sits as a block beside the text. */}
               <button
                 type="button"
                 onClick={() => hasPhotos && setLightbox(heroIdx)}
                 aria-label={hasPhotos ? 'Open photo' : undefined}
-                className="relative block w-full h-[240px] sm:h-[320px] lg:h-[360px] bg-on-surface/[0.04] group"
+                className="relative block w-full h-[260px] sm:h-[320px] lg:h-[360px] bg-on-surface/[0.04] group"
               >
                 <img
                   src={heroSrc || ''}
@@ -284,7 +301,7 @@ export const FriendReviewDetail: React.FC = () => {
               </button>
 
               {(userPhotos.length > 1 || heroCaption) && (
-                <div className="px-3 pt-3 pb-3.5">
+                <div className="px-4 sm:px-0 pt-3 pb-1">
                   {userPhotos.length > 1 && (
                     <div className="flex gap-2 overflow-x-auto no-scrollbar">
                       {userPhotos.map((p, i) => (
@@ -297,7 +314,7 @@ export const FriendReviewDetail: React.FC = () => {
                           className={cn(
                             'flex-shrink-0 w-14 h-14 rounded-xl overflow-hidden transition-all',
                             i === heroIdx
-                              ? 'ring-2 ring-primary ring-offset-1 ring-offset-white'
+                              ? 'ring-2 ring-primary ring-offset-2 ring-offset-surface'
                               : 'opacity-60 hover:opacity-100',
                           )}
                         >
@@ -317,7 +334,7 @@ export const FriendReviewDetail: React.FC = () => {
           )}
 
           {/* ── The review itself ── */}
-          <section className={cn(CARD, 'p-4 sm:p-5')}>
+          <section className="pt-1">
             {/* Author */}
             <div className="flex items-center gap-3">
               <Link to={`/user/${authorUsername}`} className="flex-shrink-0">
@@ -331,29 +348,27 @@ export const FriendReviewDetail: React.FC = () => {
               </div>
             </div>
 
-            <div className="h-px bg-on-surface/[0.07] my-4" />
-
-            {/* Restaurant + score */}
-            <div className="flex items-start justify-between gap-4">
+            {/* Restaurant + score — spacing does the separating; the old
+                hairline here was the first of the boxes-within-boxes. */}
+            <div className="mt-6 flex items-start justify-between gap-4">
               <div className="min-w-0 flex-1">
                 <Link
                   to={`/restaurant/${rating.restaurant_id}`}
-                  className="font-serif font-bold text-[20px] sm:text-[22px] leading-[1.15] tracking-[-0.02em] hover:text-primary transition-colors"
+                  className="font-serif font-bold text-[24px] sm:text-[26px] leading-[1.12] tracking-[-0.025em] hover:text-primary transition-colors"
                 >
                   {rating.restaurant_name}
                 </Link>
-                <div className="flex items-center gap-1.5 mt-2 flex-wrap">
-                  {rating.cuisine && (
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-on-surface/55 bg-on-surface/[0.05] px-2 py-1 rounded-md">{rating.cuisine}</span>
-                  )}
-                  {rating.price && (
-                    <span className="text-[10px] font-bold tracking-wider text-primary/80 bg-primary/[0.08] px-2 py-1 rounded-md">{rating.price}</span>
-                  )}
-                </div>
+                {/* Cuisine and price as a quiet meta line, not two more
+                    little boxes. */}
+                {(rating.cuisine || rating.price) && (
+                  <p className="mt-2 text-[12.5px] font-semibold tracking-wide text-on-surface/50">
+                    {[rating.cuisine, rating.price].filter(Boolean).join('  ·  ')}
+                  </p>
+                )}
               </div>
 
               <div className="flex-shrink-0 flex flex-col items-center">
-                <div className={cn('w-[54px] h-[54px] sm:w-[62px] sm:h-[62px] rounded-full bg-white ring-[3px] flex items-center justify-center', scoreRingStrong(score))}>
+                <div className={cn('w-[58px] h-[58px] sm:w-[64px] sm:h-[64px] rounded-full bg-surface ring-[3px] flex items-center justify-center', scoreRingStrong(score))}>
                   <span className={cn('text-[19px] sm:text-[21px] font-serif font-bold tabular-nums', scoreColor(score))}>{score.toFixed(1)}</span>
                 </div>
                 <span className="text-[9px] font-bold uppercase tracking-[0.14em] text-on-surface/40 mt-1.5">
@@ -364,7 +379,7 @@ export const FriendReviewDetail: React.FC = () => {
 
             {/* Where + when — one quiet meta block instead of scattered pills */}
             {(rating.address || visitDate) && (
-              <div className="mt-4 flex flex-col gap-1.5 text-[12.5px] text-on-surface/55">
+              <div className="mt-4 flex flex-col gap-1.5 text-[13px] text-on-surface/55">
                 {rating.address && (
                   <div className="flex items-start gap-1.5">
                     <MapPin size={13} className="text-on-surface/35 mt-[2px] flex-shrink-0" />
@@ -382,9 +397,9 @@ export const FriendReviewDetail: React.FC = () => {
 
             {/* Notes — editorial quote with an accent rule */}
             {rating.notes && (
-              <div className="mt-4 pt-4 border-t border-on-surface/[0.07]">
+              <div className="mt-6">
                 <p
-                  className="selectable font-serif italic text-[15.5px] text-on-surface/75 leading-[1.6] whitespace-pre-wrap pl-3.5"
+                  className="selectable font-serif italic text-[16px] text-on-surface/75 leading-[1.6] whitespace-pre-wrap pl-4"
                   style={{ borderLeft: '2px solid var(--color-primary)' }}
                 >
                   {rating.notes}
@@ -396,15 +411,15 @@ export const FriendReviewDetail: React.FC = () => {
             {rating.tags && rating.tags.length > 0 && (
               <div className="mt-4 flex gap-1.5 flex-wrap">
                 {rating.tags.map((t) => (
-                  <span key={t} className="text-[11px] font-semibold px-2.5 py-1 rounded-full border border-on-surface/[0.08] text-on-surface/60">{t}</span>
+                  <span key={t} className="text-[11.5px] font-semibold px-2.5 py-1 rounded-full bg-on-surface/[0.05] text-on-surface/60">{t}</span>
                 ))}
               </div>
             )}
           </section>
 
           {/* ── Likes + comments ── */}
-          <section className={cn(CARD, 'p-3 sm:p-4', hasGallery && 'lg:col-span-2')}>
-            <div className="flex items-center gap-1">
+          <section className={cn('mt-3 border-t border-on-surface/[0.07] pt-2', hasGallery && 'lg:col-span-2')}>
+            <div className="-ml-3 flex items-center gap-1">
               <button
                 onClick={handleLike}
                 aria-label={liked ? 'Unlike review' : 'Like review'}
@@ -429,9 +444,15 @@ export const FriendReviewDetail: React.FC = () => {
               </button>
             </div>
 
+            {/* Nothing yet: say so where the thread would be, so the page
+                doesn't end in two icons above a void. */}
+            {!commentsOpen && commentCount === 0 && !commentsLoading && (
+              <p className="pt-1 pb-2 text-[13px] text-on-surface/40">No comments yet — be the first.</p>
+            )}
+
             {/* Inline preview — first 2 comments + "View all" toggle */}
             {!commentsOpen && comments.length > 0 && (
-              <div className="px-1 pt-3 pb-1 space-y-3">
+              <div className="pt-2 pb-1 space-y-3">
                 {comments.slice(0, 2).map((c) => {
                   const cColor = avatarColor(c.user_id);
                   const cInitial = initialOf(commentProfiles[c.user_id]?.display_name || 'User');
@@ -466,11 +487,11 @@ export const FriendReviewDetail: React.FC = () => {
 
             {/* Expanded thread + input */}
             <Collapse open={commentsOpen}>
-                  <div className="mt-3 border-t border-on-surface/[0.07] pt-4 px-1 space-y-3">
+                  <div className="mt-2 pt-1 space-y-3">
                     {commentsLoading ? (
                       <div className="text-center py-3"><Loader2 size={16} className="animate-spin text-primary mx-auto" /></div>
                     ) : comments.length === 0 ? (
-                      <p className="text-xs text-on-surface/40 py-1">No comments yet — be the first!</p>
+                      <p className="text-[13px] text-on-surface/40 py-1">No comments yet — be the first.</p>
                     ) : (() => {
                 // Thread replies under their parent (same grouping as
                 // SocialFeed) — rendering the array flat surfaced replies as
@@ -505,26 +526,29 @@ export const FriendReviewDetail: React.FC = () => {
                 };
                       return <div className="space-y-3">{topLevel.map((c) => renderRow(c, false))}</div>;
                     })()}
-                    <div className="flex gap-2 pt-1">
-                      <input
-                        type="text"
-                        value={newComment}
-                        onChange={(e) => setNewComment(e.target.value)}
-                        placeholder="Write a comment..."
-                        className="flex-1 bg-on-surface/[0.04] border border-on-surface/[0.07] rounded-full py-2.5 px-4 text-[13px] focus:outline-none focus:border-primary/40 focus:bg-white transition-colors"
-                        onKeyDown={(e) => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) handleAddComment(); }}
-                      />
-                      <button
-                        onClick={handleAddComment}
-                        disabled={!newComment.trim() || commentSubmitting}
-                        aria-label="Post comment"
-                        className="w-11 h-11 flex-shrink-0 flex items-center justify-center text-primary disabled:text-on-surface/15 rounded-full hover:bg-primary/5 transition-colors"
-                      >
-                        <Send size={18} />
-                      </button>
-                    </div>
                   </div>
             </Collapse>
+
+            {/* The composer is always on the page — a reply box you have to
+                unfold first is a reply box most people never find. */}
+            <div className="mt-3 flex gap-2">
+              <input
+                type="text"
+                value={newComment}
+                onChange={(e) => setNewComment(e.target.value)}
+                placeholder="Write a comment..."
+                className="flex-1 bg-on-surface/[0.05] rounded-full py-2.5 px-4 text-[13.5px] focus:outline-none focus:ring-2 focus:ring-primary/30 transition-shadow"
+                onKeyDown={(e) => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) handleAddComment(); }}
+              />
+              <button
+                onClick={handleAddComment}
+                disabled={!newComment.trim() || commentSubmitting}
+                aria-label="Post comment"
+                className="w-11 h-11 flex-shrink-0 flex items-center justify-center text-primary disabled:text-on-surface/15 rounded-full hover:bg-primary/5 transition-colors"
+              >
+                <Send size={18} />
+              </button>
+            </div>
           </section>
         </div>
       </div>

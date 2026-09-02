@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import {
   ArrowLeft, AtSign, AlertTriangle, BadgeCheck, Camera, Check, ChevronRight, Globe,
-  LifeBuoy, Loader2, Lock, LogOut, Mail, MapPin, Moon, Shield, Sparkles,
+  LifeBuoy, Loader2, Lock, LogOut, Mail, MapPin, Moon, Phone, Shield, Sparkles,
   SquarePen, Star, Sun, Trash2, Upload, UploadCloud, User, Utensils, X,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
@@ -12,7 +12,7 @@ import { useSettings } from '../contexts/SettingsContext';
 import { saveProfile } from '../lib/supabase-community';
 import { processPhoto } from '../lib/images';
 import { Avatar } from '../components/Avatar';
-import { deleteAccount, clearLocalAppData } from '../lib/supabase-account';
+import { deleteAccount, clearLocalAppData, addPhoneNumber, confirmPhoneChange } from '../lib/supabase-account';
 import { geocodePlace } from '../components/HomeLocationBar';
 import { supabase } from '../lib/supabase';
 import { cn } from '../lib/utils';
@@ -22,6 +22,7 @@ import { getMyLatestVerificationRequest, type VerificationRequest } from '../lib
 import { VerifiedBadge } from '../components/VerifiedBadge';
 import { VerifiedStatusPicker } from '../components/VerifiedStatusPicker';
 import { openExternalUrl, SUPPORT_URL, PRIVACY_URL } from '../lib/external-links';
+import { formatPhoneForDisplay, toE164 } from '../lib/phone';
 import pkg from '../../package.json';
 
 /**
@@ -247,6 +248,13 @@ export const SettingsPage: React.FC = () => {
   const [newPassword, setNewPassword] = useState('');
   const [accountMsg, setAccountMsg] = useState('');
   const [accountError, setAccountError] = useState('');
+  /* Phone is the only account field here that needs a two-step confirm —
+     email and password are fire-and-forget one-shots. `phoneSent` is what
+     swaps the row from "send me a code" to "type the code". */
+  const [newPhone, setNewPhone] = useState('');
+  const [phoneCode, setPhoneCode] = useState('');
+  const [phoneSent, setPhoneSent] = useState(false);
+  const [phoneBusy, setPhoneBusy] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deletingAccount, setDeletingAccount] = useState(false);
 
@@ -257,6 +265,40 @@ export const SettingsPage: React.FC = () => {
     const { error } = await supabase.auth.updateUser({ email: newEmail.trim() });
     if (error) setAccountError(error.message);
     else setAccountMsg('Check your new email for a confirmation link');
+  };
+
+  const handleSendPhoneCode = async () => {
+    setAccountMsg('');
+    setAccountError('');
+    // Normalize before anything leaves the client: an unparseable number
+    // would spend a send against the project's SMS rate limit on a number
+    // that can never receive it.
+    const e164 = toE164(newPhone);
+    if (!e164) {
+      setAccountError('Enter a valid phone number');
+      return;
+    }
+    setPhoneBusy(true);
+    const { ok, error } = await addPhoneNumber(e164);
+    setPhoneBusy(false);
+    if (!ok) { setAccountError(error ?? 'Could not send the code'); return; }
+    setPhoneSent(true);
+    setAccountMsg(`We texted a 6-digit code to ${formatPhoneForDisplay(e164)}`);
+  };
+
+  const handleConfirmPhone = async () => {
+    setAccountMsg('');
+    setAccountError('');
+    const e164 = toE164(newPhone);
+    if (!e164 || phoneCode.length !== 6) return;
+    setPhoneBusy(true);
+    const { ok, error } = await confirmPhoneChange(e164, phoneCode);
+    setPhoneBusy(false);
+    if (!ok) { setAccountError(error ?? 'Could not verify that code'); return; }
+    setPhoneSent(false);
+    setPhoneCode('');
+    setNewPhone('');
+    setAccountMsg('Phone number verified');
   };
 
   const handleUpdatePassword = async () => {
@@ -324,6 +366,7 @@ export const SettingsPage: React.FC = () => {
     const p = (user?.app_metadata as { provider?: string } | undefined)?.provider;
     if (p === 'apple') return 'Apple ID';
     if (p === 'google') return 'Google';
+    if (p === 'phone') return 'Phone & password';
     return 'Email & password';
   }, [user]);
   const joinedLabel = useMemo(() => {
@@ -681,7 +724,13 @@ export const SettingsPage: React.FC = () => {
               <div className="flex flex-col gap-6">
                 <div className="rounded-[18px] bg-on-surface/[0.05] px-4 py-4">
                   <p className="text-[10.5px] font-bold uppercase tracking-[0.16em] text-on-surface/45">Signed in as</p>
-                  <p className="mt-2 text-[15px] font-semibold text-on-surface break-all">{user?.email}</p>
+                  {/* A phone-signup account has no email at all, so this
+                      would render an empty line. Whichever identifier the
+                      account actually has is the one that answers "signed
+                      in as". */}
+                  <p className="mt-2 text-[15px] font-semibold text-on-surface break-all">
+                    {user?.email || (user?.phone ? formatPhoneForDisplay(user.phone) : '')}
+                  </p>
                   <p className="mt-1.5 text-[11.5px] text-on-surface/50">{providerLabel}{joinedLabel ? ` · joined ${joinedLabel}` : ''}</p>
                 </div>
 
@@ -702,6 +751,68 @@ export const SettingsPage: React.FC = () => {
                       Update
                     </button>
                   </div>
+                </div>
+
+                {/* The only two-step field on this screen: a number isn't
+                    attached until the texted code confirms it. Unverified
+                    would defeat the point — this number is how friends
+                    find you once contact syncing is on, so anyone could
+                    claim someone else's. */}
+                <div>
+                  <FieldLabel>{user?.phone ? 'Change phone number' : 'Add phone number'}</FieldLabel>
+                  <div className="flex items-center gap-2.5">
+                    <div className={cn(fieldBox, 'flex-1 min-w-0')}>
+                      <Phone size={16} strokeWidth={1.9} className="flex-none text-on-surface/40" />
+                      <input
+                        type="tel"
+                        inputMode="tel"
+                        autoComplete="tel"
+                        value={newPhone}
+                        onChange={(e) => setNewPhone(e.target.value)}
+                        placeholder={user?.phone ? formatPhoneForDisplay(user.phone) : '(555) 123-4567'}
+                        disabled={phoneSent}
+                        className={cn(fieldInput, 'text-[14.5px]')}
+                      />
+                    </div>
+                    {!phoneSent && (
+                      <button
+                        type="button"
+                        onClick={handleSendPhoneCode}
+                        disabled={!newPhone.trim() || phoneBusy}
+                        className={inkPill}
+                      >
+                        {phoneBusy ? 'Sending…' : 'Send code'}
+                      </button>
+                    )}
+                  </div>
+                  {phoneSent && (
+                    <div className="mt-2.5 flex items-center gap-2.5">
+                      <div className={cn(fieldBox, 'flex-1 min-w-0')}>
+                        <Lock size={16} strokeWidth={1.9} className="flex-none text-on-surface/40" />
+                        <input
+                          type="text"
+                          inputMode="numeric"
+                          autoComplete="one-time-code"
+                          value={phoneCode}
+                          onChange={(e) => setPhoneCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                          placeholder="6-digit code"
+                          autoFocus
+                          className={cn(fieldInput, 'text-[14.5px]')}
+                        />
+                      </div>
+                      <button
+                        type="button"
+                        onClick={handleConfirmPhone}
+                        disabled={phoneCode.length !== 6 || phoneBusy}
+                        className={inkPill}
+                      >
+                        {phoneBusy ? 'Verifying…' : 'Verify'}
+                      </button>
+                    </div>
+                  )}
+                  <p className="mt-2 text-[11.5px] text-on-surface/45">
+                    Lets friends who have your number find you, and gives you a second way to sign in.
+                  </p>
                 </div>
 
                 <div>

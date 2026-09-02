@@ -5,7 +5,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { VerifiedBadge } from '../components/VerifiedBadge';
 import { saveProfile, isUsernameTaken } from '../lib/supabase-community';
-import { geocodePlace, type HomeLocation } from '../components/HomeLocationBar';
+import { geocodePlace, savePickedLocation, type HomeLocation } from '../components/HomeLocationBar';
 import { CityAutocomplete } from '../components/CityAutocomplete';
 import { AuthShell, useDesktopAuthLayout } from '../components/AuthShell';
 // Mobile uses the new cream/terracotta onboarding wizard; desktop keeps the
@@ -15,13 +15,17 @@ import {
   TastePillGrid, CuisineGrid, FollowRail, RatePlacesStep,
   TASTE_CUISINES, TASTE_PRICES,
 } from '../components/onboarding/TasteSteps';
-import { AddRestaurantModal } from '../components/AddRestaurantModal';
+import { RatingFlow } from '../components/RatingFlow';
 import { ImportStep, importFooter, useOnboardingImport } from '../components/onboarding/ImportStep';
 import { loadLastSelectedLocation } from '../components/HomeLocationBar';
 import { saveTasteQuiz, getTasteQuiz } from '../lib/taste-quiz';
 import { getPreauthCity } from '../lib/preauth';
 import { logOnboardingEvent, markOnboardingStep } from '../lib/onboarding-events';
 import { armFeatureTour } from '../lib/feature-tour';
+import { ContactsSync } from '../components/ContactsSync';
+import { SuggestedPeople } from '../components/SuggestedPeople';
+import { canUseNativeContacts } from '../lib/native-contacts';
+import { openAppSettings } from '../lib/native-settings';
 
 type StepKey =
   | 'name' | 'handle' | 'city'
@@ -177,6 +181,10 @@ export const ProfileSetup: React.FC = () => {
     if (!user?.id) return { ok: false };
     const cityTrim = homeCity.trim();
     const geo = homeGeo ?? (cityTrim ? await geocodePlace(cityTrim) : null);
+    // The city given here is also where the app should open: without this it
+    // only ever reached the profile row, and someone who corrected their city
+    // during signup kept browsing the pre-auth one.
+    if (geo) savePickedLocation(geo);
     const homeBase = cityTrim
       ? { homeCity: geo?.label || cityTrim, homeLat: geo?.lat ?? null, homeLng: geo?.lng ?? null }
       : undefined;
@@ -325,9 +333,11 @@ export const ProfileSetup: React.FC = () => {
   // answers arrived seeded into state above, and re-asking would read as
   // the app forgetting them. OAuth users who skipped straight to signup
   // (no pre-auth answers) still get the full set.
-  const hasPreauthTaste = !!preauth.answers
-    && ((preauth.answers.cuisines?.length ?? 0) > 0
-      || (preauth.answers.prices?.length ?? 0) > 0);
+  /* Answered pre-auth means answered — but PER QUESTION. The old single
+     flag used ||, so someone who picked cuisines and skipped the spend
+     screen was never asked about spend anywhere, and vice versa. */
+  const hasPreauthCuisines = (preauth.answers?.cuisines?.length ?? 0) > 0;
+  const hasPreauthPrices = (preauth.answers?.prices?.length ?? 0) > 0;
   // Visibility is no longer its own step — it rides on 'handle' as a
   // toggle. Asking a user with zero content who may see it is abstract,
   // and it cost a whole screen at the point the flow can least afford one.
@@ -338,14 +348,24 @@ export const ProfileSetup: React.FC = () => {
   const steps: StepKey[] = [
     ...(seed.nameFromProvider ? [] : ['name' as const]),
     'handle' as const,
-    ...(preauth.city && !profile?.home_city ? [] : ['city' as const]),
-    ...(hasPreauthTaste ? [] : (['cuisines', 'prices'] as const)),
+    // A known city from EITHER source skips the question. The old
+    // predicate (`preauth.city && !profile?.home_city`) inverted the
+    // second half: a profile that already carried home_city ADDED the
+    // step — more information produced more questions.
+    ...(preauth.city || profile?.home_city ? [] : ['city' as const]),
+    ...(hasPreauthCuisines ? [] : ['cuisines' as const]),
+    ...(hasPreauthPrices ? [] : ['prices' as const]),
     'import' as const,
     'follow' as const,
     ...(skipRate ? [] : ['rate' as const]),
   ];
   const provider = (user?.app_metadata?.provider as string) || 'email';
-  const offset = provider === 'email' ? 1 : 0; // create-account was "step 1" for email signups
+  // Create-account was "step 1" for signups that went through it. Phone
+  // counts exactly like email — same identifier screen, same code screen,
+  // same choose-password screen — so leaving it out of this test made the
+  // progress header undercount by one for every phone signup. OAuth users
+  // skipped that stretch entirely, so they still start at 0.
+  const offset = provider === 'email' || provider === 'phone' ? 1 : 0;
   const total = offset + steps.length;
   const stepKey = steps[pStep];
   stepKeyRef.current = stepKey;
@@ -357,12 +377,24 @@ export const ProfileSetup: React.FC = () => {
    *  just refreshes the row. Empty answers write nothing. */
   const persistTaste = useCallback(() => {
     if (cuisineSel.length === 0 && priceSel.length === 0) return;
+    // saveTasteQuiz is a FULL REPLACE (local mirror and DB row alike), so
+    // every field the pre-auth flow wrote must ride along or it dies
+    // here — which is exactly what used to happen: the primary/secondary
+    // price split and the stated city were wiped seconds after signup,
+    // the very fields that switch on the price-restricted queries and
+    // seed city affinity in lib/recommendations.
     void saveTasteQuiz(user?.id, {
       cuisines: cuisineSel,
       prices: priceSel,
+      pricePrimary: priceSel[0] ?? preauth.answers?.pricePrimary,
+      priceSecondary: priceSel[1] ?? preauth.answers?.priceSecondary,
+      city: preauth.answers?.city ?? homeGeo?.label ?? (homeCity.trim() || undefined),
+      atmosphere: preauth.answers?.atmosphere,
+      avoidCuisines: preauth.answers?.avoidCuisines,
+      dietary: preauth.answers?.dietary,
       completedAt: Date.now(),
     });
-  }, [user?.id, cuisineSel, priceSel]);
+  }, [user?.id, cuisineSel, priceSel, preauth.answers, homeGeo, homeCity]);
 
   const finishThenVerify = async () => {
     setSubmitting(true);
@@ -642,7 +674,41 @@ export const ProfileSetup: React.FC = () => {
             {stepKey === 'follow' && (
               <div className="flex flex-1 flex-col">
                 <OB.StepHeader title="Find some friends" subtitle="Their ratings and posts fill your feed from day one." />
-                <OB.Reveal i={2} style={{ marginTop: 24 }}>
+                {canUseNativeContacts() && (
+                  <OB.Reveal i={1} style={{ marginTop: 20 }}>
+                    {/* `auto`: arriving at this step IS the ask — the iOS
+                        contacts dialog fires on entry (the step header is
+                        the context), matches slide in above the taste
+                        rail, and a denial collapses to nothing rather
+                        than nagging mid-wizard. List-level renderer:
+                        matches become SuggestedProfile rows so they
+                        inherit SuggestedPeople's whole follow machine,
+                        with "Maya · in your contacts" as the subtitle via
+                        suggestionSubtitle's contactMatch. */}
+                    <ContactsSync
+                      mode="auto"
+                      lacksPhone={!user?.phone}
+                      onOpenSettings={() => { void openAppSettings(); }}
+                      renderPeople={(matches) => (
+                        <SuggestedPeople
+                          bare
+                          layout="list"
+                          userId={user?.id ?? null}
+                          people={matches.map((m) => ({
+                            ...m.profile,
+                            ratingCount: 0,
+                            followerCount: 0,
+                            matchScore: 0,
+                            matchReason: null,
+                            contactMatch: true,
+                            contactName: m.contactName || null,
+                          }))}
+                        />
+                      )}
+                    />
+                  </OB.Reveal>
+                )}
+                <OB.Reveal i={2} style={{ marginTop: 16 }}>
                   <FollowRail />
                 </OB.Reveal>
               </div>
@@ -662,7 +728,7 @@ export const ProfileSetup: React.FC = () => {
       {/* The rate step opens the app's real rating flow. App's own modal
           instance isn't mounted while this wizard shows (ProfileSetup
           renders before the main branch), so the wizard hosts one. */}
-      <AddRestaurantModal />
+      <RatingFlow />
     </OB.OnboardingScreen>
   );
 };

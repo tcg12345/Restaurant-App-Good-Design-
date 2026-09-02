@@ -3,9 +3,8 @@ import { createPortal } from 'react-dom';
 import { motion, AnimatePresence, useScroll, useTransform } from 'motion/react';
 import { useNavigate } from 'react-router-dom';
 import {
-  ArrowLeft, ArrowUpDown, Bookmark, Check, ChevronDown, Clock, Loader2, MapPin, Navigation,
-  Plus, Search, SlidersHorizontal, Star, X, Sparkles, ChevronLeft,
-} from 'lucide-react';
+  ArrowLeft, ArrowUpDown, Bookmark, Check, ChevronDown, Clock, Loader2, Lock, MapPin, Navigation,
+  Plus, Search, SlidersHorizontal, Star, X, Sparkles, ChevronLeft, Users } from 'lucide-react';
 import { GlassButton } from '../lib/glass-buttons';
 import { FilterSheet } from './FilterSheet';
 import { FilterSection, FilterDrillSection, Pill, PillRow, Segment, SegmentItem } from './filterPrimitives';
@@ -13,12 +12,24 @@ import { useSettings } from '../contexts/SettingsContext';
 import { useLists } from '../contexts/ListsContext';
 import { useAuth } from '../contexts/AuthContext';
 import { cn } from '../lib/utils';
+import { Avatar } from './Avatar';
+import { avatarHue } from '../lib/avatar';
 import { getTasteQuiz } from '../lib/taste-quiz';
+import { withMoodTags } from '../lib/mood-text';
+import {
+  aggregateGroup, groupVeto, groupVerdict, type GroupMember, type GroupScore,
+} from '../lib/group-recs';
+import { loadGroupMembers } from '../lib/group-members';
+import { getProfilesByIds, type UserProfile } from '../lib/supabase-community';
+import { GroupPicker } from './GroupPicker';
 import {
   buildTasteProfile,
   gatherRecCandidates,
   scoreCandidates,
+  diversifyByCuisine,
   haversineKm,
+  recsUnlocked,
+  RECS_MIN_RATINGS,
   type RecPool,
   type ScoredPlace,
 } from '../lib/recommendations';
@@ -26,7 +37,7 @@ import { ScoreRing } from './cards';
 import {
   HomeLocationBar,
   loadLastSelectedLocation,
-  saveLastSelectedLocation,
+  savePickedLocation,
   getCurrentHomeLocation,
   type HomeLocation,
 } from './HomeLocationBar';
@@ -171,9 +182,32 @@ interface RecommendationsBrowserProps {
    * (no closing), so swipe-back returns here with the ranking intact.
    */
   variant?: 'popup' | 'page';
+  /**
+   * Opening state handed in by a caller that already asked the questions —
+   * today the AI chat's "Find a place" shortcut. Applied ONCE, on mount:
+   * after that the surface's own controls own it, so a preset seeds the
+   * screen without fighting the user for it.
+   */
+  preset?: {
+    /** Friend user-ids to rank for, alongside you. */
+    people?: string[];
+    /** Cuisine labels to open filtered to. */
+    cuisines?: string[];
+    target?: { label: string; lat: number; lng: number } | null;
+    /** ALL_TAGS tokens from the mood text — transient tagScore boost, so
+     *  the mood re-ranks rather than merely filtering (lib/mood-text). */
+    moodTags?: string[];
+    /** Price tiers from the mood text → the price filter. */
+    priceLevels?: number[];
+    openNow?: boolean;
+    /** Mood words for the candidate SEARCH itself (lib/mood-text). */
+    moodPhrases?: string[];
+    /** Cuisines the mood NAMED — a ranking boost, never a filter. */
+    moodCuisines?: string[];
+  } | null;
 }
 
-export const RecommendationsBrowser: React.FC<RecommendationsBrowserProps> = ({ open, onClose, isMobile, variant = 'popup' }) => {
+export const RecommendationsBrowser: React.FC<RecommendationsBrowserProps> = ({ open, onClose, isMobile, variant = 'popup', preset = null }) => {
   const isPage = variant === 'page';
   const navigate = useNavigate();
   const { setHideBottomNav } = useSettings();
@@ -181,7 +215,14 @@ export const RecommendationsBrowser: React.FC<RecommendationsBrowserProps> = ({ 
   const userId = user?.id ?? null;
   const { ratings, wishlist, lists, toggleWishlist, isWishlisted, openAddRestaurantModal } = useLists();
 
-  const [target, setTarget] = useState<HomeLocation | null>(() => loadLastSelectedLocation());
+  /* Seeded from the preset on the FIRST render, not in the effect below.
+     The pool key is built from target + stated tiers, and effects run
+     after that first render — so seeding late meant one Google fan-out
+     for the default anchor and a second for the preset's, every time a
+     Find-a-place landed here. */
+  const [target, setTarget] = useState<HomeLocation | null>(
+    () => preset?.target ?? loadLastSelectedLocation(),
+  );
   const [pickerOpen, setPickerOpen] = useState(false);
   const [radiusMiles, setRadiusMiles] = useState<number>(8);
   const [radiusMenuOpen, setRadiusMenuOpen] = useState(false);
@@ -189,11 +230,11 @@ export const RecommendationsBrowser: React.FC<RecommendationsBrowserProps> = ({ 
   const [loading, setLoading] = useState(false);
   const [pool, setPool] = useState<RecPool | null>(null);
 
-  const [cuisineSel, setCuisineSel] = useState<Set<string>>(new Set());
+  const [cuisineSel, setCuisineSel] = useState<Set<string>>(() => new Set(preset?.cuisines ?? []));
   const [cuisineQuery, setCuisineQuery] = useState('');
   const [priceSel, setPriceSel] = useState<Set<number>>(new Set());
   const [michSel, setMichSel] = useState<Set<MichKey>>(new Set());
-  const [openNowOnly, setOpenNowOnly] = useState(false);
+  const [openNowOnly, setOpenNowOnly] = useState(() => preset?.openNow === true);
   const [sortBy, setSortBy] = useState<SortKey>('match');
   const [openFilter, setOpenFilter] = useState<'cuisine' | 'price' | 'michelin' | null>(null);
   // Mobile chrome: all filters live in the shared bottom sheet; sort is a
@@ -260,11 +301,112 @@ export const RecommendationsBrowser: React.FC<RecommendationsBrowserProps> = ({ 
     [ratings, wishlist, lists, michelinReady, myProfile],
   );
 
+  /* Under RECS_MIN_RATINGS this surface can't keep its promise — see the
+     constant's own comment for why ten is the line. The lock is real, not
+     cosmetic: the gather effect below skips the Places fetch entirely, so a
+     locked visit costs nothing rather than billing for a ranking we'd
+     refuse to show. */
+  /* Mood tags from a Find-a-place preset. They boost tagScore on EVERY
+     scoring profile below — mine and each group member's — because the
+     mood belongs to the outing, not to whoever typed it. */
+  const [moodTags, setMoodTags] = useState<string[]>(() => preset?.moodTags ?? []);
+  /* A STATED price ("not too expensive") must override the learned band:
+     enforcePriceBand hard-drops tiers the user's history never visits,
+     and with the mood's price filter pointing at exactly those tiers the
+     two rules intersect to an empty list. Tonight's instruction beats
+     habit — for every member, since the mood belongs to the outing. */
+  const [priceStated, setPriceStated] = useState(() => (preset?.priceLevels?.length ?? 0) > 0);
+  const [statedTiers, setStatedTiers] = useState<number[]>(() => preset?.priceLevels ?? []);
+  const [moodPhrases, setMoodPhrases] = useState<string[]>(() => preset?.moodPhrases ?? []);
+  const [moodCuisines, setMoodCuisines] = useState<string[]>(() => preset?.moodCuisines ?? []);
+  const scoringProfile = useMemo(
+    () => withMoodTags(liveProfile, moodTags, moodCuisines),
+    [liveProfile, moodTags, moodCuisines],
+  );
+
+  const ratedCount = ratings.length;
+  const locked = !recsUnlocked(ratedCount);
+
+  /* ── Group mode ──
+     Empty `groupPeople` = the ordinary "for you" ranking. With people in
+     it the same pool is scored once per member and re-ranked by the
+     blended group score (lib/group-recs). Nothing about the POOL changes:
+     the candidates are the same, only the ranking question is. */
+  const [groupPeople, setGroupPeople] = useState<UserProfile[]>([]);
+  const [groupMembers, setGroupMembers] = useState<GroupMember[]>([]);
+  const [groupLoading, setGroupLoading] = useState(false);
+  const [groupPickerOpen, setGroupPickerOpen] = useState(false);
+  const groupMode = groupPeople.length > 0;
+
+  // Load the friends' profiles (one query each) whenever the group changes.
+  // `me` is always index 0 so the fit strip reads "you first".
+  useEffect(() => {
+    if (groupPeople.length === 0) { setGroupMembers([]); return; }
+    let cancelled = false;
+    setGroupLoading(true);
+    loadGroupMembers(groupPeople)
+      .then((loaded) => {
+        if (cancelled) return;
+        setGroupMembers([
+          {
+            userId: userId ?? 'me',
+            name: 'You',
+            profile: liveProfile,
+            dietary: getTasteQuiz(myProfile)?.dietary,
+            cold: locked,
+          },
+          ...loaded,
+        ]);
+      })
+      .finally(() => { if (!cancelled) setGroupLoading(false); });
+    return () => { cancelled = true; };
+    // liveProfile is deliberately absent: re-loading every friend's history
+    // because the user rated something would be a query storm. The `me`
+    // entry is refreshed by the memo below instead.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [groupPeople, userId, myProfile, locked]);
+
+  /* Apply a caller's preset once. The people arrive as ids (a route's
+     state should stay small and serializable), so their profiles are
+     fetched here and handed to the same setter the picker uses. */
+  const presetAppliedRef = useRef(false);
+  useEffect(() => {
+    if (!preset || presetAppliedRef.current) return;
+    presetAppliedRef.current = true;
+    if (preset.target) setTarget(preset.target);
+    if (preset.cuisines && preset.cuisines.length > 0) setCuisineSel(new Set(preset.cuisines));
+    if (preset.priceLevels && preset.priceLevels.length > 0) {
+      // Deliberately NOT setPriceSel: a stated price steers the search and
+      // lifts the band, but must not become a chip that can empty the list.
+      setPriceStated(true);
+      setStatedTiers(preset.priceLevels);
+    }
+    if (preset.openNow) setOpenNowOnly(true);
+    if (preset.moodTags && preset.moodTags.length > 0) setMoodTags(preset.moodTags);
+    if (preset.moodPhrases && preset.moodPhrases.length > 0) setMoodPhrases(preset.moodPhrases);
+    if (preset.moodCuisines && preset.moodCuisines.length > 0) setMoodCuisines(preset.moodCuisines);
+    const ids = preset.people ?? [];
+    if (ids.length === 0) return;
+    let cancelled = false;
+    getProfilesByIds(ids).then((byId) => {
+      if (cancelled) return;
+      const people = ids.map((id) => byId[id]).filter(Boolean);
+      if (people.length > 0) setGroupPeople(people);
+    });
+    return () => { cancelled = true; };
+  }, [preset]);
+
+  /** Members with `me`'s profile always current, without refetching anyone. */
+  const liveMembers = useMemo<GroupMember[]>(() => {
+    if (groupMembers.length === 0) return [];
+    return groupMembers.map((m, i) => (i === 0 ? { ...m, profile: liveProfile } : m));
+  }, [groupMembers, liveProfile]);
+
   // Gather the candidate pool (network) — profile changes deliberately do
   // NOT re-run this; they only re-score.
   useEffect(() => {
-    if (!open || !target) return;
-    const key = `${userId ?? 'anon'}|${target.lat.toFixed(3)},${target.lng.toFixed(3)}|${radiusMiles}`;
+    if (!open || !target || locked) return;
+    const key = `${userId ?? 'anon'}|${target.lat.toFixed(3)},${target.lng.toFixed(3)}|${radiusMiles}|${statedTiers.join('')}|${moodPhrases.join('_')}`;
     const cached = poolCache.get(key);
     if (cached && Date.now() - cached.fetchedAt < POOL_TTL_MS) {
       setPool(cached);
@@ -286,6 +428,8 @@ export const RecommendationsBrowser: React.FC<RecommendationsBrowserProps> = ({ 
       radiusMeters: Math.round(radiusMiles * 1609.34),
       maxQueries: 8,
       signal: controller.signal,
+      priceTiersOverride: statedTiers,
+      moodTerms: moodPhrases,
     })
       .then((out) => {
         if (cancelled) return;
@@ -302,7 +446,7 @@ export const RecommendationsBrowser: React.FC<RecommendationsBrowserProps> = ({ 
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; controller.abort(); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, target, radiusMiles, userId]);
+  }, [open, target, radiusMiles, userId, locked, statedTiers, moodPhrases]);
 
   // Rank the pool against the live profile. Rated places drop out here
   // (skipUserHistory), so rating from inside the popup removes the row and
@@ -311,24 +455,97 @@ export const RecommendationsBrowser: React.FC<RecommendationsBrowserProps> = ({ 
     if (!pool || !target) return [];
     return scoreCandidates(
       pool.candidates,
-      liveProfile,
+      scoringProfile,
       pool.signals,
       { label: target.label, lat: target.lat, lng: target.lng },
       Math.round(radiusMiles * 1609.34),
-      { limit: 60, skipUserHistory: true, keepWishlisted: true, enforcePriceBand: true },
+      { limit: 60, skipUserHistory: true, keepWishlisted: true, enforcePriceBand: !priceStated },
     );
-  }, [pool, liveProfile, target, radiusMiles]);
+  }, [pool, scoringProfile, target, radiusMiles, priceStated]);
+
+  /* ── The group ranking ──
+     One pass of the scorer per member over the SAME pool, then a blended
+     score per place (lib/group-recs). Members keep their history
+     (`skipUserHistory: false`) on purpose: a place someone has already
+     rated is the strongest possible evidence about how they'd feel, and
+     the scorer hands back their own score as the prediction. `limit` is
+     the whole pool — the per-member pass is an evaluation, not a ranking,
+     so it must not be sliced or diversified before aggregation. */
+  const groupScores = useMemo<Map<string, GroupScore>>(() => {
+    const out = new Map<string, GroupScore>();
+    if (!pool || !target || liveMembers.length < 2) return out;
+    const radiusMeters = Math.round(radiusMiles * 1609.34);
+    const perMember = liveMembers.map((m) => {
+      const scored = scoreCandidates(
+        pool.candidates, withMoodTags(m.profile, moodTags, moodCuisines), pool.signals,
+        { label: target.label, lat: target.lat, lng: target.lng }, radiusMeters,
+        { limit: pool.candidates.length, skipUserHistory: false, keepWishlisted: true, enforcePriceBand: !priceStated },
+      );
+      const byId = new Map<string, number>();
+      for (const p of scored) if (typeof p.predicted === 'number') byId.set(p.id, p.predicted);
+      return byId;
+    });
+    for (const c of pool.candidates) {
+      // A veto removes the place rather than demoting it — see groupVeto.
+      // The community's tags ride along because they are the veto's escape
+      // hatch: a steakhouse raters have tagged "Good Vegetarian Options"
+      // is NOT vetoed for a vegetarian. Passing [] here (as this first
+      // did) silently made that rescue dead code.
+      const rowTags: string[] = [];
+      for (const row of pool.signals.communityByRestaurant.get(c.id) || []) {
+        for (const t of row.tags || []) rowTags.push(t);
+      }
+      if (groupVeto(
+        { cuisine: getCuisineLabel(c), priceLevel: c.priceLevel, tags: rowTags },
+        liveMembers,
+      )) continue;
+      out.set(c.id, aggregateGroup(liveMembers, perMember.map((m) => m.get(c.id))));
+    }
+    return out;
+  }, [pool, target, liveMembers, radiusMiles, moodTags, moodCuisines, priceStated]);
+
+  /* The group's own base list. It must NOT be the solo `results`: that
+     list is MY top-60, with my rated places dropped (skipUserHistory) and
+     my price band enforced — so a place ranked #75 for me but ideal for
+     the group could never appear, my band pre-filtered everyone else's
+     options, and my own favorites (prime candidates for a group meal —
+     the others haven't been) were excluded before the group ever saw
+     them. This pass keeps the whole pool and my history; the group score
+     decides what rises. My profile is only supplying row metadata here. */
+  const groupBase = useMemo<ScoredPlace[]>(() => {
+    if (!groupMode || !pool || !target) return [];
+    return scoreCandidates(
+      pool.candidates, scoringProfile, pool.signals,
+      { label: target.label, lat: target.lat, lng: target.lng },
+      Math.round(radiusMiles * 1609.34),
+      { limit: pool.candidates.length, skipUserHistory: false, keepWishlisted: true, enforcePriceBand: false },
+    );
+  }, [groupMode, pool, scoringProfile, target, radiusMiles]);
+
+  /** Best-match order for the group: sorted by the blended score, then the
+   *  same cuisine-diversity pass the solo ranking gets — a fair group
+   *  score can still fill the top of the page with five steakhouses. */
+  const rankedResults = useMemo<ScoredPlace[]>(() => {
+    if (!groupMode || groupScores.size === 0) return results;
+    const sorted = groupBase
+      .filter((p) => groupScores.has(p.id))
+      // Ride the group score through recScore so the shared diversifier
+      // penalizes on the number the list is actually ordered by.
+      .map((p) => ({ ...p, recScore: groupScores.get(p.id)!.group }))
+      .sort((a, b) => b.recScore - a.recScore);
+    return diversifyByCuisine(sorted, (types) => getCuisineLabel(types)).slice(0, 60);
+  }, [groupMode, groupScores, groupBase, results]);
 
   const enriched = useMemo(
     () =>
-      results.map((p) => ({
+      rankedResults.map((p) => ({
         place: p,
         cuisineLabel: getCuisineLabel(p),
         distanceMi: target
           ? haversineKm({ lat: p.lat, lng: p.lng }, { lat: target.lat, lng: target.lng }) * 0.621371
           : Number.NaN,
       })),
-    [results, target],
+    [rankedResults, target],
   );
 
   // Every place keeps its BEST-MATCH rank number no matter how the list is
@@ -385,6 +602,14 @@ export const RecommendationsBrowser: React.FC<RecommendationsBrowserProps> = ({ 
   }, [enriched]);
   const anyMichelin = MICH_FILTERS.some(({ key }) => michelinCounts[key] > 0);
 
+  /* Filters RANK, they don't empty. An empty screen is never the most
+     useful answer we can give: the ranking is still there, and a place
+     that misses one filter is a better reply than "nothing". So a filter
+     set that matches nothing degrades to the full ranking with a note
+     saying so — the filter chips stay set and visible, one tap from being
+     cleared or changed. (This is also the backstop for a mood: no phrase
+     anyone types can produce a dead end.) */
+  const [relaxed, setRelaxed] = useState(false);
   const visible = useMemo(() => {
     const list = enriched.filter((e) => {
       if (cuisineSel.size > 0 && !cuisineSel.has(e.cuisineLabel)) return false;
@@ -405,15 +630,39 @@ export const RecommendationsBrowser: React.FC<RecommendationsBrowserProps> = ({ 
       if (openNowOnly && getOpenStatus(e.place.hours).open === false) return false;
       return true;
     });
+    const final = list.length > 0 || enriched.length === 0 ? list : enriched;
     switch (sortBy) {
       case 'rating':
-        return [...list].sort((a, b) => (b.place.rating || 0) - (a.place.rating || 0));
+        return [...final].sort((a, b) => (b.place.rating || 0) - (a.place.rating || 0));
       case 'distance':
-        return [...list].sort((a, b) => (a.distanceMi || Infinity) - (b.distanceMi || Infinity));
+        return [...final].sort((a, b) => (a.distanceMi || Infinity) - (b.distanceMi || Infinity));
       default:
-        return list; // engine order = best match
+        return final; // engine order = best match
     }
   }, [enriched, cuisineSel, priceSel, michSel, openNowOnly, sortBy]);
+
+  // Derived in an effect, not during render, so the note tracks the same
+  // filter/pool state the list was built from.
+  useEffect(() => {
+    const matched = enriched.some((e) => {
+      if (cuisineSel.size > 0 && !cuisineSel.has(e.cuisineLabel)) return false;
+      if (priceSel.size > 0 && !(e.place.priceLevel > 0 && priceSel.has(e.place.priceLevel))) return false;
+      if (openNowOnly && getOpenStatus(e.place.hours).open === false) return false;
+      if (michSel.size > 0) {
+        const m = e.place.michelin;
+        const hit = !!m && (
+          (michSel.has('star1') && m.stars === 1) ||
+          (michSel.has('star2') && m.stars === 2) ||
+          (michSel.has('star3') && m.stars >= 3) ||
+          (michSel.has('bib') && m.bibGourmand && m.stars === 0) ||
+          (michSel.has('selected') && m.selected && m.stars === 0 && !m.bibGourmand)
+        );
+        if (!hit) return false;
+      }
+      return true;
+    });
+    setRelaxed(enriched.length > 0 && !matched);
+  }, [enriched, cuisineSel, priceSel, michSel, openNowOnly]);
 
   const city = target?.label?.split(',')[0]?.trim() || '';
 
@@ -443,7 +692,9 @@ export const RecommendationsBrowser: React.FC<RecommendationsBrowserProps> = ({ 
 
   const handleUseCurrent = async (): Promise<void> => {
     const loc = await getCurrentHomeLocation();
-    saveLastSelectedLocation(loc);
+    // A pick, so it moves the whole app's anchor — this page's target is the
+    // same "where am I dining" the home feed and map use, not a private copy.
+    savePickedLocation(loc);
     setTarget(loc);
   };
 
@@ -475,6 +726,66 @@ export const RecommendationsBrowser: React.FC<RecommendationsBrowserProps> = ({ 
       )}
       <ChevronDown size={13} strokeWidth={2.2} className="flex-shrink-0 text-on-surface/45" />
     </button>
+  );
+
+  /* The group chip. Solo it is an invitation ("With friends"); with a
+     group it becomes the roster — avatars first, because the question the
+     row answers is "who is this ranked for". */
+  const groupChip = (
+    <button
+      type="button"
+      onClick={() => setGroupPickerOpen(true)}
+      className={cn(
+        'flex flex-shrink-0 items-center gap-2 rounded-full border px-3 transition-colors active:opacity-80',
+        groupMode ? 'h-9 border-primary/35 bg-primary/[0.07]' : 'h-9 border-on-surface/15',
+      )}
+      aria-label={groupMode ? 'Change who this is for' : 'Recommend for a group'}
+    >
+      {groupMode ? (
+        <>
+          <span className="flex flex-none">
+            {groupPeople.slice(0, 3).map((p, i) => (
+              <span key={p.user_id} className={cn('rounded-full ring-2 ring-surface', i > 0 && '-ml-2.5')}>
+                <Avatar
+                  src={p.avatar_url}
+                  name={p.display_name || p.username || 'Friend'}
+                  size={22}
+                  fallbackStyle={{
+                    backgroundColor: `hsl(${avatarHue(p.user_id)} 52% 92%)`,
+                    color: `hsl(${avatarHue(p.user_id)} 45% 34%)`,
+                  }}
+                />
+              </span>
+            ))}
+          </span>
+          <span className="text-[12.5px] font-bold text-on-surface">
+            {groupLoading ? 'Reading tastes…' : `For ${groupPeople.length + 1}`}
+          </span>
+        </>
+      ) : (
+        <>
+          <Users size={13} strokeWidth={2.2} className="text-on-surface/55" />
+          <span className="text-[12.5px] font-bold text-on-surface/70">With friends</span>
+        </>
+      )}
+    </button>
+  );
+
+  /* Members whose history is under the engine's own personalization
+     threshold. Their ranking runs on their taste-quiz answers — real
+     signal, but not the same thing — and silence here would let a thin
+     profile read as agreement. */
+  const coldMembers = liveMembers.slice(1).filter((m) => m.cold).map((m) => m.name);
+  const coldNote = groupMode && coldMembers.length > 0 && (
+    <p className="text-[11.5px] leading-snug text-on-surface/45">
+      Not much from {coldMembers.join(' & ')} yet — using their taste quiz.
+    </p>
+  );
+
+  const relaxedNote = relaxed && (
+    <p className="text-[11.5px] leading-snug text-on-surface/45">
+      Nothing matched every filter — showing the closest picks instead.
+    </p>
   );
 
   /* ── Controls ── */
@@ -567,18 +878,25 @@ export const RecommendationsBrowser: React.FC<RecommendationsBrowserProps> = ({ 
             {locationChip}
             {radiusMenu}
           </div>
+          <div className="flex items-center gap-2">
+            {groupChip}
+            {groupMode && <span className="truncate text-[11.5px] text-on-surface/45">Ranked so everyone&rsquo;s in</span>}
+          </div>
           {sortSegment}
         </>
       ) : (
         <div className="flex items-center gap-2">
           {sortSegment}
           <div className="ml-auto flex items-center gap-2">
+            {groupChip}
             {openNowBtn}
             {radiusMenu}
           </div>
         </div>
       )}
 
+      {coldNote}
+      {relaxedNote}
       {/* Filter dropdowns — compact pills instead of one long chip row.
           Panels are anchored popovers, so this row never scrolls. */}
       <div className="flex flex-wrap items-center gap-2">
@@ -697,6 +1015,7 @@ export const RecommendationsBrowser: React.FC<RecommendationsBrowserProps> = ({ 
       price: priceText,
       address: p.fullAddress || p.address,
     };
+    const gScore = groupMode ? groupScores.get(p.id) : undefined;
     return (
       <div
         key={p.id}
@@ -737,7 +1056,35 @@ export const RecommendationsBrowser: React.FC<RecommendationsBrowserProps> = ({ 
             )}
           </div>
           {metaLine && <p className="mt-1.5 truncate text-on-surface/45" style={{ fontSize: '12px', lineHeight: 1.2 }}>{metaLine}</p>}
-          {topReason && <p className="mt-1.5 truncate text-on-surface/35" style={{ fontSize: '11.5px', lineHeight: 1.3 }}>{topReason}</p>}
+          {groupMode && gScore ? (
+            /* In group mode the row's argument is the GROUP's, not yours:
+               the verdict answers "can we all go here", and the dots say
+               who is carrying it. A friend's fit is shown as a band, never
+               a number — it is a prediction about someone else, and
+               "Dev: 6.2" is a claim they never made. */
+            <div className="mt-1.5 flex items-center gap-2">
+              <span className="flex flex-none items-center gap-1">
+                {gScore.fits.map((f) => {
+                  const m = liveMembers.find((x) => x.userId === f.userId);
+                  return (
+                    <span
+                      key={f.userId}
+                      title={`${m?.name ?? 'Friend'}: ${f.fit === 'loves' ? 'loves it' : f.fit === 'fine' ? 'happy' : 'not their thing'}`}
+                      className={cn(
+                        'h-[7px] w-[7px] rounded-full',
+                        f.fit === 'loves' ? 'bg-score-high' : f.fit === 'fine' ? 'bg-on-surface/30' : 'bg-score-low',
+                      )}
+                    />
+                  );
+                })}
+              </span>
+              <span className="truncate text-on-surface/45" style={{ fontSize: '11.5px', lineHeight: 1.3 }}>
+                {groupVerdict(gScore, (uid) => liveMembers.find((m) => m.userId === uid)?.name ?? 'Friend')}
+              </span>
+            </div>
+          ) : (
+            topReason && <p className="mt-1.5 truncate text-on-surface/35" style={{ fontSize: '11.5px', lineHeight: 1.3 }}>{topReason}</p>
+          )}
         </div>
 
         {/* Actions + prediction — one horizontal cluster on BOTH layouts:
@@ -757,21 +1104,65 @@ export const RecommendationsBrowser: React.FC<RecommendationsBrowserProps> = ({ 
               <Bookmark size={14} className={wishlisted ? 'fill-current' : ''} />
             </button>
           </div>
-          {typeof p.predicted === 'number' && (
+          {groupMode && gScore ? (
+            <div className="flex flex-col items-center">
+              <ScoreRing score={gScore.group} size={44} />
+              <p className="mt-1 text-on-surface/35" style={{ fontSize: '8px', fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase' }}>For us</p>
+            </div>
+          ) : typeof p.predicted === 'number' ? (
             <div className="flex flex-col items-center">
               <ScoreRing score={p.predicted} size={44} />
               <p className="mt-1 text-on-surface/35" style={{ fontSize: '8px', fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase' }}>For you</p>
             </div>
-          )}
+          ) : null}
         </div>
       </div>
     );
   };
 
   /* ── Body ── */
+  /* The lock screen. Deliberately shows the progress rather than just
+     refusing: "6 of 10" is the only version of this that reads as a thing
+     you're building toward instead of a feature being withheld. */
+  const lockedContent = (
+    <div className="flex flex-col items-center px-6 py-14 text-center">
+      <div className="grid h-14 w-14 place-items-center rounded-full bg-primary/10 text-primary">
+        <Lock size={22} strokeWidth={2} />
+      </div>
+      <p className="mt-4 font-serif text-[17px] font-bold text-on-surface">
+        {RECS_MIN_RATINGS - ratedCount} more {RECS_MIN_RATINGS - ratedCount === 1 ? 'rating' : 'ratings'} to unlock
+      </p>
+      <p className="mt-1.5 max-w-[290px] text-[13px] leading-snug text-on-surface/50">
+        Recommendations run on your own ratings — which cuisines you go back to, what you actually
+        spend, how you score. Under {RECS_MIN_RATINGS} that&rsquo;s a guess, so we don&rsquo;t show it.
+      </p>
+
+      <div className="mt-5 w-full max-w-[260px]">
+        <div className="h-1.5 w-full overflow-hidden rounded-full bg-on-surface/[0.08]">
+          <div
+            className="h-full rounded-full bg-primary transition-[width] duration-500"
+            style={{ width: `${Math.round((ratedCount / RECS_MIN_RATINGS) * 100)}%` }}
+          />
+        </div>
+        <p className="mt-2 text-[12px] font-semibold tabular-nums text-on-surface/45">
+          {ratedCount} of {RECS_MIN_RATINGS} rated
+        </p>
+      </div>
+
+      <button
+        type="button"
+        onClick={() => { onClose(); navigate('/search', { state: { openTakeover: true } }); }}
+        className="mt-6 inline-flex h-10 items-center gap-1.5 rounded-full bg-primary px-5 text-[13.5px] font-bold text-white transition-opacity active:opacity-80"
+      >
+        <Search size={14} strokeWidth={2.4} />
+        Rate a place you&rsquo;ve been
+      </button>
+    </div>
+  );
+
   const listContent = (
     <>
-      {!target ? (
+      {locked ? lockedContent : !target ? (
         <div className="flex flex-col items-center px-6 py-16 text-center">
           <div className="grid h-12 w-12 place-items-center rounded-2xl bg-on-surface/[0.05] text-on-surface/40">
             <MapPin size={20} />
@@ -852,11 +1243,13 @@ export const RecommendationsBrowser: React.FC<RecommendationsBrowserProps> = ({ 
     </div>
   );
 
-  const subtitle = !target
-    ? 'Personal picks, ranked for your taste'
-    : loading
-      ? `Ranking spots near ${city}…`
-      : `${visible.length} spot${visible.length === 1 ? '' : 's'} ranked for your taste near ${city}`;
+  const subtitle = locked
+    ? `Unlocks at ${RECS_MIN_RATINGS} rated restaurants`
+    : !target
+      ? 'Personal picks, ranked for your taste'
+      : loading
+        ? `Ranking spots near ${city}…`
+        : `${visible.length} spot${visible.length === 1 ? '' : 's'} ranked for your taste near ${city}`;
 
   /* Location picker rides along in both layouts; it portals its own sheet. */
   const picker = (
@@ -867,6 +1260,18 @@ export const RecommendationsBrowser: React.FC<RecommendationsBrowserProps> = ({ 
       onUseCurrent={handleUseCurrent}
       open={pickerOpen}
       onOpenChange={setPickerOpen}
+    />
+  );
+
+  /* Who the ranking is for. Rides along the same way the location picker
+     does, so both layouts get it from one place. */
+  const groupPicker = (
+    <GroupPicker
+      open={groupPickerOpen}
+      onClose={() => setGroupPickerOpen(false)}
+      userId={userId}
+      selected={groupPeople}
+      onDone={setGroupPeople}
     />
   );
 
@@ -942,6 +1347,9 @@ export const RecommendationsBrowser: React.FC<RecommendationsBrowserProps> = ({ 
         <ChevronDown size={13} strokeWidth={2.2} className="flex-shrink-0 text-on-surface/45" />
       </button>
       <div className="flex items-center gap-[7px] overflow-x-auto no-scrollbar">
+      {/* Who it's ranked for comes FIRST in the row: it changes what every
+          number below means, which no filter does. */}
+      {groupChip}
       <button
         type="button"
         onClick={() => setFilterSheetOpen(true)}
@@ -996,6 +1404,8 @@ export const RecommendationsBrowser: React.FC<RecommendationsBrowserProps> = ({ 
         )}
       </div>
       </div>
+      {coldNote && <div className="pt-2.5">{coldNote}</div>}
+      {relaxedNote && <div className="pt-2.5">{relaxedNote}</div>}
     </div>
   );
 
@@ -1006,8 +1416,14 @@ export const RecommendationsBrowser: React.FC<RecommendationsBrowserProps> = ({ 
           the actual subject — three headings for one screen. The city line
           is the heading now. */}
       <div style={{ paddingTop: 'calc(max(0.5rem, env(safe-area-inset-top, 0px)) + 3.25rem)' }} />
-      {mobileControlRow}
-      <div className="border-t border-on-surface/[0.09]" />
+      {/* City line, filters and sort are all controls over a ranking that
+          doesn't exist yet while locked — the lock screen stands alone. */}
+      {!locked && (
+        <>
+          {mobileControlRow}
+          <div className="border-t border-on-surface/[0.09]" />
+        </>
+      )}
       {listContent}
     </div>
   );
@@ -1085,6 +1501,7 @@ export const RecommendationsBrowser: React.FC<RecommendationsBrowserProps> = ({ 
       {mobileChrome}
       {mobileScroll}
       {picker}
+      {groupPicker}
       {mobileFilterSheet}
     </>
   );
@@ -1117,6 +1534,7 @@ export const RecommendationsBrowser: React.FC<RecommendationsBrowserProps> = ({ 
           {mobileScroll}
         </motion.div>
         {picker}
+      {groupPicker}
         {mobileFilterSheet}
       </div>
     );
@@ -1175,9 +1593,10 @@ export const RecommendationsBrowser: React.FC<RecommendationsBrowserProps> = ({ 
                   </button>
                 </div>
               </div>
-              {controls}
+              {!locked && controls}
               {body}
               {picker}
+      {groupPicker}
             </motion.div>
           </>
         )

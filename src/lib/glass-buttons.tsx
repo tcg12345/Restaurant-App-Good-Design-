@@ -207,6 +207,20 @@ function occluded(el: HTMLElement, rect: DOMRect): boolean {
   const found = document.elementFromPoint(cx, cy);
   if (!found) return true;
   if (el.contains(found) || found.contains(el)) return false;
+  /* ANOTHER glass button on top covers this one, even though the hit-test
+     lands on something transparent.
+     A registered button renders its contents inside an `opacity: 0` span —
+     the native control paints them, and a visible web copy underneath the
+     glass would show through it. So a button that sits under another one
+     hit-tests onto that invisible span, and the faded-hit rule below reads
+     it as "nothing is there" and leaves the lower button on screen. That is
+     exactly how the Create page's close button went on floating over the
+     recipe builder's own back chip, which had covered it precisely.
+     Ask the registry instead of the pixels: if the hit belongs to another
+     live glass button, something IS painted there. */
+  for (const other of registry.values()) {
+    if (other.el !== el && other.el.contains(found)) return true;
+  }
   // elementFromPoint's return type is the generic `Element` (it could in
   // principle land on an SVG node); effectiveOpacity only reads
   // style/parentElement, both of which every Element has, so the narrower

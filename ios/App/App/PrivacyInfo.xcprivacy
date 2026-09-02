@@ -12,6 +12,13 @@
 	         comments, messages.
 	       - Precise location: navigator.geolocation coordinates sent to
 	         place-search backends to find nearby restaurants.
+	       - Contacts: with explicit permission, phone numbers and email
+	         addresses from the address book are HASHED ON DEVICE and the
+	         hashes sent to find which contacts already have accounts.
+	         The address book itself is never uploaded and the hashes are
+	         never stored server-side (see supabase/migrations/079). Apple
+	         counts hashed contact data as collection, hence the entry
+	         below.
 	     Nothing is used for tracking; no third-party ad SDKs. The app's own
 	     native code (PhotosPlugin/AppThemePlugin) uses no required-reason
 	     APIs; Capacitor's framework ships its own manifest covering its
@@ -24,6 +31,18 @@
 	<array/>
 	<key>NSPrivacyCollectedDataTypes</key>
 	<array>
+		<dict>
+			<key>NSPrivacyCollectedDataType</key>
+			<string>NSPrivacyCollectedDataTypeContacts</string>
+			<key>NSPrivacyCollectedDataTypeLinked</key>
+			<true/>
+			<key>NSPrivacyCollectedDataTypeTracking</key>
+			<false/>
+			<key>NSPrivacyCollectedDataTypePurposes</key>
+			<array>
+				<string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
+			</array>
+		</dict>
 		<dict>
 			<key>NSPrivacyCollectedDataType</key>
 			<string>NSPrivacyCollectedDataTypeEmailAddress</string>

@@ -15,6 +15,7 @@ import { useSettings } from '../contexts/SettingsContext';
 import { useAuth } from '../contexts/AuthContext';
 import { getPublicRecipes, type Recipe } from '../lib/supabase-recipes';
 import { loadLastSelectedLocation } from '../components/HomeLocationBar';
+import { useHomeLocation } from '../contexts/HomeLocationContext';
 import { getCuisineLabel } from './useRestaurantDetail';
 import { rankBy, bestScore, type Rankable } from '../lib/search-ranking';
 import {
@@ -260,42 +261,27 @@ export const SearchMain: React.FC<{
   const [pendingFollow, setPendingFollow] = useState<Set<string>>(new Set());
   const [incomingReqIds, setIncomingReqIds] = useState<Record<string, string>>({});
 
-  // Seed the search bias from the saved home location right away (NYC only
-  // as the final fallback) so even the first debounced search — before
-  // geolocation resolves — is anchored to the user's city.
-  const [userLat, setUserLat] = useState(() => {
-    const l = loadLastSelectedLocation();
-    return l && Number.isFinite(l.lat) ? l.lat : DEFAULT_LAT;
-  });
-  const [userLng, setUserLng] = useState(() => {
-    const l = loadLastSelectedLocation();
-    return l && Number.isFinite(l.lng) ? l.lng : DEFAULT_LNG;
-  });
-  const [locationKnown, setLocationKnown] = useState(false);
-
-  // Desktop anchors search + distances to the CHOSEN home location when one
-  // is saved — matching the "Near {city}" label the layout shows — and only
-  // falls back to browser geolocation when none is set. Phone tries live
-  // geolocation first, then falls back to the SAME home anchor when it's
-  // unavailable/denied — a user who denied location but picked "Los Angeles"
-  // used to silently get NYC-biased results with no distance labels.
-  const homeAnchor = useMemo(() => {
-    const loc = loadLastSelectedLocation();
-    return loc && Number.isFinite(loc.lat) && Number.isFinite(loc.lng) ? loc : null;
-  }, []);
-  const preferHome = isDesktop && homeAnchor !== null;
-  // True when the phone path had to anchor to the home location because
-  // geolocation was unavailable — drives the "Near {city}" label.
-  const [usingHomeFallback, setUsingHomeFallback] = useState(false);
-  useEffect(() => {
-    if (!preferHome || !homeAnchor) return;
-    setUserLat(homeAnchor.lat);
-    setUserLng(homeAnchor.lng);
-    setLocationKnown(true);
-  }, [preferHome, homeAnchor]);
-  const anchorLabel = (preferHome || usingHomeFallback) && homeAnchor
-    ? homeAnchor.label.split(',').slice(0, 2).join(',').trim()
-    : locationKnown ? 'your location' : '';
+  // Search bias + distances come off the app's ONE shared location — the
+  // same value the home feed's "Dining in" and the map's camera use. This
+  // page used to resolve its own: desktop read the saved city, phone ran its
+  // own getCurrentPosition, and neither noticed when the user changed
+  // location elsewhere, so the same query could be biased to two different
+  // cities on two tabs. HomeLocationContext already decides device-vs-picked
+  // once per launch, so there is nothing left for this page to decide.
+  const homeLocationCtx = useHomeLocation();
+  const storedAnchor = useMemo(() => (homeLocationCtx ? null : loadLastSelectedLocation()), [homeLocationCtx]);
+  const anchor = homeLocationCtx ? homeLocationCtx.location : storedAnchor;
+  const hasAnchor = !!anchor && Number.isFinite(anchor.lat) && Number.isFinite(anchor.lng);
+  const userLat = hasAnchor ? anchor!.lat : DEFAULT_LAT;
+  const userLng = hasAnchor ? anchor!.lng : DEFAULT_LNG;
+  // Distances are only shown against a real origin — the NYC default is a
+  // placeholder, and "2,410 mi" is worse than no number.
+  const locationKnown = hasAnchor;
+  const anchorLabel = !hasAnchor
+    ? ''
+    : homeLocationCtx?.status === 'device'
+      ? 'your location'
+      : anchor!.label.split(',').slice(0, 2).join(',').trim();
 
   const ownInputRef = useRef<HTMLInputElement>(null);
   const inputRef = hostInputRef ?? ownInputRef;
@@ -326,31 +312,6 @@ export const SearchMain: React.FC<{
     const t = setTimeout(() => inputRef.current?.focus(), 80);
     return () => clearTimeout(t);
   }, []);
-
-  useEffect(() => {
-    if (preferHome) return; // the saved home location is the anchor
-    // No geolocation (unsupported / denied / timed out) → anchor to the
-    // saved home location instead of the NYC default; only with neither do
-    // we keep the defaults with distances hidden.
-    const fallbackToHome = () => {
-      if (!homeAnchor) return;
-      setUserLat(homeAnchor.lat);
-      setUserLng(homeAnchor.lng);
-      setLocationKnown(true);
-      setUsingHomeFallback(true);
-    };
-    if (!navigator.geolocation) { fallbackToHome(); return; }
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        setUserLat(pos.coords.latitude);
-        setUserLng(pos.coords.longitude);
-        setLocationKnown(true);
-        setUsingHomeFallback(false);
-      },
-      fallbackToHome,
-      { timeout: 5000 },
-    );
-  }, [preferHome, homeAnchor]);
 
   // Build the recipe search pool once: public home meals (where most recipes
   // live) + the public recipes table, deduped by id. Filtered client-side as

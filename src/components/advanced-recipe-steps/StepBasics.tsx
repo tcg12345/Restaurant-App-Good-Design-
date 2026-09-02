@@ -1,13 +1,20 @@
 // Step 1 of the Advanced Recipe Builder — "The basics".
-// Name (serif underline), an optional one-line summary, and the Time &
-// servings card: Prep and Cook side by side, each as an inline pair of
-// infinitely-looping hour/minute wheels (iPhone-clock style — spin,
-// flick, tap a row, or scroll), plus a serves stepper row and a running
-// total. Minutes are per-minute precise; nothing snaps to 5s anymore.
+// Name (serif underline), an optional one-line summary, then two small
+// sections: Time and Servings.
+//
+// Prep and cook are a pair of side-by-side LOOPING wheels — the Clock-app
+// gesture: flick, and it never hits an end. Each is ONE wheel over the
+// non-linear duration scale in lib/duration-scale (per-minute up to half
+// an hour, coarsening to 30-minute strides out at the overnight end), so a
+// flick covers the range recipes actually use without hour/minute pairs
+// or a hundred rows of minutes, and the centre row IS the readout — no
+// label to keep in sync. Servings stays a stepper: a small integer you
+// nudge.
 
 import React from 'react';
 import { Minus, Plus } from 'lucide-react';
 import type { AdvancedRecipeState, Action } from '../AdvancedRecipeBuilder';
+import { DURATION_STEPS, minutesForStep, stepForMinutes, formatDuration } from '../../lib/duration-scale';
 import { LoopWheel } from './LoopWheel';
 
 interface Props {
@@ -15,60 +22,29 @@ interface Props {
   dispatch: React.Dispatch<Action>;
 }
 
-function fmtTime(min: number): string {
-  if (!min) return '—';
-  if (min < 60) return `${min} min`;
-  const h = Math.floor(min / 60);
-  const m = min % 60;
-  return m ? `${h}h ${m}m` : `${h}h`;
-}
-
-const pad2 = (v: number) => String(v).padStart(2, '0');
-
-/** One column of the time card: label, live value, and the h : mm
- *  looping wheel pair. Hours wrap 0–24, minutes 0–59. */
-const TimeWheelsCol: React.FC<{
-  label: string;
-  totalMin: number;
-  onChange: (totalMin: number) => void;
-}> = ({ label, totalMin, onChange }) => {
-  const hours = Math.floor(totalMin / 60);
-  // The wheel physically shows 0–24; a stored total beyond that (imported
-  // long ferments etc.) is DISPLAY-clamped only. The minutes wheel writes
-  // back with the TRUE hour count — the old 12h clamp meant editing a 16h
-  // recipe's minutes silently rewrote the stored total down to ≤12:59.
-  const wheelHours = Math.min(24, hours);
-  const minutes = totalMin % 60;
-  return (
-    <div className="rcx-tw-col">
-      <div className="rcx-tw-head">
-        <span className="rcx-time-name">{label}</span>
-        <span className={`rcx-tw-value${totalMin ? '' : ' is-empty'}`}>{fmtTime(totalMin)}</span>
-      </div>
-      <div className="rcx-tw-wheels">
-        <LoopWheel
-          count={25}
-          value={wheelHours}
-          onChange={(h) => onChange(h * 60 + minutes)}
-          ariaLabel={`${label} hours`}
-        />
-        <span className="rcx-tw-colon" aria-hidden>:</span>
-        <LoopWheel
-          count={60}
-          value={minutes}
-          onChange={(m) => onChange(hours * 60 + m)}
-          format={pad2}
-          ariaLabel={`${label} minutes`}
-        />
-      </div>
-      <div className="rcx-tw-caps">
-        <span>hrs</span>
-        <span className="rcx-tw-caps-sep" aria-hidden />
-        <span>min</span>
-      </div>
-    </div>
-  );
+const WHEEL_COUNT = DURATION_STEPS + 1;
+const formatStep = (step: number) => {
+  const m = minutesForStep(step);
+  return m ? formatDuration(m) : 'None';
 };
+
+/** One time column: eyebrow label over a looping wheel. */
+const DurationWheel: React.FC<{
+  label: string;
+  minutes: number;
+  onChange: (minutes: number) => void;
+}> = ({ label, minutes, onChange }) => (
+  <div className="rcx-time-col">
+    <span className="rcx-time-col-label">{label}</span>
+    <LoopWheel
+      count={WHEEL_COUNT}
+      value={stepForMinutes(minutes)}
+      onChange={(step) => onChange(minutesForStep(step))}
+      format={formatStep}
+      ariaLabel={`${label} time`}
+    />
+  </div>
+);
 
 export const StepBasics: React.FC<Props> = ({ state, dispatch }) => {
   const total = state.prepTime + state.cookTime;
@@ -98,46 +74,49 @@ export const StepBasics: React.FC<Props> = ({ state, dispatch }) => {
       </div>
 
       <div>
-        <div className="rcx-kicker">Time &amp; servings</div>
-        <div className="rcx-card">
-          <div className="rcx-tw-grid">
-            <TimeWheelsCol
-              label="Prep"
-              totalMin={state.prepTime}
-              onChange={(v) => dispatch({ type: 'SET_FIELD', field: 'prepTime', value: v })}
-            />
-            <div className="rcx-tw-divider" aria-hidden />
-            <TimeWheelsCol
-              label="Cook"
-              totalMin={state.cookTime}
-              onChange={(v) => dispatch({ type: 'SET_FIELD', field: 'cookTime', value: v })}
-            />
-          </div>
-          <div className="rcx-serves-row">
-            <span className="rcx-time-name">Serves</span>
-            <span className="rcx-serves-value">{state.servings}</span>
+        <div className="rcx-kicker">
+          Time
+          {total > 0 && <span className="rcx-kicker-total">Total · {formatDuration(total)}</span>}
+        </div>
+        <div className="rcx-card rcx-time-card">
+          <DurationWheel
+            label="Prep"
+            minutes={state.prepTime}
+            onChange={(v) => dispatch({ type: 'SET_FIELD', field: 'prepTime', value: v })}
+          />
+          <DurationWheel
+            label="Cook"
+            minutes={state.cookTime}
+            onChange={(v) => dispatch({ type: 'SET_FIELD', field: 'cookTime', value: v })}
+          />
+        </div>
+      </div>
+
+      <div>
+        <div className="rcx-kicker">Servings</div>
+        <div className="rcx-card rcx-serves-card">
+          <span className="rcx-time-name">Serves</span>
+          <div className="rcx-stepper">
             <button
               type="button"
-              className="rcx-round-btn"
+              className="rcx-stepper-btn"
               onClick={() => dispatch({ type: 'SET_FIELD', field: 'servings', value: Math.max(1, state.servings - 1) })}
               disabled={state.servings <= 1}
               aria-label="Decrease servings"
             >
-              <Minus size={13} strokeWidth={2.4} />
+              <Minus size={14} strokeWidth={2.4} />
             </button>
+            <span className="rcx-stepper-value">{state.servings}</span>
             <button
               type="button"
-              className="rcx-round-btn"
+              className="rcx-stepper-btn"
               onClick={() => dispatch({ type: 'SET_FIELD', field: 'servings', value: Math.min(99, state.servings + 1) })}
               disabled={state.servings >= 99}
               aria-label="Increase servings"
             >
-              <Plus size={13} strokeWidth={2.4} />
+              <Plus size={14} strokeWidth={2.4} />
             </button>
           </div>
-        </div>
-        <div className="rcx-total-line">
-          Total · <strong>{fmtTime(total)}</strong>
         </div>
       </div>
     </div>

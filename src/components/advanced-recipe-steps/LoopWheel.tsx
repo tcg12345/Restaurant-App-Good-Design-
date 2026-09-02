@@ -18,13 +18,13 @@
 
 import React, { useEffect, useRef, useState } from 'react';
 
-const IH = 34;               // row height (px)
+const IH = 32;               // row height (px)
 const VISIBLE = 5;           // rows shown (odd — center row is selection)
 const HEIGHT = IH * VISIBLE;
 const RENDER_SPAN = 3;       // rows rendered above/below center
 
 const WHEEL_MASK =
-  'linear-gradient(to bottom, transparent 0%, rgba(0,0,0,0.14) 16%, rgba(0,0,0,0.55) 34%, black 46%, black 54%, rgba(0,0,0,0.55) 66%, rgba(0,0,0,0.14) 84%, transparent 100%)';
+  'linear-gradient(to bottom, transparent 0%, rgba(0,0,0,0.12) 14%, rgba(0,0,0,0.5) 32%, black 44%, black 56%, rgba(0,0,0,0.5) 68%, rgba(0,0,0,0.12) 86%, transparent 100%)';
 
 const mod = (n: number, m: number) => ((n % m) + m) % m;
 
@@ -225,6 +225,8 @@ export const LoopWheel: React.FC<LoopWheelProps> = ({ count, value, onChange, fo
       onPointerCancel={onPointerUp}
       onKeyDown={onKeyDown}
     >
+      {/* The selection band sits under the centre row; the rows scroll over it. */}
+      <div className="rcx-wheel-band" style={{ height: IH }} aria-hidden />
       {rows.map(({ k, v, d }) => {
         const dist = Math.min(Math.abs(d), 2.6);
         return (
@@ -232,8 +234,9 @@ export const LoopWheel: React.FC<LoopWheelProps> = ({ count, value, onChange, fo
             key={k}
             className={`rcx-wheel-item${Math.abs(d) < 0.5 ? ' is-active' : ''}`}
             style={{
-              transform: `translateY(${d * IH}px) scale(${1 - dist * 0.06})`,
-              opacity: 1 - dist * 0.28,
+              height: IH,
+              transform: `translateY(${d * IH}px) scale(${1 - dist * 0.07})`,
+              opacity: 1 - dist * 0.3,
             }}
             aria-hidden
           >

@@ -13,7 +13,8 @@ import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
 import { cuisineLabel } from '../lib/cuisine';
 import { getTasteQuiz } from '../lib/taste-quiz';
-import { scoreHex, scoreTintStyle } from '../lib/score';
+import { sampleRatings, buildTasteSummary } from '../lib/assistant-taste';
+import { scoreHex, scoreTintStyle, formatScore } from '../lib/score';
 import { VerifiedBadge } from '../components/VerifiedBadge';
 import { shareExternally, canonicalShareUrl } from '../lib/native-share';
 import { useAuth } from '../contexts/AuthContext';
@@ -1744,16 +1745,21 @@ export const LocationPage: React.FC = () => {
     if (myProfile?.username) ctx.username = myProfile.username;
     if (myProfile?.home_city) ctx.homeCity = myProfile.home_city;
     if (profile.topCuisines.length > 0) ctx.topCuisines = profile.topCuisines.slice(0, 6);
-    // Send ALL ratings (up to 50), sorted by score desc. Previous
-    // 8-item cap caused the chat to confidently say "you have no
-    // Boston ratings" when the user's Boston picks happened to
-    // score below their top 8. Address comes off the rating row
-    // itself (not the lazy-loaded restaurant_meta) so the city is
-    // always present — meta-backed neighborhood is preferred when
-    // it's there for the richer "Beacon Hill, Boston" form.
+    // A SAMPLE — their best, their worst and their most recent — plus the
+    // true total, so the prompt can say it's a sample. Raising the old cap
+    // from 8 to 50 narrowed the "you have no Boston ratings" bug without
+    // closing it: any cap sorted by score alone still hides the tail, and
+    // reporting the row count as the total made the model state it as
+    // fact. search_my_ratings is the other half of the fix.
+    // Address comes off the rating row itself (not the lazy-loaded
+    // restaurant_meta) so the city is always present — meta-backed
+    // neighborhood is preferred when it's there for the richer
+    // "Beacon Hill, Boston" form.
     if (ratings.length > 0) {
-      const sorted = [...ratings].sort((a, b) => (b.score ?? 0) - (a.score ?? 0)).slice(0, 50);
-      ctx.topRated = sorted.map((r) => {
+      const sample = sampleRatings(ratings, 60);
+      ctx.ratedTotal = sample.total;
+      ctx.ratedTruncated = sample.truncated;
+      ctx.topRated = sample.rows.map((r) => {
         const meta = restaurantMeta[r.restaurantId];
         const richLocation = meta
           ? formatLocationLabel(meta.addressComponents, meta.address || r.address || '', meta.neighborhood)
@@ -1852,8 +1858,19 @@ export const LocationPage: React.FC = () => {
       }
       if (sig.length > 0) ctx.circleSignals = sig;
     }
+    /* The computed taste profile, in words — the same object the ranking
+       uses. See lib/assistant-taste for why the chat needs it. */
+    ctx.taste = buildTasteSummary(profile, getTasteQuiz(myProfile));
+    ctx.account = {
+      ratingCount: ratings.length,
+      wishlistCount: wishlist.length,
+      listCount: lists.length,
+      recipeCount: myRecipes.length,
+      bio: myProfile?.bio || undefined,
+    };
+
     return ctx;
-  }, [myProfile, profile.topCuisines, ratings, wishlist, lists, restaurantMeta, areaFriendCandidates, areaExperts, friendCounts, expertCounts, visible]);
+  }, [myProfile, profile, ratings, wishlist, lists, restaurantMeta, areaFriendCandidates, areaExperts, friendCounts, expertCounts, visible, myRecipes]);
 
   // Synthesize minimal ScoredPlace objects for every restaurant the
   // user has rated or wishlisted. Passed to LocationChat so its card
@@ -3487,6 +3504,7 @@ const LocationListItem: React.FC<LocationListItemProps> = ({
   isMobile = false,
   showMichelin = false,
 }) => {
+  const { twoDecimalScores } = useSettings();
   const { driveMin, walkMin } = useTravelTimes(
     origin,
     Number.isFinite(place.lat) && Number.isFinite(place.lng)
@@ -3617,16 +3635,22 @@ const LocationListItem: React.FC<LocationListItemProps> = ({
   // as ScoreRing.
   const tierPack = scoreTintStyle(score);
   const tier = { bg: tierPack.background, ring: tierPack.ring, text: tierPack.color };
+  /* Two decimals only where four characters fit — ScoreRing's own 40px
+     threshold, applied here because this disc is hand-rolled rather than
+     that component. Below it the disc stays one-decimal whatever the
+     "Precise scores" setting says. */
+  const twoDpAt = (size: number) => twoDecimalScores && size >= 40;
   const scoreBadge = (size: number) => ({
     width: size, height: size, borderRadius: 9999,
     background: score > 0 ? tier.bg : 'var(--bg-2)',
     boxShadow: `inset 0 0 0 1.5px ${score > 0 ? tier.ring : 'var(--border-strong)'}`,
     color: score > 0 ? tier.text : 'var(--muted)',
     display: 'flex', alignItems: 'center', justifyContent: 'center',
-    fontFamily: 'var(--serif)', fontWeight: 700, fontSize: Math.round(size * 0.36),
+    fontFamily: 'var(--serif)', fontWeight: 700,
+    fontSize: Math.round(size * (twoDpAt(size) ? 0.29 : 0.36)),
     fontVariantNumeric: 'tabular-nums' as const, flexShrink: 0, letterSpacing: '-0.01em',
   });
-  const scoreText = score > 0 ? score.toFixed(1) : '—';
+  const scoreTextAt = (size: number) => (score > 0 ? formatScore(score, twoDpAt(size)) : '—');
 
   // Status (Open/Closed + today's hours) and distance·time, shared by both
   // layouts; `fs` is the only size difference (12.5 mobile / 13 desktop).
@@ -3699,7 +3723,7 @@ const LocationListItem: React.FC<LocationListItemProps> = ({
   // the value is the plain Google fallback.
   const scoreColumn = (size: number, labelFs: number) => (
     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3, flexShrink: 0 }}>
-      <div style={scoreBadge(size)}>{scoreText}</div>
+      <div style={scoreBadge(size)}>{scoreTextAt(size)}</div>
       {scoreLabel && (
         <span style={{ fontSize: labelFs, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--muted)', whiteSpace: 'nowrap' }}>
           {scoreLabel}

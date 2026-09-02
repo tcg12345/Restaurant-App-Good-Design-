@@ -1,10 +1,10 @@
 import React, { useEffect, useState } from 'react';
 import { motion } from 'motion/react';
-import { Star } from 'lucide-react';
+import { Star, LogIn } from 'lucide-react';
 import * as OB from './OnboardingKit';
 import { TastePillGrid, CuisineGrid, TASTE_CUISINES, TASTE_PRICES } from './TasteSteps';
 import { CityAutocomplete } from '../CityAutocomplete';
-import { saveLastSelectedLocation } from '../HomeLocationBar';
+import { savePickedLocation, geocodePlace } from '../HomeLocationBar';
 import { saveTasteQuiz } from '../../lib/taste-quiz';
 import { savePreauthCity, markPreauthDone, savePreauthOutcome } from '../../lib/preauth';
 import { logOnboardingEvent, markOnboardingStep } from '../../lib/onboarding-events';
@@ -103,8 +103,9 @@ export const PreAuthFlow: React.FC<{
 
   /** Persist answers to the local mirror (no user yet) — ProfileSetup
    *  reads them back after signup and stamps the row. */
-  const persistAnswers = () => {
-    if (cuisineSel.length === 0 && priceSel.length === 0 && !cityGeo) return;
+  const persistAnswers = (geoOverride?: HomeLocation | null) => {
+    const geo = geoOverride ?? cityGeo;
+    if (cuisineSel.length === 0 && priceSel.length === 0 && !geo) return;
     void saveTasteQuiz(undefined, {
       cuisines: cuisineSel,
       // Both shapes: the flat array for anything still reading it, and the
@@ -114,7 +115,7 @@ export const PreAuthFlow: React.FC<{
       prices: priceSel,
       pricePrimary: priceSel[0],
       priceSecondary: priceSel[1],
-      city: cityGeo?.label,
+      city: geo?.label,
       completedAt: Date.now(),
     });
   };
@@ -146,19 +147,37 @@ export const PreAuthFlow: React.FC<{
     return () => { cancelled = true; };
   }, [step, cityGeo, preview, cuisineSel, priceSel]);
 
-  const advanceFromCity = () => {
-    if (cityGeo) {
-      savePreauthCity(cityGeo);
-      // ALSO write the key the app genuinely resolves from. The pre-auth
-      // city used to dead-end: it reached the profile row, and nothing
-      // ever read those columns back into the map or the rec target — so
-      // a user who typed "Austin", confirmed "Austin" and saw an Austin
+  const [resolvingCity, setResolvingCity] = useState(false);
+  const advanceFromCity = async () => {
+    let geo = cityGeo;
+    // Free-typed text gets geocoded here instead of silently dropped.
+    // This was the step's worst bug: onChange nulls cityGeo on every
+    // keystroke, so someone who typed "New York" in full and hit
+    // Continue — without tapping a suggestion row — sailed past as if
+    // they'd skipped, and the post-signup wizard asked for the city all
+    // over again.
+    if (!geo && cityText.trim().length >= 2) {
+      setResolvingCity(true);
+      geo = await geocodePlace(cityText.trim());
+      setResolvingCity(false);
+      if (geo) { setCityText(geo.label); setCityGeo(geo); }
+    }
+    if (geo) {
+      savePreauthCity(geo);
+      // ALSO write the location the app genuinely resolves from. The
+      // pre-auth city used to dead-end: it reached the profile row, and
+      // nothing ever read those columns back into the map or the rec target
+      // — so a user who typed "Austin", confirmed "Austin" and saw an Austin
       // preview landed on Discover showing New York.
-      saveLastSelectedLocation(cityGeo);
+      // As a PICK, not just an anchor: this is the answer every later launch
+      // falls back to when the device's location isn't available, which is
+      // what makes the city chosen here the app's default until it's changed.
+      savePickedLocation(geo);
+      persistAnswers(geo);
       logOnboardingEvent('location_resolved');
       go('preview');
     } else {
-      // No city, no preview to show — the gate still explains itself.
+      // Nothing resolvable — the gate still explains itself.
       persistAnswers();
       go('preview');
     }
@@ -180,11 +199,20 @@ export const PreAuthFlow: React.FC<{
       case 'welcome':
         return (
           <OB.Reveal key={step} i={3}>
-            <div style={{ marginBottom: 4 }}>
-              <OB.GhostButton onClick={() => leave('signin')}>Already have an account? Sign in</OB.GhostButton>
-              {onBrowseAsGuest && (
+            {/* Sign in is a real button, not a line of grey text: half of
+                everyone landing here already has an account, and making
+                them hunt for eight-word ghost copy was burying the second
+                most important action on the screen. Still secondary — the
+                bordered pill, never a second terracotta. */}
+            {onBrowseAsGuest && (
+              <div style={{ marginBottom: 4 }}>
                 <OB.GhostButton onClick={() => leave('guest')}>Browse without an account</OB.GhostButton>
-              )}
+              </div>
+            )}
+            <div style={{ marginBottom: 10 }}>
+              <OB.SecondaryButton icon={<LogIn size={16} strokeWidth={2} />} onClick={() => leave('signin')}>
+                Sign in
+              </OB.SecondaryButton>
             </div>
             <OB.PrimaryButton onClick={() => go('cuisines')}>Get started</OB.PrimaryButton>
           </OB.Reveal>
@@ -204,21 +232,26 @@ export const PreAuthFlow: React.FC<{
       case 'city':
         return (
           <OB.Reveal key={step} i={3}>
-            <div style={{ marginBottom: 4 }}>
-              <OB.GhostButton onClick={() => { persistAnswers(); go('preview'); }}>Skip for now</OB.GhostButton>
-            </div>
-            <OB.PrimaryButton onClick={advanceFromCity}>{cityGeo ? 'Show my picks' : 'Continue'}</OB.PrimaryButton>
+            {/* Skip disappears once a city exists — with one picked, the
+                only honest action left is showing the picks, and a skip
+                that DISCARDED a chosen city was exactly the bug here. */}
+            {!cityGeo && !cityText.trim() && (
+              <div style={{ marginBottom: 4 }}>
+                <OB.GhostButton onClick={() => { persistAnswers(); go('preview'); }}>Skip for now</OB.GhostButton>
+              </div>
+            )}
+            <OB.PrimaryButton onClick={() => { void advanceFromCity(); }} loading={resolvingCity}>
+              {cityGeo ? 'Show my picks' : 'Continue'}
+            </OB.PrimaryButton>
           </OB.Reveal>
         );
       case 'preview':
         return (
           <OB.Reveal key={step} i={3}>
-            <div style={{ marginBottom: 4 }}>
-              <OB.GhostButton onClick={() => leave('signin')}>Already have an account? Sign in</OB.GhostButton>
-              {onBrowseAsGuest && (
-                <OB.GhostButton onClick={() => leave('guest')}>Browse without an account</OB.GhostButton>
-              )}
-            </div>
+            {/* No sign-in / guest links here — the welcome screen already
+                offered both, and repeating them made the flow's last
+                screen read like its first. The Auth screen this leads to
+                still carries "Browse without an account" (5.1.1(v)). */}
             <OB.PrimaryButton onClick={() => leave('signup')} trailing="check">Save my taste profile</OB.PrimaryButton>
           </OB.Reveal>
         );
@@ -258,7 +291,12 @@ export const PreAuthFlow: React.FC<{
 
         {step === 'cuisines' && (
           <div className="flex flex-1 flex-col">
-            <OB.StepHeader title="Which cuisines do you love?" subtitle="Pick as many as you like." />
+            <OB.StepHeader
+              title="Which cuisines do you love?"
+              subtitle={cuisineSel.length > 0
+                ? `${cuisineSel.length} picked — add as many as you like.`
+                : 'Pick as many as you like.'}
+            />
             <div style={{ marginTop: 22 }}>
               <CuisineGrid
                 options={TASTE_CUISINES}

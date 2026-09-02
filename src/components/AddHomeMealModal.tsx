@@ -23,7 +23,9 @@ import { useLists, type HomeMeal } from '../contexts/ListsContext';
 import { useSettings } from '../contexts/SettingsContext';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../contexts/ToastContext';
-import { useBottomSheet } from '../lib/useBottomSheet';
+import { useBottomSheet, acquireHardScrollLock } from '../lib/useBottomSheet';
+import { pushOverlay } from '../lib/overlay-registry';
+import { wakeGlassButtons } from '../lib/glass-buttons';
 import { ImportRecipePanel } from './ImportRecipePanel';
 import { AdvancedRecipeBuilder } from './AdvancedRecipeBuilder';
 import { AiRecipeGenerator } from './AiRecipeGenerator';
@@ -94,7 +96,7 @@ const MethodChooser: React.FC<{
 
 export const AddHomeMealModal: React.FC = () => {
   const {
-    homeMealModalOpen, homeMealModalData, homeMealModalBackToDraft, homeMealModalTargetListId, homeMealModalInitialMethod, closeHomeMealModal,
+    homeMealModalOpen, homeMealModalData, homeMealModalBackToDraft, homeMealModalTargetListId, homeMealModalInitialMethod, homeMealModalInitialAiView, homeMealModalSeed, closeHomeMealModal,
     createHomeMeal, addRecipeToList,
   } = useLists();
   const { phoneMode } = useSettings();
@@ -119,6 +121,11 @@ export const AddHomeMealModal: React.FC = () => {
   const [aiDraft, setAiDraft] = useState<HomeMeal | null>(null);
   const [seed, setSeed] = useState<HomeMeal | null>(null);
   const [seedKind, setSeedKind] = useState<'ai' | 'import'>('ai');
+  /* Consume-once copy of the caller's preselected AI view (the Pantry
+     "Ideas" pill). A LOCAL copy, not the context value: backing out to
+     the chooser and manually picking "Create with AI" in the same open
+     must land on the normal prompt hero, not re-read 'ideas'. */
+  const [aiView, setAiView] = useState<'recipe' | 'ideas' | null>(null);
 
   // Each open decides the entry point: editing an existing recipe or
   // resuming a draft skips the chooser; a preselected method (from the
@@ -126,7 +133,23 @@ export const AddHomeMealModal: React.FC = () => {
   // recipes otherwise start on the chooser.
   useEffect(() => {
     if (!homeMealModalOpen) return;
-    if (existing || peekPendingResumeDraftId()) {
+    setAiView(homeMealModalInitialAiView);
+    // An externally-handed draft (recipe-page Combine) outranks everything:
+    // it is a NEW recipe to review, never an edit — `existing` means edit
+    // and publishes over the original.
+    if (homeMealModalSeed) {
+      if (homeMealModalSeed.kind === 'import') {
+        setSeed(homeMealModalSeed.meal);
+        setSeedKind('import');
+        setMode('advanced');
+      } else {
+        // 'ai' and 'combine' land on the draft-preview sheet, the same
+        // landing every AI create gets.
+        setAiDraft(homeMealModalSeed.meal);
+        setMode('ai');
+      }
+      setStage('flow');
+    } else if (existing || peekPendingResumeDraftId()) {
       setMode('advanced');
       setStage('flow');
     } else if (homeMealModalInitialMethod) {
@@ -140,7 +163,7 @@ export const AddHomeMealModal: React.FC = () => {
     } else {
       setStage('choose');
     }
-  }, [homeMealModalOpen, existing, homeMealModalInitialMethod]);
+  }, [homeMealModalOpen, existing, homeMealModalInitialMethod, homeMealModalInitialAiView, homeMealModalSeed]);
 
   // Reset transient state whenever the modal closes so the next open
   // starts clean.
@@ -149,6 +172,7 @@ export const AddHomeMealModal: React.FC = () => {
       setAiDraft(null);
       setSeed(null);
       setSeedKind('ai');
+      setAiView(null);
       setStage('choose');
       setMode('advanced');
     }
@@ -157,7 +181,49 @@ export const AddHomeMealModal: React.FC = () => {
   // Drag-to-dismiss for the phone chooser sheet.
   const { dragProps, sheetRef } = useBottomSheet(homeMealModalOpen && stage === 'choose' && phoneMode, closeHomeMealModal);
 
+  // The chooser's lock above releases the moment a flow opens, leaving the
+  // document behind the (position:fixed) flow scrollable. With
+  // Keyboard.resize:"none" that is exactly the room the focus-reveal scroll
+  // (native-keyboard.ts, and WKWebView's own) uses: focusing the AI prompt
+  // scrolled the page BEHIND the modal, dragging the modal down with it and
+  // leaving every swipe on the ideas grid scrolling that page instead. Hold
+  // a lock for the whole time the modal is open, whatever stage it's in.
+  useEffect(() => {
+    if (!homeMealModalOpen) return;
+    return acquireHardScrollLock();
+  }, [homeMealModalOpen]);
+
+  /* The WHOLE modal is an overlay, not just its chooser stage.
+     useBottomSheet above registers one only while the chooser is up on a
+     phone, so the moment you picked a method the count fell back to zero
+     and the native glass tab bar — a UIKit view ABOVE the WebView, which
+     no amount of CSS can cover — came back and drew across the builder's
+     footer. Registering for the modal's whole life keeps it away, and the
+     same signal wakes the glass-button sampler so any button underneath
+     re-samples as occluded. */
+  useEffect(() => {
+    if (!homeMealModalOpen) return;
+    const release = pushOverlay();
+    /* And re-sample the glass buttons AFTER the entrance settles. The
+       sampler reads occlusion and ancestor opacity from the DOM, and this
+       modal enters on a Framer transform+fade — which fires neither
+       `transitionend` nor `animationend`, the two things that would
+       normally re-arm it (see glass-buttons#occluded). Sample mid-entrance
+       and every button under it, including this modal's OWN header chip
+       and close button, latches the alpha it had while the sheet was still
+       transparent, and nothing ever looks again. Three probes across the
+       animation cost nothing and leave no frame to lose. */
+    const wakes = [120, 400, 800].map((ms) => setTimeout(wakeGlassButtons, ms));
+    return () => {
+      wakes.forEach(clearTimeout);
+      release();
+    };
+  }, [homeMealModalOpen]);
+
   const handlePickMethod = (m: Method) => {
+    // A manual pick is a fresh decision — the preselected AI view must
+    // not leak into it (see aiView above).
+    setAiView(null);
     if (m === 'custom') setMode('advanced');
     else if (m === 'ai') setMode('ai');
     else {
@@ -353,6 +419,7 @@ export const AddHomeMealModal: React.FC = () => {
                       onClose={closeHomeMealModal}
                       phoneMode={phoneMode}
                       tabSlot={methodChip}
+                      initialView={aiView ?? undefined}
                     />
                   ) : (
                     <ImportRecipePanel

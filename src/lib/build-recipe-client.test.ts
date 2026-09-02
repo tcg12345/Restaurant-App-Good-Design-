@@ -10,9 +10,14 @@ vi.mock('./api-base', () => ({
 
 import {
   readRecipeStream,
+  readIdeasStream,
   generateRecipe,
   editRecipeIngredient,
+  combineRecipes,
+  homeMealToBuildInput,
+  type RecipeIdea,
 } from './build-recipe-client';
+import { buildRecipeInputToHomeMeal } from './recipe-from-ai';
 
 /** Build an Anthropic-style SSE Response from a list of events. */
 function sseResponse(events: Array<Record<string, unknown>>): Response {
@@ -170,5 +175,113 @@ describe('request payloads', () => {
     expect(res.declined).toBe(true);
     expect(res.declineReason).toContain('break the dish');
     expect(res.meal).toBeUndefined();
+  });
+});
+
+/* ── Ideas + combining ─────────────────────────────────────────────── */
+
+const IDEA: RecipeIdea = {
+  title: 'Miso-Butter Corn Pasta',
+  blurb: 'Sweet corn, salty miso butter, one pot.',
+  cuisine: 'Japanese-Italian',
+  totalTimeMin: 25,
+  difficulty: 'Easy',
+};
+
+function ideasJson(ideas: unknown[]): string {
+  return JSON.stringify({ ideas });
+}
+
+describe('readIdeasStream', () => {
+  it('assembles a full batch from the suggest_recipe_ideas tool', async () => {
+    const batch = Array.from({ length: 8 }, (_, i) => ({ ...IDEA, title: `Idea ${i}` }));
+    const out = await readIdeasStream(sseResponse(toolUseEvents('suggest_recipe_ideas', ideasJson(batch))));
+    expect(out.error).toBeUndefined();
+    expect(out.ideas).toHaveLength(8);
+    expect(out.ideas![3].title).toBe('Idea 3');
+  });
+
+  it('drops a malformed row without losing the batch', async () => {
+    const batch = [IDEA, { blurb: 'no title' }, { ...IDEA, title: 'Second', totalTimeMin: 'soon' }];
+    const out = await readIdeasStream(sseResponse(toolUseEvents('suggest_recipe_ideas', ideasJson(batch))));
+    expect(out.ideas).toHaveLength(2);
+    // Junk time falls back to a sane default rather than NaN.
+    expect(out.ideas![1].totalTimeMin).toBe(30);
+  });
+
+  it('errors, not throws, when the stream carries no ideas tool at all', async () => {
+    const out = await readIdeasStream(sseResponse(toolUseEvents('build_recipe', '{"name":"x"}')));
+    expect(out.ideas).toBeUndefined();
+    expect(out.error).toBeTruthy();
+  });
+});
+
+describe('homeMealToBuildInput', () => {
+  it('round-trips a meal through the model-facing shape without losing the cookable core', () => {
+    const meal = buildRecipeInputToHomeMeal({
+      name: 'Test Galette',
+      summary: 'Flaky and honest.',
+      cuisine: 'French',
+      difficulty: 'Medium',
+      prepTime: 30,
+      cookTime: 45,
+      servings: 6,
+      ingredients: ['2 cups flour', '1 stick butter'],
+      steps: [{ body: 'Make the dough.' }, { body: 'Bake it.' }],
+      tags: ['Baking'],
+    } as never);
+    const input = homeMealToBuildInput(meal);
+    const back = buildRecipeInputToHomeMeal(input as never);
+    expect(back.name).toBe('Test Galette');
+    expect(back.ingredients).toEqual(meal.ingredients);
+    expect(back.steps).toEqual(meal.steps);
+    expect(back.prepTime).toBe(30);
+    expect(back.cookTime).toBe(45);
+    expect(back.servings).toBe(6);
+  });
+});
+
+describe('combineRecipes', () => {
+  const RECIPE_JSON = JSON.stringify({
+    name: 'Corn Galette',
+    cuisine: 'French',
+    prepTime: 20,
+    cookTime: 40,
+    servings: 4,
+    ingredients: ['corn', 'dough'],
+    steps: [{ body: 'Assemble.' }, { body: 'Bake.' }],
+  });
+
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn(async () => sseResponse(toolUseEvents('build_recipe', RECIPE_JSON))));
+  });
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('attaches combinedFrom for recipe sources that carry a ref', async () => {
+    const out = await combineRecipes([
+      { kind: 'recipe', recipe: { name: 'A' } as never, ref: { id: 'a1', ownerId: 'u1', source: 'homeMeal', title: 'Recipe A' } },
+      { kind: 'recipe', recipe: { name: 'B' } as never, ref: { id: 'b1', ownerId: 'u2', source: 'recipe', title: 'Recipe B' } },
+    ]);
+    expect(out.ok).toBe(true);
+    expect(out.meal!.combinedFrom).toEqual([
+      { id: 'a1', ownerId: 'u1', source: 'homeMeal', title: 'Recipe A' },
+      { id: 'b1', ownerId: 'u2', source: 'recipe', title: 'Recipe B' },
+    ]);
+    // AI provenance rides along from the normalizer.
+    expect(out.meal!.createdWithAi).toBe(true);
+  });
+
+  it('attaches NO combinedFrom for idea-only combines — nothing real to link', async () => {
+    const out = await combineRecipes([
+      { kind: 'idea', idea: IDEA },
+      { kind: 'idea', idea: { ...IDEA, title: 'Charred Corn Salad' } },
+    ], { notes: 'the char from the salad' });
+    expect(out.ok).toBe(true);
+    expect(out.meal!.combinedFrom).toBeUndefined();
+    // The request carried the sources + notes in the combine envelope.
+    const call = (fetch as ReturnType<typeof vi.fn>).mock.calls[0];
+    const body = JSON.parse(call[1].body as string);
+    expect(body.combine.sources).toHaveLength(2);
+    expect(body.combine.notes).toBe('the char from the salad');
   });
 });

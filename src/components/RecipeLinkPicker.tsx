@@ -56,7 +56,16 @@ interface PickerItem extends PickedRecipe {
   isPrivate: boolean;
   /** Sort key — newest first within a scope. */
   sortTs: number;
+  /** The complete source object behind the row — a HomeMeal-shaped meal
+   *  or a formal recipes-table row. Only consumers that need the CONTENT
+   *  (the combine flow) read it; linking wants only the ref above. */
+  full: PickedRecipeFull;
 }
+
+/** The full content behind a picked row, discriminated like `source`. */
+export type PickedRecipeFull =
+  | { kind: 'homeMeal'; meal: import('../contexts/ListsContext').HomeMeal }
+  | { kind: 'recipe'; recipe: import('../lib/supabase-recipes').Recipe };
 
 function formatMin(m?: number): string | null {
   if (!m || m <= 0) return null;
@@ -73,11 +82,25 @@ interface RecipeLinkPickerProps {
   onPick: (recipe: PickedRecipe) => void;
   /** Ids already linked — rendered checked + non-clickable. */
   linkedIds: string[];
+  /** Also receive the picked row's complete content (see PickedRecipeFull).
+   *  The combine flow needs the recipe's body, not just its ref. */
+  onPickFull?: (ref: PickedRecipe, full: PickedRecipeFull) => void;
   /** The recipe being edited, so it can't link to itself. */
   excludeId?: string | null;
+  /** Header copy. The picker serves two flows — linking component recipes
+   *  (default) and choosing a combine partner — and the combine flow must
+   *  not present itself as "Link a recipe". */
+  title?: string;
+  /** Desktop-card kicker line above the title. */
+  kicker?: string;
+  /** Row-action chip label ("Link" / "Choose"). */
+  pickLabel?: string;
 }
 
-export const RecipeLinkPicker: React.FC<RecipeLinkPickerProps> = ({ open, onClose, onPick, linkedIds, excludeId }) => {
+export const RecipeLinkPicker: React.FC<RecipeLinkPickerProps> = ({
+  open, onClose, onPick, linkedIds, excludeId, onPickFull,
+  title = 'Link a recipe', kicker = 'Component recipes', pickLabel = 'Link',
+}) => {
   const { user } = useAuth();
   const { phoneMode } = useSettings();
   const { homeMeals } = useLists();
@@ -187,6 +210,7 @@ export const RecipeLinkPicker: React.FC<RecipeLinkPickerProps> = ({ open, onClos
         cuisine: m.cuisine,
         isPrivate: !m.isPublic,
         sortTs: m.createdAt || 0,
+        full: { kind: 'homeMeal', meal: m },
       });
     }
     for (const r of myRecipes) {
@@ -204,6 +228,7 @@ export const RecipeLinkPicker: React.FC<RecipeLinkPickerProps> = ({ open, onClos
         cuisine: r.cuisine,
         isPrivate: !r.isPublic,
         sortTs: Date.parse(r.updatedAt || r.createdAt || '') || 0,
+        full: { kind: 'recipe', recipe: r },
       });
     }
     // Remote pool A: public home meals (where the recipe builders
@@ -226,6 +251,7 @@ export const RecipeLinkPicker: React.FC<RecipeLinkPickerProps> = ({ open, onClos
           cuisine: m.cuisine,
           isPrivate: false,
           sortTs: m.createdAt || 0,
+          full: { kind: 'homeMeal', meal: m },
         });
       }
     };
@@ -248,6 +274,7 @@ export const RecipeLinkPicker: React.FC<RecipeLinkPickerProps> = ({ open, onClos
           cuisine: r.cuisine,
           isPrivate: false,
           sortTs: Date.parse(r.updatedAt || r.createdAt || '') || 0,
+          full: { kind: 'recipe', recipe: r },
         });
       }
     };
@@ -285,7 +312,7 @@ export const RecipeLinkPicker: React.FC<RecipeLinkPickerProps> = ({ open, onClos
 
   const handlePick = (it: PickerItem) => {
     if (linkedSet.has(it.id)) return;
-    onPick({
+    const ref = {
       id: it.id,
       ownerId: it.ownerId,
       source: it.source,
@@ -293,7 +320,9 @@ export const RecipeLinkPicker: React.FC<RecipeLinkPickerProps> = ({ open, onClos
       coverPhoto: it.coverPhoto,
       authorName: it.authorName,
       totalTimeMin: it.totalTimeMin,
-    });
+    };
+    onPick(ref);
+    onPickFull?.(ref, it.full);
     onClose();
   };
 
@@ -417,7 +446,7 @@ export const RecipeLinkPicker: React.FC<RecipeLinkPickerProps> = ({ open, onClos
                       : 'bg-primary/10 text-primary',
                   )}
                 >
-                  {already ? (<><Check size={12} /> Linked</>) : 'Link'}
+                  {already ? (<><Check size={12} /> Linked</>) : pickLabel}
                 </span>
               </button>
             );
@@ -449,7 +478,7 @@ export const RecipeLinkPicker: React.FC<RecipeLinkPickerProps> = ({ open, onClos
                 <ArrowLeft size={22} />
               </button>
               <h3 className="flex-1 min-w-0 font-serif font-semibold text-[19px] tracking-[-0.015em] text-on-surface truncate">
-                Link a recipe
+                {title}
               </h3>
             </div>
             {controls}
@@ -475,10 +504,10 @@ export const RecipeLinkPicker: React.FC<RecipeLinkPickerProps> = ({ open, onClos
               <div className="flex items-start justify-between gap-4 px-5 pt-5 pb-4 border-b border-on-surface/6 flex-shrink-0">
                 <div className="min-w-0">
                   <p className="text-[10px] font-bold uppercase tracking-[0.15em] text-on-surface/45">
-                    Component recipes
+                    {kicker}
                   </p>
                   <h3 className="mt-1 font-serif font-semibold text-[24px] leading-tight tracking-[-0.02em] text-on-surface truncate">
-                    Link a recipe
+                    {title}
                   </h3>
                 </div>
                 <button

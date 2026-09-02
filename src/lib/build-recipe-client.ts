@@ -4,7 +4,7 @@
 // decline) and gets back one fully-formed recipe object, normalized
 // into a HomeMeal ready for the Advanced builder / publish.
 
-import type { HomeMeal } from '../contexts/ListsContext';
+import type { HomeMeal, CombinedFromRef } from '../contexts/ListsContext';
 import { buildRecipeInputToHomeMeal, mergeRecipeEdit, type BuildRecipeInput } from './recipe-from-ai';
 import { apiUrl, apiHeaders } from './api-base';
 
@@ -31,7 +31,12 @@ export interface RecipeConstraints {
   dietary?: string[];
 }
 
+/** Streaming progress: characters of tool JSON received so far. */
+export type ProgressCallback = (chars: number) => void;
+
 export interface GenerateRecipeOptions {
+  /** Called as the tool JSON streams in (see lib/gen-progress). */
+  onProgress?: ProgressCallback;
   difficulty?: 'Easy' | 'Medium' | 'Hard';
   constraints?: RecipeConstraints;
 }
@@ -65,8 +70,53 @@ export interface IngredientEditResult extends GenerateRecipeResult {
  *  Exported for tests. */
 export async function readRecipeStream(
   res: Response,
+  onProgress?: ProgressCallback,
 ): Promise<{ recipe?: BuildRecipeInput; declineReason?: string; error?: string }> {
-  if (!res.body) return { error: 'No response body.' };
+  const assembled = await readToolStreams(res, onProgress);
+  if (assembled.error) return { error: assembled.error };
+  const { toolJson, toolJsonOpen, stopReason } = assembled;
+
+  // The model declined the change — surface its reason verbatim. Fall back
+  // to the in-progress buffer when the block never closed (truncation).
+  const declineJson = toolJson['decline_change'] || toolJsonOpen['decline_change'];
+  if (declineJson) {
+    try {
+      const parsed = JSON.parse(declineJson) as { reason?: string };
+      return { declineReason: (parsed.reason || '').trim() || "That change would compromise the recipe, so I left it as is." };
+    } catch {
+      return { declineReason: "That change would compromise the recipe, so I left it as is." };
+    }
+  }
+
+  const recipeJson = toolJson['build_recipe'] || toolJsonOpen['build_recipe'] || '';
+  const truncated = stopReason === 'max_tokens';
+  if (truncated && !recipeJson) {
+    return { error: 'The recipe was too long to finish. Try a slightly simpler request.' };
+  }
+  try {
+    const recipe = recipeJson ? (JSON.parse(recipeJson) as BuildRecipeInput) : undefined;
+    if (!recipe) return { error: "I couldn't generate that recipe. Try rephrasing your request." };
+    return { recipe };
+  } catch {
+    return {
+      error: truncated
+        ? 'The recipe was too long to finish. Try a slightly simpler request.'
+        : "I couldn't generate that recipe. Try rephrasing your request.",
+    };
+  }
+}
+
+/** The raw per-tool JSON assembly under both readers: every complete
+ *  block by tool name, the in-progress buffers (for truncation
+ *  fallbacks), and the stop reason. */
+async function readToolStreams(res: Response, onProgress?: ProgressCallback): Promise<{
+  toolJson: Record<string, string>;
+  toolJsonOpen: Record<string, string>;
+  stopReason?: string;
+  error?: string;
+}> {
+  const empty = { toolJson: {}, toolJsonOpen: {} };
+  if (!res.body) return { ...empty, error: 'No response body.' };
   const reader = res.body.getReader();
   const decoder = new TextDecoder();
   let buffer = '';
@@ -120,6 +170,9 @@ export async function readRecipeStream(
         } else if (event.type === 'content_block_delta' && event.delta?.type === 'input_json_delta') {
           const name = openTool || 'build_recipe';
           toolJsonOpen[name] = (toolJsonOpen[name] ?? '') + (event.delta.partial_json ?? '');
+          // Progress is the running size of the block being written — the
+          // one signal of "how far along" a streamed generation has.
+          onProgress?.(toolJsonOpen[name].length);
         } else if (event.type === 'content_block_stop') {
           if (openTool) toolJson[openTool] = toolJsonOpen[openTool] ?? '';
           openTool = '';
@@ -131,42 +184,14 @@ export async function readRecipeStream(
       }
     }
   } catch (err) {
-    if ((err as { name?: string })?.name === 'AbortError') return { error: 'Cancelled.' };
-    return { error: 'The connection dropped while writing the recipe. Try again.' };
+    if ((err as { name?: string })?.name === 'AbortError') return { ...empty, error: 'Cancelled.' };
+    return { ...empty, error: 'The connection dropped while writing the recipe. Try again.' };
   } finally {
     try { await reader.cancel(); } catch { /* ignore */ }
   }
 
-  if (streamError) return { error: streamError };
-
-  // The model declined the change — surface its reason verbatim. Fall back
-  // to the in-progress buffer when the block never closed (truncation).
-  const declineJson = toolJson['decline_change'] || toolJsonOpen['decline_change'];
-  if (declineJson) {
-    try {
-      const parsed = JSON.parse(declineJson) as { reason?: string };
-      return { declineReason: (parsed.reason || '').trim() || "That change would compromise the recipe, so I left it as is." };
-    } catch {
-      return { declineReason: "That change would compromise the recipe, so I left it as is." };
-    }
-  }
-
-  const recipeJson = toolJson['build_recipe'] || toolJsonOpen['build_recipe'] || '';
-  const truncated = stopReason === 'max_tokens';
-  if (truncated && !recipeJson) {
-    return { error: 'The recipe was too long to finish. Try a slightly simpler request.' };
-  }
-  try {
-    const recipe = recipeJson ? (JSON.parse(recipeJson) as BuildRecipeInput) : undefined;
-    if (!recipe) return { error: "I couldn't generate that recipe. Try rephrasing your request." };
-    return { recipe };
-  } catch {
-    return {
-      error: truncated
-        ? 'The recipe was too long to finish. Try a slightly simpler request.'
-        : "I couldn't generate that recipe. Try rephrasing your request.",
-    };
-  }
+  if (streamError) return { ...empty, error: streamError };
+  return { toolJson, toolJsonOpen, stopReason };
 }
 
 /** POST to the build-recipe function and parse the response (SSE on success,
@@ -174,6 +199,7 @@ export async function readRecipeStream(
 async function postRecipe(
   payload: Record<string, unknown>,
   signal?: AbortSignal,
+  onProgress?: ProgressCallback,
 ): Promise<{ recipe?: BuildRecipeInput; declineReason?: string; error?: string }> {
   let res: Response;
   try {
@@ -195,7 +221,7 @@ async function postRecipe(
     } catch { /* keep default */ }
     return { error: message };
   }
-  return readRecipeStream(res);
+  return readRecipeStream(res, onProgress);
 }
 
 /**
@@ -215,7 +241,7 @@ export async function generateRecipe(
   if (options?.constraints && Object.keys(options.constraints).length > 0) {
     payload.constraints = options.constraints;
   }
-  const { recipe, error } = await postRecipe(payload, signal);
+  const { recipe, error } = await postRecipe(payload, signal, options?.onProgress);
   if (error) return { ok: false, error };
   const meal = recipe ? buildRecipeInputToHomeMeal(recipe) : null;
   if (!meal) return { ok: false, error: "I couldn't generate that recipe. Try rephrasing your request." };
@@ -223,8 +249,10 @@ export async function generateRecipe(
 }
 
 /** Compact BuildRecipeInput view of a HomeMeal — what we hand the model
- *  as the "current recipe" so it can revise it. */
-function homeMealToInput(meal: HomeMeal): BuildRecipeInput {
+ *  as the "current recipe" to revise, and as a combine SOURCE. Exported
+ *  for the combine flows (and tests); the refine/edit paths above use it
+ *  privately. */
+export function homeMealToBuildInput(meal: HomeMeal): BuildRecipeInput {
   return {
     name: meal.name,
     summary: meal.summary || meal.description || undefined,
@@ -266,7 +294,7 @@ export async function refineRecipe(
   signal?: AbortSignal,
 ): Promise<GenerateRecipeResult> {
   const { recipe, error } = await postRecipe(
-    { instruction, current: homeMealToInput(current) },
+    { instruction, current: homeMealToBuildInput(current) },
     signal,
   );
   if (error) return { ok: false, error };
@@ -296,7 +324,7 @@ export async function editRecipeIngredient(
         ingredient: edit.ingredient,
         replacement: edit.replacement || undefined,
       },
-      current: homeMealToInput(current),
+      current: homeMealToBuildInput(current),
     },
     signal,
   );
@@ -305,4 +333,197 @@ export async function editRecipeIngredient(
   if (!recipe) return { ok: false, error: "I couldn't update that recipe. Try again." };
   const meal = mergeRecipeEdit(current, recipe);
   return { ok: true, meal, recipe };
+}
+
+/* ── Ideas + combining ─────────────────────────────────────────────── */
+
+/** One brainstormed dish — a title and a sales pitch, never a recipe. */
+export interface RecipeIdea {
+  title: string;
+  blurb: string;
+  cuisine: string;
+  totalTimeMin: number;
+  difficulty: 'Easy' | 'Medium' | 'Hard';
+}
+
+export interface RecipeIdeasResult {
+  ok: boolean;
+  ideas?: RecipeIdea[];
+  error?: string;
+}
+
+/** Normalize one raw idea from the model; null drops the row. A batch
+ *  with a malformed entry should lose the entry, not the batch. */
+function normalizeIdea(raw: unknown): RecipeIdea | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const r = raw as Record<string, unknown>;
+  const title = typeof r.title === 'string' ? r.title.trim() : '';
+  if (!title) return null;
+  const blurb = typeof r.blurb === 'string' ? r.blurb.trim().slice(0, 200) : '';
+  const cuisine = typeof r.cuisine === 'string' ? r.cuisine.trim().slice(0, 40) : '';
+  const t = Number(r.totalTimeMin);
+  const difficulty = r.difficulty === 'Easy' || r.difficulty === 'Medium' || r.difficulty === 'Hard'
+    ? r.difficulty
+    : 'Medium';
+  return {
+    title: title.slice(0, 120),
+    blurb,
+    cuisine,
+    totalTimeMin: Number.isFinite(t) && t > 0 ? Math.round(t) : 30,
+    difficulty,
+  };
+}
+
+/**
+ * Brainstorm ~8 recipe ideas for a mood + guidelines. `avoidTitles`
+ * carries everything already shown so "More ideas" never repeats.
+ * Never throws.
+ */
+export async function generateRecipeIdeas(
+  prompt: string,
+  opts?: {
+    constraints?: RecipeConstraints;
+    difficulty?: 'Easy' | 'Medium' | 'Hard';
+    avoidTitles?: string[];
+    signal?: AbortSignal;
+    onProgress?: ProgressCallback;
+  },
+): Promise<RecipeIdeasResult> {
+  const payload: Record<string, unknown> = { ideasPrompt: prompt };
+  if (opts?.difficulty) payload.difficulty = opts.difficulty;
+  if (opts?.constraints && Object.keys(opts.constraints).length > 0) payload.constraints = opts.constraints;
+  if (opts?.avoidTitles && opts.avoidTitles.length > 0) payload.avoidTitles = opts.avoidTitles.slice(-40);
+  const parsed = await postIdeas(payload, opts?.signal, opts?.onProgress);
+  if (parsed.error) return { ok: false, error: parsed.error };
+  return { ok: true, ideas: parsed.ideas };
+}
+
+/** POST an ideas request and assemble the suggest_recipe_ideas payload
+ *  from the stream. Split from postRecipe because the tool differs. */
+async function postIdeas(
+  payload: Record<string, unknown>,
+  signal?: AbortSignal,
+  onProgress?: ProgressCallback,
+): Promise<{ ideas?: RecipeIdea[]; error?: string }> {
+  let res: Response;
+  try {
+    res = await fetch(FUNCTION_URL, {
+      method: 'POST',
+      headers: await apiHeaders(),
+      body: JSON.stringify(payload),
+      signal,
+    });
+  } catch (err) {
+    if ((err as { name?: string })?.name === 'AbortError') return { error: 'Cancelled.' };
+    return { error: 'Network error — check your connection and try again.' };
+  }
+  if (!res.ok || !res.body) {
+    let message = `Something went wrong (HTTP ${res.status}).`;
+    try {
+      const body = await res.json();
+      if (body?.error) message = body.error;
+    } catch { /* keep default */ }
+    return { error: message };
+  }
+  return readIdeasStream(res, onProgress);
+}
+
+/** Assemble the suggest_recipe_ideas tool input from the SSE stream.
+ *  Exported for tests, like readRecipeStream. */
+export async function readIdeasStream(
+  res: Response,
+  onProgress?: ProgressCallback,
+): Promise<{ ideas?: RecipeIdea[]; error?: string }> {
+  const assembled = await readToolStreams(res, onProgress);
+  if (assembled.error) return { error: assembled.error };
+  const json = assembled.toolJson['suggest_recipe_ideas'] || assembled.toolJsonOpen['suggest_recipe_ideas'] || '';
+  if (!json) return { error: "I couldn't come up with ideas just now. Try again." };
+  try {
+    const parsed = JSON.parse(json) as { ideas?: unknown[] };
+    const ideas = (Array.isArray(parsed.ideas) ? parsed.ideas : [])
+      .map(normalizeIdea)
+      .filter((i): i is RecipeIdea => i !== null);
+    if (ideas.length === 0) return { error: "I couldn't come up with ideas just now. Try again." };
+    return { ideas };
+  } catch {
+    return { error: "I couldn't come up with ideas just now. Try again." };
+  }
+}
+
+/** Where a combined recipe came from — the provenance the recipe page
+ *  links. The canonical type lives with the data model. */
+export type CombinedSourceRef = CombinedFromRef;
+
+export type CombineSource =
+  | { kind: 'idea'; idea: RecipeIdea }
+  | { kind: 'recipe'; recipe: BuildRecipeInput; ref?: CombinedSourceRef };
+
+/**
+ * Merge 2–3 sources (ideas and/or full recipes) into one new recipe.
+ * The returned meal carries `combinedFrom` for every recipe source that
+ * supplied a ref — idea sources link nothing (there is nothing real to
+ * link) — and `createdWithAi` rides along from the normalizer as usual.
+ * Never throws.
+ */
+export async function combineRecipes(
+  sources: CombineSource[],
+  opts?: {
+    notes?: string;
+    constraints?: RecipeConstraints;
+    difficulty?: 'Easy' | 'Medium' | 'Hard';
+    signal?: AbortSignal;
+    onProgress?: ProgressCallback;
+  },
+): Promise<GenerateRecipeResult> {
+  const payload: Record<string, unknown> = {
+    combine: {
+      sources: sources.map((s) =>
+        s.kind === 'recipe' ? { kind: 'recipe', recipe: s.recipe } : { kind: 'idea', idea: s.idea }),
+      ...(opts?.notes?.trim() ? { notes: opts.notes.trim() } : {}),
+    },
+  };
+  if (opts?.difficulty) payload.difficulty = opts.difficulty;
+  if (opts?.constraints && Object.keys(opts.constraints).length > 0) payload.constraints = opts.constraints;
+  const { recipe, error } = await postRecipe(payload, opts?.signal, opts?.onProgress);
+  if (error) return { ok: false, error };
+  const meal = recipe ? buildRecipeInputToHomeMeal(recipe) : null;
+  if (!meal) return { ok: false, error: "I couldn't combine those. Try rephrasing what you want from each." };
+  const refs = sources
+    .filter((s): s is Extract<CombineSource, { kind: 'recipe' }> => s.kind === 'recipe')
+    .map((s) => s.ref)
+    .filter((r): r is CombinedSourceRef => !!r);
+  if (refs.length > 0) meal.combinedFrom = refs;
+  return { ok: true, meal, recipe };
+}
+
+/** A formal recipes-table row as a combine source. The row's flat shape
+ *  (string ingredients/steps, split minute fields) maps 1:1 onto the
+ *  model-facing input; body-less rows still combine fine on title +
+ *  description. */
+export function formalRecipeToBuildInput(r: {
+  title: string;
+  description?: string;
+  ingredients?: Array<{ name: string; amount?: string; unit?: string }>;
+  steps?: string[];
+  prepTimeMinutes?: number;
+  cookTimeMinutes?: number;
+  servings?: number;
+  difficulty?: string;
+  cuisine?: string;
+  tags?: string[];
+}): BuildRecipeInput {
+  return {
+    name: r.title,
+    summary: r.description || undefined,
+    cuisine: r.cuisine || undefined,
+    difficulty: (['Easy', 'Medium', 'Hard'].includes(r.difficulty || '') ? r.difficulty : undefined) as BuildRecipeInput['difficulty'],
+    prepTime: r.prepTimeMinutes || undefined,
+    cookTime: r.cookTimeMinutes || undefined,
+    servings: r.servings || undefined,
+    ingredients: r.ingredients && r.ingredients.length > 0
+      ? r.ingredients.map((i) => ({ name: i.name, amount: i.amount ?? '', unit: i.unit ?? '' }))
+      : undefined,
+    steps: r.steps && r.steps.length > 0 ? r.steps.map((body) => ({ body })) : undefined,
+    tags: r.tags && r.tags.length > 0 ? r.tags : undefined,
+  };
 }

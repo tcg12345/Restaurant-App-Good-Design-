@@ -1,5 +1,6 @@
 /**
- * Account lifecycle — currently just in-app account deletion.
+ * Account lifecycle: in-app account deletion, and attaching a phone
+ * number to an existing account.
  *
  * Apple's App Store Review Guideline 5.1.1(v) requires that apps with
  * account creation let users permanently delete the account (and its
@@ -19,6 +20,58 @@ import { clearSignedUrlCache, SIGNED_URL_CACHE_LS_KEY } from './signed-url-cache
  * the server session died with the account) so onAuthStateChange flips
  * the app to the signed-out screen.
  */
+/**
+ * Attach a phone number to the signed-in account — step 1 of 2.
+ *
+ * Texts a 6-digit code to `phone` (which MUST already be E.164 — see
+ * lib/phone.ts#toE164). Nothing is stored until `confirmPhoneChange`
+ * verifies that code, which is the whole point: an unverified number
+ * would let anyone claim someone else's, and once contact syncing is
+ * live that number is how friends find you. The verification is what
+ * makes discovery-by-phone spoof-proof.
+ */
+export async function addPhoneNumber(phone: string): Promise<{ ok: boolean; error?: string }> {
+  if (!supabaseConfigured) return { ok: false, error: 'Account service is not configured.' };
+  try {
+    const { error } = await supabase.auth.updateUser({ phone });
+    if (error) {
+      return {
+        ok: false,
+        error: /rate|seconds/i.test(error.message)
+          ? 'A code was sent recently — wait a minute before requesting another.'
+          : error.message,
+      };
+    }
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: String(err) };
+  }
+}
+
+/**
+ * Step 2 of 2: confirm the texted code and commit the number.
+ *
+ * `type: 'phone_change'` (not 'sms') — this is an update to an existing
+ * signed-in account, not a sign-in.
+ */
+export async function confirmPhoneChange(phone: string, code: string): Promise<{ ok: boolean; error?: string }> {
+  if (!supabaseConfigured) return { ok: false, error: 'Account service is not configured.' };
+  try {
+    const { error } = await supabase.auth.verifyOtp({ phone, token: code.trim(), type: 'phone_change' });
+    if (error) {
+      return {
+        ok: false,
+        error: /expired|invalid|token/i.test(error.message)
+          ? 'That code is invalid or expired — request a new one.'
+          : error.message,
+      };
+    }
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: String(err) };
+  }
+}
+
 export async function deleteAccount(): Promise<{ ok: boolean; error?: string }> {
   if (!supabaseConfigured) return { ok: false, error: 'Account service is not configured.' };
   try {

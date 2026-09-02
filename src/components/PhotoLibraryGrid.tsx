@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Image as ImageIcon, Play, Settings, RefreshCw, Check, Camera } from 'lucide-react';
 import { cn } from '../lib/utils';
+import { PermissionPrimer } from './PermissionPrimer';
 import {
   PhotoLibrary,
   type MediaItem,
@@ -161,6 +162,9 @@ export const PhotoLibraryGrid: React.FC<Props> = ({
         title="Show your photos here"
         body="Pick a photo or video from your library to share — right here, without leaving this screen."
         cta="Continue"
+        // Was the local component's default icon; the shared one takes no
+        // default, so pass it rather than losing the tinted circle.
+        icon={<ImageIcon size={22} />}
         onAction={requestPermission}
         className={className}
       />
@@ -273,30 +277,6 @@ export const PhotoLibraryGrid: React.FC<Props> = ({
     </div>
   );
 };
-
-const PermissionPrimer: React.FC<{
-  title: string;
-  body: string;
-  cta: string;
-  icon?: React.ReactNode;
-  onAction: () => void;
-  className?: string;
-}> = ({ title, body, cta, icon, onAction, className }) => (
-  <div className={cn('flex flex-col items-center justify-center text-center py-12 px-6', className)}>
-    <div className="w-14 h-14 rounded-full bg-primary/10 text-primary flex items-center justify-center mb-3">
-      {icon ?? <ImageIcon size={22} />}
-    </div>
-    <p className="font-serif font-bold text-[17px] leading-tight">{title}</p>
-    <p className="text-[12.5px] text-on-surface/55 mt-1.5 max-w-[280px] leading-relaxed">{body}</p>
-    <button
-      type="button"
-      onClick={onAction}
-      className="mt-4 px-5 py-2 rounded-full bg-primary text-white text-[13px] font-semibold"
-    >
-      {cta}
-    </button>
-  </div>
-);
 
 function formatDuration(seconds: number): string {
   const s = Math.max(0, Math.round(seconds));

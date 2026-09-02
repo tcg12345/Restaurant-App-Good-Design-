@@ -516,87 +516,55 @@
   color: var(--rcx-ink);
 }
 
-/* Prep | Cook — two wheel columns split by a hairline. */
-.rcx-tw-grid {
+/* Prep / Cook — two looping wheels side by side, a hairline between. */
+.rcx-time-card {
   display: grid;
-  grid-template-columns: 1fr 1px 1fr;
-  border-bottom: 1px solid #f0ede7;
+  grid-template-columns: 1fr 1fr;
+  padding: 12px 6px 10px;
 }
 
-.rcx-tw-divider { background: #f0ede7; }
-
-.rcx-tw-col {
-  padding: 13px 14px 10px;
-  min-width: 0;
-}
-
-.rcx-tw-head {
+.rcx-time-col {
   display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 8px;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+  padding: 0 8px;
 }
+.rcx-time-col + .rcx-time-col { border-left: 1px solid var(--rcx-hairline); }
 
-.rcx-tw-value {
-  font-family: var(--rcx-serif);
-  font-size: 14px;
-  font-weight: 700;
-  color: var(--rcx-ink);
-  white-space: nowrap;
-  transition: color 0.2s ease;
-}
-
-.rcx-tw-value.is-empty { color: var(--rcx-faint); }
-
-.rcx-tw-wheels {
-  position: relative;
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  margin-top: 6px;
-}
-
-/* Center selection pill behind both wheels of the pair. */
-.rcx-tw-wheels::before {
-  content: '';
-  position: absolute;
-  left: -4px;
-  right: -4px;
-  top: 50%;
-  height: 34px;
-  transform: translateY(-50%);
-  background: #f5f2ec;
-  border-radius: 10px;
-  pointer-events: none;
-}
-
-.rcx-tw-colon {
-  width: 10px;
+.rcx-time-col-label {
   text-align: center;
-  font-family: var(--rcx-serif);
-  font-size: 17px;
+  font-size: 10.5px;
   font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
   color: var(--rcx-faint);
-  flex-shrink: 0;
-  padding-bottom: 2px;
-  z-index: 1;
 }
 
+/* The wheel: rows fan out from the centre band (scale + opacity fall off
+   with distance, then the edge mask fades them out), the band is the one
+   thing that stays put. Pointer-driven, so no scroll chaining. */
 .rcx-wheel {
   position: relative;
-  flex: 1;
-  min-width: 0;
   overflow: hidden;
+  border-radius: 12px;
   touch-action: none;
-  cursor: ns-resize;
   user-select: none;
   -webkit-user-select: none;
-  border-radius: 8px;
+  cursor: grab;
   outline: none;
 }
+.rcx-wheel:active { cursor: grabbing; }
+.rcx-wheel:focus-visible { box-shadow: 0 0 0 2px rgba(159, 48, 18, 0.28); }
 
-.rcx-wheel:focus-visible {
-  box-shadow: inset 0 0 0 1.5px var(--rcx-accent);
+.rcx-wheel-band {
+  position: absolute;
+  left: 4px;
+  right: 4px;
+  top: 50%;
+  transform: translateY(-50%);
+  border-radius: 10px;
+  background: var(--rcx-chip);
 }
 
 .rcx-wheel-item {
@@ -604,42 +572,71 @@
   left: 0;
   right: 0;
   top: 50%;
-  height: 34px;
-  margin-top: -17px;
+  margin-top: -16px;           /* half the row height */
   display: flex;
   align-items: center;
   justify-content: center;
-  font-family: var(--rcx-serif);
-  font-size: 19px;
-  font-weight: 600;
-  color: var(--rcx-secondary);
+  font-size: 15px;
+  font-weight: 500;
   font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+  color: var(--rcx-secondary);
   will-change: transform, opacity;
   pointer-events: none;
 }
-
 .rcx-wheel-item.is-active { color: var(--rcx-ink); font-weight: 700; }
 
-.rcx-tw-caps {
+/* The running total moved up beside the section kicker — it was a line of
+   its own under the card, which is a lot of vertical space for one fact. */
+.rcx-kicker-total {
+  float: right;
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--rcx-secondary);
+}
+
+/* Servings — one row: label, and a capsule stepper on the right. */
+.rcx-serves-card {
   display: flex;
   align-items: center;
-  gap: 2px;
-  margin-top: 6px;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 10px 10px 16px;
 }
 
-.rcx-tw-caps span {
-  flex: 1;
+.rcx-stepper {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px;
+  border-radius: 999px;
+  background: var(--rcx-chip);
+}
+.rcx-stepper-btn {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--rcx-ink);
+  transition: background 0.15s ease, color 0.15s ease, transform 0.12s ease;
+}
+.rcx-stepper-btn:active:not(:disabled) { background: var(--rcx-card); transform: scale(0.94); }
+.rcx-stepper-btn:disabled { color: var(--rcx-faint); }
+.rcx-stepper-value {
+  min-width: 34px;
   text-align: center;
-  font-size: 10px;
+  font-family: var(--rcx-serif);
+  font-size: 17px;
   font-weight: 700;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  color: var(--rcx-faint);
+  font-variant-numeric: tabular-nums;
+  color: var(--rcx-ink);
 }
 
-/* Matches the colon's width so the captions sit under their wheels. */
-.rcx-tw-caps .rcx-tw-caps-sep { flex: 0 0 10px; }
-
+/* Still used by the AI dock's Serves menu. */
 .rcx-serves-row {
   display: flex;
   align-items: center;
@@ -677,16 +674,6 @@
 .rcx-round-btn:active:not(:disabled) { transform: scale(0.88); }
 .rcx-round-btn:disabled { opacity: 0.35; cursor: default; }
 
-.rcx-total-line {
-  display: flex;
-  justify-content: flex-end;
-  gap: 5px;
-  font-size: 12.5px;
-  color: var(--rcx-secondary);
-  margin-top: 8px;
-}
-
-.rcx-total-line strong { color: var(--rcx-ink); font-weight: 650; }
 
 /* ── Chips ──────────────────────────────────────────────────────── */
 
@@ -1555,11 +1542,22 @@
   flex: 1;
   min-height: 0;
   overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  /* The ideas grid scrolls HERE. Without containment a swipe past either
+     end chains to the document — the page behind the modal — and the
+     grid appears frozen while that page scrolls. */
+  overscroll-behavior: contain;
   display: flex;
-  align-items: center;
-  justify-content: center;
+  flex-direction: column;
+  /* Short states (hero, loading) centre themselves with margin:auto — NOT
+     align/justify-content:center on this box. Flex-centring a child taller
+     than its scroll container spills the overflow ABOVE the top edge, where
+     no scroll position can reach it: the ideas list painted from its middle
+     and could never be scrolled back up. */
   padding: 24px 26px;
 }
+.rcxa-canvas > .rcxa-hero,
+.rcxa-canvas > .rcx-ai-loading { margin: auto; }
 
 .rcxa-hero {
   display: flex;
@@ -1662,8 +1660,8 @@
   max-width: 640px;
   display: flex;
   flex-direction: column;
-  gap: 9px;
-  padding: 10px 16px calc(max(14px, env(safe-area-inset-bottom, 0px)) + var(--kb-height, 0px));
+  gap: 8px;
+  padding: 8px 14px calc(max(10px, env(safe-area-inset-bottom, 0px)) + var(--kb-height, 0px));
 }
 
 .rcxa-pills {
@@ -1683,13 +1681,13 @@
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  height: 32px;
+  height: 30px;
   padding: 0 11px;
   border-radius: 999px;
   border: 1px solid var(--rcx-hairline-strong);
   background: var(--rcx-card);
   color: #5b554d;
-  font-size: 12.5px;
+  font-size: 12px;
   font-weight: 650;
   white-space: nowrap;
   transition: border-color 0.16s ease, background 0.16s ease, color 0.16s ease;
@@ -1759,8 +1757,8 @@
   display: flex;
   align-items: flex-end;
   gap: 10px;
-  padding: 9px 9px 9px 16px;
-  border-radius: 26px;
+  padding: 6px 6px 6px 15px;
+  border-radius: 24px;
   background: var(--rcx-card);
   border: 1px solid var(--rcx-hairline-strong);
   box-shadow: 0 14px 40px -16px rgba(29, 26, 22, 0.22);
@@ -1787,8 +1785,8 @@
 
 .rcxa-send {
   flex-shrink: 0;
-  width: 38px;
-  height: 38px;
+  width: 36px;
+  height: 36px;
   border-radius: 999px;
   display: flex;
   align-items: center;
@@ -1823,7 +1821,7 @@
 }
 .rcxa-error svg { flex-shrink: 0; }
 
-.rcx.is-phone .rcxa-canvas { padding: 16px 22px; }
+.rcx.is-phone .rcxa-canvas { padding: 14px 16px; }
 .rcx.is-phone .rcxa-title { font-size: 24px; }
 .rcx.is-phone .rcxa-dock { max-width: none; }
 
@@ -2020,6 +2018,38 @@
   max-width: 300px;
   margin: 0;
 }
+
+/* Progress: a slim bar fed by the streamed size (lib/gen-progress), and
+   the projected time left under it. */
+.rcx-ai-progress {
+  width: min(240px, 100%);
+  margin-top: 16px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+.rcx-ai-progress-track {
+  width: 100%;
+  height: 4px;
+  border-radius: 999px;
+  background: var(--rcx-chip);
+  overflow: hidden;
+}
+.rcx-ai-progress-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: var(--rcx-accent);
+  transition: width 0.3s linear;
+}
+.rcx-ai-progress-label {
+  min-height: 16px;
+  font-size: 12px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--rcx-faint);
+}
+.dark .rcx-ai-progress-track { background: rgba(255, 255, 255, 0.1); }
 
 .rcx-ai-loading-secs {
   font-size: 12px;
@@ -2341,7 +2371,9 @@
 .dark .rcx-seg.is-done { background: color-mix(in srgb, var(--rcx-accent) 45%, #35353a); }
 .dark .rcx-title-input::placeholder { color: #55555a; }
 .dark .rcx input[type='range'] { background: #35353a; }
-.dark .rcx-tw-wheels::before { background: #2d2d30; }
+.dark .rcx-wheel-band { background: rgba(255, 255, 255, 0.07); }
+.dark .rcx-stepper { background: rgba(255, 255, 255, 0.06); }
+.dark .rcx-stepper-btn:active:not(:disabled) { background: rgba(255, 255, 255, 0.1); }
 .dark .rcx-round-btn { color: #a5a5ab; }
 .dark .rcx-chip { color: #a5a5ab; }
 .dark .rcx-chip-dash { border-color: #48484c; }
@@ -2396,3 +2428,261 @@
 .dark .rcx-choose-hint { color: #a0a0a6; }
 .dark .rcx-choose-chev { color: #6a6a70; }
 .dark .rcx-choose-card:hover { border-color: #ededed; box-shadow: 0 10px 28px rgba(0, 0, 0, 0.4); }
+
+/* ── Ideas mode (brainstorm grid + combine sheet + search sub-view) ── */
+
+/* Recipe ⇄ Ideas segment, centred in the header row between the method
+   chip and the close button. */
+.rcxa-mode {
+  display: flex;
+  flex-shrink: 0;
+  margin: 0 auto;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 999px;
+  background: var(--rcx-chip);
+}
+.rcxa-mode-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 11px;
+  border-radius: 999px;
+  border: none;
+  background: transparent;
+  color: var(--rcx-secondary);
+  font-size: 12px;
+  font-weight: 700;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+/* The selected tab is a solid ink pill — a white-on-chip pill read as
+   "slightly lighter", not "chosen". */
+.rcxa-mode-btn.is-on { background: var(--rcx-ink); color: var(--rcx-bg); }
+.rcxa-mode-btn svg { color: var(--rcx-accent); }
+.rcxa-mode-btn.is-on svg { color: inherit; }
+
+.rcxa-ideas-view {
+  width: 100%;
+  max-width: 640px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+}
+.rcxa-hero-ideas { margin: auto; }
+
+/* Batch header: the mood the ideas came from + how many are picked. */
+.rcxa-grid-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 2px 4px 10px;
+}
+.rcxa-grid-mood {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--rcx-serif);
+  font-style: italic;
+  font-size: 15px;
+  color: var(--rcx-ink);
+}
+.rcxa-grid-mood::first-letter { text-transform: uppercase; }
+.rcxa-grid-count { flex-shrink: 0; font-size: 11.5px; font-weight: 700; color: var(--rcx-faint); }
+
+/* The idea list — one card per row so a title never has to wrap four
+   deep, with the blurb clamped and the pick ring off to the side. The
+   card selects; the small "Find existing" in the footer searches instead. */
+.rcxa-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.rcxa-card {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 16px;
+  border-radius: 18px;
+  border: 1px solid var(--rcx-hairline);
+  background: var(--rcx-card);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.16s ease, background 0.16s ease, transform 0.16s ease, box-shadow 0.16s ease;
+}
+.rcxa-card:active { transform: scale(0.99); }
+.rcxa-card.is-on {
+  border-color: var(--rcx-accent);
+  box-shadow: inset 0 0 0 1px var(--rcx-accent);
+}
+.rcxa-card-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.rcxa-card-title {
+  font-family: var(--rcx-serif);
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 1.25;
+  letter-spacing: -0.01em;
+  color: var(--rcx-ink);
+}
+.rcxa-card-blurb {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--rcx-secondary);
+}
+.rcxa-card-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 3px; }
+.rcxa-card-meta {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--rcx-faint);
+}
+.rcxa-card-search {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 10px;
+  border: none;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--rcx-accent) 12%, transparent);
+  color: var(--rcx-accent);
+  font-size: 11px;
+  font-weight: 700;
+  transition: background 0.15s ease, transform 0.12s ease;
+}
+.rcxa-card-search:active { background: color-mix(in srgb, var(--rcx-accent) 20%, transparent); transform: scale(0.96); }
+.rcxa-card-check {
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  border: 1.5px solid var(--rcx-hairline-strong);
+  color: transparent;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+.rcxa-card-check.is-on { background: var(--rcx-accent); border-color: var(--rcx-accent); color: #fff; }
+
+/* The CTA row under the grid. */
+.rcxa-grid-cta {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 14px 0 6px;
+}
+.rcxa-more {
+  padding: 9px 16px;
+  border-radius: 999px;
+  border: 1px solid var(--rcx-hairline-strong);
+  background: transparent;
+  color: var(--rcx-secondary);
+  font-size: 12.5px;
+  font-weight: 700;
+  transition: color 0.15s ease, border-color 0.15s ease;
+}
+.rcxa-more:disabled { opacity: 0.55; }
+.rcxa-more:not(:disabled):active { color: var(--rcx-ink); border-color: var(--rcx-faint); }
+.rcxa-cta {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 10px 18px;
+  border: none;
+  border-radius: 999px;
+  background: var(--rcx-accent);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 700;
+  transition: opacity 0.15s ease, transform 0.15s ease;
+}
+.rcxa-cta:active { transform: scale(0.97); }
+@keyframes rcxaPulse { 0% { transform: scale(1); } 40% { transform: scale(1.12); } 100% { transform: scale(1); } }
+.rcxa-cta-count { display: inline-block; animation: rcxaPulse 0.3s ease; }
+
+/* ── Combine sheet — centered card over the generator, same layer idea. ── */
+.rcxa-combine-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(20, 17, 14, 0.4);
+  backdrop-filter: blur(4px);
+}
+.rcxa-combine-sheet {
+  width: 100%;
+  max-width: 440px;
+  padding: 20px 20px 16px;
+  border-radius: 20px;
+  background: #fff;
+  box-shadow: 0 24px 60px -18px rgba(20, 17, 14, 0.45);
+}
+.rcxa-combine-title {
+  font-family: var(--rcx-serif);
+  font-size: 17px;
+  font-weight: 700;
+  line-height: 1.25;
+  letter-spacing: -0.01em;
+  color: var(--rcx-ink);
+}
+.rcxa-combine-sub { margin-top: 6px; font-size: 12.5px; color: var(--rcx-secondary); }
+.rcxa-combine-sub span { color: var(--rcx-faint); }
+.rcxa-combine-notes {
+  width: 100%;
+  margin-top: 10px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid var(--rcx-hairline-strong);
+  background: var(--rcx-chip);
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--rcx-ink);
+  resize: none;
+}
+.rcxa-combine-notes:focus { outline: none; border-color: var(--rcx-faint); background: #fff; }
+.rcxa-combine-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 14px;
+}
+.rcxa-combine-actions .rcxa-cancel { margin-top: 0; }
+.rcxa-combine-progress {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 18px 0 6px;
+  text-align: center;
+}
+.rcxa-combine-progress p { font-size: 13px; font-weight: 600; color: var(--rcx-secondary); }
+
+/* Dark mode for the new surfaces. */
+.dark .rcxa-mode-btn.is-on { background: #f2f2f4; color: #1c1c1f; }
+.dark .rcxa-card { background: rgba(255, 255, 255, 0.04); border-color: rgba(255, 255, 255, 0.07); }
+.dark .rcxa-card.is-on { background: rgba(255, 255, 255, 0.07); border-color: var(--rcx-accent); }
+.dark .rcxa-grid-mood { color: #f2f2f4; }
+.dark .rcxa-card-search { background: color-mix(in srgb, var(--rcx-accent) 20%, transparent); color: #f2c4b3; }
+.dark .rcxa-card-search:active { background: color-mix(in srgb, var(--rcx-accent) 30%, transparent); }
+.dark .rcxa-combine-sheet { background: #232326; }
+/* The light theme brightens the notes field to white on focus; flipping to
+   white in dark mode leaves the (now light) ink color unreadable on it. */
+.dark .rcxa-combine-notes:focus { background: #2d2d30; }
+.dark .rcxa-cancel:hover { background: transparent; }

@@ -11,6 +11,7 @@ import { usePosts, type Post, type PostItemRow } from '../contexts/PostsContext'
 import { useSettings } from '../contexts/SettingsContext';
 import { useToast } from '../contexts/ToastContext';
 import { useSignInModal } from '../contexts/SignInModalContext';
+import { parseCommentSegments, replyDraftFor } from '../lib/comment-text';
 import { useAuth } from '../contexts/AuthContext';
 import { pickAvatarColor, initialsFor } from '../lib/avatar';
 import { ShareDialog } from '../components/ShareDialog';
@@ -22,6 +23,7 @@ import { RestaurantPanel, type RestaurantPanelSnapshot } from '../components/Res
 import { RecipePanel, type RecipePanelSnapshot } from '../components/RecipePanel';
 import { followPublicAccount, removeFriend } from '../lib/supabase-community';
 import { useBottomSheet } from '../lib/useBottomSheet';
+import { keyboardLiftSheetStyle } from '../lib/keyboard-sheet';
 import { addScrollSettleListener } from '../lib/scroll-settle';
 import { Collapse } from '../components/Collapse';
 
@@ -1396,11 +1398,15 @@ export const CommentsBody: React.FC<CommentsBodyProps> = ({ targetId, onClose, v
   // Bumped by "Try again" to re-run the load effect.
   const [retryTick, setRetryTick] = useState(0);
   const [posting, setPosting] = useState(false);
-  // ── Replies (one level deep) ──
-  const [replyingTo, setReplyingTo] = useState<string | null>(null);
-  const [replyDraft, setReplyDraft] = useState('');
-  const [replyPosting, setReplyPosting] = useState(false);
+  /* ── Replies (one level deep, Instagram's model) ──
+     There is no per-comment reply box any more. Tapping Reply anywhere in
+     a thread points the ONE composer at that thread and seeds the draft
+     with "@handle " — which is also what makes replying to a REPLY work:
+     the row attaches to the same top-level parent (threads never nest
+     deeper), and the @mention is what says who is being answered. */
+  const [replyTarget, setReplyTarget] = useState<{ parentId: string; username: string } | null>(null);
   const [expandedThreads, setExpandedThreads] = useState<Set<string>>(new Set());
+  const composerRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -1426,38 +1432,38 @@ export const CommentsBody: React.FC<CommentsBodyProps> = ({ targetId, onClose, v
       requireSignIn('Sign in to comment');
       return;
     }
+    const parentId = replyTarget?.parentId ?? null;
     setPosting(true);
-    const c = await addComment(targetId, draft, null);
+    const c = await addComment(targetId, draft, parentId);
     setPosting(false);
-    if (c) {
-      setComments((prev) => [c, ...prev]);
-      setDraft('');
-    } else {
-      showToast("Couldn't post comment");
+    if (!c) {
+      showToast(parentId ? "Couldn't post reply" : "Couldn't post comment");
+      return;
     }
+    // A reply joins its thread (which opens so you can see it land); a new
+    // comment goes to the top, where the newest-first list starts.
+    setComments((prev) => (parentId ? [...prev, c] : [c, ...prev]));
+    if (parentId) setExpandedThreads((prev) => new Set(prev).add(parentId));
+    setDraft('');
+    setReplyTarget(null);
   };
 
-  const startReply = (commentId: string) => {
+  /* Reply to anyone in a thread. `parentId` is the TOP-LEVEL comment even
+     when replying to a reply — one level of nesting, and the @mention
+     carries who is being answered. Focus moves in the same gesture, which
+     is what lets iOS raise the keyboard. */
+  const startReply = (parentId: string, username?: string) => {
     if (!currentUserId) { requireSignIn('Sign in to reply'); return; }
-    setReplyingTo((prev) => (prev === commentId ? null : commentId));
-    setReplyDraft('');
+    setReplyTarget({ parentId, username: username || '' });
+    setExpandedThreads((prev) => new Set(prev).add(parentId));
+    const prefix = replyDraftFor(username);
+    setDraft((prev) => (prev.trim() && prev.startsWith('@') ? prefix + prev.replace(/^@[A-Za-z0-9_]+\s*/, '') : prefix + prev));
+    composerRef.current?.focus();
   };
 
-  const onSubmitReply = async (parentId: string) => {
-    if (!replyDraft.trim() || replyPosting) return;
-    if (!currentUserId) { requireSignIn('Sign in to reply'); return; }
-    setReplyPosting(true);
-    const c = await addComment(targetId, replyDraft, parentId);
-    setReplyPosting(false);
-    if (c) {
-      // Append; the topLevel / repliesByParent split places it under its parent.
-      setComments((prev) => [...prev, c]);
-      setReplyDraft('');
-      setReplyingTo(null);
-      setExpandedThreads((prev) => new Set(prev).add(parentId));
-    } else {
-      showToast("Couldn't post reply");
-    }
+  const cancelReply = () => {
+    setReplyTarget(null);
+    setDraft((prev) => prev.replace(/^@[A-Za-z0-9_]+\s*/, ''));
   };
 
   const toggleThread = (commentId: string) => {
@@ -1508,85 +1514,73 @@ export const CommentsBody: React.FC<CommentsBodyProps> = ({ targetId, onClose, v
   const myAvatarCls = currentUserId ? pickAvatarColor(currentUserId) : 'bg-on-surface/20';
   const myInitials = currentUserId ? initialsFor(myName) : 'U';
 
-  const renderRow = (c: UnifiedComment, isReply: boolean): React.ReactNode => {
+  /** Comment text with its @mentions lit up — the convention only reads as
+   *  a convention if the handle looks like a link to a person. */
+  const renderBody = (body: string) => parseCommentSegments(body).map((seg, i) =>
+    seg.type === 'mention'
+      ? <span key={i} className="font-semibold text-primary">{seg.value}</span>
+      : <React.Fragment key={i}>{seg.value}</React.Fragment>,
+  );
+
+  /* One comment. Instagram's anatomy: avatar, then name and time on ONE
+     line, the text under it, and a quiet action row under that — instead
+     of the old stack where the handle, the time and the body each took a
+     line of their own and every row looked like a paragraph.
+
+     `parentId` is what a Reply from this row should attach to: a
+     top-level comment replies to itself, a reply replies to its parent. */
+  const renderRow = (c: UnifiedComment, isReply: boolean, parentId?: string): React.ReactNode => {
     const replies = !isReply ? (repliesByParent[c.id] || []) : [];
     const expanded = expandedThreads.has(c.id);
-    const replying = replyingTo === c.id;
+    const handle = c.author?.username || c.userId.slice(0, 8);
+    const threadId = isReply ? (parentId as string) : c.id;
+    const isTarget = replyTarget?.parentId === threadId;
     return (
-      <div key={c.id} className={cn('flex items-start gap-3', isReply && 'mt-3')}>
+      <div key={c.id} className={cn('flex items-start gap-3', isReply ? 'pt-3' : 'pt-4 first:pt-1')}>
         <div className={cn(
           'rounded-full flex items-center justify-center text-white font-bold flex-shrink-0',
-          isReply ? 'w-7 h-7 text-[10px]' : 'w-9 h-9 text-xs',
+          isReply ? 'w-7 h-7 text-[10px]' : 'w-9 h-9 text-[12px]',
           c.author?.avatarColor || 'bg-stone-500',
         )}>
           {c.author?.initials || c.userId.slice(0, 2).toUpperCase()}
         </div>
         <div className="flex-1 min-w-0">
-          <div className="flex items-baseline gap-2 flex-wrap">
-            <span className={cn('text-[13px] font-bold truncate', usernameCls)}>@{c.author?.username || c.userId.slice(0, 8)}</span>
-            {c.author?.isExpert && (
-              <span className="inline-flex items-center gap-0.5 px-1 py-0 rounded-sm bg-primary/10 text-primary text-[9px] font-bold"><VerifiedBadge size={10} />VERIFIED</span>
-            )}
-            <span className={cn('text-[11px]', muteCls)}>{formatRelativeTime(c.createdAt)}</span>
+          {/* Name and time share the line; the body starts under them. */}
+          <div className="flex items-center gap-1.5 min-w-0">
+            <span className={cn('truncate text-[13px] font-bold leading-tight', usernameCls)}>{handle}</span>
+            {c.author?.isExpert && <VerifiedBadge size={12} className="flex-none" />}
+            <span className={cn('flex-none text-[11.5px] leading-tight', muteCls)}>{formatRelativeTime(c.createdAt)}</span>
           </div>
-          <p className={cn('selectable text-[14px] leading-snug whitespace-pre-wrap break-words', bodyTextCls)}>{c.body}</p>
+          <p className={cn('selectable mt-[3px] text-[13.5px] leading-[1.45] whitespace-pre-wrap break-words', bodyTextCls)}>
+            {renderBody(c.body)}
+          </p>
+          {/* Every row can be replied to — replying to a REPLY is the whole
+              point of seeding the draft with their handle. */}
+          <button
+            type="button"
+            onClick={() => startReply(threadId, c.author?.username)}
+            className={cn(
+              'mt-1.5 text-[12px] font-bold transition-colors',
+              isTarget ? 'text-on-surface' : 'text-on-surface/45 active:text-on-surface/70',
+            )}
+          >
+            Reply
+          </button>
 
-          {/* Reply action — top-level only (threads are one level deep). */}
-          {!isReply && (
-            <button
-              type="button"
-              onClick={() => startReply(c.id)}
-              className={cn('mt-1 text-[12px] font-bold transition-colors', replying ? 'text-on-surface' : 'text-on-surface/45 hover:text-on-surface/70')}
-            >
-              Reply
-            </button>
-          )}
-
-          {/* Reply composer — same embedded-send pill as the main box */}
-          {!isReply && replying && (
-            <div className="mt-2 flex items-center h-9 rounded-full bg-on-surface/[0.05] pl-3.5 pr-1 transition-colors focus-within:bg-on-surface/[0.08] focus-within:ring-2 focus-within:ring-on-surface/10">
-              <input
-                value={replyDraft}
-                onChange={(e) => setReplyDraft(e.target.value)}
-                onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); onSubmitReply(c.id); } }}
-                placeholder={`Reply to @${c.author?.username || 'user'}…`}
-                autoFocus
-                maxLength={500}
-                className="flex-1 min-w-0 bg-transparent text-[13px] text-on-surface placeholder:text-on-surface/40 focus:outline-none"
-              />
-              <button
-                type="button"
-                onClick={() => onSubmitReply(c.id)}
-                disabled={!replyDraft.trim() || replyPosting}
-                className={cn(
-                  'w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 transition-all duration-200',
-                  replyDraft.trim() && !replyPosting
-                    ? 'bg-primary text-white scale-100'
-                    : 'bg-on-surface/[0.07] text-on-surface/30 scale-90 cursor-not-allowed',
-                )}
-                aria-label="Post reply"
-              >
-                {replyPosting ? <Loader2 size={12} className="animate-spin" /> : <ArrowUp size={13} strokeWidth={2.6} />}
-              </button>
-            </div>
-          )}
-
-          {/* "View N replies" toggle + nested thread */}
+          {/* The thread. A rule then a count, Instagram's own shape — the
+              line is what turns "View 2 replies" from a stray link into
+              the head of a branch. */}
           {!isReply && replies.length > 0 && (
             <>
               <button
                 type="button"
                 onClick={() => toggleThread(c.id)}
-                className="mt-2 inline-flex items-center gap-1 text-[12px] font-bold text-on-surface/55 hover:text-on-surface/80 transition-colors"
+                className="mt-2 flex items-center gap-2.5 text-[12px] font-bold text-on-surface/50 active:text-on-surface/75 transition-colors"
               >
-                <ChevronDown size={13} className={cn('transition-transform', expanded && 'rotate-180')} />
+                <span className="w-6 h-px bg-on-surface/20" aria-hidden />
                 {expanded ? 'Hide replies' : `View ${replies.length} ${replies.length === 1 ? 'reply' : 'replies'}`}
               </button>
-              {expanded && (
-                <div className="mt-1 border-l-2 border-on-surface/[0.07] pl-3">
-                  {replies.map((r) => renderRow(r, true))}
-                </div>
-              )}
+              {expanded && <div>{replies.map((r) => renderRow(r, true, c.id))}</div>}
             </>
           )}
         </div>
@@ -1594,7 +1588,7 @@ export const CommentsBody: React.FC<CommentsBodyProps> = ({ targetId, onClose, v
           <button
             type="button"
             onClick={() => onDeleteOne(c.id)}
-            className={cn('hit-44 p-1 hover:text-rose-500', muteCls)}
+            className={cn('hit-44 flex-none p-1 -mt-0.5 active:text-rose-500 transition-colors', muteCls)}
             aria-label="Delete comment"
           >
             <Trash2 size={14} />
@@ -1627,7 +1621,7 @@ export const CommentsBody: React.FC<CommentsBodyProps> = ({ targetId, onClose, v
       </div>
 
       {/* List */}
-      <div ref={scrollRef} className="flex-1 min-h-0 overflow-y-auto px-5 py-3 space-y-4">
+      <div ref={scrollRef} className="flex-1 min-h-0 overflow-y-auto px-5 pt-1 pb-4">
         {loading ? (
           <div className={cn('flex items-center justify-center py-8', muteCls)}>
             <Loader2 size={20} className="animate-spin" />
@@ -1660,6 +1654,24 @@ export const CommentsBody: React.FC<CommentsBodyProps> = ({ targetId, onClose, v
       {/* Composer — emoji quick-row, then your avatar + a pill with the
           send button embedded inside it (iMessage-style arrow). */}
       <div className={cn('border-t flex-shrink-0', composerBorderCls)}>
+        {/* Which thread the composer is pointed at. Without it the only
+            sign you were replying rather than commenting would be the
+            "@handle" you could freely delete. */}
+        {replyTarget && (
+          <div className="flex items-center gap-2 px-5 py-2 bg-on-surface/[0.04] border-b border-on-surface/[0.06]">
+            <span className="flex-1 min-w-0 truncate text-[12px] text-on-surface/55">
+              Replying to <span className="font-semibold text-on-surface/80">@{replyTarget.username || 'this thread'}</span>
+            </span>
+            <button
+              type="button"
+              onClick={cancelReply}
+              className="hit-44-y flex-none w-6 h-6 rounded-full grid place-items-center text-on-surface/45 active:text-on-surface transition-colors"
+              aria-label="Cancel reply"
+            >
+              <X size={13} strokeWidth={2.4} />
+            </button>
+          </div>
+        )}
         {currentUserId && (
           <div className="flex items-center justify-between px-5 pt-2.5">
             {QUICK_EMOJI.map((e) => (
@@ -1682,13 +1694,16 @@ export const CommentsBody: React.FC<CommentsBodyProps> = ({ targetId, onClose, v
           </div>
           <div className="flex-1 min-w-0 flex items-center h-11 rounded-full bg-on-surface/[0.05] pl-4 pr-1.5 transition-colors focus-within:bg-on-surface/[0.08] focus-within:ring-2 focus-within:ring-on-surface/10">
             <input
+              ref={composerRef}
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
               onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); onSubmit(); } }}
               // Guests can tap the box to be prompted to sign in (readOnly stops
               // typing); never a silent dead-end.
               onMouseDown={() => { if (!currentUserId) requireSignIn('Sign in to comment'); }}
-              placeholder={currentUserId ? 'Add a comment…' : 'Sign in to comment'}
+              placeholder={!currentUserId ? 'Sign in to comment'
+                : replyTarget ? `Reply to @${replyTarget.username || 'thread'}…`
+                : 'Add a comment…'}
               readOnly={!currentUserId}
               disabled={posting}
               maxLength={500}
@@ -1704,7 +1719,7 @@ export const CommentsBody: React.FC<CommentsBodyProps> = ({ targetId, onClose, v
                   ? 'bg-primary text-white scale-100'
                   : 'bg-on-surface/[0.07] text-on-surface/30 scale-90 cursor-not-allowed',
               )}
-              aria-label="Post comment"
+              aria-label={replyTarget ? 'Post reply' : 'Post comment'}
             >
               {posting ? <Loader2 size={14} className="animate-spin" /> : <ArrowUp size={15} strokeWidth={2.6} />}
             </button>
@@ -1747,7 +1762,7 @@ const CommentsSheet: React.FC<CommentsSheetProps> = ({ targetId, onClose, loadCo
             // --kb-height lifts the bottom-pinned composer above the iOS
             // keyboard (Capacitor Keyboard resize:"none" — the WebView never
             // resizes itself, so without this the user types blind).
-            style={{ height: '78%', paddingBottom: 'var(--kb-height, 0px)' }}
+            style={keyboardLiftSheetStyle('78%')}
           >
             <div className="pt-2.5 pb-1 flex justify-center">
               <span className="w-9 h-1 rounded-full bg-on-surface/15" />
@@ -2504,6 +2519,11 @@ export const Reels: React.FC = () => {
       coverMediaType: cover?.mediaType,
       bgGradient: cover?.bgGradient || 'from-stone-800 to-stone-900',
       itemCount: post.items.length,
+      items: post.items.map((it) => ({
+        kind: it.attachedKind ?? it.mediaType,
+        name: it.restaurant?.name || it.recipe?.title,
+        caption: it.caption || undefined,
+      })),
     };
   };
   const handleSharePost = (post: Post) => {

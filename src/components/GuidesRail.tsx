@@ -1,7 +1,7 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
 import { BookOpen, Plus, ChevronRight } from 'lucide-react';
-import { cn } from '../lib/utils';
+import { CardMedia } from './cards/CardMedia';
 import type { Guide } from '../lib/supabase-guides';
 import type { UserProfile } from '../lib/supabase-community';
 
@@ -9,11 +9,15 @@ import type { UserProfile } from '../lib/supabase-community';
  * "Guides for you" — the horizontal guides rail that slides INTO the feed
  * (via SocialFeed's `inlineSlot`) instead of stacking above it.
  *
- * The card used to be a bordered surface with the photograph on top and the
- * title, the author and the stats stacked underneath in three separate
- * rows — a small page, four elements tall, for what is one thing. It is one
- * thing now: the photograph *is* the card, and the title and byline sit
- * inside it over a gradient, with the count as a chip in the corner.
+ * The title lives back on the photo (on request — square cover, name over
+ * the image), but not the way an earlier version of this card did it: that
+ * one gave the overlay a FIXED height, and a title long enough to need its
+ * full two lines had the second line's tail (ellipsis included) sliced off
+ * by that box's own overflow clip, not just truncated. This overlay has no
+ * height of its own — it grows upward from `bottom-0` to fit exactly
+ * whatever `line-clamp-2` decides to keep, which on a 148px-tall square
+ * image never comes close to the top edge, so there is nothing left for
+ * CardMedia's rounded-corner clip to cut into.
  */
 
 interface GuidesRailProps {
@@ -24,20 +28,19 @@ interface GuidesRailProps {
 }
 
 /** The dashed tile that starts a guide of your own — the trailing card in a
- *  populated rail. Centred, not bottom-aligned: the guide cards beside it
- *  push their text to the bottom because a photograph fills the space above
- *  it, and this one has no photograph, so the same alignment just read as a
- *  card whose image failed to load. */
+ *  populated rail. Fixed at 148px, the same square the guide cards beside
+ *  it are, since the byline underneath them is its own row and isn't part
+ *  of the height this tile needs to match. */
 const BuildYourOwn: React.FC<{ onCreate: () => void }> = ({ onCreate }) => (
   <button
     type="button"
     onClick={onCreate}
-    className="flex-none w-[132px] h-[116px] rounded-[22px] border border-dashed border-on-surface/25 flex flex-col items-center justify-center gap-2 px-3 text-center active:bg-on-surface/[0.05] transition-colors"
+    className="flex-none w-[112px] h-[148px] rounded-[20px] border border-dashed border-on-surface/25 flex flex-col items-center justify-center gap-2 px-3 text-center active:bg-on-surface/[0.05] transition-colors"
   >
     <span className="w-[30px] h-[30px] rounded-full bg-primary/10 text-primary flex items-center justify-center">
       <Plus size={15} strokeWidth={2.1} />
     </span>
-    <span className="text-on-surface" style={{ fontSize: '13px', fontWeight: 700, lineHeight: 1.15, letterSpacing: '-0.02em' }}>
+    <span className="text-on-surface" style={{ fontSize: '12.5px', fontWeight: 700, lineHeight: 1.2, letterSpacing: '-0.02em' }}>
       Build your own
     </span>
   </button>
@@ -98,39 +101,47 @@ export const GuidesRail: React.FC<GuidesRailProps> = ({ guides, authors, onBrows
       {guides.map((g) => {
         const author = authors[g.userId];
         const authorName = author?.display_name || author?.username || 'someone';
-        const byline = [
-          `by ${authorName}`,
-          g.avgScore != null ? `avg ${g.avgScore.toFixed(1)}` : null,
-        ].filter(Boolean).join(' · ');
         return (
-          <Link key={g.id} to={`/guides/${g.id}`} className="flex-none w-[172px] snap-start active:opacity-75 transition-opacity">
-            <div className="relative h-[116px] rounded-[22px] overflow-hidden bg-on-surface/[0.06]">
-              {g.coverPhoto ? (
-                <img src={g.coverPhoto} alt="" className="absolute inset-0 w-full h-full object-cover" referrerPolicy="no-referrer" />
-              ) : (
-                <span className="absolute inset-0 flex items-center justify-center text-on-surface/20">
-                  <BookOpen size={30} strokeWidth={1.5} />
-                </span>
-              )}
-              <span
-                className="absolute inset-0"
-                style={{ background: 'linear-gradient(to top, rgba(18,15,14,0.66), rgba(18,15,14,0.04))' }}
-              />
-              <span
-                className="absolute top-2.5 left-2.5 rounded-full bg-black/50 backdrop-blur-md text-white px-[9px] py-1.5"
-                style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase' }}
-              >
-                Guide · {g.entries.length} {g.type === 'recipes' ? 'recipes' : 'spots'}
-              </span>
-              <span className="absolute left-3.5 right-3.5 bottom-3">
-                <span className="block line-clamp-2 text-white" style={{ fontSize: '16px', fontWeight: 700, lineHeight: 1.12, letterSpacing: '-0.028em' }}>
-                  {g.title}
-                </span>
-                <span className="mt-1.5 block truncate text-white/75" style={{ fontSize: '11.5px', lineHeight: 1 }}>
-                  {byline}
-                </span>
-              </span>
-            </div>
+          <Link key={g.id} to={`/guides/${g.id}`} className="group flex-none w-[148px] snap-start active:opacity-80 transition-opacity">
+            <CardMedia
+              src={g.coverPhoto}
+              alt=""
+              aspect="square"
+              rounded="2xl"
+              zoomOnHover
+              placeholder={
+                <div className="flex h-full w-full items-center justify-center bg-primary/[0.07] text-primary/35">
+                  <BookOpen size={26} strokeWidth={1.5} />
+                </div>
+              }
+              overlay={
+                <>
+                  <span
+                    className="absolute top-2.5 left-2.5 rounded-full bg-black/55 backdrop-blur-md text-white px-2 py-1"
+                    style={{ fontSize: '9.5px', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase' }}
+                  >
+                    {g.entries.length} {g.type === 'recipes' ? 'recipes' : 'spots'}
+                  </span>
+                  {/* No height of its own — grows from the bottom edge to
+                      fit whatever line-clamp-2 keeps, so there's nothing
+                      for CardMedia's own rounded clip to cut into. */}
+                  <div
+                    className="absolute inset-x-0 bottom-0 px-2.5 pb-2.5 pt-8"
+                    style={{ background: 'linear-gradient(to top, rgba(0,0,0,0.72), rgba(0,0,0,0.32) 55%, rgba(0,0,0,0) 100%)' }}
+                  >
+                    <h3
+                      className="line-clamp-2 font-serif text-white"
+                      style={{ fontSize: '13.5px', fontWeight: 700, lineHeight: 1.25, letterSpacing: '-0.01em', textShadow: '0 1px 4px rgba(0,0,0,0.35)' }}
+                    >
+                      {g.title}
+                    </h3>
+                  </div>
+                </>
+              }
+            />
+            <p className="mt-1.5 truncate text-[11.5px] text-on-surface/45">
+              by {authorName}
+            </p>
           </Link>
         );
       })}

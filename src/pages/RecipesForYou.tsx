@@ -653,8 +653,7 @@ export const RecipesForYou: React.FC<RecipesForYouProps> = ({ embedded = false, 
   }, [displayRecipes, allTags]);
 
   const goToRecipe = useCallback((r: Recipe) => {
-    if (r.userId) navigate(`/recipe/${r.userId}/${r.id}`);
-    else navigate(`/recipe/${r.id}`);
+    navigate(r.userId ? `/recipe/${r.userId}/${r.id}` : `/recipe/${r.id}`);
   }, [navigate]);
 
   // ── Mobile layout (rendered when phoneMode is true) ─────────────
