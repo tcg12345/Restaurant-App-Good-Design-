@@ -26,8 +26,11 @@ import { useReels } from '../contexts/ReelsContext';
 import { usePosts } from '../contexts/PostsContext';
 import { useGuideCreator } from '../contexts/GuideCreatorContext';
 import { useHomeLocation } from '../contexts/HomeLocationContext';
+import { buildTasteProfile } from '../lib/recommendations';
+import { getTasteQuiz, saveTasteQuiz, type TasteQuizAnswers } from '../lib/taste-quiz';
+import { sampleRatings, buildTasteSummary, searchRatings } from '../lib/assistant-taste';
 import { useAssistantContext, type AssistantPageContext } from '../contexts/AssistantContext';
-import { searchPlacesByTextPaged } from '../lib/places';
+import { searchPlacesByTextPaged, CUISINE_TYPES } from '../lib/places';
 import { isAllowedAppPath } from '../lib/app-routes';
 import { ugc, UGC_MAX_NAME } from '../lib/ugc';
 import { michelinNearby, michelinByName, michelinToPlaceResult, michelinDistinctionLabel, michelinPriceDisplay, type MichelinInfo } from '../lib/michelin';
@@ -421,10 +424,15 @@ export const AppAssistant: React.FC = () => {
     if (auth.profile.username) ctx.username = auth.profile.username;
     if (auth.profile.home_city) ctx.homeCity = auth.profile.home_city;
 
-    // Top rated — sorted descending by score, capped at 50.
+    /* A USEFUL sample, not a highlight reel — their best, their worst and
+       their most recent, with the TRUE total alongside so the prompt can
+       say it's a sample instead of implying the list is everything they
+       have (see lib/assistant-taste). */
     if (lists.ratings.length > 0) {
-      const sorted = [...lists.ratings].sort((a, b) => (b.score ?? 0) - (a.score ?? 0)).slice(0, 50);
-      ctx.topRated = sorted.map((r) => ({
+      const sample = sampleRatings(lists.ratings, 60);
+      ctx.ratedTotal = sample.total;
+      ctx.ratedTruncated = sample.truncated;
+      ctx.topRated = sample.rows.map((r) => ({
         id: r.restaurantId,
         name: r.name || 'Unnamed',
         score: typeof r.score === 'number' ? r.score : undefined,
@@ -466,8 +474,29 @@ export const AppAssistant: React.FC = () => {
       }
       if (out.length > 0) ctx.recipes = out;
     }
+
+    /* ── Who they are, and what their taste actually is ──────────────
+       The chat used to get a list of restaurant names and infer the rest.
+       This hands it the SAME computed profile the recommendation engine
+       ranks with, so "what's my taste like?" is a fact it can read rather
+       than a guess, and a 7/10 from a tough grader stops reading like a
+       7/10 from a generous one. */
+    const quiz = getTasteQuiz(auth.profile);
+    const profile = buildTasteProfile(lists.ratings, lists.wishlist, lists.lists, [], quiz);
+    ctx.taste = buildTasteSummary(profile, quiz);
+    if (profile.topCuisines.length > 0) ctx.topCuisines = profile.topCuisines.slice(0, 6);
+
+    ctx.account = {
+      ratingCount: lists.ratings.length,
+      wishlistCount: lists.wishlist.length,
+      listCount: lists.lists.length,
+      recipeCount: recipes.myRecipes.length,
+      homeLocation: homeLocation.location?.label || undefined,
+      bio: auth.profile.bio || undefined,
+    };
+
     return ctx;
-  }, [auth.profile, lists.ratings, lists.wishlist, recipes.myRecipes]);
+  }, [auth.profile, lists.ratings, lists.wishlist, lists.lists, recipes.myRecipes, homeLocation.location]);
 
   /* ── knownPlaces (rated + wishlist) — the page-published build is
        preferred below when present ───────────────────────────────── */
@@ -809,6 +838,102 @@ export const AppAssistant: React.FC = () => {
   // AI chat: query the bundled Michelin dataset (stars / Bib / Selected).
   // Local-only — no Google/web calls. Resolves the requested city (or the
   // user's current/home coords) and pulls matching restaurants.
+  /* ── search_my_ratings ────────────────────────────────────────────
+     The whole history, not the prompt's sample. This is what turns "I
+     don't think you've rated anywhere in Boston" from a guess into an
+     answer — the tool reports the true match count and the true total. */
+  const handleSearchMyRatings = useCallback(async (opts: {
+    query?: string; cuisine?: string; minScore?: number; maxScore?: number;
+    sort?: 'score' | 'recent'; limit?: number;
+  }) => {
+    const res = searchRatings(lists.ratings, opts);
+    return {
+      rows: res.rows.map((r) => ({
+        id: r.restaurantId,
+        name: r.name || 'Unnamed',
+        score: typeof r.score === 'number' ? r.score : undefined,
+        cuisine: r.cuisine || undefined,
+        where: r.address || undefined,
+      })),
+      matched: res.matched,
+      total: lists.ratings.length,
+    };
+  }, [lists.ratings]);
+
+  /* ── update_taste_profile ─────────────────────────────────────────
+     Writes the STATED half of the taste profile (the quiz answers the
+     recommendation engine blends in as priors). Add/remove semantics
+     rather than whole-object replacement, so a partial call can't wipe
+     answers the user gave months ago; unknown cuisine labels are dropped
+     and reported rather than silently written, because a label the
+     catalogue doesn't contain is a prior that can never match anything. */
+  const handleUpdateTasteProfile = useCallback(async (patch: {
+    addCuisines?: string[]; removeCuisines?: string[];
+    addAvoid?: string[]; removeAvoid?: string[];
+    dietary?: string[]; pricePrimary?: number; priceSecondary?: number;
+    atmosphere?: string; city?: string;
+  }) => {
+    const canonical = new Map<string, string>(
+      CUISINE_TYPES.map((c) => [c.label.toLowerCase(), c.label] as [string, string]),
+    );
+    const rejected: string[] = [];
+    const clean = (arr?: string[]) => (arr || []).reduce<string[]>((acc, raw) => {
+      const hit = canonical.get(raw.trim().toLowerCase());
+      if (hit) { if (!acc.includes(hit)) acc.push(hit); } else rejected.push(raw);
+      return acc;
+    }, []);
+
+    const current: TasteQuizAnswers = getTasteQuiz(auth.profile) || {};
+    const next: TasteQuizAnswers = { ...current };
+    const changes: string[] = [];
+
+    const addTo = (list: string[] | undefined, add: string[]) =>
+      [...new Set([...(list || []), ...add])];
+    const removeFrom = (list: string[] | undefined, rm: string[]) =>
+      (list || []).filter((c) => !rm.includes(c));
+
+    const addC = clean(patch.addCuisines);
+    if (addC.length) { next.cuisines = addTo(next.cuisines, addC); changes.push(`added ${addC.join(', ')} to favourites`); }
+    const rmC = clean(patch.removeCuisines);
+    if (rmC.length) { next.cuisines = removeFrom(next.cuisines, rmC); changes.push(`removed ${rmC.join(', ')} from favourites`); }
+    const addA = clean(patch.addAvoid);
+    if (addA.length) { next.avoidCuisines = addTo(next.avoidCuisines, addA); changes.push(`now avoiding ${addA.join(', ')}`); }
+    const rmA = clean(patch.removeAvoid);
+    if (rmA.length) { next.avoidCuisines = removeFrom(next.avoidCuisines, rmA); changes.push(`no longer avoiding ${rmA.join(', ')}`); }
+
+    if (patch.dietary) {
+      next.dietary = patch.dietary.map((d) => d.trim()).filter(Boolean);
+      changes.push(next.dietary.length ? `dietary set to ${next.dietary.join(', ')}` : 'cleared dietary preferences');
+    }
+    if (patch.pricePrimary) {
+      next.pricePrimary = patch.pricePrimary;
+      next.prices = [patch.pricePrimary, ...(patch.priceSecondary ? [patch.priceSecondary] : [])];
+      changes.push(`usual spend set to ${'$'.repeat(patch.pricePrimary)}`);
+    }
+    if (patch.priceSecondary) {
+      next.priceSecondary = patch.priceSecondary;
+      changes.push(`celebration spend set to ${'$'.repeat(patch.priceSecondary)}`);
+    }
+    if (patch.atmosphere) { next.atmosphere = patch.atmosphere.slice(0, 80); changes.push(`atmosphere set to "${next.atmosphere}"`); }
+    if (patch.city) { next.city = patch.city.slice(0, 80); changes.push(`home city set to ${next.city}`); }
+
+    const note = rejected.length
+      ? ` (ignored — not cuisines the app knows: ${[...new Set(rejected)].join(', ')})`
+      : '';
+    if (changes.length === 0) {
+      return { ok: false, summary: `No recognised changes were requested${note}.` };
+    }
+
+    // Stamp completion the first time so the app stops treating the
+    // profile as unset — the same flag the onboarding quiz writes.
+    if (!next.completedAt) next.completedAt = Date.now();
+    await saveTasteQuiz(auth.user?.id, next);
+    // Keep the in-memory profile in step so the next prompt build reflects
+    // the write without waiting for a refetch.
+    await auth.refreshProfile?.();
+    return { ok: true, summary: `${changes.join('; ')}${note}.` };
+  }, [auth]);
+
   const handleSearchMichelin = useCallback(async (opts: {
     distinctions?: string[]; city?: string; name?: string; limit?: number;
   }): Promise<MichelinChatHit[]> => {
@@ -1023,6 +1148,8 @@ export const AppAssistant: React.FC = () => {
       origin={origin}
       onSearchRestaurants={handleSearchRestaurants}
       onSearchMichelin={handleSearchMichelin}
+      onSearchMyRatings={handleSearchMyRatings}
+      onUpdateTasteProfile={handleUpdateTasteProfile}
       onLookupUser={handleLookupUser}
       onFindExperts={handleFindExperts}
       onSearchCommunityRecipes={handleSearchCommunityRecipes}

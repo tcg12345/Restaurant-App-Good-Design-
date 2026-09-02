@@ -41,9 +41,13 @@ import {
   CircleDollarSign,
   ThumbsUp,
   ThumbsDown,
+  Film,
+  Image as ImageIcon,
+  BookOpen,
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { GlassButton, useGlassOccluder } from '../lib/glass-buttons';
+import { openFindAPlace } from '../lib/find-a-place';
 import { cuisineLabel as placeCuisineLabel, labelForCuisineType } from '../lib/cuisine';
 import { useSettings } from '../contexts/SettingsContext';
 import { useAuth } from '../contexts/AuthContext';
@@ -81,6 +85,19 @@ import { logChatFeedback } from '../lib/ai-chat-feedback';
  *  LocationPage can't drift apart, and both get primaryType. Aliased
  *  because buildSuggestions below has its own local `cuisineLabel`. */
 const inferCuisineLabel = placeCuisineLabel;
+
+/** Composer-chip glyph per pinned-attachment kind. Restaurant/recipe match
+ *  their existing icons unchanged; reel/post/guide are new (the share
+ *  sheet's Ask AI action can pin any of the five) and reuse the same
+ *  lucide icons ShareDialog's own preview chips use per kind, so the two
+ *  surfaces read as one visual language. */
+const ATTACHMENT_ICONS: Record<AssistantAttachment['kind'], React.ReactNode> = {
+  restaurant: <UtensilsCrossed size={13} />,
+  recipe: <ChefHat size={13} />,
+  reel: <Film size={13} />,
+  post: <ImageIcon size={13} />,
+  guide: <BookOpen size={13} />,
+};
 
 export interface AssistantUser {
   username: string;
@@ -151,7 +168,7 @@ export interface ActionResult {
    The legacy 'claude-opus-4-7' pref is accepted on load and migrated
    to 4.8 so a persisted choice from before the bump still resolves. */
 export type ChatModelPref = 'auto' | 'claude-sonnet-4-6' | 'claude-opus-4-8';
-const CHAT_MODEL_STORAGE_KEY = 'gourmad-chat-model';
+const CHAT_MODEL_STORAGE_KEY = 'goodeats-chat-model';
 const VALID_MODEL_PREFS: readonly ChatModelPref[] = ['auto', 'claude-sonnet-4-6', 'claude-opus-4-8'];
 function loadModelPref(): ChatModelPref {
   try {
@@ -234,6 +251,19 @@ interface LocationChatProps {
    *  carrying its distinction + Guide URL. Wired to Claude's search_michelin
    *  tool. Resolved locally — no Google/web calls. */
   onSearchMichelin?: (opts: { distinctions?: string[]; city?: string; name?: string; limit?: number }) => Promise<MichelinChatHit[]>;
+  /** Search the user's OWN ratings — the whole history, not the prompt's
+   *  sample. Returns pre-formatted rows plus the true match count. */
+  onSearchMyRatings?: (opts: {
+    query?: string; cuisine?: string; minScore?: number; maxScore?: number;
+    sort?: 'score' | 'recent'; limit?: number;
+  }) => Promise<{ rows: Array<{ id: string; name: string; score?: number; cuisine?: string; where?: string }>; matched: number; total: number }>;
+  /** Write the user's stated taste profile. */
+  onUpdateTasteProfile?: (patch: {
+    addCuisines?: string[]; removeCuisines?: string[];
+    addAvoid?: string[]; removeAvoid?: string[];
+    dietary?: string[]; pricePrimary?: number; priceSecondary?: number;
+    atmosphere?: string; city?: string;
+  }) => Promise<{ ok: boolean; summary: string }>;
   /** Look up who in the user's circle (friends + followed experts)
    *  rated a specific restaurant. Wired to Claude's get_circle_ratings
    *  tool. Implemented in LocationPage off signals.communityByRestaurant. */
@@ -932,7 +962,7 @@ interface ChatSuggestion { prompt: string; title: string; subtitle: string; icon
  *  advances a persisted counter, and the four visible cards are a sliding
  *  window over the pool below — so the page never greets you with the
  *  same four twice in a row. */
-const STARTER_ROT_KEY = 'gourmad-chat-starter-rot';
+const STARTER_ROT_KEY = 'goodeats-chat-starter-rot';
 function nextStarterSeed(): number {
   try {
     const n = ((parseInt(localStorage.getItem(STARTER_ROT_KEY) || '0', 10) || 0) + 1) % 10000;
@@ -1053,6 +1083,10 @@ function countUserMessages(messages: UiMessage[]): number {
   return n;
 }
 
+/** The highest `openRequest` this chat has acted on — module scope on
+ *  purpose, see the `open` state initialiser inside the component. */
+let handledOpenRequest = 0;
+
 export const LocationChat: React.FC<LocationChatProps> = ({
   visible,
   restaurantMeta,
@@ -1063,6 +1097,8 @@ export const LocationChat: React.FC<LocationChatProps> = ({
   origin,
   onSearchRestaurants,
   onSearchMichelin,
+  onSearchMyRatings,
+  onUpdateTasteProfile,
   userContext,
   onLookupUser,
   onFindExperts,
@@ -1100,15 +1136,41 @@ export const LocationChat: React.FC<LocationChatProps> = ({
   const { user: authUser } = useAuth();
   const { showToast } = useToast();
 
-  const [open, setOpen] = useState(false);
+  // Seeded from `attachment`, not just `false`: AppAssistant fully unmounts
+  // this component while any overlay is open (`hidden` below), and asking
+  // FROM one — the share sheet's Ask AI action pins the attachment and
+  // requests-open in the same handler that then closes the sheet — means
+  // LocationChat's first-ever mount lands AFTER the ask, with `openRequest`
+  // already at its bumped value. The ref-diff effect right below this can
+  // only catch a bump that happens WHILE mounted, so that mount would
+  // otherwise sit there silently closed with the request lost. An
+  // attachment is only ever set together with a request to open (see
+  // useAskAssistantAbout), so "mounting with one already pinned" always
+  // means exactly that: open immediately.
+  // An open request that arrived while this component was UNMOUNTED must
+  // still be honoured on the next mount. AppAssistant unmounts the chat
+  // whenever an overlay registers (the Find-a-place sheet does), so the
+  // sheet's "take me back to the chat" request always lands between an
+  // unmount and a remount — a ref initialised from the prop at mount time
+  // would treat the bumped value as already-seen and drop it, which is
+  // exactly how closing that sheet used to strand the user on the page
+  // underneath. Tracking the last HANDLED request at module scope makes
+  // the comparison survive the remount.
+  const [open, setOpen] = useState(() => {
+    if (attachment) return true;
+    if (openRequest !== undefined && openRequest > handledOpenRequest) {
+      handledOpenRequest = openRequest;
+      return true;
+    }
+    return false;
+  });
   // A detail page asked for the panel. Signal, not a controlled prop: the
   // chat still owns `open`, so asking again while it's up changes nothing
   // and the user can still close it.
-  const firstOpenRequest = useRef(openRequest ?? 0);
   useEffect(() => {
     if (openRequest === undefined) return;
-    if (openRequest === firstOpenRequest.current) return;
-    firstOpenRequest.current = openRequest;
+    if (openRequest <= handledOpenRequest) return;
+    handledOpenRequest = openRequest;
     setOpen(true);
   }, [openRequest]);
   const [messages, setMessages] = useState<UiMessage[]>([]);
@@ -2483,6 +2545,73 @@ export const LocationChat: React.FC<LocationChatProps> = ({
                 content = `open_add_to_list_modal failed: ${err instanceof Error ? err.message : 'unknown error'}.`;
               }
             }
+          } else if (tu.name === 'search_my_ratings') {
+            const input = (tu.input || {}) as {
+              query?: string; cuisine?: string; min_score?: number; max_score?: number;
+              sort?: string; limit?: number;
+            };
+            if (!onSearchMyRatings) {
+              content = 'search_my_ratings is not available in this context.';
+            } else {
+              try {
+                const res = await onSearchMyRatings({
+                  query: (input.query || '').trim() || undefined,
+                  cuisine: (input.cuisine || '').trim() || undefined,
+                  minScore: typeof input.min_score === 'number' ? input.min_score : undefined,
+                  maxScore: typeof input.max_score === 'number' ? input.max_score : undefined,
+                  sort: input.sort === 'recent' ? 'recent' : 'score',
+                  limit: typeof input.limit === 'number' ? input.limit : undefined,
+                });
+                if (res.matched === 0) {
+                  // A definitive negative: this searched everything, so the
+                  // model can now say "no" without hedging or guessing.
+                  content = `No match in the user's ${res.total} ratings. This search covered their COMPLETE history, so you can tell them definitively that they haven't rated anything matching that.`;
+                } else {
+                  const lines = res.rows.map((r, i) => {
+                    const meta = [
+                      typeof r.score === 'number' ? `RATED ${r.score}/10` : null,
+                      r.cuisine || null,
+                      r.where || null,
+                    ].filter(Boolean).join(' · ');
+                    return `${i + 1}. ${r.name}  (id: ${r.id})  ${meta}`;
+                  }).join('\n');
+                  const more = res.matched > res.rows.length
+                    ? `\n(${res.matched} matched in total; ${res.rows.length} shown — ask for a higher limit if you need the rest.)`
+                    : '';
+                  content = `${res.matched} of the user's ${res.total} ratings matched:\n${lines}${more}\n\nThese are the user's OWN scores. Render cards with recommend_restaurants using these ids if it helps.`;
+                }
+              } catch (err) {
+                content = `search_my_ratings failed: ${err instanceof Error ? err.message : 'unknown error'}.`;
+              }
+            }
+          } else if (tu.name === 'update_taste_profile') {
+            const input = (tu.input || {}) as Record<string, unknown>;
+            const strArr = (v: unknown) =>
+              Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : undefined;
+            const tier = (v: unknown) =>
+              typeof v === 'number' && Number.isInteger(v) && v >= 1 && v <= 4 ? v : undefined;
+            if (!onUpdateTasteProfile) {
+              content = 'update_taste_profile is not available in this context.';
+            } else {
+              try {
+                const res = await onUpdateTasteProfile({
+                  addCuisines: strArr(input.add_cuisines),
+                  removeCuisines: strArr(input.remove_cuisines),
+                  addAvoid: strArr(input.add_avoid),
+                  removeAvoid: strArr(input.remove_avoid),
+                  dietary: strArr(input.dietary),
+                  pricePrimary: tier(input.price_primary),
+                  priceSecondary: tier(input.price_secondary),
+                  atmosphere: typeof input.atmosphere === 'string' ? input.atmosphere : undefined,
+                  city: typeof input.city === 'string' ? input.city : undefined,
+                });
+                content = res.ok
+                  ? `Taste profile updated. ${res.summary} Tell the user exactly what changed, and that it will shape their recommendations from now on.`
+                  : `Nothing was changed. ${res.summary}`;
+              } catch (err) {
+                content = `update_taste_profile failed: ${err instanceof Error ? err.message : 'unknown error'}.`;
+              }
+            }
           } else if (tu.name === 'toggle_wishlist') {
             const input = (tu.input || {}) as { restaurant_id?: string };
             const rid = (input.restaurant_id || '').trim();
@@ -2714,6 +2843,14 @@ export const LocationChat: React.FC<LocationChatProps> = ({
     onOpenAddReelModal,
     onOpenHomeMealModal,
     onOpenGuideCreator,
+    // Pre-existing gap, not new: this callback reads `attachment` (the
+    // pinned-subject line in the request) but never listed it here, so a
+    // caller that sets the attachment WITHOUT also changing one of the
+    // deps above — e.g. attaching from an already-open chat, exactly what
+    // the share sheet's Ask AI does — sent with a stale, often-null
+    // attachment. Confirmed live: the model replied "I don't see any
+    // attachment" despite the composer chip showing the right name.
+    attachment,
   ]);
 
   const handleSubmit = useCallback((e?: React.FormEvent) => {
@@ -3175,7 +3312,7 @@ export const LocationChat: React.FC<LocationChatProps> = ({
                    it is exactly where the thing it removes is. */
                 <div className="lp-chat-attach">
                   <span className="lp-chat-attach-icon" aria-hidden>
-                    {attachment.kind === 'recipe' ? <ChefHat size={13} /> : <UtensilsCrossed size={13} />}
+                    {ATTACHMENT_ICONS[attachment.kind] ?? <UtensilsCrossed size={13} />}
                   </span>
                   <span className="lp-chat-attach-text">
                     <span className="lp-chat-attach-name">{attachment.name}</span>
@@ -3194,6 +3331,19 @@ export const LocationChat: React.FC<LocationChatProps> = ({
                 </div>
               )}
               <div className="lp-chat-composer">
+                {/* The shortcut. People come to this chat to ask where to
+                    eat; this is that ask without the conversation, and the
+                    only place in the composer where a second control earns
+                    its room. */}
+                <button
+                  type="button"
+                  onClick={openFindAPlace}
+                  className="lp-chat-recs"
+                  aria-label="Find a place"
+                  title="Find a place"
+                >
+                  <Sparkles size={15} strokeWidth={2} />
+                </button>
                 {/* NOT disabled while streaming — disabling blurred the
                     field, which dismisses the iOS keyboard after every
                     send. Submission is gated in handleSubmit instead, so

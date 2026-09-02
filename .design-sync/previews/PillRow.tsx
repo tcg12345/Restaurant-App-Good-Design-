@@ -1,5 +1,5 @@
 import React from 'react';
-import { FilterSection, PillRow, Pill } from 'gourmet-canvas';
+import { FilterSection, PillRow, Pill } from 'goodeats';
 
 /**
  * The layout half of the pill control: a flex row with `flex-wrap` and an

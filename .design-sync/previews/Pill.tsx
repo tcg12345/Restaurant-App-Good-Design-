@@ -1,5 +1,5 @@
 import React from 'react';
-import { PillRow, Pill } from 'gourmet-canvas';
+import { PillRow, Pill } from 'goodeats';
 
 /**
  * The filter sheet's toggle chip. Resting it is a 38px white capsule with a

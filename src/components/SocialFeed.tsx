@@ -33,6 +33,7 @@ import { getGuidesForFeed } from '../lib/supabase-guides';
 import { getMealCoverUrl } from '../lib/recipe-display';
 import { toggleRecipeLike, getRecipeLikes, getRecipeCommentCounts } from '../lib/supabase-recipes';
 import { RecipeCommentThread } from './RecipeCommentThread';
+import { keyboardLiftSheetStyle } from '../lib/keyboard-sheet';
 import { useSignInModal } from '../contexts/SignInModalContext';
 import { getReviewSummariesBatch } from '../lib/supabase-home-meal-reviews';
 import { EmptyState } from './EmptyState';
@@ -328,13 +329,13 @@ const SuggestionsRail: React.FC<{
   return (
     <aside className="space-y-9">
       {/* People to follow — rendered as editorial cards (matches the
-          Gourmet Canvas mock's rail-suggestion pattern). */}
+          GoodEats mock's rail-suggestion pattern). */}
       <section>
         <div className="flex items-center justify-between mb-3.5">
           <h4 className="text-[11px] font-bold uppercase tracking-[0.13em] text-on-surface/65">Suggested for you</h4>
           <Link to="/circle" className="text-[12px] font-semibold text-primary hover:underline underline-offset-2">See all</Link>
         </div>
-        {/* Prefer restaurant cards (Gourmet Canvas style) when the parent
+        {/* Prefer restaurant cards (GoodEats style) when the parent
             page has supplied them; fall back to people-to-follow when
             there's nothing else to show. */}
         {restaurantCards.length > 0 ? (
@@ -914,6 +915,11 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
         coverMediaType: cover?.mediaType,
         bgGradient: cover?.bgGradient || 'from-stone-800 to-stone-900',
         itemCount: post.items.length,
+        items: post.items.map((it) => ({
+          kind: it.attachedKind ?? it.mediaType,
+          name: it.restaurant?.name || it.recipe?.title,
+          caption: it.caption || undefined,
+        })),
       },
     });
   };
@@ -1189,7 +1195,12 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
                 commentCount={commentCounts[r.id] || 0}
                 onOpen={() => navigate(`/restaurant/${r.restaurant_id}`)}
                 onLike={() => handleLike(r.id)}
-                onComment={() => handleOpenComments(r.id)}
+                /* The inline comment thread lives inside the FULL feed card;
+                   these compact strip cards have no room for one, so tapping
+                   comment here used to set state nothing rendered — a dead
+                   button. Send it to the rating's own page instead, with the
+                   thread already open. */
+                onComment={() => navigate(`/review/${r.id}`, { state: { openComments: true } })}
               />
             </li>
           );
@@ -1347,7 +1358,7 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
             From the community
           </h2>
           <p className="mt-1.5 text-on-surface/45" style={{ fontSize: '12.5px', lineHeight: 1.35 }}>
-            Public posts from people across Gourmet Canvas.
+            Public posts from people across GoodEats.
           </p>
         </div>
       )}
@@ -1767,7 +1778,7 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
               {...recipeCommentsDragProps}
               onClick={(e) => e.stopPropagation()}
               className="bg-paper w-full rounded-t-3xl flex flex-col"
-              style={{ height: '75%', paddingBottom: 'var(--kb-height, 0px)' }}
+              style={keyboardLiftSheetStyle('75%')}
             >
               <div className="pt-2 pb-1 flex justify-center flex-shrink-0">
                 <span className="w-10 h-1 rounded-full bg-on-surface/20" />
@@ -1845,7 +1856,7 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
                 {...postCommentsDragProps}
                 onClick={(e) => e.stopPropagation()}
                 className="bg-surface w-full rounded-t-[24px] flex flex-col"
-                style={{ height: '78%', paddingBottom: 'var(--kb-height, 0px)' }}
+                style={keyboardLiftSheetStyle('78%')}
               >
                 <div className="pt-2.5 pb-1 flex justify-center">
                   <span className="w-9 h-1 rounded-full bg-on-surface/15" />

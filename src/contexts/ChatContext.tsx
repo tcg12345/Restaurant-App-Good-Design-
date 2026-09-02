@@ -52,6 +52,17 @@ export interface SharedReel {
   attachedRoute: string;       // /restaurant/:id  OR  /recipe/:id
 }
 
+/** One slide of a shared post, lightweight enough to ride along in the
+ *  share payload — just enough for the recipient (or the AI digest built
+ *  from it) to know what each slide actually is. */
+export interface SharedPostItem {
+  kind: 'restaurant' | 'recipe' | 'photo' | 'video';
+  /** The attached restaurant/recipe's name, when this slide has one. */
+  name?: string;
+  /** This slide's own caption, when distinct from the post's overall one. */
+  caption?: string;
+}
+
 export interface SharedPost {
   postId: string;
   authorId: string;
@@ -68,6 +79,8 @@ export interface SharedPost {
   bgGradient: string;
   /** Total item count (drives the "8 items" / multi-item indicator). */
   itemCount: number;
+  /** Per-slide summary — what the post actually shows, not just its count. */
+  items?: SharedPostItem[];
 }
 
 export interface SharedGuide {
@@ -160,12 +173,12 @@ interface ChatContextValue {
  *
  * localStorage is ONLY a per-user display cache so the messages screen
  * paints instantly on reload; the server is the source of truth. The old
- * single-player keys (gourmad-chats / gourmad-chats-read) are discarded on
+ * single-player keys (goodeats-chats / goodeats-chats-read) are discarded on
  * startup — that data was never delivered to anyone.
  */
 
-const LEGACY_KEYS = ['gourmad-chats', 'gourmad-chats-read'];
-const cacheKey = (uid: string) => `gourmad-chats-v2:${uid}`;
+const LEGACY_KEYS = ['goodeats-chats', 'goodeats-chats-read'];
+const cacheKey = (uid: string) => `goodeats-chats-v2:${uid}`;
 
 function loadFromStorage<T>(key: string, fallback: T): T {
   try {

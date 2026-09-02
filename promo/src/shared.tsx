@@ -3,8 +3,15 @@ import { interpolate, spring, useCurrentFrame, useVideoConfig } from 'remotion';
 import { COLORS, FONTS, scoreColor } from './brand';
 
 /* ── Brand mark ──────────────────────────────────────────────────
-   The app's "G" logo: terracotta circle, serif italic G, soft shadow
-   (Sidebar.tsx / AuthShell GMark / OnboardingKit BrandMark). */
+   The GoodEats bowl on a terracotta disc, with the same soft lift the
+   app's header mark has.
+
+   This is a hand copy of src/components/Logo.tsx: promo/ is a separate
+   Remotion package with its own tsconfig and cannot import from src/,
+   so the geometry is re-drawn here on the identical 100×100 viewBox.
+   Drawing it (rather than setting a glyph) also means the render farm
+   never has to have the app's webfont loaded. If the mark ever changes,
+   change it in both places. */
 
 export const GMark: React.FC<{ size: number; style?: React.CSSProperties }> = ({ size, style }) => (
   <div
@@ -12,27 +19,17 @@ export const GMark: React.FC<{ size: number; style?: React.CSSProperties }> = ({
       width: size,
       height: size,
       borderRadius: 999,
-      background: COLORS.primary,
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'center',
       boxShadow: '0 8px 20px rgba(166,55,29,0.30)',
       ...style,
     }}
   >
-    <span
-      style={{
-        fontFamily: FONTS.serif,
-        fontStyle: 'italic',
-        fontWeight: 600,
-        color: '#fff',
-        fontSize: size * 0.55,
-        lineHeight: 1,
-        transform: 'translateY(-2%)',
-      }}
-    >
-      G
-    </span>
+    <svg width={size} height={size} viewBox="0 0 100 100" style={{ display: 'block' }}>
+      <circle cx="50" cy="50" r="48" fill={COLORS.primary} />
+      {/* The rim floats clear of the vessel — that gap is what keeps the
+          two shapes reading as a bowl instead of one blob. */}
+      <rect x="23" y="40" width="54" height="6.5" rx="3.25" fill="#fff" />
+      <path d="M28 52 Q50 75 72 52 Z" fill="#fff" />
+    </svg>
   </div>
 );
 
@@ -46,7 +43,7 @@ export const Wordmark: React.FC<{ size: number; color?: string }> = ({ size, col
       color,
     }}
   >
-    Gourmet Canvas
+    GoodEats
   </span>
 );
 

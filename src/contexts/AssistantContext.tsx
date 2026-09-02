@@ -65,21 +65,24 @@ export interface AssistantPageContext {
 }
 
 /**
- * A restaurant or recipe the conversation is ABOUT.
+ * A restaurant, recipe, reel, post, or guide the conversation is ABOUT.
  *
- * Set by a detail page's "ask about this" button. While one is attached
- * the composer shows it as a removable chip and the system prompt gets a
- * dedicated section naming it, so "is it worth it?" resolves to this
- * place rather than to whatever the model last inferred. Clearing the
- * chip returns the chat to its normal, page-wide behaviour.
+ * Set by a detail page's "ask about this" button, or by the share
+ * sheet's Ask AI action (see lib/share-assistant-attachment.ts). While
+ * one is attached the composer shows it as a removable chip and the
+ * system prompt gets a dedicated section naming it, so "is it worth it?"
+ * resolves to this thing rather than to whatever the model last inferred.
+ * Clearing the chip returns the chat to its normal, page-wide behaviour.
  *
- * `details` is a compact, already-formatted digest the PAGE builds — it's
- * the side that actually holds the rating, hours, ingredients, etc. The
- * chat just forwards it.
+ * `details` is a compact, already-formatted digest the CALLER builds —
+ * it's the side that actually holds the rating, hours, ingredients, etc.
+ * The chat just forwards it.
  */
 export interface AssistantAttachment {
-  kind: 'restaurant' | 'recipe';
-  /** Restaurant place id, or recipe id — what tools address it by. */
+  kind: 'restaurant' | 'recipe' | 'reel' | 'post' | 'guide';
+  /** Restaurant place id, recipe id, reel id, post id, or guide id —
+   *  what tools address it by (restaurant/recipe only today; see the
+   *  edge function's buildSystemPrompt). */
   id: string;
   name: string;
   /** One line under the name in the chip: "Italian · $$$ · Westport". */

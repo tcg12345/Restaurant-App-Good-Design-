@@ -3008,6 +3008,24 @@ html.kb-open .lp-chat-island.is-phone .lp-chat-foot {
   transition: border-color .15s, box-shadow .15s;
 }
 .dark .lp-chat-composer { box-shadow: 0 10px 28px -12px rgba(0, 0, 0, 0.55), 0 2px 6px -2px rgba(0, 0, 0, 0.3); }
+/* The "find a place" shortcut, left of the field. Quiet by default —
+   it shares the composer with the thing people came to type in. */
+.lp-chat-recs {
+  flex: 0 0 auto;
+  width: 32px;
+  height: 32px;
+  margin-bottom: 1px;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  border: none;
+  background: var(--bg-2);
+  color: var(--color-primary);
+  cursor: pointer;
+  transition: transform .15s, background .15s;
+}
+.lp-chat-recs:active { transform: scale(.92); }
+
 .lp-chat-composer:focus-within {
   border-color: var(--border-strong);
   box-shadow: 0 14px 36px -14px rgba(0, 0, 0, 0.42);

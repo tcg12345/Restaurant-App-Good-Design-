@@ -1,4 +1,4 @@
-# Building with Gourmet Canvas
+# Building with GoodEats
 
 These components come from a shipping restaurant/recipe app — warm editorial
 look: serif display type, cream/terracotta palette, capsule-shaped controls.
@@ -8,7 +8,7 @@ look: serif display type, cream/terracotta palette, capsule-shaped controls.
 No provider or theme wrapper. Every component renders standalone; if something
 looks unstyled, the cause is a missing class or token, never a missing
 provider. Link `styles.css` (it `@import`s everything, including component
-CSS) and use components from `window.GourmetCanvas`.
+CSS) and use components from `window.GoodEats`.
 
 ## Styling idiom: Tailwind utilities + CSS tokens
 
@@ -51,7 +51,7 @@ Read before styling: `styles.css` and its `@import`s (component CSS is in
 ## An idiomatic composition
 
 ```jsx
-const { ScoreBadge, MichelinMark, VerifiedBadge, Avatar } = window.GourmetCanvas;
+const { ScoreBadge, MichelinMark, VerifiedBadge, Avatar } = window.GoodEats;
 
 <div className="bg-surface rounded-2xl border border-line p-4 flex items-center gap-3">
   <Avatar name="Tyler" size={40} />

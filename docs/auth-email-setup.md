@@ -1,7 +1,7 @@
 # Auth email setup — custom sender + branded template
 
 The signup verification code email can be sent from an app-branded address
-(e.g. `hello@yourdomain.com`, "Gourmet Canvas") instead of Supabase's
+(e.g. `hello@yourdomain.com`, "GoodEats") instead of Supabase's
 default `noreply@mail.app.supabase.io`. Two independent pieces:
 
 ## 1. Branded template (5 minutes, no domain needed)
@@ -10,7 +10,7 @@ Supabase Dashboard → **Authentication → Emails**:
 
 - **Confirm signup** template → paste the contents of
   [`supabase/templates/confirm-signup-email.html`](../supabase/templates/confirm-signup-email.html).
-  Subject: `Your Gourmet Canvas verification code`.
+  Subject: `Your GoodEats verification code`.
 - **Magic Link** template → paste the same HTML, same subject. (Edge cases
   in the sign-in flow can deliver this template to existing accounts; both
   must contain `{{ .Token }}` for the in-app 6-digit code screen.)
@@ -36,7 +36,7 @@ Plug in your own SMTP provider:
    - Username: `resend`
    - Password: *(the API key)*
    - Sender email: `hello@yourdomain.com` (any address at the verified domain)
-   - Sender name: `Gourmet Canvas`
+   - Sender name: `GoodEats`
 5. **Raise the rate limits** — Supabase Dashboard → Authentication → Rate
    Limits: with custom SMTP enabled you can lift the per-hour email cap
    from the default (~2/hr) to something real (e.g. 100+/hr).

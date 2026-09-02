@@ -76,7 +76,10 @@ function isCancel(err: unknown): boolean {
   return false;
 }
 
-async function copyToClipboard(value?: string): Promise<boolean> {
+/** Exported so the share sheet's own "Copy link" action can call it
+ *  directly (a fast path — no OS share sheet round trip) rather than
+ *  duplicating this clipboard/fallback logic. */
+export async function copyToClipboard(value?: string): Promise<boolean> {
   if (!value) return false;
   try {
     if (typeof navigator !== 'undefined' && navigator.clipboard) {

@@ -1,5 +1,5 @@
 import React from 'react';
-import { GlassGroup } from 'gourmet-canvas';
+import { GlassGroup } from 'goodeats';
 import { Bookmark, MessageCircle, Share2, Users } from 'lucide-react';
 
 /**

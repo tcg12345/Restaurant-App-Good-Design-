@@ -1,5 +1,5 @@
 import React from 'react';
-import { Avatar } from 'gourmet-canvas';
+import { Avatar } from 'goodeats';
 
 /** lib/avatar.avatarHue — the app's stable hash from a user id to a hue, so
  *  the same person gets the same monogram tint on every surface. Replicated

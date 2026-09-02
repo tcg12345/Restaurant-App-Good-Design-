@@ -107,7 +107,7 @@ export const AdminCuisineSuggestions: React.FC = () => {
     return (
       <div className="flex min-h-screen flex-col items-center justify-center gap-3 bg-surface px-6 text-center">
         <h1 className="font-serif text-[22px] font-bold text-on-surface">Page not found</h1>
-        <Link to="/" className="text-[13.5px] font-semibold text-primary">Back to Gourmet Canvas</Link>
+        <Link to="/" className="text-[13.5px] font-semibold text-primary">Back to GoodEats</Link>
       </div>
     );
   }

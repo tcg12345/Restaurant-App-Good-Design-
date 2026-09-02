@@ -2,12 +2,28 @@
  * DraggableSheet — the mobile composer's bottom sheet.
  *
  * Overlay-positioned (absolute, pinned to the bottom of a `relative`
- * parent) so dragging never reflows the canvas behind it. The drag
- * writes the height straight to the DOM — no React render per move —
- * so the sheet tracks the finger 1:1. Releasing carries the flick's
- * momentum and can settle *anywhere* between the peek floor and the
- * full detent; only landings close to a detent get magnetically
- * snapped onto it.
+ * parent) so dragging never reflows the canvas behind it.
+ *
+ * **The box is always as tall as its tallest detent; the drag moves it
+ * with a transform.** It used to animate `height`, which re-laid-out the
+ * whole sheet — a camera roll of a few hundred thumbnails — on every
+ * frame of the gesture, and that is what made it stutter. A transform
+ * touches no layout, so the sheet tracks the finger exactly. What hangs
+ * below the parent's bottom edge while the sheet is down is clipped by
+ * the host's own `overflow-hidden`.
+ *
+ * **Drag from anywhere, not just the pill.** The platform rule, the same
+ * one the search page's map sheet follows: with the content at its top,
+ * dragging DOWN anywhere moves the sheet; dragging UP while the sheet is
+ * below its full detent raises the sheet before the content scrolls.
+ * Decided once per gesture, after ~6px, and only for gestures that are
+ * more vertical than horizontal — so the selected-media strip keeps its
+ * own sideways scroll.
+ *
+ * Releasing projects the position forward by the release velocity and
+ * snaps to whichever detent is nearest the projection: one rule that
+ * makes a short flick travel a whole detent and a slow drag stay where
+ * it was let go.
  *
  * `fit` mode hugs the content: the resting height follows the measured
  * content (never taller), so short steps show no blank band at the
@@ -26,12 +42,12 @@ export type SheetPos = 'peek' | 'default' | 'free' | 'full';
 
 const EASE = 'cubic-bezier(0.32, 0.72, 0, 1)'; // iOS sheet curve
 const SETTLE_MS = 400;
-/** Landing within this many px of a detent snaps onto it. */
-const MAGNET = 56;
-/** Momentum: projected extra travel = release velocity (px/ms) × this. */
-const MOMENTUM = 190;
-/** A flick faster than this (px/ms) goes all the way in its direction. */
-const FLICK_VELOCITY = 1.1;
+/** Release velocity (px/ms) is projected this far ahead to pick a detent. */
+const PROJECTION_MS = 220;
+/** Travel before a gesture has declared itself the sheet's or the list's. */
+const DECIDE_PX = 6;
+/** Resistance past the bottom stop — the platform's rubber band. */
+const RUBBER = 0.25;
 /** Smallest resting height fit mode will hug down to. */
 const FIT_FLOOR = 140;
 
@@ -77,7 +93,10 @@ export const DraggableSheet: React.FC<{
   const elRef = useRef<HTMLDivElement | null>(null);
   const handleRef = useRef<HTMLDivElement | null>(null);
   const contentRef = useRef<HTMLDivElement | null>(null);
+  const scrollRef = useRef<HTMLDivElement | null>(null);
   const visRef = useRef(height);
+  /** Last height written to the box, so a drag frame doesn't touch it. */
+  const boxHRef = useRef<number | null>(null);
   /** Measured content + handle height; null until the first measure. */
   const fitHRef = useRef<number | null>(null);
   const [pos, setPos] = useState<SheetPos>('default');
@@ -89,7 +108,6 @@ export const DraggableSheet: React.FC<{
   const rafRef = useRef<number | null>(null);
   const pendingHRef = useRef<number | null>(null);
   const dragRef = useRef<{
-    pointerId: number;
     startY: number;
     startH: number;
     lastY: number;
@@ -129,13 +147,20 @@ export const DraggableSheet: React.FC<{
     return 'free';
   };
 
-  /** Write the height straight to the DOM (no render). */
+  /** Show `px` of the sheet. The box stays the height of the tallest
+   *  detent and slides; only the transform changes per frame. */
   const applyH = (px: number, animate: boolean) => {
     const el = elRef.current;
     if (!el) return;
     visRef.current = px;
-    el.style.transition = animate ? `height ${SETTLE_MS}ms ${EASE}` : 'none';
-    el.style.height = `${Math.round(px)}px`;
+    const max = detents().max;
+    const boxH = Math.round(max);
+    if (boxHRef.current !== boxH) {
+      boxHRef.current = boxH;
+      el.style.height = `${boxH}px`;
+    }
+    el.style.transition = animate ? `transform ${SETTLE_MS}ms ${EASE}` : 'none';
+    el.style.transform = `translate3d(0, ${Math.round(max - px)}px, 0)`;
   };
 
   /** Clamp + apply + report a settled position. */
@@ -155,7 +180,7 @@ export const DraggableSheet: React.FC<{
   settleRef.current = settle;
 
   // First paint at the resting height. Direct style writes stick across
-  // re-renders because React never sees `height` in the JSX style object.
+  // re-renders because React never sees them in the JSX style object.
   useLayoutEffect(() => {
     applyH(visRef.current, false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -183,7 +208,9 @@ export const DraggableSheet: React.FC<{
       } else if (visRef.current > max) {
         settleRef.current(max, true);
       } else {
-        // Re-report the reserve — the rest detent may have moved.
+        // The rest detent moved: re-report the reserve, and re-apply so
+        // the transform is measured against the new box height.
+        applyH(visRef.current, false);
         onReserveRef.current?.(Math.round(Math.min(visRef.current, rest)));
       }
     };
@@ -225,30 +252,36 @@ export const DraggableSheet: React.FC<{
   const { min: minDet, max: maxDet } = detents();
   const canDrag = draggable && maxDet - minDet > 40;
 
-  const onPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (!canDrag) return;
-    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+  /* ── The drag itself, shared by the pill and the body ─────────────── */
+
+  const beginDrag = (clientY: number) => {
     dragRef.current = {
-      pointerId: e.pointerId,
-      startY: e.clientY,
+      startY: clientY,
       startH: visRef.current,
-      lastY: e.clientY,
+      lastY: clientY,
       lastT: performance.now(),
       velocity: 0,
     };
     draggingRef.current = true;
     if (elRef.current) elRef.current.style.transition = 'none';
   };
-  const onPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+
+  const moveDrag = (clientY: number) => {
     const d = dragRef.current;
-    if (!d || e.pointerId !== d.pointerId) return;
+    if (!d) return;
     const now = performance.now();
     const dt = Math.max(1, now - d.lastT);
-    d.velocity = (d.lastY - e.clientY) / dt;
-    d.lastY = e.clientY;
+    d.velocity = (d.lastY - clientY) / dt;
+    d.lastY = clientY;
     d.lastT = now;
     const { min, max } = detents();
-    pendingHRef.current = Math.max(min, Math.min(max, d.startH + (d.startY - e.clientY)));
+    let next = d.startH + (d.startY - clientY);
+    // Hard stop at the top — the box is only as tall as `max`, so going
+    // past it would lift its bottom edge off the screen. The bottom stop
+    // rubber-bands, since there the box just hangs further off-screen.
+    if (next > max) next = max;
+    else if (next < min) next = min - (min - next) * RUBBER;
+    pendingHRef.current = next;
     if (rafRef.current === null) {
       rafRef.current = requestAnimationFrame(() => {
         rafRef.current = null;
@@ -258,30 +291,150 @@ export const DraggableSheet: React.FC<{
       });
     }
   };
-  const onPointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
+
+  const endDrag = () => {
     const d = dragRef.current;
-    if (!d || e.pointerId !== d.pointerId) return;
-    (e.currentTarget as HTMLElement).releasePointerCapture?.(e.pointerId);
+    if (!d) return;
     dragRef.current = null;
     draggingRef.current = false;
     userMovedRef.current = true;
     const { min, rest, max } = detents();
-    let target: number;
-    if (Math.abs(d.velocity) > FLICK_VELOCITY) {
-      // Committed flick — all the way in its direction.
-      target = d.velocity > 0 ? max : min;
-    } else {
-      // Carry the momentum, then settle wherever it lands…
-      target = visRef.current + d.velocity * MOMENTUM;
-      // …unless a detent is close enough to catch it.
-      for (const det of [min, rest, max]) {
-        if (Math.abs(target - det) <= MAGNET) {
-          target = det;
-          break;
-        }
+    // Project the release forward and take the nearest detent. A flick
+    // projects past the next one and lands there; a slow drag projects
+    // nowhere and stays where the finger left it.
+    const projected = visRef.current + d.velocity * PROJECTION_MS;
+    let target = rest;
+    let best = Infinity;
+    for (const det of [min, rest, max]) {
+      const dist = Math.abs(det - projected);
+      if (dist < best) {
+        best = dist;
+        target = det;
       }
     }
     settle(target);
+  };
+
+  // Pill: the explicit handle. Pointer events, so a mouse gets it too;
+  // touch is claimed here rather than by the body listener because the
+  // pill is `touch-none`.
+  const pointerIdRef = useRef<number | null>(null);
+  const onHandleDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!canDrag) return;
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    pointerIdRef.current = e.pointerId;
+    beginDrag(e.clientY);
+  };
+  const onHandleMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (pointerIdRef.current !== e.pointerId) return;
+    moveDrag(e.clientY);
+  };
+  const onHandleUp = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (pointerIdRef.current !== e.pointerId) return;
+    (e.currentTarget as HTMLElement).releasePointerCapture?.(e.pointerId);
+    pointerIdRef.current = null;
+    endDrag();
+  };
+
+  /* ── Body: the content hands the gesture over ──────────────────────
+     Native listeners rather than React's, because taking the gesture
+     over means preventDefault on touchmove and React registers that
+     listener passively. The freshest drag functions come through a ref
+     so a re-render mid-gesture can't re-base the drag under the finger. */
+  const gestureRef = useRef({ begin: beginDrag, move: moveDrag, end: endDrag, canDrag, detents });
+  gestureRef.current = { begin: beginDrag, move: moveDrag, end: endDrag, canDrag, detents };
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    let startX = 0;
+    let startY = 0;
+    let gesture: 'idle' | 'sheet' | 'scroll' = 'idle';
+    const onStart = (e: TouchEvent) => {
+      if (e.touches.length !== 1) { gesture = 'scroll'; return; }
+      startX = e.touches[0].clientX;
+      startY = e.touches[0].clientY;
+      gesture = 'idle';
+    };
+    const onMove = (e: TouchEvent) => {
+      const t = e.touches[0];
+      if (!t) return;
+      if (gesture === 'idle') {
+        const dy = t.clientY - startY;
+        const dx = t.clientX - startX;
+        if (Math.abs(dy) < DECIDE_PX) return;
+        // More sideways than vertical — the selected-media strip's own
+        // scroll, not a sheet drag.
+        if (Math.abs(dx) > Math.abs(dy)) { gesture = 'scroll'; return; }
+        const g = gestureRef.current;
+        const { max } = g.detents();
+        if (!g.canDrag) { gesture = 'scroll'; return; }
+        if (dy > 0 && el.scrollTop <= 0) {
+          // Pulling down with the content already at its top.
+          gesture = 'sheet';
+          g.begin(t.clientY);
+        } else if (dy < 0 && visRef.current < max - 1) {
+          // Pushing up with room left to rise — the sheet goes first.
+          gesture = 'sheet';
+          g.begin(t.clientY);
+        } else {
+          gesture = 'scroll';
+        }
+      }
+      if (gesture === 'sheet') {
+        e.preventDefault();
+        gestureRef.current.move(t.clientY);
+      }
+    };
+    const onEnd = () => {
+      if (gesture === 'sheet') gestureRef.current.end();
+      gesture = 'idle';
+    };
+    el.addEventListener('touchstart', onStart, { passive: true });
+    el.addEventListener('touchmove', onMove, { passive: false });
+    el.addEventListener('touchend', onEnd);
+    el.addEventListener('touchcancel', onEnd);
+    return () => {
+      el.removeEventListener('touchstart', onStart);
+      el.removeEventListener('touchmove', onMove);
+      el.removeEventListener('touchend', onEnd);
+      el.removeEventListener('touchcancel', onEnd);
+    };
+  }, []);
+
+  // Same hand-over for a mouse (the phone-frame preview on desktop).
+  // Touch is excluded: the listener above already owns it, and pointer
+  // events fire alongside touch ones.
+  const onBodyPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (e.pointerType === 'touch' || !canDrag) return;
+    const el = scrollRef.current;
+    if (!el) return;
+    const startY = e.clientY;
+    const startX = e.clientX;
+    let claimed = false;
+    const onMove = (ev: PointerEvent) => {
+      if (!claimed) {
+        const dy = ev.clientY - startY;
+        if (Math.abs(dy) < DECIDE_PX) return;
+        if (Math.abs(ev.clientX - startX) > Math.abs(dy)) { cleanup(); return; }
+        const canRise = visRef.current < detents().max - 1;
+        if (!((dy > 0 && el.scrollTop <= 0) || (dy < 0 && canRise))) { cleanup(); return; }
+        claimed = true;
+        beginDrag(ev.clientY);
+      }
+      moveDrag(ev.clientY);
+    };
+    const cleanup = () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      window.removeEventListener('pointercancel', onUp);
+    };
+    const onUp = () => {
+      if (claimed) endDrag();
+      cleanup();
+    };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+    window.addEventListener('pointercancel', onUp);
   };
 
   return (
@@ -291,9 +444,10 @@ export const DraggableSheet: React.FC<{
         'absolute inset-x-0 bottom-0 flex flex-col overflow-hidden rounded-t-3xl',
         className,
       )}
-      style={{ willChange: 'height' }}
+      style={{ willChange: 'transform' }}
     >
-      {/* Grab-handle strip — full-width touch target for the drag. */}
+      {/* Grab-handle strip — still the explicit handle, but no longer the
+          only way to move the sheet (see the body listener above). */}
       <div
         ref={handleRef}
         className={cn(
@@ -305,15 +459,19 @@ export const DraggableSheet: React.FC<{
             ? 'max(0.875rem, env(safe-area-inset-top, 0px))'
             : '0.625rem',
         }}
-        onPointerDown={onPointerDown}
-        onPointerMove={onPointerMove}
-        onPointerUp={onPointerUp}
-        onPointerCancel={onPointerUp}
+        onPointerDown={onHandleDown}
+        onPointerMove={onHandleMove}
+        onPointerUp={onHandleUp}
+        onPointerCancel={onHandleUp}
         aria-label={canDrag ? 'Drag to resize' : undefined}
       >
         <div className={cn('w-9 h-1 rounded-full', canDrag ? 'bg-on-surface/25' : 'bg-on-surface/15')} />
       </div>
-      <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain">
+      <div
+        ref={scrollRef}
+        onPointerDown={onBodyPointerDown}
+        className="flex-1 min-h-0 overflow-y-auto overscroll-contain"
+      >
         <div ref={contentRef}>
           {children}
         </div>

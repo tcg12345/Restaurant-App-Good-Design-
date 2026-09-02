@@ -1,11 +1,12 @@
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { ArrowLeft, ArrowRight, Eye, EyeOff, Loader2, Lock, Mail, Check } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Eye, EyeOff, Loader2, Lock, Mail, Phone, Check } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { PRIVACY_URL, TERMS_URL, openExternalUrl } from '../lib/external-links';
 import { cn } from '../lib/utils';
 import { AuthShell, useDesktopAuthLayout } from '../components/AuthShell';
 import { logOnboardingEvent } from '../lib/onboarding-events';
+import { toE164, deviceRegion, type CountryCode } from '../lib/phone';
 // Mobile uses the new cream/terracotta onboarding kit; desktop keeps the
 // original split-screen AuthShell design below.
 import * as OB from '../components/onboarding/OnboardingKit';
@@ -170,7 +171,29 @@ type SharedProps = {
   setShowPassword: (v: boolean) => void;
   submitting: boolean;
   error: string;
+  // ── Channel ──
+  /** Which identifier this run of the flow is using. */
+  channel: 'email' | 'phone';
+  setChannel: (v: 'email' | 'phone') => void;
+  /** The raw phone input, exactly as typed. Never send this anywhere —
+   *  normalize through `toE164` first (the parent already does). */
+  phone: string;
+  setPhone: (v: string) => void;
+  /** Country to parse a national number against. */
+  region: CountryCode;
+  setRegion: (v: CountryCode) => void;
+  /** Whichever identifier is in play, ready to display — the address, or
+   *  the number in E.164 (falling back to the raw input mid-typing). */
+  identifier: string;
+  /** Advance from the identifier step. Named for the step, not the
+   *  channel — it handles both. */
   onEmailContinue: () => void;
+  /** True while the screen is a SIGN-IN screen: reached via "Sign in",
+   *  so an unknown identifier is an error to surface, never a signup to
+   *  silently start. */
+  lockedToSignIn: boolean;
+  /** The way out of the lock — "New here? Create an account". */
+  onUnlockSignup: () => void;
   onSignIn: () => void;
   onSetPassword: () => void;
   onBack: () => void;
@@ -204,22 +227,24 @@ type SharedProps = {
 
 const StepEmail: React.FC<SharedProps> = ({
   email, setEmail, submitting, error, onEmailContinue, onOAuth, oauthPending, onBrowseAsGuest,
-  saveTaste,
+  saveTaste, channel, setChannel, phone, setPhone, lockedToSignIn, onUnlockSignup,
 }) => (
   <div className="space-y-4">
     <header>
       <h1 className="font-serif font-bold text-3xl xl:text-4xl tracking-tight leading-[1.05] text-on-surface mb-2">
-        {saveTaste ? 'Save your taste profile' : <>Welcome to Gourmet&nbsp;Canvas</>}
+        {lockedToSignIn ? 'Welcome back' : saveTaste ? 'Save your taste profile' : <>Welcome to&nbsp;GoodEats</>}
       </h1>
       <p className="text-sm text-on-surface/55 font-light leading-relaxed max-w-md">
-        {saveTaste
-          ? 'Create a free account to keep your picks and start rating — or sign in.'
-          : "Sign in or create an account — we'll figure out which one based on your email."}
+        {lockedToSignIn
+          ? `Sign in with your ${channel === 'phone' ? 'phone number' : 'email'}.`
+          : saveTaste
+            ? 'Create a free account to keep your picks and start rating — or sign in.'
+            : "Sign in or create an account — we'll figure out which one based on your email."}
       </p>
     </header>
 
     <SocialRow onOAuth={onOAuth} pending={oauthPending} />
-    <Divider>or continue with email</Divider>
+    <Divider>{channel === 'phone' ? 'or continue with phone' : 'or continue with email'}</Divider>
 
     <form
       onSubmit={(e) => {
@@ -229,17 +254,35 @@ const StepEmail: React.FC<SharedProps> = ({
       className="space-y-4"
     >
       <div>
-        <FieldLabel>Email address</FieldLabel>
-        <TextField
-          type="email"
-          name="email"
-          value={email}
-          onChange={setEmail}
-          placeholder="you@example.com"
-          autoComplete="email"
-          autoFocus
-          inputMode="email"
-        />
+        {channel === 'phone' ? (
+          <>
+            <FieldLabel>Phone number</FieldLabel>
+            <TextField
+              type="tel"
+              name="phone"
+              value={phone}
+              onChange={setPhone}
+              placeholder="(555) 123-4567"
+              autoComplete="tel"
+              autoFocus
+              inputMode="tel"
+            />
+          </>
+        ) : (
+          <>
+            <FieldLabel>Email address</FieldLabel>
+            <TextField
+              type="email"
+              name="email"
+              value={email}
+              onChange={setEmail}
+              placeholder="you@example.com"
+              autoComplete="email"
+              autoFocus
+              inputMode="email"
+            />
+          </>
+        )}
       </div>
 
       {error && (
@@ -253,6 +296,24 @@ const StepEmail: React.FC<SharedProps> = ({
       )}
 
       <PrimaryButton loading={submitting}>Continue</PrimaryButton>
+
+      <button
+        type="button"
+        onClick={() => setChannel(channel === 'phone' ? 'email' : 'phone')}
+        className="w-full text-center text-[13px] font-semibold text-on-surface/50 hover:text-on-surface/80 transition-colors cursor-pointer"
+      >
+        {channel === 'phone' ? 'Use email instead' : 'Use phone number instead'}
+      </button>
+
+      {lockedToSignIn && (
+        <button
+          type="button"
+          onClick={onUnlockSignup}
+          className="w-full text-center text-[13px] font-semibold text-primary hover:opacity-80 transition-opacity cursor-pointer"
+        >
+          New to GoodEats? Create an account
+        </button>
+      )}
     </form>
 
     {onBrowseAsGuest && (
@@ -488,16 +549,17 @@ const FadeStep: React.FC<{ stepKey: string; children: React.ReactNode }> = ({ st
 );
 
 const StepVerify: React.FC<SharedProps> = ({
-  email, code, setCode, submitting, error, onVerify, onResend, resendIn, verifyNotice, onBack,
+  code, setCode, submitting, error, onVerify, onResend, resendIn, verifyNotice, onBack,
+  channel, identifier,
 }) => (
   <div className="space-y-4">
     <header>
       <h1 className="font-serif font-bold text-3xl xl:text-4xl tracking-tight leading-[1.05] text-on-surface mb-2">
-        Check your email
+        {channel === 'phone' ? 'Check your texts' : 'Check your email'}
       </h1>
       <p className="text-sm text-on-surface/55 font-light leading-relaxed flex flex-wrap items-center gap-2">
         <span>{verifyNotice || 'We sent a 6-digit code to'}</span>
-        <EmailPill email={email} onClear={onBack} />
+        <EmailPill email={identifier} onClear={onBack} />
       </p>
     </header>
 
@@ -525,7 +587,9 @@ const StepVerify: React.FC<SharedProps> = ({
           className="text-sm text-red-600 bg-red-50 px-4 py-2.5 rounded-xl">{error}</motion.p>
       )}
 
-      <PrimaryButton loading={submitting} disabled={code.length !== 6}>Verify email</PrimaryButton>
+      <PrimaryButton loading={submitting} disabled={code.length !== 6}>
+        {channel === 'phone' ? 'Verify number' : 'Verify email'}
+      </PrimaryButton>
 
       <button
         type="button"
@@ -542,14 +606,22 @@ const StepVerify: React.FC<SharedProps> = ({
 // ── Main page ────────────────────────────────────────────────────────────
 export const Auth: React.FC<{
   onBrowseAsGuest?: () => void;
+  /** Reached via "Sign in" (not "Get started"): an identifier with no
+   *  account behind it must error instead of quietly starting a signup —
+   *  someone who says they have an account and mistypes their email must
+   *  not end up with a second, empty account. Escapable in place via
+   *  "Create an account". */
+  signInOnly?: boolean;
   /** True when arriving from the pre-auth taste flow's "Save my taste
    *  profile" CTA — the email step then speaks to what they just built
    *  instead of a generic welcome. */
   saveTasteFraming?: boolean;
-}> = ({ onBrowseAsGuest, saveTasteFraming }) => {
+}> = ({ onBrowseAsGuest, saveTasteFraming, signInOnly }) => {
   const {
     signIn, signInWithOAuth, checkEmailExists,
     startEmailSignup, verifyEmailCode, resendVerificationCode,
+    signInWithPhonePassword, checkPhoneExists,
+    startPhoneSignup, verifyPhoneCode, resendPhoneCode,
     completePasswordSetup, needsPasswordSetup, passwordSetupMode,
     requestPasswordReset, isSignedIn, user,
   } = useAuth();
@@ -559,9 +631,26 @@ export const Auth: React.FC<{
   // A relaunch mid-signup (code verified, password not yet chosen) reopens
   // straight on the choose-password step.
   const [step, setStep] = useState<Step>(() => (isSignedIn && needsPasswordSetup ? 'setpassword' : 'email'));
-  // On a mid-signup relaunch the email input was never typed this session —
-  // seed it from the verified session so the header can show the address.
+  // On a mid-signup relaunch the identifier input was never typed this
+  // session — seed it from the verified session so the header can show it.
+  // Either field may be the one that exists: a phone signup has no email.
   const [email, setEmail] = useState(() => (isSignedIn && needsPasswordSetup ? user?.email ?? '' : ''));
+  /* ── Channel ────────────────────────────────────────────────────────
+     Which identifier this run of the flow is using. A third axis on the
+     existing machine rather than new steps: every step (identifier →
+     password / verify → setpassword) is the same screen either way, so
+     only the send, the probe and the copy differ. A relaunch mid-signup
+     resumes on whichever channel the session actually has. */
+  const [channel, setChannel] = useState<'email' | 'phone'>(
+    () => (isSignedIn && needsPasswordSetup && !user?.email && user?.phone ? 'phone' : 'email'),
+  );
+  const [phone, setPhone] = useState(() => (isSignedIn && needsPasswordSetup ? user?.phone ?? '' : ''));
+  /* "Sign in" holds until the user explicitly says they're new — a local
+     unlock rather than navigation, so their typed identifier survives. */
+  const [signupUnlocked, setSignupUnlocked] = useState(false);
+  const lockedToSignIn = !!signInOnly && !signupUnlocked;
+  const unlockSignup = useCallback(() => { setSignupUnlocked(true); setError(''); }, []);
+  const [region, setRegion] = useState<CountryCode>(() => deviceRegion());
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
@@ -584,6 +673,15 @@ export const Auth: React.FC<{
   const [verifyFor, setVerifyFor] = useState<'signup' | 'unconfirmed' | 'rescue'>('signup');
   const [codeSending, setCodeSending] = useState(false);
 
+  /* The typed number in the one format Supabase and contact matching both
+     require, or null while it isn't yet a real number. Everything that
+     talks to the server uses this — never the raw input. */
+  const phoneE164 = useMemo(() => toE164(phone, region), [phone, region]);
+  /* What the code screen and the password header should show. Falls back
+     to the raw input so a half-typed number still appears rather than
+     blanking the header. */
+  const identifier = channel === 'email' ? email : (phoneE164 ?? phone);
+
   // Resend cooldown ticker
   React.useEffect(() => {
     if (resendIn <= 0) return;
@@ -591,8 +689,54 @@ export const Auth: React.FC<{
     return () => clearInterval(t);
   }, [resendIn]);
 
-  const handleEmailContinue = useCallback(async () => {
+  const handleIdentifierContinue = useCallback(async () => {
     setError('');
+
+    /* Phone and email answer the same three questions — is this a real
+       identifier, does an account already exist, and if not send a code —
+       so the shape below is deliberately identical; only the validator,
+       the probe and the wording differ. */
+    if (channel === 'phone') {
+      // toE164 returns null for anything not dialable. Stopping here is the
+      // point: an invalid number sent to Supabase would spend a slot
+      // against the project's SMS rate limit (the real spend ceiling) on a
+      // number that can never receive the code.
+      const e164 = phoneE164;
+      if (!e164) {
+        setError(phone.trim() ? 'Please enter a valid phone number' : 'Please enter a phone number');
+        return;
+      }
+      setSubmitting(true);
+      const exists = await checkPhoneExists(e164);
+      if (exists === 'yes') {
+        setSubmitting(false);
+        setStep('password');
+        return;
+      }
+      if (exists === 'unknown') {
+        setSubmitting(false);
+        setError("We couldn't check that number just now — please try again.");
+        return;
+      }
+      if (lockedToSignIn) {
+        // They said they have an account; this number doesn't. Starting a
+        // signup here would hand a mistyped digit a brand-new empty
+        // account instead of the one they meant.
+        setSubmitting(false);
+        setError('No account found with that number. Check it, or create an account below.');
+        return;
+      }
+      const { error: sendErr } = await startPhoneSignup(e164);
+      setSubmitting(false);
+      if (sendErr) { setError(sendErr); return; }
+      setCode('');
+      setVerifyFor('signup');
+      setVerifyNotice('We sent a 6-digit code to');
+      setResendIn(60);
+      setStep('verify');
+      return;
+    }
+
     const trimmed = email.trim();
     if (!trimmed) {
       setError('Please enter an email address');
@@ -618,6 +762,11 @@ export const Auth: React.FC<{
       setError("We couldn't check that email just now — please try again.");
       return;
     }
+    if (lockedToSignIn) {
+      setSubmitting(false);
+      setError('No account found with that email. Check it, or create an account below.');
+      return;
+    }
     // Confirmed new account ('no'): verify the email FIRST (6-digit code),
     // then choose a password. signInWithOtp always sends the code — no
     // dependency on the project's "Confirm email" setting.
@@ -629,7 +778,7 @@ export const Auth: React.FC<{
     setVerifyNotice('We sent a 6-digit code to');
     setResendIn(60);
     setStep('verify');
-  }, [email, checkEmailExists, startEmailSignup]);
+  }, [channel, phone, phoneE164, email, lockedToSignIn, checkEmailExists, checkPhoneExists, startEmailSignup, startPhoneSignup]);
 
   const handleSignIn = useCallback(async () => {
     setError('');
@@ -638,11 +787,15 @@ export const Auth: React.FC<{
       return;
     }
     setSubmitting(true);
-    const { error: err } = await signIn(email, password);
+    const { error: err } = channel === 'phone' && phoneE164
+      ? await signInWithPhonePassword(phoneE164, password)
+      : await signIn(email, password);
     if (err) {
       // Account exists but the email was never confirmed — send a fresh
       // code and route to the verification screen instead of dead-ending.
-      if (/confirm/i.test(err)) {
+      // Phone accounts can't reach this state: the number is confirmed by
+      // the OTP that created the account.
+      if (channel === 'email' && /confirm/i.test(err)) {
         void resendVerificationCode(email);
         setCode('');
         setVerifyFor('unconfirmed');
@@ -655,7 +808,7 @@ export const Auth: React.FC<{
       }
     }
     setSubmitting(false);
-  }, [email, password, signIn, resendVerificationCode]);
+  }, [channel, phoneE164, email, password, signIn, signInWithPhonePassword, resendVerificationCode]);
 
   const handleSetPassword = useCallback(async () => {
     setError('');
@@ -689,14 +842,21 @@ export const Auth: React.FC<{
     else setResetNotice(`We emailed a password-reset link to ${email}. Open it to choose a new password.`);
   }, [email, resetSending, requestPasswordReset]);
 
-  const handleEmailCodeSignIn = useCallback(async () => {
+  const handleCodeSignIn = useCallback(async () => {
     if (codeSending) return;
     setError('');
     setCodeSending(true);
-    // The account exists (this screen is only reached when checkEmailExists
-    // said 'yes'), so signInWithOtp just sends a sign-in code; the
-    // shouldCreateUser flag in startEmailSignup is a no-op here.
-    const { error: sendErr } = await startEmailSignup(email);
+    // The account exists (this screen is only reached when the existence
+    // probe said 'yes'), so this just sends a sign-in code; the
+    // shouldCreateUser flag is a no-op here.
+    //
+    // For phone this is also the ONLY password-recovery route — Supabase
+    // has no resetPasswordForEmail equivalent for SMS, and it doesn't need
+    // one: typing a texted code proves control of the number exactly the
+    // way an emailed link proves control of the inbox.
+    const { error: sendErr } = channel === 'phone' && phoneE164
+      ? await startPhoneSignup(phoneE164)
+      : await startEmailSignup(email);
     setCodeSending(false);
     if (sendErr) { setError(sendErr); return; }
     setCode('');
@@ -704,11 +864,16 @@ export const Auth: React.FC<{
     setVerifyNotice('We sent a 6-digit sign-in code to');
     setResendIn(60);
     setStep('verify');
-  }, [email, codeSending, startEmailSignup]);
+  }, [channel, phoneE164, email, codeSending, startEmailSignup, startPhoneSignup]);
 
   const handleVerify = useCallback(async () => {
     setError('');
-    if (code.length !== 6) { setError('Enter the 6-digit code from your email'); return; }
+    if (code.length !== 6) {
+      setError(channel === 'phone'
+        ? 'Enter the 6-digit code from your text message'
+        : 'Enter the 6-digit code from your email');
+      return;
+    }
     setSubmitting(true);
     // Both the signup path and the rescue path end in the choose-password
     // screen: signup because the just-created account has none, rescue
@@ -716,8 +881,10 @@ export const Auth: React.FC<{
     // skip bug). Typing the emailed code is the same proof of ownership the
     // recovery flow demands, so setting a password here is always safe.
     const expectSetup = verifyFor === 'signup' || verifyFor === 'rescue';
-    const { error: err, passwordSetupNeeded } = await verifyEmailCode(
-      email, code, expectSetup, verifyFor === 'rescue' ? 'recovery' : 'signup');
+    const setupMode = verifyFor === 'rescue' ? 'recovery' : 'signup';
+    const { error: err, passwordSetupNeeded } = channel === 'phone' && phoneE164
+      ? await verifyPhoneCode(phoneE164, code, expectSetup, setupMode)
+      : await verifyEmailCode(email, code, expectSetup, setupMode);
     if (err) {
       setError(/expired|invalid|token/i.test(err) ? 'That code is invalid or expired — tap resend for a new one.' : err);
     } else if (expectSetup && passwordSetupNeeded !== false) {
@@ -726,17 +893,35 @@ export const Auth: React.FC<{
     }
     // 'unconfirmed': the session lands and onAuthStateChange swaps to the app.
     setSubmitting(false);
-  }, [email, code, verifyFor, verifyEmailCode]);
+  }, [channel, phoneE164, email, code, verifyFor, verifyEmailCode, verifyPhoneCode]);
 
   const handleResend = useCallback(async () => {
     if (resendIn > 0) return;
     setError('');
     setResendIn(60);
-    const { error: err } = verifyFor !== 'unconfirmed'
-      ? await startEmailSignup(email)
-      : await resendVerificationCode(email);
+    const { error: err } = channel === 'phone' && phoneE164
+      ? (verifyFor !== 'unconfirmed'
+        ? await startPhoneSignup(phoneE164)
+        : await resendPhoneCode(phoneE164))
+      : (verifyFor !== 'unconfirmed'
+        ? await startEmailSignup(email)
+        : await resendVerificationCode(email));
     if (err) setError(err);
-  }, [email, resendIn, verifyFor, startEmailSignup, resendVerificationCode]);
+  }, [channel, phoneE164, email, resendIn, verifyFor, startEmailSignup, resendVerificationCode, startPhoneSignup, resendPhoneCode]);
+
+  /* A phone account has no emailed reset link to send, so "forgot
+     password" IS the code path — same screen, same proof of ownership
+     (a texted code proves control of the number the way an emailed link
+     proves control of the inbox). Branching here rather than inside each
+     layout keeps the two password screens identical.
+
+     Defined after handleCodeSignIn on purpose: a useCallback dependency
+     array is evaluated immediately, so referencing it any earlier is a
+     temporal-dead-zone crash rather than a hoisted function. */
+  const handleForgotPasswordForChannel = useCallback(() => {
+    if (channel === 'phone') void handleCodeSignIn();
+    else void handleForgotPassword();
+  }, [channel, handleCodeSignIn, handleForgotPassword]);
 
   const handleOAuth = useCallback(async (provider: 'google' | 'apple') => {
     setError('');
@@ -752,15 +937,17 @@ export const Auth: React.FC<{
   const sharedProps: SharedProps = {
     email, setEmail, password, setPassword, showPassword, setShowPassword,
     submitting, error,
-    onEmailContinue: handleEmailContinue,
+    channel, setChannel, phone, setPhone, region, setRegion, identifier,
+    lockedToSignIn, onUnlockSignup: unlockSignup,
+    onEmailContinue: handleIdentifierContinue,
     onSignIn: handleSignIn,
     onSetPassword: handleSetPassword,
     onBack: handleBack,
     onOAuth: handleOAuth,
     oauthPending,
-    onForgotPassword: () => { void handleForgotPassword(); },
+    onForgotPassword: handleForgotPasswordForChannel,
     resetSending, resetNotice, passwordSetupMode,
-    onEmailCodeSignIn: () => { void handleEmailCodeSignIn(); },
+    onEmailCodeSignIn: () => { void handleCodeSignIn(); },
     codeSending,
     saveTaste: saveTasteFraming,
     onBrowseAsGuest,
@@ -791,7 +978,7 @@ export const Auth: React.FC<{
   if (useDesktopLayout) {
     const headerRight =
       step === 'email' ? (
-        <span className="text-on-surface/45">New to Gourmet Canvas?</span>
+        <span className="text-on-surface/45">New to GoodEats?</span>
       ) : step === 'setpassword' ? (
         // Email is verified and the session exists — no going back from here.
         <span className="text-on-surface/45">One last step</span>
@@ -813,7 +1000,11 @@ export const Auth: React.FC<{
   }
 
   // ── Mobile / phone-frame layout — the cream/terracotta onboarding ─────
-  const emailDisplay = email.trim() || 'you@example.com';
+  /* Whichever identifier is in play — a phone signup has no email at
+     all, so keying every screen off `email` left them blank. */
+  const identifierDisplay = channel === 'phone'
+    ? (identifier.trim() || 'your number')
+    : (email.trim() || 'you@example.com');
   const pwOk = password.length >= 8;
 
   // Welcome
@@ -830,23 +1021,52 @@ export const Auth: React.FC<{
               </>
             ) : (
               <>
-                <OB.Title>Welcome to<br />Gourmet Canvas</OB.Title>
-                <OB.Subtitle>Enter your email — we'll sign you in, or set you up if you're new.</OB.Subtitle>
+                <OB.Title>{lockedToSignIn ? 'Welcome back' : 'Welcome to GoodEats'}</OB.Title>
+                <OB.Subtitle>
+                  {lockedToSignIn
+                    ? (channel === 'phone'
+                      ? 'Sign in with your phone number.'
+                      : 'Sign in with your email.')
+                    : channel === 'phone'
+                      ? "Enter your phone number — we'll sign you in, or set you up if you're new."
+                      : "Enter your email — we'll sign you in, or set you up if you're new."}
+                </OB.Subtitle>
               </>
             )}
           </div>
-          <form onSubmit={(e) => { e.preventDefault(); handleEmailContinue(); }} style={{ marginTop: 28 }}>
-            <OB.FieldLabel>Email</OB.FieldLabel>
-            <OB.Field
-              type="email" name="email" value={email} onChange={(v) => { setEmail(v); setError(''); }}
-              placeholder="you@example.com" icon={<Mail size={18} strokeWidth={1.6} />}
-              autoFocus autoComplete="email" inputMode="email" autoCapitalize="off"
-            />
+          <form onSubmit={(e) => { e.preventDefault(); handleIdentifierContinue(); }} style={{ marginTop: 28 }}>
+            {channel === 'phone' ? (
+              <>
+                <OB.FieldLabel>Phone number</OB.FieldLabel>
+                <OB.Field
+                  type="tel" name="phone" value={phone} onChange={(v) => { setPhone(v); setError(''); }}
+                  placeholder="(555) 123-4567" icon={<Phone size={18} strokeWidth={1.6} />}
+                  autoFocus autoComplete="tel" inputMode="tel" autoCapitalize="off"
+                />
+              </>
+            ) : (
+              <>
+                <OB.FieldLabel>Email</OB.FieldLabel>
+                <OB.Field
+                  type="email" name="email" value={email} onChange={(v) => { setEmail(v); setError(''); }}
+                  placeholder="you@example.com" icon={<Mail size={18} strokeWidth={1.6} />}
+                  autoFocus autoComplete="email" inputMode="email" autoCapitalize="off"
+                />
+              </>
+            )}
             {error && <OB.ErrorRow>{error}</OB.ErrorRow>}
             <div style={{ marginTop: 14 }}><OB.PrimaryButton type="submit" loading={submitting}>Continue</OB.PrimaryButton></div>
           </form>
           <OB.Divider>OR</OB.Divider>
           <div className="flex flex-col gap-3">
+            {/* Sits with the other "continue another way" options rather
+                than under the field, because that is what it is. */}
+            <OB.SocialButton
+              icon={channel === 'phone' ? <Mail size={16} strokeWidth={1.8} /> : <Phone size={16} strokeWidth={1.8} />}
+              onClick={() => { setChannel(channel === 'phone' ? 'email' : 'phone'); setError(''); }}
+            >
+              {channel === 'phone' ? 'Use email instead' : 'Use phone number instead'}
+            </OB.SocialButton>
             <OB.SocialButton
               icon={oauthPending === 'apple' ? <Loader2 size={16} className="animate-spin" /> : <OB.AppleGlyph />}
               onClick={() => handleOAuth('apple')} disabled={oauthPending !== null}
@@ -856,6 +1076,11 @@ export const Auth: React.FC<{
               onClick={() => handleOAuth('google')} disabled={oauthPending !== null}
             >Continue with Google</OB.SocialButton>
           </div>
+          {lockedToSignIn && (
+            <div style={{ marginTop: 6 }}>
+              <OB.GhostButton onClick={unlockSignup}>New to GoodEats? Create an account</OB.GhostButton>
+            </div>
+          )}
           {onBrowseAsGuest && (
             <div style={{ marginTop: 'auto', paddingTop: 24 }} className="flex flex-col items-center">
               <OB.GhostButton onClick={onBrowseAsGuest} trailing>Browse without an account</OB.GhostButton>
@@ -874,7 +1099,7 @@ export const Auth: React.FC<{
           <OB.RoundBackButton onClick={handleBack} />
           <div style={{ marginTop: 24 }}><OB.BrandMark size={50} /></div>
           <OB.Title size={30}>Welcome back</OB.Title>
-          <div style={{ marginTop: 14 }}><OB.EmailPill email={emailDisplay} onClick={handleBack} /></div>
+          <div style={{ marginTop: 14 }}><OB.EmailPill email={identifierDisplay} onClick={handleBack} /></div>
           <form onSubmit={(e) => { e.preventDefault(); handleSignIn(); }} style={{ marginTop: 24 }}>
             <OB.FieldLabel>Password</OB.FieldLabel>
             <OB.Field
@@ -887,7 +1112,7 @@ export const Auth: React.FC<{
             <div className="flex items-center justify-between" style={{ marginTop: 16 }}>
               <button
                 type="button"
-                onClick={() => { void handleEmailCodeSignIn(); }}
+                onClick={() => { void handleCodeSignIn(); }}
                 disabled={codeSending}
                 style={{ fontSize: 14.5, color: codeSending ? 'var(--ob-label)' : OB.TERRA, fontWeight: 600 }}
                 className="cursor-pointer bg-transparent border-none p-0 disabled:cursor-default"
@@ -920,16 +1145,16 @@ export const Auth: React.FC<{
     );
   }
 
-  // Verify email — enter the emailed 6-digit code
+  // Verify — enter the 6-digit code we emailed or texted
   if (step === 'verify') {
     return (
       <OB.OnboardingScreen>
         <FadeStep stepKey="verify">
           <OB.RoundBackButton onClick={handleBack} />
           <div style={{ marginTop: 24 }}><OB.BrandMark size={50} /></div>
-          <OB.Title size={30}>Check your email</OB.Title>
+          <OB.Title size={30}>{channel === 'phone' ? 'Check your texts' : 'Check your email'}</OB.Title>
           <OB.Subtitle>{verifyNotice || 'We sent a 6-digit code to'}</OB.Subtitle>
-          <div style={{ marginTop: 10 }}><OB.EmailPill email={emailDisplay} onClick={handleBack} /></div>
+          <div style={{ marginTop: 10 }}><OB.EmailPill email={identifierDisplay} onClick={handleBack} /></div>
           <form onSubmit={(e) => { e.preventDefault(); handleVerify(); }} style={{ marginTop: 24 }} className="flex flex-1 flex-col">
             <OB.FieldLabel>Verification code</OB.FieldLabel>
             <input
@@ -950,7 +1175,7 @@ export const Auth: React.FC<{
             {error && <OB.ErrorRow>{error}</OB.ErrorRow>}
             <div style={{ marginTop: 16 }}>
               <OB.PrimaryButton type="submit" loading={submitting} disabled={code.length !== 6} trailing="check">
-                Verify email
+                {channel === 'phone' ? 'Verify number' : 'Verify email'}
               </OB.PrimaryButton>
             </div>
             <button
@@ -977,12 +1202,12 @@ export const Auth: React.FC<{
         <OB.Title size={30}>{passwordSetupMode === 'recovery' ? 'Set a new password' : 'Choose a password'}</OB.Title>
         {passwordSetupMode === 'recovery' ? (
           <div style={{ marginTop: 14, fontSize: 14, color: 'var(--ob-secondary)' }}>
-            Pick a new password for <span style={{ color: OB.TERRA, fontWeight: 600 }}>{emailDisplay}</span>.
+            Pick a new password for <span style={{ color: OB.TERRA, fontWeight: 600 }}>{identifierDisplay}</span>.
           </div>
         ) : (
           <div className="flex items-center gap-2" style={{ marginTop: 14 }}>
             <svg width="15" height="15" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="7" fill="var(--ob-success-dot)" /><path d="M5 8.2l2 2 4-4.4" stroke="#fff" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg>
-            <span style={{ fontSize: 14, color: 'var(--ob-success)', fontWeight: 600 }}>{emailDisplay} verified</span>
+            <span style={{ fontSize: 14, color: 'var(--ob-success)', fontWeight: 600 }}>{identifierDisplay} verified</span>
           </div>
         )}
         <form onSubmit={(e) => { e.preventDefault(); handleSetPassword(); }} style={{ marginTop: 24 }} className="flex flex-1 flex-col">

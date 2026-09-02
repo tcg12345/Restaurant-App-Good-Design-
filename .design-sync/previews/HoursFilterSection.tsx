@@ -1,5 +1,5 @@
 import React from 'react';
-import { HoursFilterSection, FilterDrillSection } from 'gourmet-canvas';
+import { HoursFilterSection, FilterDrillSection } from 'goodeats';
 
 /**
  * A drop-in "Hours" filter for any sheet. It is a `FilterDrillRow` with a

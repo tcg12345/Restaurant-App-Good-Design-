@@ -1,5 +1,5 @@
 import React from 'react';
-import { FilterSection, Segment, SegmentItem } from 'gourmet-canvas';
+import { FilterSection, Segment, SegmentItem } from 'goodeats';
 
 /**
  * One choice inside a `Segment`. It MUST be a child of `Segment` — on its

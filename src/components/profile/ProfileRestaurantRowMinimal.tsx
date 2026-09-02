@@ -48,7 +48,7 @@ const RingScore: React.FC<{ score: number; size?: number }> = ({ score, size = 4
 /**
  * Minimal, editorial restaurant row — a clean divider-separated entry that
  * expands in place to reveal the full note, photos, tags and actions. Mirrors
- * the Gourmet Canvas reference: serif name, a one-line italic review snippet
+ * the GoodEats reference: serif name, a one-line italic review snippet
  * when collapsed, and a soft reveal animation on expand. `compact` shrinks it
  * for the mobile profile.
  */

@@ -37,7 +37,7 @@ export interface CachedCityData {
 
 export const CACHE_TTL_MS = 15 * 60 * 1000; // 15 minutes
 // v2 when the schema switched from {queryPool, queryCursor} to {cursors}.
-export const CACHE_STORAGE_KEY = 'gourmad-location-page-cache-v2';
+export const CACHE_STORAGE_KEY = 'goodeats-location-page-cache-v2';
 export const MAX_CACHED_CITIES = 24; // doubled from v1 since price tiers get their own slots
 
 /**

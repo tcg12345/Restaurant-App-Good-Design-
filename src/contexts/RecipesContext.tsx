@@ -74,7 +74,7 @@ interface RecipesContextValue {
 
 /* ── localStorage helpers ── */
 
-const STORAGE_KEY_MY_RECIPES = 'gourmad-my-recipes';
+const STORAGE_KEY_MY_RECIPES = 'goodeats-my-recipes';
 
 function loadFromStorage<T>(key: string, fallback: T): T {
   try {

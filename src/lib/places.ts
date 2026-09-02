@@ -1483,7 +1483,7 @@ async function fetchMapboxNeighborhood(lat: number, lng: number): Promise<string
   if (!MAPBOX_TOKEN) return undefined;
   if (!Number.isFinite(lat) || !Number.isFinite(lng)) return undefined;
   try {
-    const url = `https://api.mapbox.com/geocoding/v5/mapbox.places/${lng},${lat}.json?access_token=${MAPBOX_TOKEN}&types=neighborhood&limit=1`;
+    const url = `https://api.mapbox.com/geocoding/v5/mapbox.places/${lng},${lat}.json?access_token=${MAPBOX_TOKEN}&types=neighborhood&language=en&limit=1`;
     const res = await fetch(url);
     if (!res.ok) return undefined;
     const data = await res.json();

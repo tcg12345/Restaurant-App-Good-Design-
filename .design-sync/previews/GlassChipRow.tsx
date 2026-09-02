@@ -1,5 +1,5 @@
 import React from 'react';
-import { GlassChipRow } from 'gourmet-canvas';
+import { GlassChipRow } from 'goodeats';
 import { ArrowUpDown, Clock, SlidersHorizontal, Star, Users } from 'lucide-react';
 
 /**

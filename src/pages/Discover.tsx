@@ -11,7 +11,7 @@ import { cn, safeImage } from '../lib/utils';
 import { GlassButton, GlassGroup, GlassChipRow } from '../lib/glass-buttons';
 import { getTasteQuiz } from '../lib/taste-quiz';
 import { VerifiedBadge } from '../components/VerifiedBadge';
-import { scoreColor, scoreHex, scoreTintStyle } from '../lib/score';
+import { scoreColor, scoreHex, scoreTintStyle, formatScore } from '../lib/score';
 import { useSettings } from '../contexts/SettingsContext';
 import { useHomeLocation } from '../contexts/HomeLocationContext';
 import { useLists } from '../contexts/ListsContext';
@@ -56,7 +56,6 @@ import { TopBar } from '../components/TopBar';
 import {
   HomeLocationBar,
   loadLastSelectedLocation,
-  saveLastSelectedLocation,
   reverseGeocode,
   getCurrentHomeLocation,
   type HomeLocation,
@@ -324,57 +323,11 @@ const SectionLink: React.FC<{ label: string; to?: string; onClick?: () => void; 
     : <button type="button" onClick={onClick} className={cls}>{inner}</button>;
 };
 
-/** Where is the next meal coming from — the two ways in, as a pair.
- *
- *  The question that used to sit above them ("What sounds good?") was a
- *  heading for two buttons that already say what they are, in a place where
- *  the page has not yet shown you anything. The buttons keep the accent /
- *  outline pairing so the eye still knows which one is the main verb. */
-const IntentPair: React.FC<{
-  onFindRestaurant: () => void;
-  findSubtitle: string;
-  onCook: () => void;
-  cookSubtitle: string;
-}> = ({ onFindRestaurant, findSubtitle, onCook, cookSubtitle }) => (
-  // Horizontal, half the old height: icon disc beside a two-line label
-  // instead of a tall card stacking them. The accent / filled-neutral
-  // pairing still says which one is the main verb — the outline went with
-  // the rest of the header's borders.
-  <div className="pt-3.5 flex gap-2">
-    <button
-      type="button"
-      onClick={onFindRestaurant}
-      className="flex-1 min-w-0 rounded-2xl bg-primary text-white pl-2.5 pr-3 py-3 flex items-center gap-2.5 text-left active:opacity-90 transition-opacity"
-    >
-      <span className="w-8 h-8 rounded-full bg-white/[0.16] grid place-items-center flex-shrink-0">
-        <UtensilsCrossed size={15} strokeWidth={1.8} />
-      </span>
-      <span className="min-w-0">
-        <span className="block whitespace-nowrap" style={{ fontSize: '13.5px', fontWeight: 700, lineHeight: 1.15, letterSpacing: '-0.02em' }}>Find a table</span>
-        <span className="block truncate text-white/75 mt-[2px]" style={{ fontSize: '11.5px', lineHeight: 1.2 }}>{findSubtitle}</span>
-      </span>
-    </button>
-    <button
-      type="button"
-      onClick={onCook}
-      className="flex-1 min-w-0 rounded-2xl bg-on-surface/[0.05] pl-2.5 pr-3 py-3 flex items-center gap-2.5 text-left active:bg-on-surface/[0.08] transition-colors"
-    >
-      <span className="w-8 h-8 rounded-full bg-primary/10 text-primary grid place-items-center flex-shrink-0">
-        <ChefHat size={15} strokeWidth={1.8} />
-      </span>
-      <span className="min-w-0">
-        <span className="block text-on-surface whitespace-nowrap" style={{ fontSize: '13.5px', fontWeight: 700, lineHeight: 1.15, letterSpacing: '-0.02em' }}>Cook something</span>
-        <span className="block truncate text-on-surface/45 mt-[2px]" style={{ fontSize: '11.5px', lineHeight: 1.2 }}>{cookSubtitle}</span>
-      </span>
-    </button>
-  </div>
-);
-
 export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, searchHandlerRef, dimChrome = false, onSheetFullChange, locationBridgeRef, onFollowingViewChange, followingBridgeRef, followingQuery, onClearFollowingQuery }) => {
   const searchTab = variant === 'searchTab';
   const navigate = useNavigate();
   const location = useLocation();
-  const { setHideBottomNav, phoneMode, darkMode } = useSettings();
+  const { setHideBottomNav, phoneMode, darkMode, twoDecimalScores } = useSettings();
   // Michelin dataset readiness. michCuisinePrice() overrides a place's
   // cuisine/price from the Guide data when matched (no marker on cards — that's
   // detail-page only); falls back to the supplied Google-derived values.
@@ -1353,15 +1306,12 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, sear
   const setHomeLocation = useCallback((loc: HomeLocation | null) => {
     if (loc && homeLocationCtx) homeLocationCtx.setLocation(loc);
   }, [homeLocationCtx]);
-  // Session-only, for the denied-permission fallback — see the resolver.
-  const setHomeLocationTransient = useCallback((loc: HomeLocation) => {
-    homeLocationCtx?.setLocationTransient(loc);
-  }, [homeLocationCtx]);
   // Brief fade overlay applied while the feed refetches after a location swap.
   const [homeLocationRefreshing, setHomeLocationRefreshing] = useState(false);
-  // Watch location changes (from this page OR the sticky DesktopHeader chip)
-  // and flash the refresh fade so the Recommended rail doesn't pop without
-  // any visual cue.
+  // Watch the shared location — however it moved: this page's picker, the
+  // sticky DesktopHeader chip, the map tab's location chip, or the device fix
+  // that lands a moment after launch — and flash the refresh fade so the
+  // Recommended rail doesn't pop without any visual cue.
   const lastLocKeyRef = useRef<string | null>(null);
   useEffect(() => {
     if (!homeLocation) {
@@ -1374,6 +1324,13 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, sear
       // refetched recs land, or a cap fires) — a fixed 450ms here lifted it
       // while the refetch was still in flight, so content popped anyway.
       setHomeLocationRefreshing(true);
+      // Drop the rec once-guard HERE rather than in the picker's own handler:
+      // the handler only knows about picks made on this page, so a city
+      // chosen on the map tab left this rail recommending the old one until
+      // something remounted it. This effect is declared above the rec
+      // orchestrator, so the guard is already clear in the same commit.
+      recsFetchedRef.current = false;
+      recsSeenIdsRef.current = new Set();
     }
     lastLocKeyRef.current = key;
   }, [homeLocation]);
@@ -1381,7 +1338,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, sear
   // Recent views from localStorage
   const [recentViews, setRecentViews] = useState<Array<PlaceResult & { viewedAt: number }>>(() => {
     try {
-      const raw = localStorage.getItem('gourmad-recent-views');
+      const raw = localStorage.getItem('goodeats-recent-views');
       return raw ? JSON.parse(raw) : [];
     } catch { return []; }
   });
@@ -1389,7 +1346,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, sear
   const removeRecentView = useCallback((id: string) => {
     setRecentViews((prev) => {
       const next = prev.filter((v) => v.id !== id);
-      localStorage.setItem('gourmad-recent-views', JSON.stringify(next));
+      localStorage.setItem('goodeats-recent-views', JSON.stringify(next));
       if (userId && supabaseConfigured) saveRecentViews(userId, next);
       return next;
     });
@@ -1709,74 +1666,45 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, sear
   }, [mode, userId, homeLocation?.label, userPreferences.topTags]);
 
   /**
-   * Resolve the home-page location on mount.
+   * The only place in the app that ASKS for location permission on its own.
    *
-   * Order is: an explicit pick from localStorage (which HomeLocationContext
-   * has usually already hydrated, so this effect rarely runs at all), then
-   * GPS, then New York. The docblock here used to claim GPS came first —
-   * it never did, and the contradiction survived two readings of this file.
-   *
-   * The NYC fallback is deliberately NOT persisted. It used to be, via
-   * setHomeLocation → HomeLocationContext's localStorage write, which meant
-   * one dismissed permission dialog pinned a Chicago user to New York
-   * forever: the effect early-returns whenever a location exists, so GPS
-   * was never retried on any later launch. Holding it in state only keeps
-   * the next launch honest.
-   *
-   * GPS goes through getCurrentHomeLocation() rather than a raw
-   * getCurrentPosition call. That wrapper exists because iOS WKWebView
-   * hangs indefinitely on high-accuracy requests indoors and does not
-   * honour the native timeout; calling the bare API here reintroduced
-   * exactly the failure it was written to fix.
+   * HomeLocationContext resolves the anchor on every launch — the device's
+   * location when that's already allowed, otherwise the last one the user
+   * picked — but it never surfaces the permission dialog, because a dialog
+   * on a splash screen has no visible reason and iOS only ever shows it
+   * once. `status === 'none'` means it came up empty: no permission, no
+   * pick, no onboarding city. The home feed is where asking explains itself
+   * — it is a page full of places near you — so the ask lives here, once
+   * per mount, and a refusal just leaves the placeholder city in place.
    */
+  const askedForLocationRef = useRef(false);
   useEffect(() => {
-    if (mode !== 'home' || homeLocation) return;
-    let cancelled = false;
-    const last = loadLastSelectedLocation();
-    if (last) {
-      setHomeLocation(last);
-      return;
-    }
-    (async () => {
-      const loc = await getCurrentHomeLocation().catch(() => null);
-      if (cancelled) return;
-      if (loc) {
-        // A real fix on the user's device — persist it so every other
-        // surface (detail-page distance, map centre) shares the origin.
-        setHomeLocation(loc);
-        saveLastSelectedLocation(loc);
-        return;
-      }
-      setHomeLocationTransient({ label: 'New York, NY', lat: 40.7128, lng: -74.006 });
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [mode, homeLocation]);
+    if (mode !== 'home' || homeLocationCtx?.status !== 'none') return;
+    if (askedForLocationRef.current) return;
+    askedForLocationRef.current = true;
+    homeLocationCtx.useCurrent().catch(() => {});
+  }, [mode, homeLocationCtx]);
 
-  // Explicit location pick from the picker — persist so the next denied-perms
-  // session can restore it, then trigger a quick fade while recs refetch.
+  // An explicit location pick, from wherever it was made: the home picker,
+  // the map's location chip, "use my current location". `setHomeLocation`
+  // persists it as the user's choice — so it anchors every other surface now
+  // and is what the next launch falls back to without permission — and then
+  // a quick fade covers the rec refetch.
   // Picking the same location you're already on is a no-op so we don't spend
   // API budget on a round-trip that wouldn't change anything.
   const handleHomeLocationChange = useCallback((loc: HomeLocation) => {
     if (homeLocation && locationKey(homeLocation.lat, homeLocation.lng) === locationKey(loc.lat, loc.lng)) {
       // Just update the label in case user picked a more specific spelling,
       // but skip the refetch / fade entirely.
-      if (homeLocation.label !== loc.label) {
-        setHomeLocation(loc);
-        saveLastSelectedLocation(loc);
-      }
+      if (homeLocation.label !== loc.label) setHomeLocation(loc);
       return;
     }
     setHomeLocationRefreshing(true);
     setHomeLocation(loc);
-    saveLastSelectedLocation(loc);
-    // Reset the rec guards so the effect below refetches from scratch. The
-    // fade clears when that refetch actually settles (watchers above), not
-    // on a fixed timer.
-    recsFetchedRef.current = false;
-    recsSeenIdsRef.current = new Set();
-  }, [homeLocation]);
+    // The rec guards are reset by the watcher above, which sees the anchor
+    // move no matter which surface moved it. The fade clears when the
+    // refetch actually settles (watchers above), not on a fixed timer.
+  }, [homeLocation, setHomeLocation]);
 
   // "Use current location" from the picker — returns a Promise so the picker
   // can show a spinner while it resolves and surface a clear error if the
@@ -2120,10 +2048,19 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, sear
   // Call BEFORE getFilteredPlaces so the injected entries participate in the
   // chosen sort instead of trailing at the bottom.
   //
-  // Cap the injections at the nearest MICHELIN_MERGE_CAP (michelinNearbySync
-  // returns nearest-first) — a wide radius over a dense guide city (Paris)
-  // would otherwise flood hundreds of synthetic markers onto the map.
-  const MICHELIN_MERGE_CAP = 30;
+  // No count cap on top of the radius: the whole point of picking a Michelin
+  // filter is to see the full list for the area you're looking at (1-star in
+  // NYC is only ~50 restaurants — a count cap of 30 silently hid a third of
+  // them). `radiusMi` below already bounds this to the map's own viewport
+  // (~50 km max), which is the real limiter, and this is a fully local
+  // lookup (michelinNearbySync — the bundled dataset, no Places API call), so
+  // "no limit" here costs nothing. MICHELIN_SAFETY_CEILING exists only as a
+  // circuit breaker for the genuinely pathological case — every distinction
+  // selected at once, over the max radius, centered on the densest Michelin
+  // city on Earth — since markers are plain unclustered Mapbox DOM markers
+  // (see syncMarkers) and a four-digit marker count would be a real
+  // rendering problem regardless of where the places came from.
+  const MICHELIN_SAFETY_CEILING = 500;
   const mergeMichelinResults = useCallback(async (
     googlePlaces: PlaceResult[],
     centerLat: number,
@@ -2141,7 +2078,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, sear
     const price = filtersRef.current.selectedPrice;
     let added = 0;
     for (const m of michelinNearbySync(centerLat, centerLng, radiusMi, sel)) {
-      if (added >= MICHELIN_MERGE_CAP) break;
+      if (added >= MICHELIN_SAFETY_CEILING) break;
       if (price > 0 && m.priceTier !== price) continue;
       const dup = kept.some((p) =>
         p.name.toLowerCase() === m.name.toLowerCase()
@@ -2739,6 +2676,16 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, sear
   }, [mode, assistantVisible, restaurantMeta, assistantCityLabel, assistantShortCity, selectedCuisines, selectedPrice, sortBy, discoverRadius, referenceLocation, mapCenter, handleAssistantSearch, handleAssistantPlaces]);
   useSetAssistantPageContext(assistantPageContext);
 
+  // The key of the location this map itself last chose, written SYNCHRONOUSLY
+  // in handleSelectLocation so the follow-the-anchor effect can tell "the
+  // anchor moved because of me" from "the anchor moved somewhere else"
+  // without depending on when React commits the state that says so.
+  const mapPickKeyRef = useRef<string | null>(null);
+  // The anchor this map's camera is already on. Seeded at initialisation
+  // below, so the first change AFTER it — a device fix landing a second
+  // later, a city picked on Home while this tab was hidden — is caught.
+  const lastSyncedHomeLocRef = useRef<string | null>(null);
+
   // Initialize Mapbox — skip entirely when running as the Home page (no map)
   useEffect(() => {
     if (mode === 'home') return;
@@ -2749,16 +2696,24 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, sear
     // Focus-only deep-link: open the map already centred on the target
     // restaurant so no camera animation is needed.
     const focusOnlyInit = isFocusOnlyRef.current && initialFocus;
-    // Default the camera to the location the user picked on the home page
-    // (persisted to localStorage by HomeLocationBar) so the Map tab opens
-    // wherever they were last browsing instead of always snapping to NYC.
-    const savedHome = focusOnlyInit ? null : loadLastSelectedLocation();
+    // Default the camera to the app's shared location (the store keeps it in
+    // localStorage) so the map opens wherever the user is browsing instead
+    // of always snapping to NYC.
+    const anchorAtInit = loadLastSelectedLocation();
+    const savedHome = focusOnlyInit ? null : anchorAtInit;
     const initialCenter: [number, number] = focusOnlyInit
       ? [initialFocus.lng, initialFocus.lat]
       : savedHome
         ? [savedHome.lng, savedHome.lat]
         : [-73.99, 40.735];
     const initialZoom = focusOnlyInit ? 15 : 12.5;
+    // Even in focus-only mode, record the anchor we did NOT move to: it is
+    // the value the follow effect compares against, and leaving it null
+    // would make an unchanged anchor look like a change and yank the camera
+    // off the restaurant the deep link opened.
+    lastSyncedHomeLocRef.current = anchorAtInit
+      ? locationKey(anchorAtInit.lat, anchorAtInit.lng)
+      : null;
 
     const map = new mapboxgl.Map({
       container: mapContainerRef.current,
@@ -3054,7 +3009,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, sear
       locationGeocodeAbortRef.current = abort;
       try {
         const res = await fetch(
-          `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(locationQuery)}.json?access_token=${MAPBOX_TOKEN}&types=place,locality,neighborhood,address,poi&limit=5`,
+          `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(locationQuery)}.json?access_token=${MAPBOX_TOKEN}&types=place,locality,neighborhood,address,poi&language=en&limit=5`,
           { signal: abort.signal },
         );
         const data = await res.json();
@@ -3084,14 +3039,73 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, sear
     // user is exploring.
     setReferenceLocation({ lat, lng, name });
     setMapCenter({ lat, lng });
+    // The map and the home feed share ONE location: choosing a city here is
+    // the same act as choosing it there, so it moves the home feed's
+    // recommendations too and survives to the next launch. The camera work
+    // below already puts this map where it belongs, which is why the effect
+    // that follows the anchor checks this key and stands down.
+    mapPickKeyRef.current = locationKey(lat, lng);
+    handleHomeLocationChange({ label: name, lat, lng });
     const map = mapRef.current;
     if (map) {
       map.flyTo({ center: [lng, lat], zoom: 14, duration: 1500 });
       setTimeout(() => {
+        // fetchNearby reads the LIVE camera centre, and the camera is not
+        // guaranteed to have arrived: a flyTo's rAF loop doesn't advance
+        // while the tab is hidden, and any gesture interrupts it. Landing it
+        // first means the search always runs over the place that was picked
+        // rather than the one it was leaving.
+        const m = mapRef.current;
+        if (m) {
+          const c = m.getCenter();
+          if (Math.abs(c.lat - lat) > 0.01 || Math.abs(c.lng - lng) > 0.01) {
+            m.jumpTo({ center: [lng, lat], zoom: 14 });
+          }
+        }
         fetchNearbyRef.current?.();
       }, 1600);
     }
-  }, []);
+  }, [handleHomeLocationChange]);
+
+  // Search tab: follow the shared location. The map otherwise only reads it
+  // once, at its very first mount (see the initialCenter fallback below), so
+  // changing city on Home never moved an already-open map tab — and this tab
+  // stays mounted for the whole session.
+  //
+  // The anchor wins over an earlier in-map pick rather than deferring to it:
+  // both are the same user choosing the same one thing, so the later choice
+  // is simply the current one. (It used to defer, which meant one search on
+  // the map permanently deafened this tab to the Home page.) Skipped outside
+  // 'discover' mode, where the ratings maps don't plot nearby places at all;
+  // switching back re-runs this and re-anchors.
+  useEffect(() => {
+    if (mode !== 'map' || !searchTab || !homeLocation) return;
+    const key = locationKey(homeLocation.lat, homeLocation.lng);
+    if (lastSyncedHomeLocRef.current === key) return;
+    if (mapMode !== 'discover') return;
+    const map = mapRef.current;
+    // No map yet: its own initialisation reads the anchor, so there is
+    // nothing to catch up — and claiming we synced would swallow the first
+    // real change.
+    if (!map) return;
+    lastSyncedHomeLocRef.current = key;
+    // This map is the one that moved the anchor; it is already there.
+    if (mapPickKeyRef.current === key) return;
+    // Somewhere else moved it. Drop this map's own anchoring so distances
+    // and the search bias aren't still measured from a city the user left.
+    mapPickKeyRef.current = null;
+    setReferenceLocation(null);
+    setSearchLocationBias(null);
+    // jumpTo, not flyTo: this sync typically fires while the tab is hidden
+    // (the user changed location from the Home page), and an animated
+    // flyTo's rAF loop doesn't advance on a hidden map — map.getCenter()
+    // would still read the OLD position when fetchNearby asks for it a
+    // moment later. jumpTo sets the camera synchronously, so the
+    // immediately-following fetch always sees the real new coordinates.
+    setMapCenter({ lat: homeLocation.lat, lng: homeLocation.lng });
+    map.jumpTo({ center: [homeLocation.lng, homeLocation.lat], zoom: 14 });
+    fetchNearbyRef.current?.();
+  }, [homeLocation, mode, searchTab, mapMode]);
 
   // Auto-search as user types (debounced)
   const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -3168,11 +3182,19 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, sear
     locationBridgeRef.current = {
       label: assistantShortCity || 'Current location',
       select: (name: string, lat: number, lng: number) => handleSelectLocation(name, lat, lng),
+      // "Current location" now actually resolves the device's location and
+      // makes it the app's anchor — the chip said "Current location" while
+      // only re-searching whatever the map happened to be showing, which for
+      // someone who had just moved the map to another city was simply false.
+      // If the fix fails (denied, indoors, no GPS) fall back to that old
+      // behaviour rather than leaving the tap dead.
       useCurrent: () => {
         setShowSearchHere(false);
-        setReferenceLocation(null);
-        setSearchLocationBias(null);
-        fetchNearby();
+        handleHomeUseCurrent().catch(() => {
+          setReferenceLocation(null);
+          setSearchLocationBias(null);
+          fetchNearby();
+        });
       },
     };
     return () => { locationBridgeRef.current = null; };
@@ -3321,7 +3343,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, sear
         wishlistGeoTriedRef.current.add(r.restaurant_id);
         try {
           const query = `${r.restaurant_name} ${r.address || ''}`.trim();
-          const res = await fetch(`https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(query)}.json?access_token=${MAPBOX_TOKEN}&types=poi,address&limit=1`);
+          const res = await fetch(`https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(query)}.json?access_token=${MAPBOX_TOKEN}&types=poi,address&language=en&limit=1`);
           const data = await res.json();
           const f = data.features?.[0];
           if (f?.center) {
@@ -3389,7 +3411,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, sear
         try {
           const query = `${r.restaurant_name} ${r.address || ''}`.trim();
           const res = await fetch(
-            `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(query)}.json?access_token=${MAPBOX_TOKEN}&types=poi,address&limit=1`
+            `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(query)}.json?access_token=${MAPBOX_TOKEN}&types=poi,address&language=en&limit=1`
           );
           const data = await res.json();
           const feature = data.features?.[0];
@@ -3457,7 +3479,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, sear
         try {
           const query = `${r.restaurant_name} ${r.address || ''}`.trim();
           const res = await fetch(
-            `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(query)}.json?access_token=${MAPBOX_TOKEN}&types=poi,address&limit=1`
+            `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(query)}.json?access_token=${MAPBOX_TOKEN}&types=poi,address&language=en&limit=1`
           );
           const data = await res.json();
           const feature = data.features?.[0];
@@ -3852,12 +3874,16 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, sear
           <span
             className="grid place-items-center rounded-full font-serif font-bold tabular-nums flex-shrink-0"
             style={{
-              width: 40, height: 40, fontSize: 14, letterSpacing: '-0.02em',
+              width: 40, height: 40,
+              // A fourth character needs a smaller face — ScoreRing's rule,
+              // and this 40px disc is exactly at its threshold.
+              fontSize: twoDecimalScores ? 11.5 : 14,
+              letterSpacing: '-0.02em',
               color: tint.color, background: tint.background, border: `1.5px solid ${tint.ring}`,
             }}
-            aria-label={`Score ${score!.toFixed(1)}`}
+            aria-label={`Score ${formatScore(score!, twoDecimalScores)}`}
           >
-            {score!.toFixed(1)}
+            {formatScore(score!, twoDecimalScores)}
           </span>
         ) : (
           <span className="grid place-items-center rounded-full border-[1.5px] border-on-surface/[0.12] text-on-surface/25 flex-shrink-0" style={{ width: 40, height: 40 }} aria-hidden>
@@ -5447,23 +5473,12 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, sear
                 );
               })()}
               {!discoverSearchActive && mode === 'home' && !usingDesktopHeader && (() => {
-                const neighborhood = homeLocation?.label?.split(',')[0]?.trim() || '';
                 // Minimal top: the location pill lives in the header's search
-                // row; content opens straight with the dual-action prompt in
-                // place of the old greeting + chips + three stacked rails.
-                // The wrapper ref anchors the scroll-header fade distance.
+                // row; the page's own content (feed / rails below) starts
+                // right away. The wrapper ref anchors the scroll-header fade
+                // distance.
                 return (
                   <div ref={dayLocRef} className={cn(phoneMode && "px-3")}>
-                    <IntentPair
-                      onFindRestaurant={() => {
-                        if (!homeLocation) { setMobileLocationPickerOpen(true); return; }
-                        navigate(`/location?label=${encodeURIComponent(homeLocation.label)}&lat=${homeLocation.lat}&lng=${homeLocation.lng}`);
-                      }}
-                      findSubtitle={neighborhood ? `near ${neighborhood}` : 'set your location'}
-                      onCook={() => navigate('/recipes-for-you')}
-                      cookSubtitle={recommendedRecipes.length > 0 ? `${recommendedRecipes.length} picked for you` : 'from your circle'}
-                    />
-
                     {/* Headless picker — triggered by the header's location pill. */}
                     <HomeLocationBar
                       variant="headless"

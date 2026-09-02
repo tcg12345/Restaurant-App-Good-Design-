@@ -1,5 +1,5 @@
 import React from 'react';
-import { Calendar } from 'gourmet-canvas';
+import { Calendar } from 'goodeats';
 
 /**
  * The visit-date picker from the rating flow. Controlled on a `YYYY-MM-DD`

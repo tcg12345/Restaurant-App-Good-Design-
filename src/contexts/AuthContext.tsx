@@ -48,6 +48,8 @@ interface AuthContextType {
   profileLoading: boolean;
   loading: boolean;
   signIn: (email: string, password: string) => Promise<{ error: string | null }>;
+  /** Password sign-in for a phone account. `phone` must be E.164. */
+  signInWithPhonePassword: (phone: string, password: string) => Promise<{ error: string | null }>;
   /** `needsVerification` is true when Supabase created the account but
    *  requires the emailed 6-digit code before a session exists (project
    *  has "Confirm email" enabled). The caller shows the code screen. */
@@ -65,6 +67,19 @@ interface AuthContextType {
   verifyEmailCode: (email: string, code: string, expectPasswordSetup?: boolean, setupMode?: 'signup' | 'recovery') => Promise<{ error: string | null; passwordSetupNeeded?: boolean }>;
   /** Re-send the signup verification email (code + link). */
   resendVerificationCode: (email: string) => Promise<{ error: string | null }>;
+  /* ── Phone channel (mirrors the three above) ──────────────────────
+     Every `phone` here must ALREADY be E.164 — normalize with
+     src/lib/phone.ts#toE164 first. An unparseable number reaching
+     Supabase spends a send against the project's SMS rate limit, which
+     is the actual spend ceiling, on a number that cannot receive it. */
+  /** Text a 6-digit code, creating the account if the number is new. */
+  startPhoneSignup: (phone: string) => Promise<{ error: string | null }>;
+  /** Confirm the texted code. Same `expectPasswordSetup` contract as
+   *  verifyEmailCode — and phone signups should always pass it, because
+   *  without a password every later sign-in costs another SMS. */
+  verifyPhoneCode: (phone: string, code: string, expectPasswordSetup?: boolean, setupMode?: 'signup' | 'recovery') => Promise<{ error: string | null; passwordSetupNeeded?: boolean }>;
+  /** Re-send the SMS verification code. */
+  resendPhoneCode: (phone: string) => Promise<{ error: string | null }>;
   /** True while a verified-by-code signup still needs its password chosen —
    *  or while a forgot-password recovery session needs its new password.
    *  App.tsx keeps rendering the Auth screen (setpassword step) until
@@ -105,20 +120,23 @@ interface AuthContextType {
    *  ask the user to retry" — assuming "new user" on failure railroads a
    *  returning user into the signup flow, which then resets their password. */
   checkEmailExists: (email: string) => Promise<'yes' | 'no' | 'unknown'>;
+  /** The phone twin, same tri-state contract and for the same reason.
+   *  `phone` must already be E.164. */
+  checkPhoneExists: (phone: string) => Promise<'yes' | 'no' | 'unknown'>;
 }
 
 /** Which user this device's localStorage caches belong to. */
-const ACTIVE_USER_KEY = 'gourmad-active-user';
+const ACTIVE_USER_KEY = 'goodeats-active-user';
 
 /** Persisted flag for "Browse without an account" so guest mode survives
  *  navigation and reloads (App.tsx would otherwise re-show Auth on every
  *  paint because there's no Supabase session). */
-const GUEST_MODE_KEY = 'gourmad-guest-mode';
+const GUEST_MODE_KEY = 'goodeats-guest-mode';
 
 /** Set between OTP verification and password creation on the verify-first
  *  signup path, so a relaunch mid-flow still lands on the choose-password
  *  screen instead of leaving a passwordless account behind. */
-const NEEDS_PASSWORD_KEY = 'gourmad-needs-password';
+const NEEDS_PASSWORD_KEY = 'goodeats-needs-password';
 
 /**
  * Cross-account leak guard. Several stores cache personal data in
@@ -159,10 +177,14 @@ const AuthContext = createContext<AuthContextType>({
   profileLoading: false,
   loading: true,
   signIn: async () => ({ error: null }),
+  signInWithPhonePassword: async () => ({ error: null }),
   signUp: async () => ({ error: null }),
   startEmailSignup: async () => ({ error: null }),
   verifyEmailCode: async () => ({ error: null }),
   resendVerificationCode: async () => ({ error: null }),
+  startPhoneSignup: async () => ({ error: null }),
+  verifyPhoneCode: async () => ({ error: null }),
+  resendPhoneCode: async () => ({ error: null }),
   needsPasswordSetup: false,
   passwordSetupMode: 'signup',
   completePasswordSetup: async () => ({ error: null }),
@@ -175,6 +197,7 @@ const AuthContext = createContext<AuthContextType>({
   isAdmin: false,
   adminChecked: 'unknown',
   checkEmailExists: async () => 'unknown',
+  checkPhoneExists: async () => 'unknown',
 });
 
 export const useAuth = () => useContext(AuthContext);
@@ -213,11 +236,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const continueAsGuest = useCallback(() => {
     // Purge any app data a previous signed-in user left on this device BEFORE
-    // raising the guest flag (clearLocalAppData drops gourmad-* keys, which
+    // raising the guest flag (clearLocalAppData drops goodeats-* keys, which
     // includes GUEST_MODE_KEY — so clear first, then set it), so a guest never
     // sees the prior account's ratings / meals / cached private-bucket URLs.
     //
-    // ONLY when there actually was one. The purge matches every `gourmad-`
+    // ONLY when there actually was one. The purge matches every `goodeats-`
     // key, which now includes what the pre-auth onboarding just collected —
     // so on a fresh install, where there is no prior account to protect
     // against, it did nothing but destroy the taste answers, the city and
@@ -380,6 +403,26 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, [markNeedsPassword]);
 
+  /** Password sign-in for a phone account. Separate from `signIn` rather
+   *  than a widened signature because the two take different credentials
+   *  and Supabase has different endpoints for them; collapsing both into
+   *  one "identifier" argument would just move the branch inward. `phone`
+   *  must already be E.164. */
+  const signInWithPhonePassword = useCallback(async (phone: string, password: string) => {
+    if (!supabaseConfigured) return { error: 'Authentication is not configured' };
+    try {
+      const { error } = await withTimeout(
+        supabase.auth.signInWithPassword({ phone, password }),
+        12000,
+        'auth.signInWithPassword:phone',
+      );
+      if (!error) markNeedsPassword(false);
+      return { error: error?.message ?? null };
+    } catch {
+      return { error: 'Sign in took too long. Check your connection and try again.' };
+    }
+  }, [markNeedsPassword]);
+
   const signUp = useCallback(async (email: string, password: string) => {
     if (!supabaseConfigured) return { error: 'Authentication is not configured' };
     try {
@@ -473,6 +516,90 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return { error: 'Verification took too long. Check your connection and try again.' };
     }
   }, [markNeedsPassword]);
+
+  /* ── Phone channel ──────────────────────────────────────────────────
+     The email twins above, one channel over. Everything downstream of a
+     verified OTP — the session, markNeedsPassword, the choose-password
+     screen, ProfileSetup — is channel-agnostic and needs no phone-specific
+     handling; only the send and the verify differ.
+
+     `phone` MUST already be E.164 (src/lib/phone.ts#toE164). Callers
+     normalize before they get here, because a number that fails to parse
+     must never reach Supabase: the send would burn a slot against the
+     project's SMS rate limit — which is the spend ceiling — for a number
+     that cannot receive anything. */
+
+  const startPhoneSignup = useCallback(async (phone: string) => {
+    if (!supabaseConfigured) return { error: 'Authentication is not configured' };
+    try {
+      const { error } = await withTimeout(
+        supabase.auth.signInWithOtp({ phone, options: { shouldCreateUser: true } }),
+        12000,
+        'auth.signInWithOtp:phone',
+      );
+      if (error) {
+        return {
+          error: /rate|seconds/i.test(error.message)
+            ? 'A code was sent recently — wait a minute before requesting another.'
+            : error.message,
+        };
+      }
+      return { error: null };
+    } catch {
+      return { error: 'Could not send the code. Check your connection and try again.' };
+    }
+  }, []);
+
+  const verifyPhoneCode = useCallback(async (
+    phone: string,
+    code: string,
+    expectPasswordSetup = false,
+    setupMode: 'signup' | 'recovery' = 'signup',
+  ) => {
+    if (!supabaseConfigured) return { error: 'Authentication is not configured' };
+    // Same ordering rule as verifyEmailCode: raise the flag BEFORE the
+    // session lands, because onAuthStateChange fires inside verifyOtp and
+    // App must already know to hold the Auth screen.
+    if (expectPasswordSetup) markNeedsPassword(true, setupMode);
+    try {
+      // One attempt, not the email path's 'email' → 'signup' fallback:
+      // SMS has a single OTP type, and there is no legacy phone flow to be
+      // compatible with.
+      const { error } = await withTimeout(
+        supabase.auth.verifyOtp({ phone, token: code.trim(), type: 'sms' }),
+        12000,
+        'auth.verifyOtp:sms',
+      );
+      if (error) {
+        if (expectPasswordSetup) markNeedsPassword(false);
+        return { error: error.message };
+      }
+      // Password setup always happens, for the reasons documented on
+      // verifyEmailCode — plus one specific to this channel: without a
+      // password, every future sign-in costs an SMS.
+      if (expectPasswordSetup) {
+        return { error: null, passwordSetupNeeded: true };
+      }
+      return { error: null };
+    } catch {
+      if (expectPasswordSetup) markNeedsPassword(false);
+      return { error: 'Verification took too long. Check your connection and try again.' };
+    }
+  }, [markNeedsPassword]);
+
+  const resendPhoneCode = useCallback(async (phone: string) => {
+    if (!supabaseConfigured) return { error: 'Authentication is not configured' };
+    try {
+      const { error } = await withTimeout(
+        supabase.auth.resend({ type: 'sms', phone }),
+        12000,
+        'auth.resend:sms',
+      );
+      return { error: error?.message ?? null };
+    } catch {
+      return { error: 'Could not resend the code. Check your connection and try again.' };
+    }
+  }, []);
 
   const completePasswordSetup = useCallback(async (password: string) => {
     if (!supabaseConfigured) return { error: 'Authentication is not configured' };
@@ -623,10 +750,32 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, []);
 
+  /** The phone twin of checkEmailExists — reads auth.users via the
+   *  phone_exists() function (migration 078). Sends no SMS and costs
+   *  nothing, which is the whole point: the auth screen has to choose
+   *  between "sign in" and "create account" BEFORE spending a message.
+   *  `phone` must already be E.164. Same tri-state contract: a failure is
+   *  'unknown', never 'no', so a returning user is never dropped into the
+   *  signup flow because a request timed out. */
+  const checkPhoneExists = useCallback(async (phone: string): Promise<'yes' | 'no' | 'unknown'> => {
+    if (!supabaseConfigured) return 'unknown';
+    try {
+      const { data, error } = await withTimeout(
+        Promise.resolve(supabase.rpc('phone_exists', { check_phone: phone.trim() })),
+        8000,
+        'checkPhoneExists',
+      );
+      if (error) return 'unknown';
+      return data === true ? 'yes' : 'no';
+    } catch {
+      return 'unknown';
+    }
+  }, []);
+
   const profileComplete = !!(profile && profile.username && profile.display_name);
 
   return (
-    <AuthContext.Provider value={{ isSignedIn: !!user, isGuest, continueAsGuest, user, profile, profileComplete, profileError, profileLoading, loading, signIn, signUp, signInWithOAuth, signOut, refreshProfile, pendingRequestCount, refreshPendingRequests, checkEmailExists, isAdmin, adminChecked, verifyEmailCode, resendVerificationCode, startEmailSignup, needsPasswordSetup, passwordSetupMode, completePasswordSetup, requestPasswordReset }}>
+    <AuthContext.Provider value={{ isSignedIn: !!user, isGuest, continueAsGuest, user, profile, profileComplete, profileError, profileLoading, loading, signIn, signInWithPhonePassword, signUp, signInWithOAuth, signOut, refreshProfile, pendingRequestCount, refreshPendingRequests, checkEmailExists, checkPhoneExists, isAdmin, adminChecked, verifyEmailCode, resendVerificationCode, startEmailSignup, startPhoneSignup, verifyPhoneCode, resendPhoneCode, needsPasswordSetup, passwordSetupMode, completePasswordSetup, requestPasswordReset }}>
       {children}
     </AuthContext.Provider>
   );

@@ -89,7 +89,7 @@ async function queryOverpass(query: string): Promise<OsmElement[] | null> {
           'Content-Type': 'application/x-www-form-urlencoded',
           // Overpass asks for a contactable identifier so it can reach an
           // operator rather than silently blocking them.
-          'User-Agent': 'GourmetCanvas/1.0 (restaurant cuisine lookup; +https://github.com/tcg12345/Restaurant-App-Good-Design-)',
+          'User-Agent': 'GoodEats/1.0 (restaurant cuisine lookup; +https://github.com/tcg12345/Restaurant-App-Good-Design-)',
         },
         body: new URLSearchParams({ data: query }),
         signal: AbortSignal.timeout(30_000),

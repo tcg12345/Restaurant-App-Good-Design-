@@ -36,12 +36,62 @@ export interface ChatFilters {
   sort?: string;
 }
 
+/** Mirror of lib/assistant-taste's TasteSummary — kept structural so the
+ *  wire type doesn't drag the recommendation engine into this module. */
+export interface AssistantTasteSummary {
+  ratingCount: number;
+  avgScore?: number;
+  anchor?: number;
+  p90?: number;
+  gradingStyle?: string;
+  topCuisines?: string[];
+  topPairs?: string[];
+  dislikedCuisines?: string[];
+  priceLabel?: string;
+  priceConcentration?: number;
+  topTags?: string[];
+  topCities?: string[];
+  distinctive?: number;
+  michelinLean?: string;
+  quizInfluence?: number;
+  quiz?: {
+    completed: boolean;
+    cuisines?: string[];
+    avoidCuisines?: string[];
+    dietary?: string[];
+    atmosphere?: string;
+    pricePrimary?: number;
+    priceSecondary?: number;
+    city?: string;
+  };
+}
+
 export interface UserContext {
   displayName?: string;
   username?: string;
   homeCity?: string;
   topCuisines?: string[];
   topRated?: Array<{ id?: string; name: string; score?: number; cuisine?: string; neighborhood?: string }>;
+  /** How many ratings the user ACTUALLY has. `topRated` may be a sample of
+   *  it — say so rather than letting the model read the list as exhaustive
+   *  (see lib/assistant-taste). */
+  ratedTotal?: number;
+  ratedTruncated?: boolean;
+  /** The computed taste profile, in words. */
+  taste?: AssistantTasteSummary;
+  /** Account facts the model would otherwise guess at. */
+  account?: {
+    joined?: string;
+    ratingCount?: number;
+    wishlistCount?: number;
+    listCount?: number;
+    guideCount?: number;
+    followers?: number;
+    following?: number;
+    recipeCount?: number;
+    homeLocation?: string;
+    bio?: string;
+  };
   wishlist?: Array<{ id?: string; name: string; cuisine?: string; neighborhood?: string }>;
   recipes?: Array<{
     id: string;
@@ -71,10 +121,11 @@ export interface ChatRequest {
   /** Human-readable label for the current page, e.g. "the Pantry",
    *  "your Profile", "the Discover feed". */
   currentPageLabel?: string;
-  /** A restaurant or recipe the user pinned the conversation to from its
-   *  detail page. Present only while the composer shows its chip. */
+  /** A restaurant, recipe, reel, post, or guide the user pinned the
+   *  conversation to — from its detail page, or from the share sheet's
+   *  Ask AI action. Present only while the composer shows its chip. */
   attachment?: {
-    kind: 'restaurant' | 'recipe';
+    kind: 'restaurant' | 'recipe' | 'reel' | 'post' | 'guide';
     id: string;
     name: string;
     subtitle?: string;

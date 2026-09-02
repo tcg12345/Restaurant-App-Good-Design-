@@ -1,5 +1,5 @@
 import React from 'react';
-import { ScoreBadge } from 'gourmet-canvas';
+import { ScoreBadge } from 'goodeats';
 
 /** The app's signature mark: a 0–10 score whose tint carries the verdict
  *  before the number is read. Three tiers, from lib/score.ts:

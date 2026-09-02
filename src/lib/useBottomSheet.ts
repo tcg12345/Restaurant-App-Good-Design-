@@ -57,7 +57,72 @@ let bodyLockCount = 0;
 let savedOverflow = '';
 let savedOverscroll = '';
 
-function acquireBodyScrollLock(): () => void {
+/**
+ * A HARD scroll lock for full-screen overlays that contain text fields.
+ *
+ * `overflow: hidden` (below) is not enough on iOS. Focusing an input makes
+ * WKWebView scroll the document natively to "reveal" it — and that native
+ * path ignores the CSS overflow rule completely: instrumenting the recipe
+ * modal caught `window.scrollY` jumping to 378 with the body lock active.
+ * The page behind the overlay is tall (it stays mounted), so there is room
+ * to scroll, and the overlay — `position: fixed`, painted by the same
+ * compositor — visibly dropped and sprang back while native glass chrome
+ * stayed put. Snapping the offset back from a `scroll` listener only made
+ * it a one-frame flicker; the scroll had already painted.
+ *
+ * So remove the room instead of fighting the scroll: taking the body out
+ * of flow collapses the document to viewport height, and an offset that
+ * cannot exist cannot be animated to. `top` preserves what the page behind
+ * was showing, and the position is restored on release.
+ *
+ * Ref-counted alongside the soft lock so stacked overlays compose.
+ */
+let hardLockCount = 0;
+let hardSaved: { position: string; top: string; left: string; right: string; width: string; y: number } | null = null;
+
+export function acquireHardScrollLock(): () => void {
+  if (typeof document === 'undefined') return () => {};
+  const body = document.body;
+  const releaseSoft = acquireBodyScrollLock();
+  if (hardLockCount === 0) {
+    const y = window.scrollY;
+    hardSaved = {
+      position: body.style.position,
+      top: body.style.top,
+      left: body.style.left,
+      right: body.style.right,
+      width: body.style.width,
+      y,
+    };
+    body.style.position = 'fixed';
+    body.style.top = `-${y}px`;
+    body.style.left = '0';
+    body.style.right = '0';
+    body.style.width = '100%';
+  }
+  hardLockCount++;
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    hardLockCount = Math.max(0, hardLockCount - 1);
+    if (hardLockCount === 0 && hardSaved) {
+      const { position, top, left, right, width, y } = hardSaved;
+      hardSaved = null;
+      body.style.position = position;
+      body.style.top = top;
+      body.style.left = left;
+      body.style.right = right;
+      body.style.width = width;
+      // Taking the body back into flow restores the page's height; put the
+      // reader back where they were before the overlay opened.
+      window.scrollTo(0, y);
+    }
+    releaseSoft();
+  };
+}
+
+export function acquireBodyScrollLock(): () => void {
   if (typeof document === 'undefined') return () => {};
   const body = document.body;
   if (bodyLockCount === 0) {

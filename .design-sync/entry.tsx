@@ -4,7 +4,7 @@
  * This repo is an application, not a published component library — there is
  * no dist entry to point the converter at. This barrel is that entry: it
  * names exactly the components that make up the app's visual system, so
- * window.GourmetCanvas is the intended surface rather than whatever a
+ * window.GoodEats is the intended surface rather than whatever a
  * source scan happens to find.
  *
  * Deliberately EXCLUDES src/components/onboarding/* — the cream/terracotta

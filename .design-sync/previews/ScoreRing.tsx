@@ -1,5 +1,5 @@
 import React from 'react';
-import { ScoreRing } from 'gourmet-canvas';
+import { ScoreRing } from 'goodeats';
 
 // A stand-in for a card's cover photo. Previews never hotlink a remote
 // image, so the photo ground is a CSS gradient.

@@ -26,11 +26,38 @@ import {
 import { haversineDistanceMi } from './distance';
 import { getRestaurantGeoBatch } from './restaurant-geo';
 
+/**
+ * How many rated restaurants it takes to unlock personalized recommendations.
+ *
+ * Below this the ranking is not really "yours": the cuisine/price/pair terms
+ * are running on a handful of observations, one lucky 9.0 at a single
+ * Peruvian place outweighs everything else, and `priceDist`'s hard band
+ * (which needs n ≥ 8) hasn't switched on at all — so the list degrades into
+ * top-rated-nearby wearing a personalized label. Ten is where the profile's
+ * own confidence machinery is fully armed: quizMass has decayed to 0 (the
+ * stated-preference priors are gone), `scoreP90` exists to cap predictions,
+ * and the price band has enough mass to exclude tiers rather than merely
+ * demote them. Gating on it is the honest version of the promise the
+ * surface makes.
+ */
+export const RECS_MIN_RATINGS = 10;
+
+export function recsUnlocked(ratingCount: number): boolean {
+  return ratingCount >= RECS_MIN_RATINGS;
+}
+
 export interface TasteProfile {
   cuisineScore: Record<string, number>;
+  /** How much EVIDENCE backs each cuisine's score — real ratings count 1,
+   *  wishlist intent 0.5, a stated quiz cuisine `2 × quizMass`. Drives the
+   *  confidence shrinkage in scoreCandidates so a cuisine seen once doesn't
+   *  speak as loudly as one seen a dozen times. */
+  cuisineCounts: Record<string, number>;
   priceScore: Record<number, number>;
   priceCounts: Record<number, number>;       // legacy alias for priceScore (Map.tsx consumers)
   pairScore: Record<string, number>;         // "cuisine|price"
+  /** Evidence behind each cuisine|price pair, same scale as cuisineCounts. */
+  pairCounts: Record<string, number>;
   tagScore: Record<string, number>;
   cityScore: Record<string, number>;
   topCuisines: string[];
@@ -111,6 +138,15 @@ export interface RecOptions {
    *  ScoreCandidatesOptions.enforcePriceBand). Default true here — this is
    *  the recommendation entry point, not a browse surface. */
   enforcePriceBand?: boolean;
+  /** Tonight's stated price tiers — reaches the Google queries themselves
+   *  (see buildCandidateQueries), because a pool gathered for a premium
+   *  band contains nothing for a "not too expensive" ask to rank. Also
+   *  varies the cache fingerprint so a stale premium pool isn't treated
+   *  as a full hit for a budget request. */
+  priceTiersOverride?: number[];
+  /** Tonight's mood words for the text search itself (see
+   *  buildCandidateQueries tier 0). Also part of the cache fingerprint. */
+  moodTerms?: string[];
 }
 
 /** A candidate entering the scorer. Michelin info and the in-app community
@@ -129,7 +165,7 @@ export interface RecCandidate extends PlaceResult {
 
 export interface ScoredPlace extends RecCandidate {
   recScore: number;
-  sources: Array<'google' | 'tagSimilar' | 'expert' | 'friend' | 'expertRec' | 'michelin'>;
+  sources: Array<'google' | 'tagSimilar' | 'expert' | 'friend' | 'expertRec' | 'michelin' | 'mood'>;
   /** Human-readable "why this" chips, strongest factor first (≤3). Absent on
    *  legacy call sites that fabricate ScoredPlace literals. */
   reasons?: string[];
@@ -165,6 +201,7 @@ export const DEFAULT_WEIGHTS = {
   wishlist: 0.6,
   distance: 1.2,           // max penalty for landing well past the radius edge
   negativeMult: 1.5,       // disliked cuisines/pairs push down harder than likes lift
+  moodMatch: 2.2,          // tonight's stated words — see CandidateSignals.moodMatchIds
 } as const;
 
 /**
@@ -260,8 +297,10 @@ export function buildTasteProfile(
   quiz?: TasteQuizSignals | null,
 ): TasteProfile {
   const cuisineScore: Record<string, number> = {};
+  const cuisineCounts: Record<string, number> = {};
   const priceScore: Record<number, number> = {};
   const pairScore: Record<string, number> = {};
+  const pairCounts: Record<string, number> = {};
   const tagScore: Record<string, number> = {};
   const cityScore: Record<string, number> = {};
   const myScoreById = new Map<string, number>();
@@ -309,9 +348,15 @@ export function buildTasteProfile(
     // every token so they match candidates' single inferred cuisine labels.
     for (const token of splitCuisines(r.cuisine)) {
       cuisineScore[token] = (cuisineScore[token] || 0) + weight;
+      // A rating is one full observation of this cuisine regardless of how
+      // enthusiastic it was — `weight` says how MUCH the user liked it,
+      // `counts` says how much we've actually seen. A single strong opinion
+      // and a dozen consistent ones must not carry equal authority.
+      cuisineCounts[token] = (cuisineCounts[token] || 0) + 1;
       if (price > 0) {
         const key = `${token}|${price}`;
         pairScore[key] = (pairScore[key] || 0) + weight * 1.5;
+        pairCounts[key] = (pairCounts[key] || 0) + 1;
       }
     }
 
@@ -346,9 +391,13 @@ export function buildTasteProfile(
     const price = w.price.length;
     for (const token of splitCuisines(w.cuisine)) {
       cuisineScore[token] = (cuisineScore[token] || 0) + 0.5;
+      // Intent is half an observation: enough that a wishlist-only cuisine
+      // still registers, not enough to speak like a visit you scored.
+      cuisineCounts[token] = (cuisineCounts[token] || 0) + 0.5;
       if (price > 0) {
         const key = `${token}|${price}`;
         pairScore[key] = (pairScore[key] || 0) + 0.375;
+        pairCounts[key] = (pairCounts[key] || 0) + 0.5;
       }
     }
     if (price > 0) {
@@ -379,6 +428,11 @@ export function buildTasteProfile(
         // 2.0 at zero ratings: stronger than a wishlist hint (0.5), weaker
         // than an enthusiastic real rating (~3).
         cuisineScore[token] = (cuisineScore[token] || 0) + 2 * quizMass;
+        // Matching pseudo-count, so the confidence shrinkage treats a stated
+        // cuisine as exactly as much evidence as it is treating it as score.
+        // Without this the prior would be shrunk to near-nothing on a
+        // brand-new account — the one place it is the ONLY signal there is.
+        cuisineCounts[token] = (cuisineCounts[token] || 0) + 2 * quizMass;
       }
     }
   }
@@ -601,9 +655,11 @@ export function buildTasteProfile(
 
   return {
     cuisineScore,
+    cuisineCounts,
     priceScore,
     priceCounts: priceScore,
     pairScore,
+    pairCounts,
     tagScore,
     cityScore,
     topCuisines,
@@ -636,6 +692,10 @@ export interface RecQuery {
    *  price Google doesn't know, so the builder always leaves some queries
    *  unrestricted to keep unpriced hidden gems in the pool. */
   priceLevels?: number[];
+  /** True for the tier-0 queries built from tonight's stated mood. The
+   *  gather records which places these returned so the scorer can reward
+   *  them — see CandidateSignals.moodMatchIds. */
+  mood?: boolean;
 }
 
 /** Price tiers the user demonstrably favors: every tier holding ≥ 15% of the
@@ -664,8 +724,17 @@ export function preferredPriceTiers(profile: TasteProfile): number[] {
 export function buildCandidateQueries(
   profile: TasteProfile,
   target: RecTargetLocation,
+  /** Tonight's stated price tiers (a mood's "not too expensive", a preset).
+   *  They REPLACE the band the profile learned: the pool must contain what
+   *  was asked for, or every stage after this one is filtering nothing —
+   *  a premium palate's pool holds no $ places for "cheap eats" to find. */
+  opts?: { priceTiers?: number[]; moodTerms?: string[] },
 ): RecQuery[] {
   const { topCuisines, topPrices, topPairs, priceDist } = profile;
+  const stated = (opts?.priceTiers ?? []).filter((t) => t >= 1 && t <= 4);
+  // At most three, or the phrase stops being a search and starts being a
+  // sentence Google matches nothing against.
+  const moodTerms = (opts?.moodTerms ?? []).slice(0, 3);
   const label = target.label.trim();
   const isCurrent = !label || label === 'Current Location';
   const city = isCurrent
@@ -681,8 +750,8 @@ export function buildCandidateQueries(
   // demonstrably concentrated — that's what actually keeps a premium
   // palate's pool from filling with cheap crowd-pleasers ("best $$$$
   // French" text alone barely biases Google).
-  const restrict = (priceDist?.concentration ?? 0) >= 0.35;
-  const allowedTiers = preferredPriceTiers(profile);
+  const restrict = stated.length > 0 || (priceDist?.concentration ?? 0) >= 0.35;
+  const allowedTiers = stated.length > 0 ? stated : preferredPriceTiers(profile);
   const share = priceDist?.share ?? [0, 0, 0, 0];
   const lowShare = share[0] + share[1];
   const premiumShare = share[2] + share[3];
@@ -699,20 +768,44 @@ export function buildCandidateQueries(
     out.push(priceLevels && priceLevels.length > 0 ? { text: q, priceLevels } : { text: q });
   };
 
+  // Tier 0: tonight's words. Pushed ahead of every habit-derived query
+  // because a mood is an instruction about THIS meal, and callers with a
+  // small query budget take the first N. Google's text search is what
+  // actually knows which rooms are romantic or have a view — the tag
+  // signal only covers places somebody here has already rated.
+  if (moodTerms.length > 0) {
+    const phrase = moodTerms.join(' ');
+    const moodQ = (text: string) => {
+      push(text, restrict ? allowedTiers : undefined);
+      const q = out.find((x) => x.text === text);
+      if (q) q.mood = true;
+    };
+    moodQ(`${phrase} restaurants${city ? ' in ' + city : ''}`);
+    // Crossed with what the user likes to eat, so the mood doesn't wash
+    // the palate out entirely.
+    for (const cuisine of topCuisines.slice(0, 2)) {
+      moodQ(`${phrase} ${cuisine} restaurants${city ? ' in ' + city : ''}`);
+    }
+  }
+
   // Tier 1: pairs — restricted to the pair's own tier when restricting.
+  // Under a STATED price the pair's tier is replaced outright: the cuisines
+  // still say what the user likes, but tonight's budget says where.
   for (const pair of topPairs) {
-    const sym = PRICE_SYMBOLS[pair.price] ?? '';
+    const tier = stated.length > 0 ? undefined : pair.price;
+    const sym = tier !== undefined ? (PRICE_SYMBOLS[tier] ?? '') : (PRICE_SYMBOLS[stated[0]] ?? '');
     push(
       `best ${sym} ${pair.cuisine} restaurants${city ? ' in ' + city : ''}`,
-      restrict && pair.price >= 1 ? [pair.price] : undefined,
+      restrict ? (tier !== undefined && tier >= 1 ? [tier] : allowedTiers) : undefined,
     );
   }
 
   // Tier 2: cuisine × price cross (only for cuisines not in a top pair)
   const pairedCuisines = new Set(topPairs.map((p) => p.cuisine));
+  const tierWalk = stated.length > 0 ? stated : topPrices;
   for (const cuisine of topCuisines) {
     if (pairedCuisines.has(cuisine)) continue;
-    for (const price of topPrices) {
+    for (const price of tierWalk) {
       const sym = PRICE_SYMBOLS[price] ?? '';
       push(
         `best ${sym} ${cuisine} restaurants${city ? ' in ' + city : ''}`,
@@ -761,6 +854,13 @@ export function buildCandidateQueries(
         push(`cheap ${cuisine}${city ? ' ' + city : ' restaurants'}`);
       }
     }
+  }
+  if (stated.length > 0 && Math.min(...stated) <= 2) {
+    // Tonight is a budget night whatever the history says.
+    for (const cuisine of topCuisines.slice(0, 3)) {
+      push(`cheap ${cuisine}${city ? ' ' + city : ' restaurants'}`, stated);
+    }
+    push(`best cheap eats${city ? ' ' + city : ''}`, stated);
   }
 
   // Tier 4: variety — restricted to the user's favored band when restricting.
@@ -813,6 +913,11 @@ export interface CandidateSignals {
   friendUserIds: Set<string>;
   communityByRestaurant: Map<string, CommunityRating[]>;
   expertRecRestaurantIds: Set<string>;
+  /** Places returned by tonight's mood queries (see RecQuery.mood). Empty
+   *  when no mood was stated. These are what Google itself considers
+   *  "romantic with a view" — the community tag signal covers only places
+   *  somebody here has already rated, which in a fresh city is nobody. */
+  moodMatchIds?: Set<string>;
 }
 
 export interface ScoreCandidatesOptions {
@@ -885,7 +990,7 @@ function buildFriendSimilarity(
  * of the page doesn't become five pizzerias. Places past `depth` keep their
  * plain score order (the tail is browse territory, not the pitch).
  */
-function diversifyByCuisine(
+export function diversifyByCuisine(
   sorted: ScoredPlace[],
   inferCuisine: (types: string[]) => string,
   depth = 30,
@@ -984,6 +1089,34 @@ export function scoreCandidates(
   const aff = (raw: number | undefined, max: number): number =>
     raw === undefined ? 0 : clamp(raw / max, -1, 1);
 
+  /**
+   * Confidence shrinkage for the two SPARSE taste terms (cuisine, pair).
+   *
+   * Normalizing against the profile's own maximum answers "how strong is
+   * this affinity" but not "how much do we actually know". One dinner at
+   * one Peruvian place, enjoyed, made "Peruvian" a top cuisine with the
+   * same authority as twelve consistent Italian ratings — and because
+   * cuisine (1.6) and pair (1.8) are the heaviest taste weights, a single
+   * observation could steer the whole ranking. `n/(n+2)` scales each
+   * affinity by the evidence behind it: 1 rating → 0.33, 2 → 0.50,
+   * 4 → 0.67, 8 → 0.80, converging on 1 as the user actually establishes a
+   * pattern.
+   *
+   * Applied symmetrically to likes AND dislikes: one bad night shouldn't
+   * blacklist a whole cuisine any more than one good night should crown it.
+   *
+   * Deliberately NOT applied to price or tags. Price has four buckets that
+   * every rating votes in, and `priceDist` already carries its own
+   * confidence factor (`n/(n+6)`); tags accumulate many per rating and are
+   * capped at a combined 1.0. Sparsity is a cuisine/pair problem.
+   */
+  const EVIDENCE_K = 2;
+  const confidence = (counts: Record<string, number> | undefined, key: string | undefined): number => {
+    if (!key) return 0;
+    const n = counts?.[key] ?? 0;
+    return n / (n + EVIDENCE_K);
+  };
+
   // Taste terms ramp in as the user rates (0 ratings → pure quality/social,
   // 3+ high ratings → full personalization) instead of the old binary
   // cold-start cliff at exactly 3.
@@ -1061,7 +1194,8 @@ export function scoreCandidates(
         ? Math.max(0, Math.abs(price - dist.center) - 0.75)
         : 0;
       const crossPriceScale = 1 - clamp(tierGap * conc * 0.8, 0, 0.65);
-      const cARaw = aff(cuisine ? profile.cuisineScore[cuisine] : undefined, cuisineMax);
+      const cARaw = aff(cuisine ? profile.cuisineScore[cuisine] : undefined, cuisineMax)
+        * confidence(profile.cuisineCounts, cuisine || undefined);
       const cA = cARaw > 0 ? cARaw * crossPriceScale : cARaw;
       const cTerm = W.cuisine * (cA < 0 ? cA * W.negativeMult : cA) * ramp;
       personalFit += cTerm;
@@ -1087,7 +1221,9 @@ export function scoreCandidates(
       personalFit += pTerm;
       if (pA >= 0.35 && price > 0) reasons.push({ w: pTerm, taste: true, label: `In your price range (${'$'.repeat(price)})` });
 
-      const prA = aff(cuisine && price > 0 ? profile.pairScore[`${cuisine}|${price}`] : undefined, pairMax);
+      const pairKey = cuisine && price > 0 ? `${cuisine}|${price}` : undefined;
+      const prA = aff(pairKey ? profile.pairScore[pairKey] : undefined, pairMax)
+        * confidence(profile.pairCounts, pairKey);
       const prTerm = W.pair * (prA < 0 ? prA * W.negativeMult : prA) * ramp;
       personalFit += prTerm;
       if (prA >= 0.5 && cuisine && price > 0) {
@@ -1114,6 +1250,19 @@ export function scoreCandidates(
           reasons.push({ w: tTerm, taste: true, label: `Your vibe: ${matchedTags.slice(0, 2).map((m) => m.t).join(', ')}` });
         }
       }
+    }
+
+    // ── Tonight's mood ──
+    // Heavier than any single taste term and NOT ramped by evidence: the
+    // user just said what they want, which beats anything inferred from
+    // history — including for a brand-new account with no history at all.
+    // It is a lift, never a filter: a place that doesn't match still ranks
+    // on the merits, so a mood can't empty the list.
+    if (signals.moodMatchIds?.has(c.id)) {
+      const mTerm = W.moodMatch;
+      personalFit += mTerm;
+      sources.push('mood');
+      reasons.push({ w: mTerm, taste: true, label: 'Matches your mood' });
     }
 
     // ── Distinctiveness (Michelin / boutique) ──
@@ -1280,9 +1429,18 @@ export function scoreCandidates(
     const rampP = nPos / (nPos + 5);
     const cap = Math.min(9.8, (profile.scoreP90 ?? 9.4) + 0.4);
     const own = profile.myScoreById.get(c.id);
+    /* Kept on the app's 0.01 grid, the same one real ratings are stored on
+       (lib/score, settleScores.roundGrid) — NOT rounded to a tenth.
+       Rounding here made every prediction end in 0: with the "Precise
+       scores" setting on, a page of recommendations read 8.90, 8.90, 8.80,
+       which looks like a broken formatter rather than a fine distinction,
+       and it threw away real differences between candidates whose fits are
+       genuinely a few hundredths apart. Display precision is the display's
+       decision (formatScore + SettingsContext.twoDecimalScores); this is
+       the value, and it should carry what it actually computed. */
     const predicted = own !== undefined
       ? own
-      : Math.round(clamp(rampP * personalPredicted + (1 - rampP) * coldPredicted, 5.0, cap) * 10) / 10;
+      : Math.round(clamp(rampP * personalPredicted + (1 - rampP) * coldPredicted, 5.0, cap) * 100) / 100;
 
     reasons.sort((a, b) => b.w - a.w);
     scored.push({
@@ -1341,7 +1499,11 @@ export async function gatherRecCandidates(
   // supabase-rec-cache.ts. (The v3 tier fingerprint also invalidates every
   // pre-v3 cached pool: pools assembled without price-restricted queries
   // skew cheap and would otherwise satisfy hits for two more days.)
-  const prefsHash = recPrefsHashForProfile(opts.profile, opts.radiusMeters);
+  const statedTiers = (opts.priceTiersOverride ?? []).filter((t) => t >= 1 && t <= 4);
+  const moodTerms = (opts.moodTerms ?? []).slice(0, 3);
+  const prefsHash = recPrefsHashForProfile(opts.profile, opts.radiusMeters)
+    + (statedTiers.length > 0 ? `|pt:${[...statedTiers].sort().join('')}` : '')
+    + (moodTerms.length > 0 ? `|mt:${moodTerms.join('_')}` : '');
   const locKey = locationKey(opts.target.lat, opts.target.lng);
 
   let mergeCached: PlaceResult[] = [];
@@ -1352,7 +1514,11 @@ export async function gatherRecCandidates(
       mergeCached = cached.places;
       // A fresh same-prefs pool that's deep enough to rank is a full hit;
       // a thin or drifted one still merges in but gets fresh queries too.
-      if (cached.preferencesHash === prefsHash && cached.places.length >= 25) {
+      // A mood run must never take the full-hit shortcut: skipping Google
+      // means no mood queries ran, so nothing is credited to the mood and
+      // the ranking silently reverts to plain taste on the second identical
+      // search. The cached places still MERGE in — only the shortcut is off.
+      if (cached.preferencesHash === prefsHash && cached.places.length >= 25 && moodTerms.length === 0) {
         skipGoogle = true;
       }
     }
@@ -1362,7 +1528,14 @@ export async function gatherRecCandidates(
 
   const queries = skipGoogle
     ? []
-    : sliceQueriesBalanced(buildCandidateQueries(opts.profile, opts.target), maxQueries);
+    : sliceQueriesBalanced(
+        buildCandidateQueries(
+          opts.profile,
+          opts.target,
+          statedTiers.length > 0 || moodTerms.length > 0 ? { priceTiers: statedTiers, moodTerms } : undefined,
+        ),
+        maxQueries,
+      );
 
   const [
     googleBatches,
@@ -1449,12 +1622,17 @@ export async function gatherRecCandidates(
   // non-food POIs must never enter the pool (this also scrubs hotels out
   // of pools cached before the gate existed).
   const byId = new Map<string, RecCandidate>();
-  for (const batch of googleBatches) {
+  // googleBatches is index-parallel to `queries`, which is how a place can
+  // be credited to the mood query that found it.
+  const moodMatchIds = new Set<string>();
+  googleBatches.forEach((batch, i) => {
+    const isMood = queries[i]?.mood === true;
     for (const p of batch) {
       if (!recPoolEligible(p)) continue;
+      if (isMood) moodMatchIds.add(p.id);
       if (!byId.has(p.id)) byId.set(p.id, p);
     }
-  }
+  });
   for (const p of mergeCached) {
     if (!recPoolEligible(p)) continue;
     if (!byId.has(p.id)) byId.set(p.id, p);
@@ -1613,6 +1791,7 @@ export async function gatherRecCandidates(
     friendUserIds,
     communityByRestaurant,
     expertRecRestaurantIds: expertRecIds,
+    moodMatchIds,
   };
 
   // An aborted gather must not persist: a stale/cancelled browser session
@@ -1625,7 +1804,11 @@ export async function gatherRecCandidates(
   // Places spend. Michelin synthetics are excluded — they rebuild for free
   // from the local dataset. Ordered by a quality proxy so the cap keeps the
   // most useful 60.
-  if (opts.userId && !skipGoogle && candidates.length > 0) {
+  // A mood pool is NOT the everyday pool: it leans toward tonight's words
+  // and shares the one (user_id, location_key) row, so persisting it would
+  // clobber the plain pool and make the next ordinary open pay for Google
+  // again. Mood runs stay in the in-memory pool cache for the session.
+  if (opts.userId && !skipGoogle && candidates.length > 0 && moodTerms.length === 0) {
     const persistable = candidates
       .filter((c) => !isMichelinSyntheticId(c.id))
       .sort((a, b) => {

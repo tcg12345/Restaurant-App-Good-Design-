@@ -18,6 +18,7 @@ import React from 'react';
 import { motion } from 'motion/react';
 import { ArrowLeft, ArrowRight, Check, Loader2 } from 'lucide-react';
 import { GlassButton } from '../../lib/glass-buttons';
+import { Logo } from '../Logo';
 
 /* Colour values resolve through CSS custom properties (index.css) so the
    whole flow flips with the app's `.dark` class. */
@@ -118,17 +119,19 @@ export const OnboardingScreen: React.FC<{
   </div>
 );
 
-/* ── Brand mark (G in a terracotta disc) ────────────────────────────────── */
+/* ── Brand mark (the GoodEats bowl, in a terracotta disc) ───────────────── */
+/** Onboarding's mark: the shared Logo, tinted with the flow's own terracotta
+ *  (`--ob-terra`) rather than `--color-primary`, and carrying the soft lift
+ *  every disc on these screens has. */
 export const BrandMark: React.FC<{ size?: number }> = ({ size = 54 }) => (
-  <div
-    className="flex items-center justify-center"
+  <Logo
+    size={size}
+    className="rounded-full"
     style={{
-      width: size, height: size, borderRadius: '50%', background: TERRA,
+      color: TERRA,
       boxShadow: '0 10px 26px -8px color-mix(in srgb, var(--ob-terra) 55%, transparent)',
     }}
-  >
-    <span style={{ fontFamily: SERIF, fontStyle: 'italic', fontWeight: 600, fontSize: size * 0.52, color: '#fff', lineHeight: 1 }}>G</span>
-  </div>
+  />
 );
 
 /* ── Typography ─────────────────────────────────────────────────────────── */
@@ -268,6 +271,37 @@ export const GhostButton: React.FC<{ children: React.ReactNode; onClick?: () => 
     <span>{children}</span>
     {trailing && <ArrowRight size={15} strokeWidth={2} />}
   </button>
+);
+
+/** The outlined sibling of PrimaryButton — for the action that deserves a
+ *  real button but must not compete with the primary (the landing screen's
+ *  "Sign in", the city step's "Use my location"). A GhostButton is a line
+ *  of text; this is a surface you can aim a thumb at. */
+export const SecondaryButton: React.FC<{
+  children: React.ReactNode;
+  icon?: React.ReactNode;
+  onClick?: () => void;
+  disabled?: boolean;
+  loading?: boolean;
+}> = ({ children, icon, onClick, disabled, loading }) => (
+  <motion.button
+    type="button"
+    onClick={onClick}
+    disabled={disabled || loading}
+    whileTap={!disabled && !loading ? { scale: 0.98 } : undefined}
+    transition={SPRING}
+    className="w-full flex items-center justify-center gap-2.5 rounded-full font-semibold cursor-pointer transition-colors disabled:opacity-60"
+    style={{ height: 52, background: 'var(--ob-card)', border: `1.5px solid ${BORDER}`, color: INK, fontSize: 15.5, boxShadow: '0 1px 2px rgba(0,0,0,0.04)' }}
+    onMouseEnter={(e) => { if (!disabled && !loading) (e.currentTarget as HTMLButtonElement).style.background = 'var(--ob-card-hover)'; }}
+    onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'var(--ob-card)'; }}
+  >
+    {loading ? <Loader2 size={17} className="animate-spin" /> : (
+      <>
+        {icon}
+        <span>{children}</span>
+      </>
+    )}
+  </motion.button>
 );
 
 export const SocialButton: React.FC<{ children: React.ReactNode; icon: React.ReactNode; onClick?: () => void; disabled?: boolean }> = ({ children, icon, onClick, disabled }) => (

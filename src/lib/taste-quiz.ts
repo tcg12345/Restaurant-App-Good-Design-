@@ -42,7 +42,7 @@ export interface TasteQuizAnswers {
   completedAt?: number;
 }
 
-const LOCAL_KEY = 'gourmad-taste-quiz';
+const LOCAL_KEY = 'goodeats-taste-quiz';
 
 const isTier = (v: unknown): v is number =>
   typeof v === 'number' && Number.isInteger(v) && v >= 1 && v <= 4;

@@ -18,6 +18,7 @@ import React, { type CSSProperties, type ReactNode } from 'react';
 import { Bookmark, MapIcon, ChefHat, BookOpen, Plus, Clock, MapPin, Check, ArrowUpRight } from 'lucide-react';
 import { ShareIcon } from '../icons/ShareIcon';
 import { cn } from '../../lib/utils';
+import { Logo } from '../Logo';
 import { ScoreBadge } from '../ScoreBadge';
 import {
   getTheme, DEFAULT_THEME,
@@ -1086,7 +1087,7 @@ export const GuideAuthor: React.FC<{
 export const GuideEndCap: React.FC = () => (
   <div className="gle-end-cap">
     <div className="gle-end-line" />
-    <div className="gle-end-mono">G</div>
+    <div className="gle-end-mono"><Logo size={40} variant="badge" /></div>
     <div className="gle-end-line" />
   </div>
 );

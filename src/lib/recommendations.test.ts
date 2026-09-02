@@ -5,6 +5,8 @@ import {
   buildCandidateQueries,
   sliceQueriesBalanced,
   recPoolEligible,
+  recsUnlocked,
+  RECS_MIN_RATINGS,
   type TasteProfile,
   type CandidateSignals,
   type RecCandidate,
@@ -496,8 +498,11 @@ describe('scoreCandidates', () => {
     expect(top.reasons!.join(' | ')).toMatch(/Top cuisine: Italian|sweet spot|Loved by 2 friends/);
     expect(top.predicted).toBeGreaterThanOrEqual(5);
     expect(top.predicted).toBeLessThanOrEqual(9.8);
-    // One decimal, always.
-    expect(Math.round(top.predicted! * 10) / 10).toBe(top.predicted);
+    // On the app's 0.01 storage grid — the same one real ratings use — so
+    // the "Precise scores" setting has a second decimal worth showing.
+    // (It used to be quantized to a TENTH here, which made every predicted
+    // score render as x.x0 whenever two decimals were on.)
+    expect(Math.round(top.predicted! * 100) / 100).toBe(top.predicted);
   });
 
   it('always hides rated places; keepWishlisted surfaces wishlisted ones with a chip', () => {
@@ -744,6 +749,30 @@ describe('v3 predicted score', () => {
   });
 });
 
+describe('mood', () => {
+  it('lifts what tonight\'s words matched, above the palate\'s own pull', () => {
+    // Both places are off-palate; only one came back from the mood search.
+    const p = premium70();
+    const sig = { ...emptySignals(), moodMatchIds: new Set(['rooftop']) };
+    const out = scoreCandidates(
+      [place({ id: 'rooftop', rating: 4.2, userRatingCount: 300 }),
+       place({ id: 'plain', rating: 4.2, userRatingCount: 300 })],
+      p, sig, TARGET, RADIUS, { skipUserHistory: false, enforcePriceBand: false },
+    );
+    expect(out[0].id).toBe('rooftop');
+    expect(out[0].reasons?.some((r) => /Matches your mood/.test(r))).toBe(true);
+  });
+
+  it('is a lift, never a filter — an unmatched place still ranks', () => {
+    const sig = { ...emptySignals(), moodMatchIds: new Set(['a']) };
+    const out = scoreCandidates(
+      [place({ id: 'a' }), place({ id: 'b' })],
+      premium70(), sig, TARGET, RADIUS, { skipUserHistory: false, enforcePriceBand: false },
+    );
+    expect(out.map((o) => o.id).sort()).toEqual(['a', 'b']);
+  });
+});
+
 describe('v3 candidate queries', () => {
   it('premium palate: no cheap queries, tasting-menu/michelin added, tiers restricted', () => {
     const qs = buildCandidateQueries(premium70(), TARGET);
@@ -785,6 +814,41 @@ describe('v3 candidate queries', () => {
     );
     const texts = buildCandidateQueries(p, TARGET).map((q) => q.text).join(' | ');
     expect(texts).toMatch(/cheap Mexican/);
+  });
+
+  it('a stated price band overrides the learned one, in the QUERIES themselves', () => {
+    // "not too expensive" from a premium palate: the pool is what the
+    // Google queries return, so if the queries stay $$$$-restricted there
+    // is nothing cheap for any later filter to find — the list comes back
+    // empty however permissive the scorer is.
+    const qs = buildCandidateQueries(premium70(), TARGET, { priceTiers: [1, 2] });
+    const texts = qs.map((q) => q.text).join(' | ');
+    expect(texts).toMatch(/cheap /);
+    // No query may restrict to a tier the user did not ask for tonight.
+    for (const q of qs) {
+      if (q.priceLevels) expect(q.priceLevels.every((t) => t <= 2)).toBe(true);
+    }
+  });
+
+  it('a stated premium band restricts a value palate the same way', () => {
+    const value = buildTasteProfile(
+      Array.from({ length: 10 }, (_, i) => rating({ restaurantId: `v${i}`, cuisine: 'Mexican', price: '$', score: 9 })),
+      [], [], [],
+    );
+    const qs = buildCandidateQueries(value, TARGET, { priceTiers: [4] });
+    expect(qs.some((q) => q.priceLevels?.includes(4))).toBe(true);
+    for (const q of qs) {
+      if (q.priceLevels) expect(q.priceLevels.every((t) => t >= 4)).toBe(true);
+    }
+  });
+
+  it("tonight's mood words lead the queries, crossed with the palate", () => {
+    // The tag term only scores places the community has already tagged, so
+    // a mood that never reaches the text search can't surface a rooftop
+    // nobody here has rated.
+    const qs = buildCandidateQueries(premium70(), TARGET, { moodTerms: ['romantic', 'with a view'] });
+    expect(qs[0].text).toMatch(/^romantic with a view restaurants/);
+    expect(qs.slice(0, 3).some((q) => /romantic with a view \w+ restaurants/.test(q.text))).toBe(true);
   });
 
   it('sliceQueriesBalanced always keeps ≥2 unrestricted queries in the slice', () => {
@@ -995,5 +1059,154 @@ describe('rec pool eligibility (venues that merely contain food)', () => {
     // …but a restaurant carrying its mall's type is still a restaurant.
     expect(recPoolEligible({ types: ['italian_restaurant', 'shopping_mall'] })).toBe(true);
     expect(recPoolEligible({ types: ['restaurant', 'french_restaurant'] })).toBe(true);
+  });
+});
+
+/* ── Evidence shrinkage & the unlock gate ──────────────────────────────── */
+
+describe('recsUnlocked', () => {
+  it('opens exactly at RECS_MIN_RATINGS', () => {
+    expect(recsUnlocked(RECS_MIN_RATINGS - 1)).toBe(false);
+    expect(recsUnlocked(RECS_MIN_RATINGS)).toBe(true);
+    expect(recsUnlocked(RECS_MIN_RATINGS + 40)).toBe(true);
+  });
+
+  it('treats a fresh account as locked', () => {
+    expect(recsUnlocked(0)).toBe(false);
+  });
+});
+
+describe('per-cuisine evidence shrinkage', () => {
+  it('counts evidence separately from enthusiasm', () => {
+    // One rave and four steady likes: the rave can win on SCORE, but the
+    // pattern must win on how much we actually know.
+    const p = profileFrom([
+      rating({ restaurantId: 'p1', cuisine: 'Peruvian', score: 10 }),
+      ...['t1', 't2', 't3', 't4'].map((id) => rating({ restaurantId: id, cuisine: 'Thai', score: 8.5 })),
+    ]);
+    expect(p.cuisineCounts['Peruvian']).toBe(1);
+    expect(p.cuisineCounts['Thai']).toBe(4);
+  });
+
+  it('counts wishlist intent as half an observation', () => {
+    const p = profileFrom([], [wish({ restaurantId: 'w', cuisine: 'Greek' })]);
+    expect(p.cuisineCounts['Greek']).toBe(0.5);
+  });
+
+  it('credits every token of a compound cuisine label', () => {
+    const p = profileFrom([rating({ restaurantId: 'a', cuisine: 'Korean, Contemporary' })]);
+    expect(p.cuisineCounts['Korean']).toBe(1);
+    expect(p.cuisineCounts['Contemporary']).toBe(1);
+  });
+
+  it('tracks pair evidence alongside cuisine evidence', () => {
+    const p = profileFrom([
+      rating({ restaurantId: 'a', cuisine: 'Thai', price: '$$' }),
+      rating({ restaurantId: 'b', cuisine: 'Thai', price: '$$' }),
+      rating({ restaurantId: 'c', cuisine: 'Thai', price: '$$$$' }),
+    ]);
+    expect(p.pairCounts['Thai|2']).toBe(2);
+    expect(p.pairCounts['Thai|4']).toBe(1);
+  });
+
+  it('does not let a single lucky rating outrank a consistent pattern', () => {
+    // The failure this exists to prevent: one 10.0 Peruvian dinner made
+    // "Peruvian" a top cuisine with the same authority as five Thai visits,
+    // and cuisine is the heaviest taste weight in the scorer.
+    const profile = profileFrom([
+      rating({ restaurantId: 'p1', cuisine: 'Peruvian', score: 10, price: '$$' }),
+      ...['t1', 't2', 't3', 't4', 't5'].map((id) =>
+        rating({ restaurantId: id, cuisine: 'Thai', score: 8.5, price: '$$' })),
+    ]);
+    const out = scoreCandidates(
+      [
+        place({ id: 'peruvian-new', types: ['peruvian_restaurant'], priceLevel: 2 }),
+        place({ id: 'thai-new', types: ['thai_restaurant'], priceLevel: 2 }),
+      ],
+      profile,
+      emptySignals(),
+      TARGET,
+      RADIUS,
+    );
+    const peruvian = out.find((r) => r.id === 'peruvian-new');
+    const thai = out.find((r) => r.id === 'thai-new');
+    expect(peruvian).toBeDefined();
+    expect(thai).toBeDefined();
+    expect(thai!.recScore).toBeGreaterThan(peruvian!.recScore);
+  });
+
+  it('shrinks a one-off DISLIKE too — one bad night is not a blacklist', () => {
+    // Symmetry matters: the same thinness that must not crown a cuisine
+    // must not condemn one either.
+    const thin = profileFrom([
+      rating({ restaurantId: 'x', cuisine: 'Greek', score: 3 }),
+      ...['a', 'b', 'c', 'd'].map((id) => rating({ restaurantId: id, cuisine: 'Italian', score: 8 })),
+    ]);
+    const thick = profileFrom([
+      ...['x1', 'x2', 'x3', 'x4'].map((id) => rating({ restaurantId: id, cuisine: 'Greek', score: 3 })),
+      ...['a', 'b', 'c', 'd'].map((id) => rating({ restaurantId: id, cuisine: 'Italian', score: 8 })),
+    ]);
+    const greek = () => place({ id: 'greek-new', types: ['greek_restaurant'], priceLevel: 2 });
+    const scoreOf = (p: TasteProfile) =>
+      scoreCandidates([greek()], p, emptySignals(), TARGET, RADIUS)[0]?.recScore ?? 0;
+    // Four bad Greek meals is real evidence; one is barely any.
+    expect(scoreOf(thin)).toBeGreaterThan(scoreOf(thick));
+  });
+
+  it('keeps the quiz priors usable on a brand-new account', () => {
+    // The prior is the ONLY signal at zero ratings, so it carries a matching
+    // pseudo-count — without it the shrinkage would erase the very thing
+    // the onboarding quiz promises to use.
+    const p = buildTasteProfile([], [], [], [], { cuisines: ['Japanese'] });
+    expect(p.cuisineCounts['Japanese']).toBeGreaterThan(0);
+    const out = scoreCandidates(
+      [place({ id: 'jp', types: ['japanese_restaurant'], priceLevel: 2 })],
+      p,
+      emptySignals(),
+      TARGET,
+      RADIUS,
+    );
+    expect(out[0]?.tasteReasons?.length ?? 0).toBeGreaterThan(0);
+  });
+});
+
+/* ── Predicted-score precision ─────────────────────────────────────────── */
+
+describe('predicted score precision', () => {
+  it('carries hundredths, not a tenth-grid, so two-decimal display is real', () => {
+    // Enough history that the personal branch dominates the prediction.
+    const ratings = Array.from({ length: 14 }, (_, i) =>
+      rating({
+        restaurantId: `r${i}`,
+        name: `Place ${i}`,
+        cuisine: i % 2 ? 'Italian' : 'Japanese',
+        price: '$$$',
+        score: 7 + (i % 5) * 0.37,
+        address: 'New York, NY',
+      }),
+    );
+    const profile = buildTasteProfile(ratings, [], [], []);
+    // Candidates that differ only slightly — exactly the case a tenth-grid
+    // flattened into identical numbers on screen.
+    const candidates = Array.from({ length: 8 }, (_, i) =>
+      place({
+        id: `c${i}`,
+        name: `Cand ${i}`,
+        types: ['italian_restaurant'],
+        priceLevel: 3,
+        rating: 4.3 + i * 0.05,
+        userRatingCount: 300 + i * 40,
+      }),
+    );
+    const out = scoreCandidates(candidates, profile, emptySignals(), TARGET, RADIUS);
+    expect(out.length).toBeGreaterThan(3);
+    // On the 0.01 grid the whole app stores scores on…
+    for (const p of out) {
+      expect(Math.round(p.predicted! * 100) / 100).toBe(p.predicted);
+    }
+    // …and at least one is genuinely off the tenth-grid, which is what the
+    // second decimal is for. With eight distinct fits, all of them landing
+    // on a tenth by coincidence is not a real risk.
+    expect(out.some((p) => Math.round(p.predicted! * 10) / 10 !== p.predicted)).toBe(true);
   });
 });

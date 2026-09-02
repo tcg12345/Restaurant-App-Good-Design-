@@ -2,7 +2,7 @@
  * Community ratings & photos — shared data across all users.
  */
 import { supabase, supabaseConfigured } from './supabase';
-import { rankSuggestedProfiles } from './suggestions';
+import { rankSuggestedProfiles, diversifySuggestions, tasteMatchScore, tasteMatchReason, type TasteSignal } from './suggestions';
 import { reportClientError } from './error-reporting';
 import { buildRatingPayload, type ActivityStamp, type RatingPayloadData } from './ratingPayload';
 import type { HomeMeal } from '../contexts/ListsContext';
@@ -748,6 +748,44 @@ export async function getProfilesInArea(opts: {
 export interface SuggestedProfile extends UserProfile {
   ratingCount: number;
   followerCount: number;
+  /** 0..1 taste-quiz + home-base similarity to the viewer — see
+   *  lib/suggestions.ts#tasteMatchScore. */
+  matchScore: number;
+  /** Human-readable reason for the match ("Also loves Italian"), or null
+   *  when there's no shared signal to point to. */
+  matchReason: string | null;
+  /** In the viewer's address book, per a contact sync the caller ran. */
+  contactMatch?: boolean;
+  /** Their name as saved in the viewer's contacts — often the name the
+   *  viewer actually recognises. Feeds suggestionSubtitle's top line. */
+  contactName?: string | null;
+  /** Graph signals from get_social_suggestions (080). Absent — not 0 —
+   *  when the migration isn't applied, so old behavior is preserved. */
+  followsYou?: boolean;
+  mutualCount?: number;
+  coRatedCount?: number;
+  coRatedAgreement?: number;
+}
+
+/** Pulls the taste-quiz + home-base signal off a profile row for matching.
+ *  `taste_profile` is stored as loosely-typed jsonb (lib/taste-quiz.ts), so
+ *  this reads defensively rather than trusting its shape. */
+function tasteSignalFromProfile(p: {
+  taste_profile?: unknown;
+  home_city?: string | null;
+  home_lat?: number | null;
+  home_lng?: number | null;
+} | null | undefined): TasteSignal {
+  const tp = (p?.taste_profile && typeof p.taste_profile === 'object' && !Array.isArray(p.taste_profile))
+    ? p.taste_profile as Record<string, unknown>
+    : {};
+  return {
+    cuisines: Array.isArray(tp.cuisines) ? tp.cuisines.filter((c): c is string => typeof c === 'string') : undefined,
+    pricePrimary: typeof tp.pricePrimary === 'number' ? tp.pricePrimary : undefined,
+    homeCity: p?.home_city ?? null,
+    homeLat: p?.home_lat ?? null,
+    homeLng: p?.home_lng ?? null,
+  };
 }
 
 /** How many public profiles to rank before slicing. Bounded so the stats
@@ -759,6 +797,12 @@ export async function getSuggestedProfiles(opts: {
   /** Extra ids to leave out (e.g. people already shown elsewhere on screen). */
   excludeUserIds?: string[];
   limit?: number;
+  /** User ids known to be in the viewer's address book, from a contact
+   *  sync the CALLER already ran (lib/supabase-contacts.ts). An input
+   *  rather than fetched here because matching needs the contacts
+   *  permission and hashes the whole address book — far too heavy to run
+   *  on every rail load. These are user ids, not contact data. */
+  contactUserIds?: string[];
 }): Promise<SuggestedProfile[]> {
   if (!supabaseConfigured) return [];
   const { viewerId } = opts;
@@ -777,26 +821,90 @@ export async function getSuggestedProfiles(opts: {
       }
     }
 
+    /* ── Three candidate sources, merged ─────────────────────────────
+       1. The social graph (get_social_suggestions, migration 080) —
+          friends-of-friends and people who follow the viewer, with
+          mutual/co-rating counts the client can't compute itself.
+       2. The public-profile pool — backfill so a viewer with a thin (or
+          no) graph still gets a full rail; also today's whole behavior,
+          which is exactly what this degrades to.
+       The graph RPC failing (most likely: migration not applied) warns
+       and falls through — same convention as getFollowListIds. */
+    type SocialRow = {
+      user_id: string; mutual_count: number; follows_you: boolean;
+      co_rated_count: number; co_rated_agreement: number;
+    };
+    // Promise.resolve wraps the builder's PromiseLike into a real Promise.
+    const socialPromise: Promise<SocialRow[]> = viewerId
+      ? Promise.resolve(supabase.rpc('get_social_suggestions', { p_limit: SUGGESTION_POOL }))
+        .then(({ data, error }) => {
+          if (error) {
+            console.warn('get_social_suggestions unavailable, using public pool only:', error.message);
+            return [] as SocialRow[];
+          }
+          return (data ?? []) as SocialRow[];
+        })
+      : Promise.resolve([]);
+
     let q = supabase.from('user_profiles').select('*').eq('is_public', true).limit(SUGGESTION_POOL);
     if (exclude.size > 0) {
       // Same manual formatting as getProfilesInArea — the JS builder won't
       // take an array for `not(..., 'in', ...)`.
       q = q.not('user_id', 'in', `(${[...exclude].map((id) => `"${id}"`).join(',')})`);
     }
-    const { data, error } = await q;
-    if (error || !data) return [];
-    const profiles = (data as UserProfile[]).filter((p) => !exclude.has(p.user_id));
+    const [socialRows, poolResult] = await Promise.all([socialPromise, q]);
+    const social = new Map(socialRows.map((r) => [r.user_id, r]));
+
+    const pool = ((poolResult.data ?? []) as UserProfile[]).filter((p) => !exclude.has(p.user_id));
+    // Graph candidates the pool didn't return: private accounts (a
+    // request is a fine suggestion when you likely know them) and anyone
+    // past the pool's row limit. One batched fetch resolves them.
+    const contactIds = new Set(opts.contactUserIds ?? []);
+    const graphAndContactIds = [...new Set([...socialRows.map((r) => r.user_id), ...contactIds])];
+    const missingIds = graphAndContactIds
+      .filter((id) => !exclude.has(id) && !pool.some((p) => p.user_id === id));
+    const extraProfiles = await getProfilesByIds(missingIds);
+    const profiles = [...pool, ...missingIds.map((id) => extraProfiles[id]).filter(Boolean)];
     if (profiles.length === 0) return [];
 
-    const stats = await getExpertStats(profiles.map((p) => p.user_id));
-    const scored: SuggestedProfile[] = profiles.map((p) => ({
-      ...p,
-      ratingCount: stats[p.user_id]?.ratingCount ?? 0,
-      followerCount: stats[p.user_id]?.followerCount ?? 0,
-    }));
-    // Ordering lives in lib/suggestions so it can be tested without a
-    // Supabase mock — see rankSuggestedProfiles for why it ranks this way.
-    return rankSuggestedProfiles(scored, limit);
+    // The viewer's own taste-quiz + home-base signal, so candidates can be
+    // scored against it — one extra single-row read, not one per candidate.
+    const [stats, viewerRow] = await Promise.all([
+      getExpertStats(profiles.map((p) => p.user_id)),
+      viewerId
+        ? supabase.from('user_profiles')
+          .select('taste_profile, home_city, home_lat, home_lng')
+          .eq('user_id', viewerId)
+          .maybeSingle()
+          .then((r) => r.data)
+        : Promise.resolve(null),
+    ]);
+    const viewerSignal = tasteSignalFromProfile(viewerRow);
+
+    const scored: SuggestedProfile[] = profiles.map((p) => {
+      const candidateSignal = tasteSignalFromProfile(p);
+      const s = social.get(p.user_id);
+      return {
+        ...p,
+        ratingCount: stats[p.user_id]?.ratingCount ?? 0,
+        followerCount: stats[p.user_id]?.followerCount ?? 0,
+        matchScore: tasteMatchScore(viewerSignal, candidateSignal),
+        matchReason: tasteMatchReason(viewerSignal, candidateSignal),
+        ...(contactIds.has(p.user_id) ? { contactMatch: true } : {}),
+        ...(s ? {
+          followsYou: s.follows_you,
+          mutualCount: s.mutual_count,
+          coRatedCount: s.co_rated_count,
+          coRatedAgreement: s.co_rated_agreement,
+        } : {}),
+      };
+    });
+    // Ordering and the reason line live in lib/suggestions so they can be
+    // tested without a Supabase mock. Rank over the whole merged pool,
+    // then cap any one reason category at half the rail — a heavy contact
+    // sync or one very connected friend must not fill it entirely.
+    const ranked = rankSuggestedProfiles(scored, scored.length);
+    return diversifySuggestions(ranked, limit);
   } catch { return []; }
 }
 

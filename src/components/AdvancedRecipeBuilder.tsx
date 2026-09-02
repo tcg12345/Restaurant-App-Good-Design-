@@ -29,6 +29,7 @@ import {
   type RecipeNote,
   type RecipeStepDetail,
   type RecipeStepGroup,
+  type CombinedFromRef,
 } from '../contexts/ListsContext';
 import { flattenIngredientGroups } from '../lib/ingredient-parsing';
 import { refineRecipe } from '../lib/build-recipe-client';
@@ -86,6 +87,11 @@ export interface AdvancedRecipeState {
   /** Carried through from an AI-generated seed / existing AI recipe so the
    *  "Created with AI" note survives editing + publishing. Not user-editable. */
   createdWithAi: boolean;
+  /** Combine provenance — the parents an AI-combined seed was merged
+   *  from. Same carry-through rule as createdWithAi: this state and the
+   *  publish payload are field WHITELISTS, so provenance that is not an
+   *  explicit field here is silently dropped on the first edit. */
+  combinedFrom: CombinedFromRef[];
   /** Import provenance (source URL, or 'photo' / 'text') — carried through
    *  from an imported seed so the "Imported from …" note survives editing
    *  + publishing. Not user-editable. */
@@ -202,6 +208,7 @@ function emptyState(): AdvancedRecipeState {
     score: 0,
     isPublic: false,
     createdWithAi: false,
+    combinedFrom: [],
     importedFrom: '',
   };
 }
@@ -251,6 +258,7 @@ function fromHomeMeal(meal: HomeMeal): AdvancedRecipeState {
     score: typeof meal.score === 'number' ? meal.score : 0,
     isPublic: meal.isPublic ?? false,
     createdWithAi: !!meal.createdWithAi,
+    combinedFrom: meal.combinedFrom || [],
     importedFrom: meal.importedFrom || '',
   };
 }
@@ -301,6 +309,7 @@ function stateToHomeMeal(state: AdvancedRecipeState, base?: HomeMeal | null): Ho
     linkedRecipes: state.linkedRecipes.length > 0 ? state.linkedRecipes : undefined,
     builderVersion: 'advanced',
     createdWithAi: state.createdWithAi || undefined,
+    combinedFrom: state.combinedFrom.length > 0 ? state.combinedFrom : undefined,
     importedFrom: state.importedFrom || undefined,
     // Preserve source attribution if somehow present (defensive — saved
     // copies aren't editable, so this is normally undefined).
@@ -559,8 +568,8 @@ function canLeaveStep(state: AdvancedRecipeState, step: number): { ok: boolean }
      the Activity drafts list. ─ */
 function resumeSlotKey(userId: string | null, mealId: string | null, seeded = false): string {
   const u = userId || 'anon';
-  if (mealId) return `gourmad-recipe-draft-${u}-edit-${mealId}`;
-  return seeded ? `gourmad-recipe-draft-${u}-seed` : `gourmad-recipe-draft-${u}`;
+  if (mealId) return `goodeats-recipe-draft-${u}-edit-${mealId}`;
+  return seeded ? `goodeats-recipe-draft-${u}-seed` : `goodeats-recipe-draft-${u}`;
 }
 
 interface ResumeSlot {
@@ -908,6 +917,7 @@ export const AdvancedRecipeBuilder: React.FC<AdvancedRecipeBuilderProps> = ({ ex
       linkedRecipes: state.linkedRecipes.length > 0 ? state.linkedRecipes : undefined,
       builderVersion: 'advanced',
       createdWithAi: state.createdWithAi || undefined,
+      combinedFrom: state.combinedFrom.length > 0 ? state.combinedFrom : undefined,
       importedFrom: state.importedFrom || undefined,
     };
 

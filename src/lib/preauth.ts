@@ -12,8 +12,8 @@
 
 import type { HomeLocation } from '../components/HomeLocationBar';
 
-const CITY_KEY = 'gourmad-preauth-city';
-const DONE_KEY = 'gourmad-preauth-done';
+const CITY_KEY = 'goodeats-preauth-city';
+const DONE_KEY = 'goodeats-preauth-done';
 
 export function savePreauthCity(loc: HomeLocation): void {
   try { localStorage.setItem(CITY_KEY, JSON.stringify(loc)); } catch { /* storage off */ }
@@ -44,16 +44,16 @@ export function isPreauthDone(): boolean {
 
 /* ── Which way they left, and the one follow-up ask ───────────────────── */
 
-const OUTCOME_KEY = 'gourmad-preauth-outcome';
-const GUEST_ASKED_KEY = 'gourmad-preauth-guest-asked';
-const TASTE_KEY = 'gourmad-taste-quiz';
+const OUTCOME_KEY = 'goodeats-preauth-outcome';
+const GUEST_ASKED_KEY = 'goodeats-preauth-guest-asked';
+const TASTE_KEY = 'goodeats-taste-quiz';
 
 export type PreauthOutcome = 'signup' | 'signin' | 'guest';
 
 /** Remember which way the flow was left. `preauthExited` in App is React
  *  state, so a relaunch used to forget: someone who tapped "Save my taste
  *  profile", got the gate, and relaunched came back to the generic
- *  "Welcome to Gourmet Canvas" sign-in copy instead of the ask they were
+ *  "Welcome to GoodEats" sign-in copy instead of the ask they were
  *  in the middle of. */
 export function savePreauthOutcome(mode: PreauthOutcome): void {
   try { localStorage.setItem(OUTCOME_KEY, mode); } catch { /* storage off */ }

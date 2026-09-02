@@ -82,36 +82,6 @@
   --color-swipe-neutral: #7a7a79;
   --color-swipe-muted: #9a8f89;
 
-  /* ── Pantry tile palette (decorative) ──
-     Gradient pairs for the Pantry home tiles: fixed essentials tiles
-     (rated / wishlist / recipes) plus the hash-picked list palette in
-     PhonePantryHome. Saturated fills under white text read the same in
-     both themes, so there are no dark overrides — theme-independent by
-     design, like the media chrome above. */
-  --color-tile-rated: #2c2826;
-  --color-tile-rated-deep: #161311;
-  --color-tile-wish: #d26a4a;
-  --color-tile-wish-deep: #a8482e;
-  --color-tile-recipes: #2f4a39;
-  --color-tile-recipes-deep: #15281d;
-  --color-tile-cook: #c68f3a;
-  --color-tile-cook-deep: #8e5e1f;
-  --color-tile-blue: #7b9cc4;
-  --color-tile-blue-deep: #506e92;
-  --color-tile-purple: #8e6c82;
-  --color-tile-purple-deep: #604858;
-  --color-tile-green: #7a9270;
-  --color-tile-green-deep: #506049;
-  --color-tile-rust: #c2725d;
-  --color-tile-rust-deep: #8d4a3c;
-  --color-tile-gold: #d4a85a;
-  --color-tile-gold-deep: #a07f39;
-  --color-tile-tan: #9c7a5a;
-  --color-tile-tan-deep: #71583e;
-  --color-tile-teal: #5f8c8a;
-  --color-tile-teal-deep: #41615f;
-  --color-tile-brick: #b16a6a;
-  --color-tile-brick-deep: #82494b;
 }
 
 

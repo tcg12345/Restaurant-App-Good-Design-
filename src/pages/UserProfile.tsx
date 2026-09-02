@@ -827,7 +827,7 @@ export const UserProfile: React.FC = () => {
   );
 
   // ═══════════════════════════════════════════════════════════════════════
-  // DESKTOP — editorial two-column layout (Gourmet Canvas). Mobile / native
+  // DESKTOP — editorial two-column layout (GoodEats). Mobile / native
   // and narrow viewports keep the stacked layout below.
   // ═══════════════════════════════════════════════════════════════════════
   if (!phoneMode) {

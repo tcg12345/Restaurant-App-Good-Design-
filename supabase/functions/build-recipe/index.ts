@@ -12,6 +12,10 @@
 //   { instruction, current }                — free-text refine
 //   { ingredientEdit, current }             — remove/substitute one
 //     ingredient; the model may DECLINE via the decline_change tool
+//   { ideasPrompt, constraints?, avoidTitles? } — brainstorm: ~8 short
+//     recipe IDEAS (title + blurb) via the suggest_recipe_ideas tool
+//   { combine: { sources, notes? }, constraints? } — merge 2-3 sources
+//     (ideas and/or full recipes) into ONE new recipe
 // Response: Anthropic SSE stream (success) or { error } JSON (failure)
 //
 // The Anthropic API key lives as a Supabase secret (`ANTHROPIC_API_KEY`)
@@ -32,6 +36,11 @@ const ANTHROPIC_API_KEY: string | undefined = Deno.env.get('ANTHROPIC_API_KEY');
 // realistic timing) than Sonnet, and this is a one-shot call rather
 // than a high-volume chat, so the cost trade-off is worth it.
 const MODEL = 'claude-opus-4-8';
+// Ideas are titles and one-liners — easy work where latency IS the
+// experience (a brainstorm that takes 20s isn't one). Sonnet keeps the
+// suggestions varied and appealing at a fraction of the wait.
+const IDEAS_MODEL = 'claude-sonnet-5';
+const IDEAS_MAX_TOKENS = 2500;
 // Headroom so a fully detailed complex recipe (a laminated dough with
 // 15–20 richly-written steps, grouped ingredients, equipment, and a
 // make-ahead timeline note) isn't truncated. Because the tool is forced,
@@ -47,6 +56,10 @@ const MAX_PROMPT_CHARS = 2000;
 // cap fits the largest legit payload (a full recipe JSON + instruction) many
 // times over.
 const MAX_REQUESTS_PER_HOUR = 40;
+// Ideas draw from their OWN bucket: they're the cheap exploratory mode,
+// and a brainstorm session ("more ideas" × several) must not starve the
+// user's actual recipe builds out of the shared 40/hr.
+const MAX_IDEAS_PER_HOUR = 80;
 const MAX_BODY_BYTES = 256 * 1024;
 
 const SYSTEM_PROMPT = [
@@ -97,6 +110,62 @@ const INGREDIENT_EDIT_SYSTEM_PROMPT = [
   RECIPE_QUALITY_BAR,
 ].join('\n');
 
+// Used for the `ideasPrompt` mode — a brainstorm, not an authoring pass.
+const IDEAS_SYSTEM_PROMPT = [
+  'You are a recipe ideation partner. Given a mood, craving, or set of constraints, you propose EIGHT distinct dish ideas by calling the `suggest_recipe_ideas` tool exactly once. You do not chat or add commentary.',
+  '',
+  'Rules:',
+  '- Ideas, NOT recipes: a title and one enticing sentence. Never include ingredient lists, quantities, or steps.',
+  '- Each idea is a REAL, specific, cookable dish ("Gochujang-glazed salmon rice bowls"), not a category ("something Korean").',
+  '- Vary the set: spread across techniques, proteins/mains, and effort levels within the constraints. No two ideas should feel like siblings.',
+  '- The blurb sells the dish in one breath — texture, flavor, why tonight. Max ~140 characters.',
+  '- totalTimeMin is an honest estimate of prep + cook + passive time for a home cook.',
+  '- Every idea must satisfy every hard requirement given. If a list of titles to avoid is provided, propose nothing that duplicates or trivially rephrases them.',
+].join('\n');
+
+const TOOL_SUGGEST_IDEAS = {
+  name: 'suggest_recipe_ideas',
+  description: 'Return exactly eight distinct recipe ideas. Call this exactly once.',
+  input_schema: {
+    type: 'object',
+    required: ['ideas'],
+    properties: {
+      ideas: {
+        type: 'array',
+        minItems: 8,
+        maxItems: 8,
+        items: {
+          type: 'object',
+          required: ['title', 'blurb', 'cuisine', 'totalTimeMin', 'difficulty'],
+          properties: {
+            title: { type: 'string', description: 'The dish, named specifically. 2-8 words.' },
+            blurb: { type: 'string', description: 'One enticing sentence, ≤140 characters. No ingredients lists, no steps.' },
+            cuisine: { type: 'string', description: "The dish's cuisine, one or two words." },
+            totalTimeMin: { type: 'number', description: 'Honest total minutes: prep + cook + passive.' },
+            difficulty: { type: 'string', enum: ['Easy', 'Medium', 'Hard'] },
+          },
+        },
+      },
+    },
+  },
+};
+
+// Used for the `combine` mode — merging 2-3 sources into one new dish.
+const COMBINE_SYSTEM_PROMPT = [
+  'You are a meticulous recipe developer. You will be given two or three SOURCE items — recipe ideas and/or complete recipes — and optionally a note about what the cook wants from each. Merge them into ONE new, coherent, REAL, testable recipe and return it by calling the `build_recipe` tool exactly once. You do not chat or add commentary.',
+  '',
+  'Rules for combining:',
+  '- The result is one dish a cook would actually make and be proud of — a genuine synthesis, never two recipes stapled together or served side by side.',
+  "- The cook's note, when present, is your ranked priority list: the qualities it names MUST survive into the result.",
+  '- Without a note, take the most distinctive, best-loved element of each source (a technique, a sauce, a flavor pairing, a texture) and build the dish around how they genuinely complement each other.',
+  '- Resolve conflicts in favor of what cooks best, not an even split. It is fine for one source to dominate.',
+  '- Name the dish as ITSELF — what it actually is — never "X meets Y" or mashed-up source titles.',
+  '- Write the complete recipe from scratch to the quality bar; do not copy steps verbatim from the sources.',
+  '',
+  'Quality bar:',
+  RECIPE_QUALITY_BAR,
+].join('\n');
+
 const TOOL_BUILD_RECIPE = {
   name: 'build_recipe',
   description: 'Return one complete recipe. Call this exactly once with every relevant field filled.',
@@ -129,6 +198,76 @@ const CORS_HEADERS: Record<string, string> = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+/**
+ * The difficulty + guidelines as an explicit hard-requirement checklist
+ * (not buried in the prompt prose) so the model reliably designs around
+ * them — the difficulty governs which version of the dish gets written,
+ * and time/servings/dietary become verifiable line items the quality bar
+ * tells it to re-check. Shared by the create, ideas, and combine modes.
+ */
+function constraintReqs(
+  rawDifficulty: unknown,
+  constraints: { totalTimeMax?: number; servings?: number; course?: string; dietary?: string[] } | undefined,
+): string[] {
+  const difficulty = ['Easy', 'Medium', 'Hard'].includes(rawDifficulty as string)
+    ? (rawDifficulty as string)
+    : '';
+  const c = constraints || {};
+  const reqs: string[] = [];
+  if (difficulty) {
+    reqs.push(`Difficulty: ${difficulty}. Apply the ${difficulty} DIFFICULTY CONTRACT from the quality bar — it governs technique choice, ingredient count, equipment, and step count, not just tone. Set the difficulty field to "${difficulty}".`);
+  }
+  if (typeof c.servings === 'number' && c.servings >= 1 && c.servings <= 100) {
+    reqs.push(`Serves exactly ${Math.round(c.servings)} — set the servings field to ${Math.round(c.servings)} and scale every quantity to match.`);
+  }
+  if (typeof c.totalTimeMax === 'number' && c.totalTimeMax >= 5 && c.totalTimeMax <= 100000) {
+    const max = Math.round(c.totalTimeMax);
+    reqs.push(`Total time of at most ${max} minutes — prepTime + cookTime + chillTime (ALL passive time included) must sum to ≤ ${max}. If the classic version cannot fit, write a faster authentic variation that can; never misreport timings.`);
+  }
+  if (typeof c.course === 'string' && c.course.trim()) {
+    reqs.push(`Course: ${c.course.trim().slice(0, 40)} — the dish must genuinely suit it.`);
+  }
+  if (Array.isArray(c.dietary) && c.dietary.length > 0) {
+    const diets = c.dietary
+      .filter((d) => typeof d === 'string' && d.trim())
+      .map((d) => d.trim().slice(0, 40))
+      .slice(0, 8);
+    if (diets.length > 0) {
+      reqs.push(`Strictly ${diets.join(' and ')} — applies to every ingredient, garnish, and suggested substitution, no exceptions.`);
+    }
+  }
+  return reqs;
+}
+
+/**
+ * One combine source, serialized with a per-source budget. NOT the
+ * refine mode's readCurrentJson: that hard-slices the WHOLE payload at
+ * 12k chars, which truncates mid-JSON — and two or three full recipes
+ * routinely exceed it. Here each source gets its own cap, and the prose
+ * fields nobody needs for a merge (description, notes) are dropped
+ * first; only then is the source refused outright.
+ */
+function serializeCombineSource(source: unknown, cap = 9000): string | null {
+  const attempt = (v: unknown): string | null => {
+    try {
+      const j = JSON.stringify(v);
+      return j.length <= cap ? j : null;
+    } catch {
+      return null;
+    }
+  };
+  const full = attempt(source);
+  if (full) return full;
+  if (source && typeof source === 'object') {
+    const slim: Record<string, unknown> = { ...(source as Record<string, unknown>) };
+    delete slim.description;
+    delete slim.notes;
+    delete slim.nutrition;
+    return attempt(slim);
+  }
+  return null;
+}
+
 function jsonError(status: number, message: string): Response {
   return new Response(JSON.stringify({ error: message }), {
     status,
@@ -140,15 +279,11 @@ async function handler(req: Request): Promise<Response> {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: CORS_HEADERS });
   }
-  if (req.method === 'POST') {
-    const auth = await requireUser(req);
-    if ('response' in auth) return auth.response;
-    const limited = await enforceRateLimit(req, 'build-recipe', MAX_REQUESTS_PER_HOUR);
-    if (limited) return limited;
-  }
   if (req.method !== 'POST') {
     return jsonError(405, 'Method not allowed');
   }
+  const auth = await requireUser(req);
+  if ('response' in auth) return auth.response;
   if (!ANTHROPIC_API_KEY) {
     return jsonError(500, 'ANTHROPIC_API_KEY is not configured on the function');
   }
@@ -165,19 +300,38 @@ async function handler(req: Request): Promise<Response> {
     instruction?: string;
     ingredientEdit?: { action?: string; ingredient?: string; replacement?: string };
     current?: unknown;
+    ideasPrompt?: string;
+    avoidTitles?: string[];
+    combine?: { sources?: Array<{ kind?: string; idea?: unknown; recipe?: unknown }>; notes?: string };
   }>(req, MAX_BODY_BYTES);
   if ('response' in parsed) return parsed.response;
   const body = parsed.body;
 
-  // Three modes:
+  // Ideas draw from their own, roomier bucket (see MAX_IDEAS_PER_HOUR);
+  // everything that produces a full recipe shares the original one. The
+  // limiter only reads the Authorization header, so running it after the
+  // body parse (to know which mode this is) costs nothing.
+  const isIdeas = typeof body.ideasPrompt === 'string';
+  const limited = isIdeas
+    ? await enforceRateLimit(req, 'build-recipe-ideas', MAX_IDEAS_PER_HOUR)
+    : await enforceRateLimit(req, 'build-recipe', MAX_REQUESTS_PER_HOUR);
+  if (limited) return limited;
+
+  // Five modes:
   //  • create          — { prompt, difficulty?, constraints? }
   //  • refine          — { instruction, current }  (edit an existing draft)
   //  • ingredient edit — { ingredientEdit, current }  (remove/substitute one
   //    ingredient; the model may decline via the decline_change tool)
+  //  • ideas           — { ideasPrompt, constraints?, avoidTitles? }
+  //  • combine         — { combine: { sources, notes? }, constraints? }
+  // Sniffing is unambiguous: refine/ingredient-edit require `current`,
+  // ideas requires the `ideasPrompt` string, combine its own key, and
+  // only a bare `prompt` falls through to create.
   const instruction = (body.instruction || '').trim().slice(0, MAX_PROMPT_CHARS);
   const ingredientName = (body.ingredientEdit?.ingredient || '').trim().slice(0, 200);
   const isIngredientEdit = !!ingredientName && !!body.current;
   const isRefine = !isIngredientEdit && !!instruction && !!body.current;
+  const isCombine = !isIngredientEdit && !isRefine && !isIdeas && !!body.combine;
 
   const readCurrentJson = (): string | null => {
     try {
@@ -209,43 +363,57 @@ async function handler(req: Request): Promise<Response> {
       role: 'user',
       content: `Here is the current recipe as JSON:\n\n${currentJson}\n\nApply this change and return the COMPLETE revised recipe (all fields): ${instruction}`,
     }];
+  } else if (isIdeas) {
+    const prompt = (body.ideasPrompt || '').trim().slice(0, MAX_PROMPT_CHARS);
+    const reqs = constraintReqs(body.difficulty, body.constraints);
+    // Previously-shown titles, capped hard: this list only ever grows as
+    // the user asks for more, and an unbounded echo of it is the one way
+    // this cheap mode gets expensive.
+    const avoid = (Array.isArray(body.avoidTitles) ? body.avoidTitles : [])
+      .filter((t): t is string => typeof t === 'string' && !!t.trim())
+      .map((t) => t.trim().slice(0, 120))
+      .slice(0, 40);
+    const parts = [
+      prompt
+        ? `The cook is in the mood for: ${prompt}`
+        : 'The cook has no particular dish in mind — propose a varied, appealing spread within the requirements.',
+    ];
+    if (reqs.length > 0) {
+      parts.push(`Hard requirements — every idea must satisfy every one:\n${reqs.map((r) => `- ${r}`).join('\n')}`);
+    }
+    if (avoid.length > 0) {
+      parts.push(`Already shown — do not repeat or trivially rephrase any of these:\n${avoid.map((t) => `- ${t}`).join('\n')}`);
+    }
+    messages = [{ role: 'user', content: parts.join('\n\n') }];
+  } else if (isCombine) {
+    const rawSources = Array.isArray(body.combine?.sources) ? body.combine!.sources! : [];
+    if (rawSources.length < 2 || rawSources.length > 3) {
+      return jsonError(400, 'Combining takes two or three sources.');
+    }
+    const blocks: string[] = [];
+    for (let i = 0; i < rawSources.length; i++) {
+      const src = rawSources[i];
+      const kind = src?.kind === 'recipe' ? 'recipe' : 'idea';
+      const payload = kind === 'recipe' ? src?.recipe : src?.idea;
+      const json = serializeCombineSource(payload);
+      if (!json) return jsonError(400, `Could not read source ${i + 1}.`);
+      blocks.push(`SOURCE ${i + 1} (a ${kind === 'recipe' ? 'complete recipe' : 'recipe idea'}):\n${json}`);
+    }
+    const notes = (body.combine?.notes || '').trim().slice(0, MAX_PROMPT_CHARS);
+    const reqs = constraintReqs(body.difficulty, body.constraints);
+    const parts = [blocks.join('\n\n')];
+    if (notes) parts.push(`What the cook wants from them (ranked priorities):\n${notes}`);
+    if (reqs.length > 0) {
+      parts.push(`Hard requirements — every one is mandatory:\n${reqs.map((r) => `- ${r}`).join('\n')}`);
+    }
+    parts.push('Merge these into ONE new, coherent recipe and return it with build_recipe (all fields).');
+    messages = [{ role: 'user', content: parts.join('\n\n') }];
   } else {
     const prompt = (body.prompt || '').trim().slice(0, MAX_PROMPT_CHARS);
     if (!prompt) {
       return jsonError(400, 'Tell me what recipe you want to create.');
     }
-    // Surface the difficulty and every guideline as an explicit hard-
-    // requirement checklist (not buried in the prompt prose) so the model
-    // reliably designs the recipe around them — the difficulty governs which
-    // version of the dish gets written, and time/servings/dietary become
-    // verifiable line items the quality bar tells it to re-check.
-    const difficulty = ['Easy', 'Medium', 'Hard'].includes(body.difficulty as string)
-      ? (body.difficulty as string)
-      : '';
-    const c = body.constraints || {};
-    const reqs: string[] = [];
-    if (difficulty) {
-      reqs.push(`Difficulty: ${difficulty}. Apply the ${difficulty} DIFFICULTY CONTRACT from the quality bar — it governs technique choice, ingredient count, equipment, and step count, not just tone. Set the difficulty field to "${difficulty}".`);
-    }
-    if (typeof c.servings === 'number' && c.servings >= 1 && c.servings <= 100) {
-      reqs.push(`Serves exactly ${Math.round(c.servings)} — set the servings field to ${Math.round(c.servings)} and scale every quantity to match.`);
-    }
-    if (typeof c.totalTimeMax === 'number' && c.totalTimeMax >= 5 && c.totalTimeMax <= 100000) {
-      const max = Math.round(c.totalTimeMax);
-      reqs.push(`Total time of at most ${max} minutes — prepTime + cookTime + chillTime (ALL passive time included) must sum to ≤ ${max}. If the classic version cannot fit, write a faster authentic variation that can; never misreport timings.`);
-    }
-    if (typeof c.course === 'string' && c.course.trim()) {
-      reqs.push(`Course: ${c.course.trim().slice(0, 40)} — the dish must genuinely suit it.`);
-    }
-    if (Array.isArray(c.dietary) && c.dietary.length > 0) {
-      const diets = c.dietary
-        .filter((d) => typeof d === 'string' && d.trim())
-        .map((d) => d.trim().slice(0, 40))
-        .slice(0, 8);
-      if (diets.length > 0) {
-        reqs.push(`Strictly ${diets.join(' and ')} — applies to every ingredient, garnish, and suggested substitution, no exceptions.`);
-      }
-    }
+    const reqs = constraintReqs(body.difficulty, body.constraints);
     const reqBlock = reqs.length > 0
       ? `\n\nHard requirements — every one is mandatory; re-check the finished recipe against each before returning:\n${reqs.map((r) => `- ${r}`).join('\n')}`
       : '\n\nNo difficulty was specified — write the dish at its natural complexity (simple dishes stay simple; demanding dishes get the full treatment), then set the difficulty field to what the recipe honestly is.';
@@ -253,8 +421,8 @@ async function handler(req: Request): Promise<Response> {
   }
 
   const anthropicBody = {
-    model: MODEL,
-    max_tokens: MAX_TOKENS,
+    model: isIdeas ? IDEAS_MODEL : MODEL,
+    max_tokens: isIdeas ? IDEAS_MAX_TOKENS : MAX_TOKENS,
     // Stream the response. A long Opus recipe can take 30s+ to finish;
     // a non-streaming call would block until then and
     // trip the platform's time-to-first-byte limit (gateway 504).
@@ -263,13 +431,20 @@ async function handler(req: Request): Promise<Response> {
     stream: true,
     system: isIngredientEdit
       ? INGREDIENT_EDIT_SYSTEM_PROMPT
-      : isRefine ? EDIT_SYSTEM_PROMPT : SYSTEM_PROMPT,
-    // The ingredient-edit mode carries the decline escape hatch; the other
-    // modes force build_recipe so the only possible output is a recipe.
-    tools: isIngredientEdit ? [TOOL_BUILD_RECIPE, TOOL_DECLINE_CHANGE] : [TOOL_BUILD_RECIPE],
+      : isRefine ? EDIT_SYSTEM_PROMPT
+      : isIdeas ? IDEAS_SYSTEM_PROMPT
+      : isCombine ? COMBINE_SYSTEM_PROMPT
+      : SYSTEM_PROMPT,
+    // The ingredient-edit mode carries the decline escape hatch; every
+    // other mode forces its single tool so the only possible output is
+    // the structured payload.
+    tools: isIngredientEdit
+      ? [TOOL_BUILD_RECIPE, TOOL_DECLINE_CHANGE]
+      : isIdeas ? [TOOL_SUGGEST_IDEAS]
+      : [TOOL_BUILD_RECIPE],
     tool_choice: isIngredientEdit
       ? { type: 'any' }
-      : { type: 'tool', name: 'build_recipe' },
+      : { type: 'tool', name: isIdeas ? 'suggest_recipe_ideas' : 'build_recipe' },
     messages,
   };
 

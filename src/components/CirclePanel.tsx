@@ -1,10 +1,18 @@
 /**
  * Friends panel — Instagram-style slide-out on desktop, full page on
- * mobile. Four tabs: All (friends + experts + activity), Friends,
- * Experts, and Alerts — the notification centre, which is where you find
- * out somebody liked your post or left a comment on a restaurant you
- * rated. (Those comments were previously invisible to their own author:
- * your rating shows up in your friends' feeds, never in yours.)
+ * mobile.
+ *
+ * ONE feed, not tabs: friend activity ("Mei rated Ember & Oak") and
+ * notifications ("Jonah commented on your rating") interleave into a
+ * single time-sectioned stream — NEW / TODAY / THIS WEEK / EARLIER —
+ * the way a notifications page reads on Instagram. Follow requests sit
+ * above it as a collapsed card (stacked avatars, count, dot) that
+ * expands in place, and a "Suggested for you" card band is embedded a
+ * section into the feed rather than parked in an empty state.
+ *
+ * Search stays: the field filters the feed AND surfaces a "Friends"
+ * section of your own friends by name — the rail this page used to
+ * carry lives on as search results.
  *
  * Variants:
  *   - 'overlay'  → sticky-positioned panel anchored next to the desktop
@@ -15,7 +23,7 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
-import { Search, X, Plus, ArrowLeft, Check, Loader2, UserPlus, Heart, MessageCircle, Bell, Utensils, ChevronDown } from 'lucide-react';
+import { Search, X, Plus, ArrowLeft, Check, Loader2, UserPlus, Heart, MessageCircle, Bell, Utensils, ChevronDown, ChevronRight } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { VerifiedBadge } from './VerifiedBadge';
 import { useAuth } from '../contexts/AuthContext';
@@ -26,17 +34,22 @@ import {
   getExpertStats, followPublicAccount, removeFriend,
   getPendingRequests, acceptFriendRequest, declineFriendRequest,
   getFollowerIds, getSentRequestIds, sendFriendRequest, searchUsersByUsername,
-  type FriendInfo, type FriendRequest, type UserProfile, type CommunityRating,
+  getSuggestedProfiles,
+  type FriendInfo, type FriendRequest, type UserProfile, type CommunityRating, type SuggestedProfile,
 } from '../lib/supabase-community';
+import { Avatar } from './Avatar';
+import { avatarHue } from '../lib/avatar';
 import { Collapse } from './Collapse';
 import { SearchField } from './SearchField';
+import { SuggestedPeople } from './SuggestedPeople';
+import { ContactsSync } from './ContactsSync';
+import { openAppSettings } from '../lib/native-settings';
 import { GlassButton } from '../lib/glass-buttons';
 import { scoreTintStyle } from '../lib/score';
 import { displayCuisine } from '../lib/cuisine';
 import { readViewCache, writeViewCache } from '../lib/view-cache';
 import { SKELETON_PULSE } from './LoadingSkeleton';
 
-type Tab = 'activity' | 'alerts';
 type TimeBucket = 'today' | 'week' | 'earlier';
 
 /** The add-friends push, and the friends list receding under it — same
@@ -103,19 +116,6 @@ interface CircleSnapshot {
   followerIds: string[];
 }
 
-/* The friends rail, drawn in pulse — same 14pt discs and caption widths
-   the real rail lands on, so nothing shifts when it does. */
-const RailSkeleton: React.FC = () => (
-  <div className="flex items-start gap-4 pt-4 overflow-hidden" aria-hidden="true">
-    {Array.from({ length: 5 }).map((_, i) => (
-      <div key={i} className="flex flex-col items-center gap-1.5 flex-shrink-0">
-        <div className={cn(SKELETON_PULSE, 'w-14 h-14 rounded-full')} />
-        <div className={cn(SKELETON_PULSE, 'h-2 w-9 rounded-full')} />
-      </div>
-    ))}
-  </div>
-);
-
 /* The activity feed's shape: the filter chips over a run of rows sized off
    renderActivityRow (9pt avatar, three stacked lines, trailing score ring).
    Line widths vary a little so it reads as a list of different places
@@ -143,6 +143,52 @@ const ActivitySkeleton: React.FC = () => (
   </div>
 );
 
+/** The trailing end of a rating row: the place's photo with the score
+ *  badged into its corner, or — when there's no photo, or the URL is dead —
+ *  the score alone as a ring.
+ *
+ *  The fallback is not optional. Ratings carry photo URLs that can 404 (old
+ *  imports, expired Places links), and an <img> that fails renders the
+ *  browser's broken-image glyph, which is exactly what appeared on device
+ *  where the seeded harness had only working URLs. Same error-latch shape
+ *  as Avatar. */
+const RatingThumb: React.FC<{ photo?: string; score: number }> = ({ photo, score }) => {
+  const [broken, setBroken] = useState(false);
+  useEffect(() => { setBroken(false); }, [photo]);
+  const t = scoreTintStyle(score);
+  const label = score >= 10 ? '10' : score.toFixed(1);
+  if (!photo || broken) {
+    if (!(score > 0)) return null;
+    return (
+      <span
+        className="flex-none w-9 h-9 rounded-full grid place-items-center font-serif font-bold text-[12.5px] tabular-nums"
+        style={{ color: t.color, background: t.background, boxShadow: `inset 0 0 0 1.5px ${t.ring}` }}
+      >
+        {label}
+      </span>
+    );
+  }
+  return (
+    <span className="relative flex-none">
+      <img
+        src={photo}
+        alt=""
+        onError={() => setBroken(true)}
+        className="w-[52px] h-[52px] rounded-[14px] object-cover border border-on-surface/[0.08]"
+        referrerPolicy="no-referrer"
+      />
+      {score > 0 && (
+        <span
+          className="absolute -bottom-1.5 -right-1.5 w-7 h-7 rounded-full grid place-items-center font-serif font-bold text-[10px] tabular-nums ring-2 ring-surface"
+          style={{ color: t.color, background: t.background, boxShadow: `inset 0 0 0 1.5px ${t.ring}` }}
+        >
+          {label}
+        </span>
+      )}
+    </span>
+  );
+};
+
 interface CirclePanelProps {
   variant: 'overlay' | 'page';
   onClose?: () => void;
@@ -153,7 +199,11 @@ export const CirclePanel: React.FC<CirclePanelProps> = ({ variant, onClose }) =>
   const { user, refreshPendingRequests } = useAuth();
   const userId = user?.id ?? null;
 
-  const [tab, setTab] = useState<Tab>('activity');
+  // The follow-requests page, pushed over the panel from the card above
+  // the feed — requests deserve a screen of their own: confirming one is a
+  // decision about a person, and the suggestions under it are the natural
+  // next thing to do once the queue is empty.
+  const [requestsPageOpen, setRequestsPageOpen] = useState(false);
   // Which grouped alerts are open (keyed by actor).
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
   const [searchQuery, setSearchQuery] = useState('');
@@ -194,6 +244,13 @@ export const CirclePanel: React.FC<CirclePanelProps> = ({ variant, onClose }) =>
   // Who follows me (their accepted edge → me) — drives "Follow back".
   const [followerIds, setFollowerIds] = useState<Set<string>>(new Set());
 
+  // People to follow, algorithmically matched on taste-quiz cuisines/price
+  // and home base (see lib/suggestions.ts#tasteMatchScore) — shown in place
+  // of the Activity tab's dead-end empty state for an account with no
+  // mutual friends yet, instead of leaving it at "nothing here".
+  const [suggestedPeople, setSuggestedPeople] = useState<SuggestedProfile[]>([]);
+  const [suggestionsLoading, setSuggestionsLoading] = useState(false);
+
   const [experts, setExperts] = useState<UserProfile[]>([]);
   const [expertRatingCounts, setExpertRatingCounts] = useState<Record<string, number>>({});
   const [expertFollowerCounts, setExpertFollowerCounts] = useState<Record<string, number>>({});
@@ -201,16 +258,12 @@ export const CirclePanel: React.FC<CirclePanelProps> = ({ variant, onClose }) =>
   const [expertsLoading, setExpertsLoading] = useState(false);
 
   // ── Notification centre ────────────────────────────────────────────
-  const { notifications, actors: notifActors, unreadCount, markAllRead, clearAll: clearNotifications } = useNotifications();
+  const { notifications, actors: notifActors, markAllRead } = useNotifications();
   // Opening the tab clears the badge immediately, but the rows the user
   // arrived to see keep their "new" tint for the rest of the session —
   // otherwise the list visibly resets the instant it appears and there's
   // no way to tell which ones you hadn't seen.
   const [highlightedNotifs, setHighlightedNotifs] = useState<Set<string>>(new Set());
-
-  // Activity filter popover state
-  const [filterTime, setFilterTime] = useState<'all' | 'today' | 'week'>('all');
-  const [filterFriendIds, setFilterFriendIds] = useState<Set<string>>(new Set());
 
   // Paint last visit's circle before the first frame. useLayoutEffect (not
   // useEffect) because an effect that runs after paint would still show a
@@ -275,6 +328,22 @@ export const CirclePanel: React.FC<CirclePanelProps> = ({ variant, onClose }) =>
     return () => { cancelled = true; };
   }, [userId]);
 
+  // Suggestions are part of the feed now (the embedded card band), so they
+  // load for everyone — waiting on `loading` keeps the cold-start focused
+  // on the feed itself.
+  const suggestionsLoadedForRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!userId || loading) return;
+    if (suggestionsLoadedForRef.current === userId) return;
+    suggestionsLoadedForRef.current = userId;
+    let cancelled = false;
+    setSuggestionsLoading(true);
+    getSuggestedProfiles({ viewerId: userId, limit: 12 }).then((people) => {
+      if (!cancelled) setSuggestedPeople(people);
+    }).finally(() => { if (!cancelled) setSuggestionsLoading(false); });
+    return () => { cancelled = true; };
+  }, [userId, loading, friends.length]);
+
   // Experts only ever render inside the Add page, so they load when it
   // opens rather than on every mount — two round trips (one of them a
   // whole-table profile scan) that the panel's own screen never spent.
@@ -304,22 +373,21 @@ export const CirclePanel: React.FC<CirclePanelProps> = ({ variant, onClose }) =>
     return () => { cancelled = true; };
   }, [userId, addOpen]);
 
-  // Landing on Alerts counts as reading them.
+  // Landing on the page counts as reading — the feed IS the alerts now.
+  // Once per mount, when the first batch arrives: the rows keep their NEW
+  // section for the rest of the visit (highlightedNotifs), the badge
+  // clears. Rows that arrive later stay unread until the next visit —
+  // marking on every arrival would read things the user never saw.
+  const markedReadRef = useRef(false);
   useEffect(() => {
-    if (tab !== 'alerts') return;
+    if (markedReadRef.current || notifications.length === 0) return;
+    markedReadRef.current = true;
     const unread = notifications.filter((n) => n.readAt == null).map((n) => n.id);
     if (unread.length === 0) return;
-    setHighlightedNotifs((prev) => {
-      const next = new Set(prev);
-      unread.forEach((id) => next.add(id));
-      return next;
-    });
+    setHighlightedNotifs(new Set(unread));
     markAllRead();
-    // `notifications` is deliberately absent: re-running on every arriving
-    // row would mark things read the user hasn't looked at yet. New rows
-    // while the tab is open stay unread until it's re-opened.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tab]);
+  }, [notifications]);
 
   const handleFollow = useCallback(async (expertId: string) => {
     if (!userId) return;
@@ -507,46 +575,13 @@ export const CirclePanel: React.FC<CirclePanelProps> = ({ variant, onClose }) =>
   }, [experts, q]);
 
   const activityFiltered = useMemo(() => {
-    let list = activity;
-    if (filterTime !== 'all') {
-      list = list.filter((a) => {
-        const b = bucketOf(a.created_at);
-        return filterTime === 'today' ? b === 'today' : (b === 'today' || b === 'week');
-      });
-    }
-    if (filterFriendIds.size > 0) {
-      list = list.filter((a) => filterFriendIds.has(a.user_id));
-    }
-    if (q) {
-      list = list.filter((a) => {
-        const prof = friendProfiles[a.user_id];
-        const hay = `${a.restaurant_name} ${a.cuisine || ''} ${a.address || ''} ${prof?.display_name || ''} ${prof?.username || ''}`.toLowerCase();
-        return hay.includes(q);
-      });
-    }
-    return list;
-  }, [activity, friendProfiles, q, filterTime, filterFriendIds]);
-
-  const activityBuckets = useMemo(() => {
-    const today: CommunityRating[] = [];
-    const week: CommunityRating[] = [];
-    const earlier: CommunityRating[] = [];
-    activityFiltered.forEach((a) => {
-      const b = bucketOf(a.created_at);
-      if (b === 'today') today.push(a);
-      else if (b === 'week') week.push(a);
-      else earlier.push(a);
+    if (!q) return activity;
+    return activity.filter((a) => {
+      const prof = friendProfiles[a.user_id];
+      const hay = `${a.restaurant_name} ${a.cuisine || ''} ${a.address || ''} ${prof?.display_name || ''} ${prof?.username || ''}`.toLowerCase();
+      return hay.includes(q);
     });
-    return { today, week, earlier };
-  }, [activityFiltered]);
-
-  const activeFilterCount =
-    (filterTime !== 'all' ? 1 : 0) +
-    (filterFriendIds.size > 0 ? 1 : 0);
-
-  const allCount = friends.length + experts.length;
-  const friendsCount = friends.length;
-  const expertsCount = experts.length;
+  }, [activity, friendProfiles, q]);
 
   const notificationsFiltered = useMemo(() => {
     if (!q) return notifications;
@@ -557,24 +592,15 @@ export const CirclePanel: React.FC<CirclePanelProps> = ({ variant, onClose }) =>
     });
   }, [notifications, notifActors, q]);
 
-  const notificationBuckets = useMemo(() => {
-    const today: AppNotification[] = [];
-    const week: AppNotification[] = [];
-    const earlier: AppNotification[] = [];
-    notificationsFiltered.forEach((n) => {
-      const b = bucketOf(isoOf(n.createdAt));
-      if (b === 'today') today.push(n);
-      else if (b === 'week') week.push(n);
-      else earlier.push(n);
-    });
-    return { today, week, earlier };
-  }, [notificationsFiltered]);
-
-  // ── The reference's page ───────────────────────────────────────────
-  // Two segments instead of four tabs, a compact friends strip, activity
-  // rows that lead with the place and wear the score as a ring, alerts
-  // that group repeated suggestions into one expandable row, and an Add
-  // page that slides over for finding people (search + verified experts).
+  /* ── The merged feed ──
+     Notifications and friend activity interleave into one stream, newest
+     first, sectioned NEW / TODAY / THIS WEEK / EARLIER. NEW is unread
+     notifications (plus the ones read on this very visit, held there by
+     highlightedNotifs so the section doesn't dissolve as it's looked at);
+     activity rows are never "new" — a friend rating a place isn't
+     addressed to you. Repeated cuisine suggestions from one actor still
+     collapse into a single expandable row, grouped BEFORE sectioning so a
+     group spanning a week doesn't split into two half-groups. */
 
   // Where a notification lands. Review traffic goes to the queue; ratings
   // land on the restaurant page, where the comments now live.
@@ -586,193 +612,68 @@ export const CirclePanel: React.FC<CirclePanelProps> = ({ variant, onClose }) =>
   };
 
   const requestsPending = requests.filter((r) => !acceptedReqIds.has(r.id));
-  const alertBadge = unreadCount + requestsPending.length;
 
-  const segTrack = (
-    <div className="flex p-1 rounded-full bg-on-surface/[0.06]">
-      {([['activity', 'Activity'], ['alerts', 'Alerts']] as const).map(([key, label]) => {
-        const on = tab === key;
-        return (
-          <button
-            key={key}
-            type="button"
-            onClick={() => setTab(key)}
-            aria-pressed={on}
-            className={cn(
-              'flex-1 h-9 rounded-full inline-flex items-center justify-center gap-1.5 text-[12.5px] font-bold transition-colors',
-              on ? 'bg-surface dark:bg-on-surface/[0.14] text-on-surface shadow-[0_1px_6px_rgba(0,0,0,0.09)]' : 'text-on-surface/55 active:text-on-surface/80',
-            )}
-          >
-            {label}
-            {key === 'alerts' && alertBadge > 0 && (
-              <span className="min-w-[17px] h-[17px] px-1 rounded-full bg-primary text-white text-[10px] font-bold grid place-items-center tabular-nums">{alertBadge}</span>
-            )}
-          </button>
-        );
-      })}
-    </div>
-  );
-
-  const friendsRail = (
-    <div className="flex items-start gap-4 pt-4 overflow-x-auto no-scrollbar">
-      <button type="button" onClick={() => { setAddQuery(''); setAddOpen(true); }} className="flex flex-col items-center gap-1.5 flex-shrink-0">
-        <span className="w-14 h-14 rounded-full border-[1.5px] border-dashed border-on-surface/30 grid place-items-center text-on-surface/60">
-          <Plus size={18} strokeWidth={2.2} />
-        </span>
-        <span className="text-[11px] font-semibold text-on-surface/55">Add</span>
-      </button>
-      {friendsFiltered.map((f) => {
-        const p = friendProfiles[f.friend_id];
-        const name = p?.display_name || p?.username || 'Friend';
-        const color = avatarColor(f.friend_id);
-        return (
-          <Link
-            key={f.friend_id}
-            to={`/user/${p?.username || ''}`}
-            onClick={() => onClose?.()}
-            className="flex flex-col items-center gap-1.5 flex-shrink-0"
-          >
-            <span className={cn('relative w-14 h-14 rounded-full flex items-center justify-center', color.bg)}>
-              <span className={cn('text-[19px] font-serif font-bold', color.text)}>{initialOf(name)}</span>
-              {p?.is_verified && (
-                <span className="absolute -bottom-0.5 -right-0.5 w-[18px] h-[18px] rounded-full bg-surface grid place-items-center ring-1 ring-surface">
-                  <VerifiedBadge size={15} />
-                </span>
-              )}
-            </span>
-            <span className="text-[11px] font-medium text-on-surface/75 truncate max-w-[60px]">{(name || '').split(' ')[0]}</span>
-          </Link>
-        );
-      })}
-    </div>
-  );
-
-  // ── Activity ────────────────────────────────────────────────────────
-  const activityChips = (
-    <div className="flex gap-1.5 pt-3.5 overflow-x-auto no-scrollbar">
-      {([['all', 'All'], ['today', 'Today'], ['week', 'This week']] as const).map(([k, label]) => {
-        const on = filterTime === k;
-        return (
-          <button
-            key={k}
-            type="button"
-            onClick={() => setFilterTime(k)}
-            className={cn(
-              'flex-none h-8 px-3.5 rounded-full text-[12px] font-bold transition-colors',
-              on ? 'bg-on-surface text-surface' : 'bg-on-surface/[0.06] text-on-surface/65 active:bg-on-surface/[0.1]',
-            )}
-          >
-            {label}
-          </button>
-        );
-      })}
-      {friends.map((f) => {
-        const p = friendProfiles[f.friend_id];
-        const name = (p?.display_name || p?.username || 'Friend').split(' ')[0];
-        const on = filterFriendIds.has(f.friend_id);
-        return (
-          <button
-            key={f.friend_id}
-            type="button"
-            onClick={() => setFilterFriendIds((prev) => {
-              const next = new Set(prev);
-              if (next.has(f.friend_id)) next.delete(f.friend_id); else next.add(f.friend_id);
-              return next;
-            })}
-            className={cn(
-              'flex-none h-8 px-3.5 rounded-full text-[12px] font-bold transition-colors inline-flex items-center gap-1',
-              on ? 'bg-on-surface text-surface' : 'bg-on-surface/[0.06] text-on-surface/65 active:bg-on-surface/[0.1]',
-            )}
-          >
-            {on && <Check size={11} />}
-            {name}
-          </button>
-        );
-      })}
-    </div>
-  );
-
-  const scoreRing = (score: number) => {
-    const t = scoreTintStyle(score);
-    return (
-      <span
-        className="flex-none w-9 h-9 rounded-full grid place-items-center font-serif font-bold text-[12.5px] tabular-nums"
-        style={{ color: t.color, background: t.background, boxShadow: `inset 0 0 0 1.5px ${t.ring}` }}
-      >
-        {Number(score) >= 10 ? '10' : Number(score).toFixed(1)}
-      </span>
-    );
-  };
-
-  const renderActivityRow = (a: CommunityRating, i: number) => {
+  // ── Feed rows ───────────────────────────────────────────────────────
+  /* A friend's rating, said the way the reference says it: the ACTOR
+     leads ("Mei rated Ember & Oak · 4h"), their note reads as a quote, and
+     the place's photo — when there is one — rides on the right with the
+     score badged into its corner. The old row led with the restaurant,
+     which is a discover feed's voice, not a friends page's. */
+  const renderRatingRow = (a: CommunityRating) => {
     const prof = friendProfiles[a.user_id];
     const name = prof?.display_name || prof?.username || 'Someone';
     const username = prof?.username || '';
-    const color = avatarColor(a.user_id);
-    const city = a.address?.split(',')[0]?.trim();
-    const line = [`${name.split(' ')[0]} rated`, [displayCuisine(a.cuisine), a.price].filter(Boolean).join(' · ')].filter(Boolean).join(' · ');
+    const hue = avatarHue(a.user_id);
     return (
-      <li key={a.id} className={cn(i > 0 && 'border-t border-on-surface/[0.07]')}>
-        <Link to={`/restaurant/${a.restaurant_id}`} onClick={() => onClose?.()} className="flex items-center gap-3 py-3.5 group">
+      <li key={`rating-${a.id}`}>
+        <Link to={`/restaurant/${a.restaurant_id}`} onClick={() => onClose?.()} className="flex items-center gap-3 px-5 py-2.5 active:bg-on-surface/[0.03] transition-colors">
           <span
             role="link"
             tabIndex={0}
+            aria-label={`${name}'s profile`}
             onClick={(e) => { e.preventDefault(); e.stopPropagation(); onClose?.(); navigate(`/user/${username}`); }}
             onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); onClose?.(); navigate(`/user/${username}`); } }}
-            className={cn('w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0 self-start mt-0.5', color.bg)}
+            className="flex-none self-start mt-0.5"
           >
-            <span className={cn('text-[13px] font-serif font-bold', color.text)}>{initialOf(name)}</span>
+            <Avatar
+              src={prof?.avatar_url}
+              name={name}
+              size={44}
+              fallbackStyle={{ backgroundColor: `hsl(${hue} 52% 92%)`, color: `hsl(${hue} 45% 34%)` }}
+            />
           </span>
           <span className="flex-1 min-w-0 block">
-            <span className="block font-serif font-bold text-[15px] leading-[1.2] tracking-[-0.02em] text-on-surface truncate group-hover:text-primary transition-colors">
-              {a.restaurant_name}
+            <span className="block text-[13.5px] leading-[1.4] tracking-[-0.01em] text-on-surface" style={{ textWrap: 'pretty' } as React.CSSProperties}>
+              <span className="font-bold">{name.split(' ')[0]}</span>
+              {' rated '}
+              <span className="font-bold">{a.restaurant_name}</span>
+              {'. '}
+              <span className="text-on-surface/45">{timeAgoShort(a.created_at)}</span>
             </span>
-            <span className="block mt-[4px] text-[12px] leading-[1.25] text-on-surface/55 truncate">{line}</span>
-            <span className="block mt-[3px] text-[11px] leading-[1.2] text-on-surface/40 truncate">
-              {[city, timeAgoShort(a.created_at)].filter(Boolean).join(' · ')}
-            </span>
-            {a.notes && (
-              <span className="block mt-1.5 text-[12.5px] italic leading-snug text-on-surface/60 line-clamp-2">&ldquo;{a.notes}&rdquo;</span>
+            {a.notes ? (
+              <span className="block mt-[3px] font-serif italic text-[13px] leading-snug text-on-surface/60 line-clamp-2">&ldquo;{a.notes}&rdquo;</span>
+            ) : (
+              <span className="block mt-[3px] text-[11.5px] leading-[1.2] text-on-surface/45 truncate">
+                {[displayCuisine(a.cuisine), a.price, a.address?.split(',')[0]?.trim()].filter(Boolean).join(' · ')}
+              </span>
             )}
           </span>
-          {Number(a.score) > 0 && scoreRing(Number(a.score))}
+          <RatingThumb photo={a.photo_url} score={Number(a.score)} />
         </Link>
       </li>
     );
   };
 
-  const renderActivity = () => (
-    <section>
-      {activityChips}
-      {searchOpen && q && (
-        <p className="pt-3.5 text-[12px] font-medium text-on-surface/45">
-          {activityFiltered.length} result{activityFiltered.length === 1 ? '' : 's'}
-        </p>
-      )}
-      {activityFiltered.length === 0 ? (
-        <div className="py-14">
-          <p className="font-serif font-bold text-[17px] tracking-[-0.02em] text-on-surface">Nothing matches that</p>
-          <p className="mt-1.5 text-[12.5px] text-on-surface/45">Try a friend&rsquo;s name, a place, or a cuisine.</p>
-        </div>
-      ) : (
-        // Bucketed newest-first, but no longer captioned. Every row already
-        // ends in its own relative time ("· 4w"), so a TODAY / THIS WEEK /
-        // EARLIER band above it restated what the row underneath was about
-        // to say — and on a feed with nothing recent, the only caption left
-        // was a lone "EARLIER" wedged under the filter chips.
-        <ul>
-          {[...activityBuckets.today, ...activityBuckets.week, ...activityBuckets.earlier]
-            .map(renderActivityRow)}
-        </ul>
-      )}
-    </section>
-  );
-
   // ── Alerts ──────────────────────────────────────────────────────────
-  const renderRequestRow = (r: FriendRequest, i: number) => {
+  /* One request. Confirm / Delete, the platform's own words for this
+     decision — "Accept / Ignore" described what the app does, not what
+     the person is choosing. After Confirm the row stays put and offers
+     Follow back, because accepting is one-directional here: they follow
+     you, and mutual takes both sides. */
+  const renderRequestRow = (r: FriendRequest) => {
     const p = requestProfiles[r.user_id];
     const name = p?.display_name || p?.username || 'Someone';
-    const color = avatarColor(r.user_id);
+    const hue = avatarHue(r.user_id);
     const busy = requestBusy.has(r.id);
     const accepted = acceptedReqIds.has(r.id);
     const myFollow: 'none' | 'pending' | 'accepted' =
@@ -781,13 +682,21 @@ export const CirclePanel: React.FC<CirclePanelProps> = ({ variant, onClose }) =>
         : sentRequestIds.has(r.user_id) ? 'pending'
         : 'none');
     return (
-      <li key={r.id} className={cn('flex items-center gap-3 py-3.5', i > 0 && 'border-t border-on-surface/[0.07]')}>
-        <Link to={`/user/${p?.username || ''}`} onClick={() => onClose?.()} className={cn('w-11 h-11 rounded-full flex items-center justify-center flex-shrink-0', color.bg)}>
-          <span className={cn('text-[15px] font-serif font-bold', color.text)}>{initialOf(name)}</span>
+      <li key={r.id} className="flex items-center gap-3 py-2.5">
+        <Link to={`/user/${p?.username || ''}`} onClick={() => onClose?.()} className="flex-none active:opacity-75 transition-opacity">
+          <Avatar
+            src={p?.avatar_url}
+            name={name}
+            size={48}
+            fallbackStyle={{ backgroundColor: `hsl(${hue} 52% 92%)`, color: `hsl(${hue} 45% 34%)` }}
+          />
         </Link>
-        <Link to={`/user/${p?.username || ''}`} onClick={() => onClose?.()} className="flex-1 min-w-0 block">
-          <span className="block font-serif font-bold text-[14.5px] leading-[1.2] tracking-[-0.02em] text-on-surface truncate">{name}</span>
-          <span className="block mt-[4px] text-[11.5px] leading-[1.2] text-on-surface/50 truncate">
+        <Link to={`/user/${p?.username || ''}`} onClick={() => onClose?.()} className="flex-1 min-w-0 block active:opacity-75 transition-opacity">
+          <span className="flex items-center gap-1 min-w-0">
+            <span className="truncate font-serif font-bold text-[15px] leading-[1.2] tracking-[-0.02em] text-on-surface">{name}</span>
+            {p?.is_verified && <VerifiedBadge size={13} className="flex-none" />}
+          </span>
+          <span className="block mt-[3px] text-[12px] leading-[1.25] text-on-surface/50 truncate">
             {[p?.username ? `@${p.username}` : '', r.created_at ? timeAgoShort(r.created_at) : ''].filter(Boolean).join(' · ') || 'wants to follow you'}
           </span>
         </Link>
@@ -797,24 +706,24 @@ export const CirclePanel: React.FC<CirclePanelProps> = ({ variant, onClose }) =>
               type="button"
               onClick={() => handleAcceptRequest(r)}
               disabled={busy}
-              className="hit-44-y inline-flex items-center gap-1 px-4 h-9 rounded-full bg-on-surface text-surface text-[12.5px] font-bold active:opacity-85 transition-opacity disabled:opacity-60"
+              className="hit-44-y inline-flex items-center justify-center gap-1 px-4 h-9 rounded-full bg-primary text-white text-[12.5px] font-bold active:opacity-85 transition-opacity disabled:opacity-60"
             >
               {busy ? <Loader2 size={12} className="animate-spin" /> : null}
-              Accept
+              Confirm
             </button>
             <button
               type="button"
               onClick={() => handleDeclineRequest(r)}
               disabled={busy}
-              className="hit-44-y text-[12.5px] font-semibold text-on-surface/50 active:text-on-surface transition-colors disabled:opacity-60"
+              className="hit-44-y inline-flex items-center justify-center px-4 h-9 rounded-full border border-on-surface/[0.15] text-[12.5px] font-bold text-on-surface active:bg-on-surface/[0.05] transition-colors disabled:opacity-60"
             >
-              Ignore
+              Delete
             </button>
           </span>
         ) : myFollow === 'accepted' ? (
-          <span className="flex-shrink-0 inline-flex items-center gap-1.5 px-3 h-8 rounded-full bg-on-surface/[0.06] text-[12px] font-semibold text-on-surface/55"><Check size={13} /> Friends</span>
+          <span className="flex-shrink-0 inline-flex items-center gap-1.5 px-3.5 h-9 rounded-full bg-on-surface/[0.06] text-[12px] font-semibold text-on-surface/55"><Check size={13} /> Friends</span>
         ) : myFollow === 'pending' ? (
-          <span className="flex-shrink-0 inline-flex items-center gap-1.5 px-3 h-8 rounded-full bg-on-surface/[0.06] text-[12px] font-semibold text-on-surface/55"><Check size={13} /> Requested</span>
+          <span className="flex-shrink-0 inline-flex items-center gap-1.5 px-3.5 h-9 rounded-full bg-on-surface/[0.06] text-[12px] font-semibold text-on-surface/55"><Check size={13} /> Requested</span>
         ) : (
           <button
             type="button"
@@ -870,58 +779,77 @@ export const CirclePanel: React.FC<CirclePanelProps> = ({ variant, onClose }) =>
     return <MessageCircle size={14} strokeWidth={2.2} />;
   };
 
-  const alertSentence = (n: AppNotification): string => {
-    const p = notifActors[n.actorId];
-    const name = p?.display_name || p?.username || 'Someone';
+  /* The sentence AFTER the actor's name — the name itself renders bold,
+     separately, the way the reference (and Instagram) sets these rows.
+     cuisine_auto has no human actor, so it keeps a whole sentence and an
+     icon disc instead of an avatar. */
+  const alertAction = (n: AppNotification): string => {
     const place = n.subjectLabel.trim();
     const subject = n.subjectType === 'rating' ? 'rating' : n.subjectType;
-    if (n.kind === 'cuisine_auto') return `A cuisine changed on ${place || 'a place'} — enough people agreed`;
-    if (isReviewNotification(n)) return `${name} suggested a cuisine for ${place || 'a place'}`;
-    if (n.kind === 'like') return `${name} liked your ${subject}${place ? ` of ${place}` : ''}`;
-    return `${name} commented on your ${subject}${place ? ` · ${place}` : ''}`;
+    if (isReviewNotification(n)) return `suggested a cuisine for ${place || 'a place'}.`;
+    if (n.kind === 'like') return `liked your ${place ? `${place} ` : ''}${subject}.`;
+    return `commented on your ${place ? `${place} ` : ''}${subject}.`;
   };
 
-  const renderAlertSingle = (n: AppNotification, i: number) => {
+  const renderAlertSingle = (n: AppNotification) => {
     const isNew = n.readAt == null || highlightedNotifs.has(n.id);
+    const isAuto = n.kind === 'cuisine_auto';
+    const p = notifActors[n.actorId];
+    const name = p?.display_name || p?.username || 'Someone';
+    const hue = avatarHue(n.actorId || n.id);
     return (
-      <li key={n.id} className={cn(i > 0 && 'border-t border-on-surface/[0.07]')}>
+      <li key={n.id}>
         <Link
           to={notificationTarget(n)}
           state={n.subjectType === 'rating' ? { focusRatingComments: true } : undefined}
           onClick={() => onClose?.()}
-          className="flex items-start gap-3 py-3.5"
+          className="flex items-center gap-3 px-5 py-2.5 active:bg-on-surface/[0.03] transition-colors"
         >
-          <span className={cn(
-            'flex-none w-9 h-9 rounded-full grid place-items-center border',
-            isNew ? 'border-primary/35 bg-primary/[0.07] text-primary' : 'border-on-surface/[0.14] text-on-surface/55',
-          )}>
-            {alertIcon(n)}
+          <span className="relative flex-none self-start mt-0.5">
+            {isAuto ? (
+              <span className="w-11 h-11 rounded-full grid place-items-center border border-on-surface/[0.14] text-on-surface/55">
+                <Check size={15} strokeWidth={2.4} />
+              </span>
+            ) : (
+              <Avatar
+                src={p?.avatar_url}
+                name={name}
+                size={44}
+                fallbackStyle={{ backgroundColor: `hsl(${hue} 52% 92%)`, color: `hsl(${hue} 45% 34%)` }}
+              />
+            )}
+            {isNew && <span className="absolute -top-px -right-px w-2.5 h-2.5 rounded-full bg-primary ring-2 ring-surface" aria-label="New" />}
           </span>
           <span className="flex-1 min-w-0 block">
-            <span className={cn('block font-serif font-bold text-[14.5px] leading-[1.3] tracking-[-0.02em]', isNew ? 'text-on-surface' : 'text-on-surface/85')}>
-              {alertSentence(n)}
+            <span className="block text-[13.5px] leading-[1.4] tracking-[-0.01em] text-on-surface" style={{ textWrap: 'pretty' } as React.CSSProperties}>
+              {isAuto ? (
+                <>A cuisine changed on <span className="font-bold">{n.subjectLabel.trim() || 'a place'}</span> — enough people agreed. </>
+              ) : (
+                <><span className="font-bold">{name}</span> {alertAction(n)} </>
+              )}
+              <span className="text-on-surface/45">{timeAgoShort(isoOf(n.createdAt))}</span>
             </span>
             {n.preview && (
-              <span className="block mt-[5px] text-[12px] leading-[1.35] text-on-surface/55 line-clamp-2">&ldquo;{n.preview}&rdquo;</span>
+              <span className="block mt-[3px] font-serif italic text-[13px] leading-snug text-on-surface/60 line-clamp-2">&ldquo;{n.preview}&rdquo;</span>
             )}
           </span>
-          <span className="flex-none flex items-center gap-2 mt-1">
-            <span className="text-[11px] text-on-surface/40">{timeAgoShort(isoOf(n.createdAt))}</span>
-            {isNew && <span className="w-2 h-2 rounded-full bg-primary" aria-label="New" />}
+          <span className="flex-none grid place-items-center w-7 h-7 rounded-full bg-on-surface/[0.05] text-on-surface/45">
+            {alertIcon(n)}
           </span>
         </Link>
       </li>
     );
   };
 
-  const renderAlertGroup = (g: { actorId: string; items: AppNotification[] }, i: number) => {
+  const renderAlertGroup = (g: { actorId: string; items: AppNotification[] }) => {
     const p = notifActors[g.actorId];
     const name = p?.display_name || p?.username || 'Someone';
     const open = expandedGroups.has(g.actorId);
     const isNew = g.items.some((n) => n.readAt == null || highlightedNotifs.has(n.id));
     const newest = g.items[0];
+    const hue = avatarHue(g.actorId);
     return (
-      <li key={`group-${g.actorId}`} className={cn(i > 0 && 'border-t border-on-surface/[0.07]')}>
+      <li key={`group-${g.actorId}`}>
         <button
           type="button"
           onClick={() => setExpandedGroups((prev) => {
@@ -930,29 +858,30 @@ export const CirclePanel: React.FC<CirclePanelProps> = ({ variant, onClose }) =>
             return next;
           })}
           aria-expanded={open}
-          className="w-full flex items-start gap-3 py-3.5 text-left"
+          className="w-full flex items-center gap-3 px-5 py-2.5 text-left active:bg-on-surface/[0.03] transition-colors"
         >
-          <span className={cn(
-            'flex-none w-9 h-9 rounded-full grid place-items-center border',
-            isNew ? 'border-primary/35 bg-primary/[0.07] text-primary' : 'border-on-surface/[0.14] text-on-surface/55',
-          )}>
-            <Utensils size={14} strokeWidth={2.2} />
+          <span className="relative flex-none self-start mt-0.5">
+            <Avatar
+              src={p?.avatar_url}
+              name={name}
+              size={44}
+              fallbackStyle={{ backgroundColor: `hsl(${hue} 52% 92%)`, color: `hsl(${hue} 45% 34%)` }}
+            />
+            {isNew && <span className="absolute -top-px -right-px w-2.5 h-2.5 rounded-full bg-primary ring-2 ring-surface" aria-label="New" />}
           </span>
           <span className="flex-1 min-w-0 block">
-            <span className={cn('block font-serif font-bold text-[14.5px] leading-[1.3] tracking-[-0.02em]', isNew ? 'text-on-surface' : 'text-on-surface/85')}>
-              {name} suggested cuisines for {g.items.length} places
+            <span className="block text-[13.5px] leading-[1.4] tracking-[-0.01em] text-on-surface" style={{ textWrap: 'pretty' } as React.CSSProperties}>
+              <span className="font-bold">{name}</span> suggested cuisines for {g.items.length} places.{' '}
+              <span className="text-on-surface/45">{timeAgoShort(isoOf(newest.createdAt))}</span>
             </span>
-            <span className="block mt-[5px] text-[12px] leading-[1.3] text-on-surface/55">
+            <span className="block mt-[3px] text-[11.5px] leading-[1.2] text-on-surface/45">
               {open ? 'Tap a place to review it' : 'Review them together'}
             </span>
           </span>
-          <span className="flex-none flex items-center gap-2 mt-1">
-            <span className="text-[11px] text-on-surface/40">{timeAgoShort(isoOf(newest.createdAt))}</span>
-            <ChevronDown size={14} className={cn('text-on-surface/40 transition-transform duration-300', open && 'rotate-180')} />
-          </span>
+          <ChevronDown size={14} className={cn('flex-none text-on-surface/40 transition-transform duration-300', open && 'rotate-180')} />
         </button>
         <Collapse open={open}>
-          <div className="pl-12 pb-3 flex flex-col gap-2.5">
+          <div className="pl-[72px] pr-5 pb-3 flex flex-col gap-2.5">
             {g.items.map((n) => (
               <Link
                 key={n.id}
@@ -973,46 +902,225 @@ export const CirclePanel: React.FC<CirclePanelProps> = ({ variant, onClose }) =>
     );
   };
 
-  const renderAlerts = () => {
-    const buckets = ([['Today', notificationBuckets.today], ['This week', notificationBuckets.week], ['Earlier', notificationBuckets.earlier]] as const)
-      .filter(([, list]) => list.length > 0);
-    const empty = requestsPending.length === 0 && notificationsFiltered.length === 0;
-    return (
-      <section className="pt-1.5">
-        {requestsPending.length > 0 && (
-          <div className="pt-3">
-            <h4 className="text-[10.5px] font-bold uppercase tracking-[0.16em] text-on-surface/45">Requests</h4>
-            <ul>{requestsPending.map(renderRequestRow)}</ul>
+  /* ── The merged feed, assembled ── */
+  type FeedItem =
+    | { kind: 'notif'; at: number; unread: boolean; n: AppNotification }
+    | { kind: 'group'; at: number; unread: boolean; g: { actorId: string; items: AppNotification[] } }
+    | { kind: 'rating'; at: number; unread: false; a: CommunityRating };
+
+  const feedSections = useMemo(() => {
+    const items: FeedItem[] = [];
+    for (const item of groupAlerts(notificationsFiltered)) {
+      if (item.kind === 'group') {
+        items.push({
+          kind: 'group',
+          at: item.items[0]?.createdAt ?? 0,
+          unread: item.items.some((n) => n.readAt == null || highlightedNotifs.has(n.id)),
+          g: { actorId: item.actorId, items: item.items },
+        });
+      } else {
+        items.push({
+          kind: 'notif',
+          at: item.n.createdAt,
+          unread: item.n.readAt == null || highlightedNotifs.has(item.n.id),
+          n: item.n,
+        });
+      }
+    }
+    for (const a of activityFiltered) {
+      items.push({ kind: 'rating', at: new Date(a.created_at).getTime() || 0, unread: false, a });
+    }
+    items.sort((x, y) => y.at - x.at);
+    const sections: Array<{ label: string; items: FeedItem[] }> = [
+      { label: 'New', items: [] }, { label: 'Today', items: [] },
+      { label: 'This week', items: [] }, { label: 'Earlier', items: [] },
+    ];
+    for (const it of items) {
+      const idx = it.unread ? 0 : bucketOf(new Date(it.at).toISOString()) === 'today' ? 1
+        : bucketOf(new Date(it.at).toISOString()) === 'week' ? 2 : 3;
+      sections[idx].items.push(it);
+    }
+    return sections.filter((sec) => sec.items.length > 0);
+    // groupAlerts/bucketOf are stable module-shaped helpers; the real
+    // inputs are the three lists.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [notificationsFiltered, activityFiltered, highlightedNotifs]);
+
+  const renderFeedItem = (it: FeedItem) =>
+    it.kind === 'rating' ? renderRatingRow(it.a)
+    : it.kind === 'group' ? renderAlertGroup(it.g)
+    : renderAlertSingle(it.n);
+
+  /* ── Follow requests — the collapsed card above the feed ── */
+  const requestRowsAll = [...requestsPending, ...requests.filter((r) => acceptedReqIds.has(r.id))];
+  const requestsCard = requestRowsAll.length > 0 && (
+    <div className="mx-5 mb-2 rounded-[20px] border border-on-surface/[0.08] bg-on-surface/[0.03] overflow-hidden">
+      <button
+        type="button"
+        onClick={() => setRequestsPageOpen(true)}
+        className="w-full flex items-center gap-3 px-3.5 py-3 text-left active:bg-on-surface/[0.03] transition-colors"
+      >
+        {/* Stacked requester avatars, the reference's move — the card
+            shows WHO is waiting before it's even opened. */}
+        <span className="flex flex-none">
+          {requestRowsAll.slice(0, 3).map((r, i) => {
+            const rp = requestProfiles[r.user_id];
+            const rname = rp?.display_name || rp?.username || 'Someone';
+            const rhue = avatarHue(r.user_id);
+            return (
+              <span key={r.id} className={cn('rounded-full ring-2 ring-surface', i > 0 && '-ml-3.5')}>
+                <Avatar
+                  src={rp?.avatar_url}
+                  name={rname}
+                  size={36}
+                  fallbackStyle={{ backgroundColor: `hsl(${rhue} 52% 92%)`, color: `hsl(${rhue} 45% 34%)` }}
+                />
+              </span>
+            );
+          })}
+        </span>
+        <span className="flex-1 min-w-0 block">
+          <span className="block text-[14px] font-bold tracking-[-0.01em] text-on-surface">Follow requests</span>
+          <span className="block mt-px text-[12px] text-on-surface/50 truncate">
+            {(() => {
+              const first = requestProfiles[requestRowsAll[0].user_id];
+              const firstName = (first?.display_name || first?.username || 'Someone').split(' ')[0];
+              const others = requestRowsAll.length - 1;
+              return others > 0 ? `${firstName} + ${others} other${others === 1 ? '' : 's'}` : firstName;
+            })()}
+          </span>
+        </span>
+        {requestsPending.length > 0 && <span className="flex-none w-2 h-2 rounded-full bg-primary" aria-label="Pending requests" />}
+        <ChevronRight size={15} className="flex-none text-on-surface/35" />
+      </button>
+    </div>
+  );
+
+  /* ── Suggested for you — the card band embedded in the feed ── */
+  const suggestedBand = (suggestionsLoading || suggestedPeople.length > 0) && (
+    <div className="my-2.5 py-3.5 border-y border-on-surface/[0.07] bg-on-surface/[0.02]">
+      <div className="flex items-baseline justify-between px-5 pb-2.5">
+        <span className="text-[13.5px] font-bold tracking-[-0.01em] text-on-surface">Suggested for you</span>
+        <button
+          type="button"
+          onClick={() => { setAddQuery(''); setAddOpen(true); }}
+          className="text-[12px] font-bold text-primary active:opacity-70 transition-opacity"
+        >
+          See all
+        </button>
+      </div>
+      <SuggestedPeople people={suggestedPeople} userId={userId} loading={suggestionsLoading} bare layout="rail" />
+    </div>
+  );
+
+  const renderFeed = () => {
+    const empty = feedSections.length === 0;
+    if (empty) {
+      // A brand-new account has nothing to be notified about — that path
+      // gets the contacts primer + suggestions rather than a shrug.
+      if (friends.length === 0 && !q) {
+        return (
+          <div className="px-5 pt-2">
+            {/* `primer`, not `auto`: nothing happens until the user taps,
+                so opening this page never springs the one-shot iOS
+                contacts dialog. Denied → the primer becomes the
+                "Open Settings" route back in. No discoverability card
+                here — the Add friends page owns that decision. */}
+            <ContactsSync
+              mode="primer"
+              showDiscoverability={false}
+              renderPerson={personRow}
+              lacksPhone={!user?.phone}
+              onAddPhone={() => { onClose?.(); navigate('/settings'); }}
+              onOpenSettings={() => { void openAppSettings(); }}
+            />
+            {(suggestionsLoading || suggestedPeople.length > 0) && (
+              <h4 className="pt-3 pb-1 text-[10.5px] font-bold uppercase tracking-[0.16em] text-on-surface/45">
+                Suggested for you
+              </h4>
+            )}
+            <SuggestedPeople people={suggestedPeople} userId={userId} loading={suggestionsLoading} layout="list" bare />
+            {!suggestionsLoading && suggestedPeople.length === 0 && (
+              <div className="py-14">
+                <p className="font-serif font-bold text-[17px] tracking-[-0.02em] text-on-surface">No one to suggest yet</p>
+                <p className="mt-1.5 text-[12.5px] text-on-surface/45">Search for friends by name to get started.</p>
+              </div>
+            )}
           </div>
-        )}
-        {requests.some((r) => acceptedReqIds.has(r.id)) && (
-          <ul>{requests.filter((r) => acceptedReqIds.has(r.id)).map((r, i) => renderRequestRow(r, requestsPending.length + i))}</ul>
-        )}
-        {buckets.map(([label, list], bi) => (
-          <div key={label} className="pt-3">
-            <div className="flex items-center justify-between">
-              <h4 className="text-[10.5px] font-bold uppercase tracking-[0.16em] text-on-surface/45">{label}</h4>
-              {bi === 0 && notifications.length > 0 && (
-                <button type="button" onClick={clearNotifications} className="text-[12px] font-bold text-on-surface/50 active:text-on-surface transition-colors">
-                  Clear all
-                </button>
-              )}
+        );
+      }
+      return (
+        <>
+          {q ? (
+            <div className="px-5 py-10">
+              <p className="font-serif font-bold text-[17px] tracking-[-0.02em] text-on-surface">Nothing matches that</p>
+              <p className="mt-1.5 text-[12.5px] text-on-surface/45">Try a friend&rsquo;s name, a place, or a cuisine.</p>
             </div>
-            <ul>
-              {groupAlerts(list).map((item, i) =>
-                item.kind === 'group' ? renderAlertGroup(item, i) : renderAlertSingle(item.n, i),
-              )}
-            </ul>
+          ) : (
+            <div className="py-12 flex flex-col items-center text-center gap-2">
+              <span className="w-11 h-11 rounded-full border border-on-surface/[0.14] grid place-items-center text-on-surface/35"><Bell size={17} /></span>
+              <p className="font-serif font-bold text-[15px] tracking-[-0.02em] text-on-surface">All caught up</p>
+              <p className="text-[12.5px] text-on-surface/45 max-w-[250px]">Friends&rsquo; ratings, likes and comments on what you share land here.</p>
+            </div>
+          )}
+          {!q && suggestedBand}
+        </>
+      );
+    }
+    return (
+      <section>
+        {feedSections.map((sec, si) => (
+          <div key={sec.label}>
+            <h4 className="px-5 pt-3.5 pb-1 text-[10.5px] font-bold uppercase tracking-[0.16em] text-on-surface/45">{sec.label}</h4>
+            <ul>{sec.items.map(renderFeedItem)}</ul>
+            {/* The reference embeds Suggested a section into the feed —
+                present without being the first thing, skipped entirely
+                while searching. */}
+            {si === 0 && !q && suggestedBand}
           </div>
         ))}
-        {empty && (
-          <div className="py-14 flex flex-col items-center text-center gap-2">
-            <span className="w-11 h-11 rounded-full border border-on-surface/[0.14] grid place-items-center text-on-surface/35"><Bell size={17} /></span>
-            <p className="font-serif font-bold text-[15px] tracking-[-0.02em] text-on-surface">All caught up</p>
-            <p className="text-[12.5px] text-on-surface/45 max-w-[250px]">Requests, likes and comments on what you share land here.</p>
-          </div>
-        )}
       </section>
+    );
+  };
+
+  /* ── Search: friends by name, above the matching feed rows ── */
+  const renderFriendResults = () => {
+    if (friendsFiltered.length === 0) return null;
+    return (
+      <div>
+        <h4 className="px-5 pt-3.5 pb-1 text-[10.5px] font-bold uppercase tracking-[0.16em] text-on-surface/45">Friends</h4>
+        <ul>
+          {friendsFiltered.map((f) => {
+            const fp = friendProfiles[f.friend_id];
+            const fname = fp?.display_name || fp?.username || 'Friend';
+            const fhue = avatarHue(f.friend_id);
+            return (
+              <li key={f.friend_id}>
+                <Link
+                  to={`/user/${fp?.username || ''}`}
+                  onClick={() => onClose?.()}
+                  className="flex items-center gap-3 px-5 py-2.5 active:bg-on-surface/[0.03] transition-colors"
+                >
+                  <Avatar
+                    src={fp?.avatar_url}
+                    name={fname}
+                    size={44}
+                    fallbackStyle={{ backgroundColor: `hsl(${fhue} 52% 92%)`, color: `hsl(${fhue} 45% 34%)` }}
+                  />
+                  <span className="flex-1 min-w-0 block">
+                    <span className="flex items-center gap-1 min-w-0">
+                      <span className="truncate font-serif font-bold text-[14.5px] leading-[1.2] tracking-[-0.02em] text-on-surface">{fname}</span>
+                      {fp?.is_verified && <VerifiedBadge size={13} className="flex-none" />}
+                    </span>
+                    {fp?.username && <span className="block mt-[3px] text-[11.5px] leading-[1.2] text-on-surface/50 truncate">@{fp.username}</span>}
+                  </span>
+                  <span className="flex-none text-[12px] font-semibold text-on-surface/40">View</span>
+                </Link>
+              </li>
+            );
+          })}
+        </ul>
+      </div>
     );
   };
 
@@ -1061,6 +1169,55 @@ export const CirclePanel: React.FC<CirclePanelProps> = ({ variant, onClose }) =>
       </li>
     );
   };
+
+  // ── Requests page — pushed from the card above the feed ────────────
+  const requestsPage = (
+    <motion.div
+      className="absolute inset-0 z-20 bg-surface flex flex-col"
+      initial={false}
+      animate={{ x: requestsPageOpen ? '0%' : '100%' }}
+      transition={PUSH_SPRING}
+      aria-hidden={!requestsPageOpen || undefined}
+    >
+      <div className="px-5 pt-safe-4 pb-3 flex items-center gap-2.5 border-b border-on-surface/[0.08] flex-shrink-0">
+        <GlassButton
+          id="requests-back"
+          symbol="chevron.left"
+          label="Back"
+          onClick={() => setRequestsPageOpen(false)}
+          // Native glass draws above the WebView, so a page that is merely
+          // covered by CSS must still stand its own glass down — the same
+          // rule the Add page's back button follows.
+          suspended={!requestsPageOpen}
+          className="hit-44 flex-none w-9 h-9 -ml-1.5 rounded-full grid place-items-center text-on-surface/60 active:scale-95 transition-transform"
+        >
+          <ArrowLeft size={19} />
+        </GlassButton>
+        <h3 className="flex-1 min-w-0 font-serif font-bold text-[19px] tracking-[-0.02em] truncate">Requests</h3>
+      </div>
+      <div className="flex-1 min-h-0 overflow-y-auto px-5 pt-2 pb-safe-6">
+        {requestRowsAll.length > 0 ? (
+          <ul>{requestRowsAll.map(renderRequestRow)}</ul>
+        ) : (
+          <div className="py-12 flex flex-col items-center text-center gap-2">
+            <span className="w-11 h-11 rounded-full border border-on-surface/[0.14] grid place-items-center text-on-surface/35"><UserPlus size={17} /></span>
+            <p className="font-serif font-bold text-[15px] tracking-[-0.02em] text-on-surface">No requests right now</p>
+            <p className="text-[12.5px] text-on-surface/45 max-w-[250px]">People asking to follow you show up here.</p>
+          </div>
+        )}
+        {/* The natural next thing once the queue is dealt with — and the
+            reason an empty requests screen isn't a dead end. */}
+        {(suggestionsLoading || suggestedPeople.length > 0) && (
+          <>
+            <h4 className="pt-5 pb-1 text-[10.5px] font-bold uppercase tracking-[0.16em] text-on-surface/45">
+              Suggested for you
+            </h4>
+            <SuggestedPeople people={suggestedPeople} userId={userId} loading={suggestionsLoading} layout="list" bare />
+          </>
+        )}
+      </div>
+    </motion.div>
+  );
 
   const addPage = (
     <motion.div
@@ -1117,7 +1274,19 @@ export const CirclePanel: React.FC<CirclePanelProps> = ({ variant, onClose }) =>
           )
         ) : (
           <>
-            <h4 className="pt-3 pb-1 text-[10.5px] font-bold uppercase tracking-[0.16em] text-on-surface/45">
+            {/* Contacts first: someone you already know beats any ranked
+                stranger, and this is the highest-conversion thing on the
+                page. It renders through `personRow`, so matched people
+                inherit the same follow-state machine as every other row
+                here rather than a second copy of it. */}
+            <ContactsSync
+              renderPerson={personRow}
+              lacksPhone={!user?.phone}
+              onAddPhone={() => { onClose?.(); navigate('/settings'); }}
+              onOpenSettings={() => { void openAppSettings(); }}
+            />
+
+            <h4 className="pt-5 pb-1 text-[10.5px] font-bold uppercase tracking-[0.16em] text-on-surface/45">
               Verified experts
             </h4>
             {expertsLoading && experts.length === 0 ? (
@@ -1147,7 +1316,7 @@ export const CirclePanel: React.FC<CirclePanelProps> = ({ variant, onClose }) =>
   const body = (
     <div className="relative flex-1 min-h-0 flex flex-col overflow-hidden">
       <motion.div
-        className={cn('flex-1 min-h-0 flex flex-col', addOpen && 'pointer-events-none')}
+        className={cn('flex-1 min-h-0 flex flex-col', (addOpen || requestsPageOpen) && 'pointer-events-none')}
         initial={false}
         // A real iOS push barely touches the outgoing screen — a small
         // parallax drift and a hair of dimming, no shrinking. The previous
@@ -1156,7 +1325,7 @@ export const CirclePanel: React.FC<CirclePanelProps> = ({ variant, onClose }) =>
         // one — on a panel whose own comment calls this "slides over" (a
         // push), that mismatch is a good part of why it read as leaving to
         // a different page rather than drilling into this one.
-        animate={{ x: addOpen ? '-22%' : '0%', opacity: addOpen ? 0.92 : 1 }}
+        animate={{ x: (addOpen || requestsPageOpen) ? '-22%' : '0%', opacity: (addOpen || requestsPageOpen) ? 0.92 : 1 }}
         transition={PUSH_SPRING}
       >
         {/* Header */}
@@ -1168,12 +1337,12 @@ export const CirclePanel: React.FC<CirclePanelProps> = ({ variant, onClose }) =>
                 symbol="chevron.left"
                 label="Back"
                 onClick={() => navigate(-1)}
-                // See the matching note on "add-friends-back": while the Add
-                // Friends page covers this one, this button's native glass
+                // See the matching note on "add-friends-back": while an
+                // overlay page covers this one, this button's native glass
                 // must stand down or it bleeds through the opaque page on
                 // top of it — native glass draws above the WebView, so CSS
                 // covering does nothing to it.
-                suspended={addOpen}
+                suspended={addOpen || requestsPageOpen}
                 className="hit-44 flex-none w-9 h-9 -ml-1 rounded-full flex items-center justify-center text-on-surface active:scale-95 transition-transform"
               >
                 <ArrowLeft size={18} />
@@ -1187,7 +1356,7 @@ export const CirclePanel: React.FC<CirclePanelProps> = ({ variant, onClose }) =>
               pressed={searchOpen}
               prominent={searchOpen}
               tint="label"
-              suspended={addOpen}
+              suspended={addOpen || requestsPageOpen}
               onClick={() => { setSearchOpen((v) => { if (v) setSearchQuery(''); return !v; }); }}
               className={cn(
                 'hit-44 flex-none w-9 h-9 rounded-full grid place-items-center transition-colors',
@@ -1222,30 +1391,33 @@ export const CirclePanel: React.FC<CirclePanelProps> = ({ variant, onClose }) =>
               <SearchField
                 value={searchQuery}
                 onChange={setSearchQuery}
-                placeholder="Friends, places, cuisines"
-                aria-label="Search activity and alerts"
+                placeholder="Search friends"
+                aria-label="Search friends and activity"
                 autoFocus={searchOpen}
-                glassId={addOpen ? undefined : 'circle-search-field'}
+                glassId={(addOpen || requestsPageOpen) ? undefined : 'circle-search-field'}
               />
             </div>
           </div>
 
-          <div className="pt-3">{segTrack}</div>
         </div>
 
-        {/* Scroll body */}
-        <div className="flex-1 min-h-0 overflow-y-auto px-5 pb-safe-6">
-          {/* Alerts come from the notifications + requests fetches, not the
-              friends one, so only the rail and the activity feed go to
-              skeleton — tapping Alerts during a cold load shows alerts. */}
-          {loading ? <RailSkeleton /> : friendsRail}
-          <div className="mt-4 border-t border-on-surface/[0.1]" />
-          {tab === 'activity'
-            ? (loading ? <ActivitySkeleton /> : renderActivity())
-            : renderAlerts()}
+        {/* Scroll body — full-bleed rows (they carry their own px-5), the
+            requests card floats above the feed, and search prepends a
+            Friends section to the filtered stream. */}
+        <div className="flex-1 min-h-0 overflow-y-auto pt-3 pb-safe-6">
+          {!q && requestsCard}
+          {loading && activity.length === 0 && notifications.length === 0
+            ? <div className="px-5"><ActivitySkeleton /></div>
+            : (
+              <>
+                {q && renderFriendResults()}
+                {renderFeed()}
+              </>
+            )}
         </div>
       </motion.div>
 
+      {requestsPage}
       {addPage}
     </div>
   );

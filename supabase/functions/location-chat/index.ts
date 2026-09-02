@@ -10,7 +10,13 @@
 // recipes authored in chat are just as thorough and precise.
 import { RECIPE_QUALITY_BAR, RECIPE_INPUT_SCHEMA } from '../_shared/recipe-spec.ts';
 import { requireUser } from '../_shared/auth.ts';
-import { enforceRateLimit, readJsonBody } from '../_shared/limits.ts';
+// The abuse guards are inlined below (not imported from ../_shared/limits.ts)
+// because the Supabase Dashboard's function editor can't create a new file
+// outside this function's own folder — only pre-existing shared files (like
+// recipe-spec.ts and auth.ts above, already part of an earlier deploy)
+// resolve there. Same reasoning as import-recipe/index.ts. Keep this block
+// in sync with _shared/limits.ts if either changes.
+import { createClient } from 'jsr:@supabase/supabase-js@2';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -279,6 +285,52 @@ const TOOL_SEARCH_MICHELIN = {
         type: 'number',
         description: 'Optional max results to return (default 40, max 80). Use a higher limit when the user wants the full list.',
       },
+    },
+    required: [],
+  },
+};
+
+const TOOL_SEARCH_MY_RATINGS = {
+  name: 'search_my_ratings',
+  description:
+    "Search the user's OWN rating history — every place they have visited and scored, not just the sample in the system prompt. Use this whenever the answer depends on whether they've been somewhere: \"have I rated anywhere in Boston?\", \"what's my highest-rated Italian?\", \"did I like Carbone?\", \"what have I rated recently?\". ALWAYS call this before telling the user they haven't rated something — the prompt list is a sample and saying \"you have no ratings there\" from its absence is wrong. Returns rows with place ids you can pass to recommend_restaurants.",
+  input_schema: {
+    type: 'object',
+    properties: {
+      query: {
+        type: 'string',
+        description: "Free text matched against restaurant name, cuisine and address. Every word must appear somewhere, so 'boston italian' finds Italian places in Boston. Omit to list everything (use with sort/limit).",
+      },
+      cuisine: { type: 'string', description: "Optional exact-ish cuisine filter, e.g. 'Italian'." },
+      min_score: { type: 'number', description: 'Only ratings at or above this score (0-10).' },
+      max_score: { type: 'number', description: 'Only ratings at or below this score (0-10). Use with a low value to find places they DISLIKED.' },
+      sort: { type: 'string', enum: ['score', 'recent'], description: "Default 'score' (highest first). 'recent' for what they've rated lately." },
+      limit: { type: 'number', description: 'Max rows to return (default 25, max 60).' },
+    },
+    required: [],
+  },
+};
+
+const TOOL_UPDATE_TASTE_PROFILE = {
+  name: 'update_taste_profile',
+  description:
+    "Create or refine the user's taste profile — the stated preferences (favourite cuisines, cuisines to avoid, dietary needs, usual spend, atmosphere, home city) that the recommendation engine blends with their real ratings. Use it when the user tells you something durable about their taste (\"I'm vegetarian now\", \"stop suggesting steakhouses\", \"I usually spend around $$\") or asks you to set up / fix their profile.\n\nRules: only pass the fields you are actually changing. Cuisine names must be real cuisine labels (Italian, Japanese, Sushi, Steakhouse, Thai...). CONFIRM with the user before removing or replacing anything they set previously — adding is safe, overwriting is not. After it runs, tell them plainly what changed.",
+  input_schema: {
+    type: 'object',
+    properties: {
+      add_cuisines: { type: 'array', items: { type: 'string' }, description: 'Cuisines to ADD to their favourites.' },
+      remove_cuisines: { type: 'array', items: { type: 'string' }, description: 'Cuisines to remove from their favourites.' },
+      add_avoid: { type: 'array', items: { type: 'string' }, description: "Cuisines to ADD to their avoid list (they don't want these recommended)." },
+      remove_avoid: { type: 'array', items: { type: 'string' }, description: 'Cuisines to remove from the avoid list.' },
+      dietary: {
+        type: 'array',
+        items: { type: 'string' },
+        description: "Their full dietary preference list, REPLACING what's there (e.g. ['vegetarian'], or [] to clear). Only send when the user states their dietary needs.",
+      },
+      price_primary: { type: 'number', description: 'Google price tier 1-4 for a normal night out.' },
+      price_secondary: { type: 'number', description: 'Google price tier 1-4 for celebrating.' },
+      atmosphere: { type: 'string', description: 'One short phrase for the atmosphere they prefer.' },
+      city: { type: 'string', description: 'Their home city label.' },
     },
     required: [],
   },
@@ -699,6 +751,50 @@ interface UserContext {
    *  Google place id (= restaurantId on the rating row) so Claude
    *  can pass it to recommend_restaurants to render a card. */
   topRated?: Array<{ id?: string; name: string; score?: number; cuisine?: string; neighborhood?: string }>;
+  /** The TRUE number of ratings — `topRated` may be a sample of it. */
+  ratedTotal?: number;
+  ratedTruncated?: boolean;
+  /** The computed taste profile in words (lib/assistant-taste). */
+  taste?: {
+    ratingCount: number;
+    avgScore?: number;
+    anchor?: number;
+    p90?: number;
+    gradingStyle?: string;
+    topCuisines?: string[];
+    topPairs?: string[];
+    dislikedCuisines?: string[];
+    priceLabel?: string;
+    priceConcentration?: number;
+    topTags?: string[];
+    topCities?: string[];
+    distinctive?: number;
+    michelinLean?: string;
+    quizInfluence?: number;
+    quiz?: {
+      completed: boolean;
+      cuisines?: string[];
+      avoidCuisines?: string[];
+      dietary?: string[];
+      atmosphere?: string;
+      pricePrimary?: number;
+      priceSecondary?: number;
+      city?: string;
+    };
+  };
+  /** Account facts the model would otherwise guess at. */
+  account?: {
+    joined?: string;
+    ratingCount?: number;
+    wishlistCount?: number;
+    listCount?: number;
+    guideCount?: number;
+    followers?: number;
+    following?: number;
+    recipeCount?: number;
+    homeLocation?: string;
+    bio?: string;
+  };
   /** Restaurants in the user's wishlist. */
   wishlist?: Array<{ id?: string; name: string; cuisine?: string; neighborhood?: string }>;
   /** Recipes the user has saved / cooked. */
@@ -735,9 +831,10 @@ interface ChatRequest {
   /** Human-readable label for the current page (e.g. "the Pantry",
    *  "your Profile") — used in the system prompt directly. */
   currentPageLabel?: string;
-  /** The subject the user pinned the conversation to from a detail page. */
+  /** The subject the user pinned the conversation to — a detail page, or
+   *  the share sheet's Ask AI action. */
   attachment?: {
-    kind: 'restaurant' | 'recipe';
+    kind: 'restaurant' | 'recipe' | 'reel' | 'post' | 'guide';
     id: string;
     name: string;
     subtitle?: string;
@@ -770,6 +867,19 @@ function ugc(raw: unknown, max: number): string {
   return `<ugc>${ugcSanitize(raw, max)}</ugc>`;
 }
 
+/** Noun + capitalized label per pinned-attachment kind, for the PINNED
+ *  SUBJECT prompt block below. Restaurant/recipe are the two kinds with
+ *  real tools (recommend_restaurants, toggle_wishlist, recipe tools);
+ *  reel/post/guide have no dedicated tool yet, so their id is stated
+ *  plainly rather than pointing at tool support that doesn't exist. */
+const KIND_WORDS: Record<string, { noun: string; label: string }> = {
+  restaurant: { noun: 'restaurant', label: 'Restaurant' },
+  recipe: { noun: 'recipe', label: 'Recipe' },
+  reel: { noun: 'reel', label: 'Reel' },
+  post: { noun: 'post', label: 'Post' },
+  guide: { noun: 'guide', label: 'Guide' },
+};
+
 function buildSystemPrompt(body: ChatRequest): string {
   const city = body.city || 'this area';
   const filters = body.filters || {};
@@ -797,15 +907,18 @@ function buildSystemPrompt(body: ChatRequest): string {
      cover (current press, closures, reservations). */
   const att = body.attachment;
   if (att && att.name) {
-    const kindWord = att.kind === 'recipe' ? 'recipe' : 'restaurant';
+    const kw = KIND_WORDS[att.kind] || KIND_WORDS.restaurant;
     lines.push('');
     lines.push(
-      `PINNED SUBJECT — the user opened this chat from the ${kindWord}'s page and attached it, so EVERY question is about this ${kindWord} unless they clearly change topic:`,
+      `PINNED SUBJECT — the user opened this chat from the ${kw.noun}'s page (or shared it into this chat) and attached it, so EVERY question is about this ${kw.noun} unless they clearly change topic:`,
     );
-    lines.push(`  ${kindWord === 'recipe' ? 'Recipe' : 'Restaurant'}: ${ugc(att.name, UGC_MAX_NAME)}`);
+    lines.push(`  ${kw.label}: ${ugc(att.name, UGC_MAX_NAME)}`);
     if (att.subtitle) lines.push(`  ${ugc(att.subtitle, UGC_MAX_TITLE)}`);
-    if (att.kind === 'restaurant' && att.id) lines.push(`  id: ${att.id} (use this for recommend_restaurants / toggle_wishlist / open_* tools)`);
-    if (att.kind === 'recipe' && att.id) lines.push(`  id: ${att.id} (use this for recipe tools)`);
+    if (att.id) {
+      if (att.kind === 'restaurant') lines.push(`  id: ${att.id} (use this for recommend_restaurants / toggle_wishlist / open_* tools)`);
+      else if (att.kind === 'recipe') lines.push(`  id: ${att.id} (use this for recipe tools)`);
+      else lines.push(`  id: ${att.id} (for reference only — there is no dedicated tool for a ${kw.noun} yet)`);
+    }
     if (att.details && att.details.length > 0) {
       lines.push(`  What the app already knows about it:`);
       for (const d of att.details.slice(0, 40)) {
@@ -813,7 +926,7 @@ function buildSystemPrompt(body: ChatRequest): string {
       }
     }
     lines.push(
-      `  Answer from those app facts FIRST — they are the user's own data and the app's records, and they are more relevant to this user than anything you can find elsewhere. Use web_search when the question needs information the facts above don't contain (recent reviews or press, whether it's still open, current menu or pricing, awards, how to book, substitutions and technique for a recipe). Do not ask which ${kindWord} they mean; it is the one named above.`,
+      `  Answer from those app facts FIRST — they are the user's own data and the app's records, and they are more relevant to this user than anything you can find elsewhere. Use web_search when the question needs information the facts above don't contain (recent reviews or press, whether it's still open, current menu or pricing, awards, how to book, substitutions and technique for a recipe). Do not ask which ${kw.noun} they mean; it is the one named above.`,
     );
   }
   if (onLocationPage) {
@@ -873,17 +986,115 @@ function buildSystemPrompt(body: ChatRequest): string {
       lines.push(`- Name: ${parts.join(' ')}`);
     }
     if (u.homeCity) lines.push(`- Home city: ${ugc(u.homeCity, UGC_MAX_NAME)}`);
+
+    // ── Account shape ───────────────────────────────────────────────
+    // Plain facts about the account. Cheap, and it stops the model
+    // guessing at things the app knows exactly.
+    if (u.account) {
+      const a = u.account;
+      const bits = [
+        a.joined ? `joined ${ugcSanitize(a.joined, UGC_MAX_NAME)}` : null,
+        typeof a.ratingCount === 'number' ? `${a.ratingCount} ratings` : null,
+        typeof a.wishlistCount === 'number' ? `${a.wishlistCount} wishlisted` : null,
+        typeof a.listCount === 'number' ? `${a.listCount} lists` : null,
+        typeof a.guideCount === 'number' ? `${a.guideCount} guides` : null,
+        typeof a.recipeCount === 'number' ? `${a.recipeCount} recipes` : null,
+        typeof a.followers === 'number' ? `${a.followers} followers` : null,
+        typeof a.following === 'number' ? `${a.following} following` : null,
+      ].filter(Boolean);
+      if (bits.length > 0) lines.push(`- Account: ${bits.join(' · ')}`);
+      if (a.homeLocation) lines.push(`- Dining location: ${ugc(a.homeLocation, UGC_MAX_NAME)}`);
+      if (a.bio) lines.push(`- Their bio: "${ugc(a.bio, UGC_MAX_BIO)}"`);
+    }
+
+    // ── Taste profile ───────────────────────────────────────────────
+    // The SAME computed profile the recommendation engine ranks with
+    // (lib/recommendations buildTasteProfile → lib/assistant-taste
+    // buildTasteSummary). Before this block the chat had to infer all of
+    // it from a list of restaurant names, which meant it could not answer
+    // "what's my taste like?" and could not tell a tough grader's 7 from
+    // a generous grader's 7.
+    const t = u.taste;
+    if (t) {
+      lines.push('');
+      lines.push("The user's taste profile (computed from their own ratings — this is the same profile the app's recommendation engine ranks with):");
+      if (t.ratingCount > 0 && (t.avgScore != null || t.gradingStyle)) {
+        const scale = [
+          t.avgScore != null ? `averages ${t.avgScore}/10` : null,
+          t.p90 != null ? `their 90th percentile is ${t.p90}` : null,
+          t.gradingStyle ? `grading style: ${t.gradingStyle}` : null,
+        ].filter(Boolean).join('; ');
+        lines.push(`- How they score: ${scale}. ALWAYS read their scores on this scale, not an absolute one.`);
+      }
+      if (t.topPairs?.length) {
+        lines.push(`- What they actually go back to (cuisine + price, the strongest signal there is): ${t.topPairs.map((x) => ugc(x, UGC_MAX_NAME)).join(', ')}`);
+      }
+      if (t.topCuisines?.length) lines.push(`- Cuisines they rate well: ${t.topCuisines.map((x) => ugc(x, UGC_MAX_NAME)).join(', ')}`);
+      if (t.dislikedCuisines?.length) {
+        lines.push(`- Cuisines their OWN ratings score below their bar (do not lead with these): ${t.dislikedCuisines.map((x) => ugc(x, UGC_MAX_NAME)).join(', ')}`);
+      }
+      if (t.priceLabel) {
+        const conc = t.priceConcentration != null ? ` (consistency ${t.priceConcentration})` : '';
+        lines.push(`- Where their money goes: ${ugc(t.priceLabel, UGC_MAX_NAME)}${conc}`);
+      }
+      if (t.topTags?.length) lines.push(`- Qualities they call out in reviews: ${t.topTags.map((x) => ugc(x, UGC_MAX_NAME)).join(', ')}`);
+      if (t.topCities?.length) lines.push(`- Where they eat: ${t.topCities.map((x) => ugc(x, UGC_MAX_NAME)).join(', ')}`);
+      if (t.michelinLean) lines.push(`- Michelin: ${ugc(t.michelinLean, UGC_MAX_NAME)}`);
+      if (t.distinctive != null) {
+        lines.push(`- Distinctive-vs-popular: ${t.distinctive} (0 = follows the crowd, 1 = seeks out places most people haven't heard of)`);
+      }
+
+      const q = t.quiz;
+      if (q) {
+        if (q.completed || q.cuisines?.length || q.avoidCuisines?.length || q.dietary?.length) {
+          const stated = [
+            q.cuisines?.length ? `likes ${q.cuisines.map((x) => ugc(x, UGC_MAX_NAME)).join(', ')}` : null,
+            q.avoidCuisines?.length ? `wants to AVOID ${q.avoidCuisines.map((x) => ugc(x, UGC_MAX_NAME)).join(', ')}` : null,
+            q.dietary?.length ? `dietary: ${q.dietary.map((x) => ugc(x, UGC_MAX_NAME)).join(', ')}` : null,
+            q.atmosphere ? `atmosphere: ${ugc(q.atmosphere, UGC_MAX_NAME)}` : null,
+            q.pricePrimary ? `normal night out: ${'$'.repeat(q.pricePrimary)}` : null,
+            q.priceSecondary ? `celebrating: ${'$'.repeat(q.priceSecondary)}` : null,
+          ].filter(Boolean);
+          lines.push(`- What they TOLD us (their taste profile answers): ${stated.length ? stated.join('; ') : 'nothing yet'}`);
+          // Dietary answers are preferences the user typed about
+          // themselves. Treat them as binding, not as a hint.
+          if (q.dietary?.length) {
+            lines.push('  Their dietary preferences are a HARD constraint — never recommend a place that cannot serve them.');
+          }
+          if (q.avoidCuisines?.length) {
+            lines.push('  "Avoid" means avoid: do not suggest these cuisines unless the user explicitly asks for one right now.');
+          }
+        } else {
+          lines.push('- They have NOT filled in a taste profile yet. If the conversation gives you a natural opening, offer to set one up — you can write it with update_taste_profile.');
+        }
+        if (t.quizInfluence != null && t.quizInfluence > 0 && t.ratingCount > 0) {
+          lines.push(`- Their stated answers still carry weight ${t.quizInfluence} of 1 (it fades to 0 as they rate more; right now real ratings do most of the work).`);
+        }
+      }
+      lines.push('- You can refine any of this for them with update_taste_profile, and look up any rating with search_my_ratings.');
+    }
     if (u.topCuisines && u.topCuisines.length > 0) {
       lines.push(`- Taste leans toward: ${u.topCuisines.slice(0, 6).join(', ')}`);
     }
     if (u.topRated && u.topRated.length > 0) {
       // RATED = the user has actually been there and scored it.
-      // Listed one-per-line so individual entries are unambiguous
-      // when the user asks "which of my Boston spots is highest
-      // rated?". This list is exhaustive (up to 50 from the frontend) —
-      // if the user mentions a city that doesn't appear in any of these
-      // lines, they truly have no rating for it.
-      lines.push(`- RATED restaurants (places the user has visited and scored, ${u.topRated.length} total). Each row carries the place id you'd pass to recommend_restaurants if you want to show a card:`);
+      // Listed one-per-line so individual entries are unambiguous when the
+      // user asks "which of my Boston spots is highest rated?".
+      //
+      // The count below is the TRUE total, which is not always the number of
+      // rows: over the cap the frontend sends a SAMPLE (best + worst + most
+      // recent — see lib/assistant-taste). Reporting the row count as the
+      // total is exactly how this prompt used to make Claude say "you've
+      // never rated anywhere in Boston" to someone with 200 ratings whose
+      // Boston rows fell outside the top 50. When it's a sample, say so and
+      // point at search_my_ratings.
+      const ratedTotal = u.ratedTotal ?? u.topRated.length;
+      const sampled = u.ratedTruncated === true || ratedTotal > u.topRated.length;
+      lines.push(
+        sampled
+          ? `- RATED restaurants: the user has ${ratedTotal} in total. The ${u.topRated.length} below are a SAMPLE (their highest, their lowest, and their most recent) — NOT the whole list. Never conclude the user hasn't rated something because it's missing here; call search_my_ratings to check. Each row carries the place id for recommend_restaurants:`
+          : `- RATED restaurants (places the user has visited and scored — this is ALL ${ratedTotal} of them). Each row carries the place id you'd pass to recommend_restaurants if you want to show a card:`,
+      );
       for (const r of u.topRated) {
         const bits = [
           ugc(r.name, UGC_MAX_NAME),
@@ -985,6 +1196,14 @@ function buildSystemPrompt(body: ChatRequest): string {
   lines.push('- Keep replies short (1-3 paragraphs unless asked for more).');
   lines.push('- Be conversational, not robotic. Speak like a friendly local.');
   lines.push('- After running an ACTION tool, your reply should briefly confirm what you did, not narrate the click-by-click.');
+  lines.push('');
+  lines.push("Knowing this user:");
+  lines.push('- You have their real taste profile above. USE it: match a suggestion to their pairs, their price band and their grading scale rather than to generic "best of" lists, and say WHY it fits them.');
+  lines.push('- Read every score they give on THEIR scale (see grading style). Never call a 7/10 mediocre if this user rarely goes above 8.');
+  lines.push("- NEVER claim the user hasn't rated or been somewhere from the absence of a row in the prompt — that list can be a sample. Call search_my_ratings first; it searches everything and its \"no match\" is definitive.");
+  lines.push('- When they tell you something durable about their taste ("I am vegetarian now", "I never want steakhouses again", "we usually do around $$"), offer to save it with update_taste_profile — that is what makes their recommendations improve over time. Adding is safe; confirm before removing or overwriting anything they set before.');
+  lines.push('- If they ask what their taste profile is, or ask you to build/fix one, walk them through what you can see, then edit it with them. Explain what each part changes in plain terms (favourites and avoids steer suggestions; dietary is a hard constraint; usual spend sets the price band).');
+  lines.push('- Their taste profile is theirs. Never invent preferences they did not state, and never write a change they did not ask for.');
   lines.push('');
   lines.push('Presenting recommendations:');
   lines.push(
@@ -1109,6 +1328,84 @@ function jsonError(status: number, message: string): Response {
   });
 }
 
+/* ── Abuse guards (inlined from _shared/limits.ts — see the import-block
+   comment above for why) ──────────────────────────────────────────── */
+
+/** Count this request against the caller's hourly quota for `endpoint`
+ *  (the consume_ai_rate_limit RPC — migration 047_ai_rate_limits.sql).
+ *  Returns a ready-to-send 429 once the quota is exhausted, null while
+ *  under it. Fails open on infrastructure errors: the caller has already
+ *  passed auth by the time this runs, and a DB hiccup shouldn't take the
+ *  whole feature down. */
+async function enforceRateLimit(
+  req: Request,
+  endpoint: string,
+  maxPerHour: number,
+): Promise<Response | null> {
+  const supabase = createClient(
+    Deno.env.get('SUPABASE_URL') ?? '',
+    Deno.env.get('SUPABASE_ANON_KEY') ?? '',
+    {
+      auth: { persistSession: false, autoRefreshToken: false },
+      global: { headers: { Authorization: req.headers.get('Authorization') ?? '' } },
+    },
+  );
+  const { data, error } = await supabase.rpc('consume_ai_rate_limit', {
+    p_endpoint: endpoint,
+    p_max_per_hour: maxPerHour,
+  });
+  if (error) {
+    console.error(`[${endpoint}] rate-limit check failed (allowing request):`, error.message);
+    return null;
+  }
+  if (data === false) {
+    return jsonError(429, "You've reached the hourly limit for AI requests. Please try again in a little while.");
+  }
+  return null;
+}
+
+/** Read + JSON-parse a request body without ever buffering more than
+ *  maxBytes, so a missing or lying Content-Length header can't sneak an
+ *  oversized payload through — the stream is counted as it arrives. */
+async function readJsonBody<T>(
+  req: Request,
+  maxBytes: number,
+): Promise<{ body: T } | { response: Response }> {
+  const tooLarge = () => ({ response: jsonError(413, 'Request body is too large.') });
+  const declared = Number(req.headers.get('content-length'));
+  if (Number.isFinite(declared) && declared > maxBytes) return tooLarge();
+
+  let text = '';
+  if (req.body) {
+    const reader = req.body.getReader();
+    const chunks: Uint8Array[] = [];
+    let total = 0;
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.byteLength;
+      if (total > maxBytes) {
+        try { await reader.cancel(); } catch { /* stream already errored */ }
+        return tooLarge();
+      }
+      chunks.push(value);
+    }
+    const buf = new Uint8Array(total);
+    let offset = 0;
+    for (const chunk of chunks) {
+      buf.set(chunk, offset);
+      offset += chunk.byteLength;
+    }
+    text = new TextDecoder().decode(buf);
+  }
+
+  try {
+    return { body: JSON.parse(text) as T };
+  } catch {
+    return { response: jsonError(400, 'Invalid JSON body') };
+  }
+}
+
 async function handler(req: Request): Promise<Response> {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: CORS_HEADERS });
@@ -1185,6 +1482,8 @@ async function handler(req: Request): Promise<Response> {
       TOOL_LOOKUP_USER,
       TOOL_FIND_EXPERTS,
       TOOL_GET_CIRCLE_RATINGS,
+      TOOL_SEARCH_MY_RATINGS,
+      TOOL_UPDATE_TASTE_PROFILE,
       // Action tools — execute work on the user's behalf.
       TOOL_NAVIGATE,
       TOOL_OPEN_RATING_MODAL,

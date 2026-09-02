@@ -9,7 +9,19 @@
          page zoom instead — matches how native apps behave inside
          Capacitor. -->
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover" />
-    <title>Gourmet Canvas</title>
+    <title>GoodEats</title>
+    <meta name="description" content="Rank the restaurants you've been to, keep the ones you want to try, and see what the people you trust are eating." />
+    <meta name="theme-color" content="#9f3012" />
+    <link rel="icon" href="/logo.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="manifest" href="/site.webmanifest" />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="GoodEats" />
+    <meta property="og:description" content="Rank the restaurants you've been to, keep the ones you want to try, and see what the people you trust are eating." />
+    <meta property="og:image" content="/og-image.png" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="GoodEats" />
+    <meta name="twitter:image" content="/og-image.png" />
     <!-- Theme before the first pixel. SettingsContext owns this decision;
          this repeats its rule inline because applying the `dark` class from
          a React effect happens after the first paint, so every dark launch
@@ -20,7 +32,15 @@
     <script>
       (function () {
         try {
-          var stored = localStorage.getItem('gourmad-dark-mode');
+          // The pre-rename key is the fallback, not an equal alternative:
+          // this runs BEFORE the bundle, so on the first launch after the
+          // GoodEats rename lib/storage-migration.ts has not copied
+          // anything yet and the new key does not exist. Without the
+          // fallback every dark-mode user gets one white flash on the one
+          // launch where the app changed its name — the worst possible
+          // moment to look broken.
+          var stored = localStorage.getItem('goodeats-dark-mode');
+          if (stored === null) stored = localStorage.getItem('gourmad-dark-mode');
           var dark = stored === null
             ? window.matchMedia('(prefers-color-scheme: dark)').matches
             : stored === '1';

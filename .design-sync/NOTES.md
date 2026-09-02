@@ -1,4 +1,4 @@
-# design-sync notes — gourmet-canvas
+# design-sync notes — goodeats
 
 ## What this repo is
 
@@ -12,7 +12,7 @@ this runs the **package** shape with authored previews.
 - **`.design-sync/entry.tsx` is the DS entry** and is committed. There is no
   `dist` entry to point `--entry` at, so this barrel names exactly the 31
   components that make up the visual system. It also fixes `PKG_DIR`: without
-  `--entry` the converter looks for `node_modules/gourmet-canvas/package.json`,
+  `--entry` the converter looks for `node_modules/goodeats/package.json`,
   which never exists in a repo that isn't self-installed (the first run died
   there with ENOENT).
 - **Build command:**
@@ -105,8 +105,8 @@ value, so the hook returns defaults outside a provider instead of throwing.
 - Realistic app content (real restaurant names, real empty-state copy) grades
   well and reads correctly in the picker. `lucide-react` icons resolve fine in
   previews; Tailwind utility classes AND inline styles both work.
-- Import from `'gourmet-canvas'` in previews — the converter's story-import
-  plugin maps it to `window.GourmetCanvas`.
+- Import from `'goodeats'` in previews — the converter's story-import
+  plugin maps it to `window.GoodEats`.
 
 ## Preview-authoring learnings (from the four-batch wave, all 31 components)
 

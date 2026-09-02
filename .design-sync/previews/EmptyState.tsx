@@ -1,5 +1,5 @@
 import React from 'react';
-import { EmptyState } from 'gourmet-canvas';
+import { EmptyState } from 'goodeats';
 import { Bookmark, Users, Search } from 'lucide-react';
 
 /** The canonical shape: glyph, one line of what's missing, one of why. */

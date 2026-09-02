@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import { useSettings } from '../contexts/SettingsContext';
 import { cn } from '../lib/utils';
+import { Logo } from './Logo';
 
 /** Which step of the pre-auth flow is showing — drives the editorial
  *  left-panel variant so each step gets its own visual story. */
@@ -37,16 +38,13 @@ export function useDesktopAuthLayout(): boolean {
   return isDesktop && !phoneMode && !isNative;
 }
 
+/** The brand mark with this shell's drop shadow. The mark itself lives in
+ *  components/Logo.tsx — this only adds the lift the auth panels want. */
 export const GMark: React.FC<{ size?: number; className?: string }> = ({ size = 36, className }) => (
-  <div
-    className={cn(
-      'rounded-full bg-primary flex items-center justify-center text-white font-serif italic shadow-lg shadow-primary/25',
-      className,
-    )}
-    style={{ width: size, height: size, fontSize: size * 0.55 }}
-  >
-    G
-  </div>
+  <Logo
+    size={size}
+    className={cn('text-primary rounded-full shadow-lg shadow-primary/25', className)}
+  />
 );
 
 // ── Shared bits used by every panel ─────────────────────────────────────
@@ -359,7 +357,7 @@ const PANELS: Record<AuthPanelVariant, {
     bg: 'bg-[linear-gradient(135deg,#fdeee5_0%,#fbe1d2_45%,#f7dcc7_100%)]',
     heading: { line1: 'Taste,', line2: 'remembered.' },
     subtitle:
-      'A personal canvas for the meals you love, the friends who feed you, and the restaurants worth a second visit.',
+      'One place for the meals you love, the friends who feed you, and the restaurants worth a second visit.',
     visual: <StackedCards />,
     quote: {
       text: 'Like Goodreads, but for the meals that stick.',
@@ -379,7 +377,7 @@ const PANELS: Record<AuthPanelVariant, {
   },
   signup: {
     bg: 'bg-[linear-gradient(135deg,#f7f0e2_0%,#f2e6cf_50%,#fbf2db_100%)]',
-    heading: { line1: 'A canvas', line2: 'of your own.' },
+    heading: { line1: 'A list', line2: 'of your own.' },
     subtitle:
       'Start with one place, one meal, one friend you trust. The atlas grows from there.',
     visual: <HowItWorks />,
@@ -392,7 +390,7 @@ const PANELS: Record<AuthPanelVariant, {
     bg: 'bg-[linear-gradient(135deg,#f6e7e2_0%,#f1dcd5_50%,#f8ebe5_100%)]',
     heading: { line1: 'Make it', line2: 'yours.' },
     subtitle:
-      'Your name, your handle, your home city — the small details that make this canvas yours.',
+      'Your name, your handle, your home city — the small details that make this profile yours.',
     visual: <ProfilePreview />,
     quote: {
       text: 'Identity is the salt of any good guide.',
@@ -424,7 +422,7 @@ const EditorialPanel: React.FC<{ variant: AuthPanelVariant }> = ({ variant }) =>
           {/* Brand bar */}
           <div className="flex items-center gap-3 mb-5 xl:mb-7 flex-shrink-0">
             <GMark size={32} />
-            <span className="text-lg font-serif font-bold tracking-tight">Gourmet Canvas</span>
+            <span className="text-lg font-serif font-bold tracking-tight">GoodEats</span>
           </div>
 
           {/* Heading + subtitle */}
@@ -471,7 +469,7 @@ export const AuthShell: React.FC<{
         <header className="flex items-center justify-between px-8 xl:px-14 py-5 flex-shrink-0">
           <div className="flex items-center gap-2.5 lg:invisible">
             <GMark size={28} />
-            <span className="text-base font-serif font-bold tracking-tight">Gourmet Canvas</span>
+            <span className="text-base font-serif font-bold tracking-tight">GoodEats</span>
           </div>
           <div className="text-sm">{headerRight}</div>
         </header>
@@ -481,7 +479,7 @@ export const AuthShell: React.FC<{
         </main>
 
         <footer className="flex flex-wrap items-center gap-x-3 gap-y-1 px-8 xl:px-14 py-4 text-xs text-on-surface/40 flex-shrink-0">
-          <span>© 2026 Gourmet Canvas</span>
+          <span>© 2026 GoodEats</span>
           <span>·</span>
           <a href={PRIVACY_URL} target="_blank" rel="noopener noreferrer" className="hover:text-on-surface/70">Privacy</a>
           <span>·</span>

@@ -55,17 +55,23 @@ export const TASTE_PRICES: Array<{ tier: number; label: string; sub: string }> =
   { tier: 4, label: '$$$$', sub: 'Special occasions' },
 ];
 
-/** Multi-select chip grid: quiet filled capsules that spring to the accent
- *  when chosen, with the check popping in. `dense` shrinks the chips (for
- *  the cuisines grid, which has far more options to fit on one screen than
- *  a plain preference list does). */
+/** Multi-select chip grid. `dense` shrinks the chips (for the cuisines
+ *  grid, which has far more options to fit on one screen than a plain
+ *  preference list does).
+ *
+ *  Restyled from flat gray fills to bordered card capsules: on the plain
+ *  onboarding background a gray fill read as disabled, and forty of them
+ *  read as a wall. A hairline border + card surface gives each chip an
+ *  edge to hold onto, and selection swaps the whole material — terracotta
+ *  fill, matching border, a soft glow — instead of only recoloring, so
+ *  picks are findable at a glance in a long grid. */
 export const TastePillGrid: React.FC<{
   options: Array<{ id: string; label: string; sub?: string }>;
   selected: string[];
   onToggle: (id: string) => void;
   dense?: boolean;
 }> = ({ options, selected, onToggle, dense }) => (
-  <div className={cn('flex flex-wrap', dense ? 'gap-1.5' : 'gap-2.5')}>
+  <div className={cn('flex flex-wrap', dense ? 'gap-2' : 'gap-2.5')}>
     {options.map((o, idx) => {
       const sel = selected.includes(o.id);
       return (
@@ -78,21 +84,26 @@ export const TastePillGrid: React.FC<{
           animate={{ opacity: 1, y: 0 }}
           exit={{ opacity: 0, scale: 0.9 }}
           transition={{ duration: 0.3, delay: dense ? 0 : 0.12 + Math.min(idx, 12) * 0.022, ease: OB.EASE }}
-          whileTap={{ scale: 0.94 }}
-          className="inline-flex items-center gap-2 rounded-full border-none cursor-pointer"
+          whileTap={{ scale: 0.95 }}
+          className="inline-flex items-center gap-2 rounded-full cursor-pointer"
           style={{
-            minHeight: dense ? 34 : 44,
-            padding: dense ? '0 13px' : '0 17px',
-            fontSize: dense ? 12.5 : 14,
+            minHeight: dense ? 38 : 46,
+            padding: dense ? '0 15px' : '0 18px',
+            fontSize: dense ? 13.5 : 14.5,
             fontWeight: 600,
-            background: sel ? OB.TERRA : 'var(--ob-pill-bg)',
+            letterSpacing: '-0.01em',
+            background: sel ? OB.TERRA : 'var(--ob-card)',
             color: sel ? '#fff' : 'var(--ob-ink)',
-            transition: 'background .18s var(--ease-out-strong), color .18s var(--ease-out-strong)',
+            border: `1px solid ${sel ? OB.TERRA : 'var(--ob-border)'}`,
+            boxShadow: sel
+              ? '0 6px 16px -6px color-mix(in srgb, var(--ob-terra) 55%, transparent)'
+              : '0 1px 2px rgba(0,0,0,0.04)',
+            transition: 'background .18s var(--ease-out-strong), color .18s var(--ease-out-strong), border-color .18s var(--ease-out-strong), box-shadow .18s var(--ease-out-strong)',
           }}
         >
           {o.label}
           {o.sub && (
-            <span style={{ fontSize: 12, fontWeight: 500, color: sel ? 'rgba(255,255,255,0.75)' : 'var(--ob-label)', transition: 'color .18s var(--ease-out-strong)' }}>
+            <span style={{ fontSize: 12, fontWeight: 500, color: sel ? 'rgba(255,255,255,0.78)' : 'var(--ob-label)', transition: 'color .18s var(--ease-out-strong)' }}>
               {o.sub}
             </span>
           )}
@@ -101,11 +112,11 @@ export const TastePillGrid: React.FC<{
               <motion.span
                 className="inline-flex"
                 initial={{ scale: 0, width: 0 }}
-                animate={{ scale: 1, width: dense ? 12 : 14 }}
+                animate={{ scale: 1, width: dense ? 13 : 14 }}
                 exit={{ scale: 0, width: 0 }}
                 transition={OB.SPRING_SOFT}
               >
-                <Check size={dense ? 12 : 14} strokeWidth={2.6} />
+                <Check size={dense ? 13 : 14} strokeWidth={2.6} />
               </motion.span>
             )}
           </AnimatePresence>
@@ -278,13 +289,16 @@ export const FollowRail: React.FC = () => {
   );
 };
 
-/** One row, shared by the search results and the starter suggestions —
- *  same shape either way, so the list doesn't visibly change character the
- *  moment a search clears back to suggestions. */
+/** One dense row, shared by the search results and the starter
+ *  suggestions — same shape either way, so the list doesn't visibly change
+ *  character the moment a search clears back to suggestions. Name and
+ *  cuisine/price share a single line rather than stacking, so a screen
+ *  that's meant to offer a lot of starting points can actually fit a lot
+ *  of them without turning into a scroll of tall cards. */
 const RatePlaceRow: React.FC<{
-  id: string; name: string; sub: string; why?: string; rated: boolean;
+  id: string; name: string; sub: string; rated: boolean;
   index: number; onRate: () => void;
-}> = ({ name, sub, why, rated, index, onRate }) => (
+}> = ({ name, sub, rated, index, onRate }) => (
   <motion.li
     initial={{ opacity: 0, y: 10 }}
     animate={{ opacity: 1, y: 0 }}
@@ -296,23 +310,18 @@ const RatePlaceRow: React.FC<{
       transition={OB.SPRING}
       onClick={onRate}
       className="w-full flex items-center gap-3 rounded-2xl text-left cursor-pointer"
-      style={{ padding: '12px 16px', background: 'var(--ob-card)', border: '1px solid var(--ob-border)' }}
+      style={{ padding: '9px 14px', background: 'var(--ob-card)', border: '1px solid var(--ob-border)' }}
     >
-      <span className="flex-1 min-w-0">
-        <span className="block truncate font-serif font-bold" style={{ fontSize: 15, lineHeight: 1.2, color: 'var(--ob-ink)' }}>{name}</span>
-        <span className="block truncate" style={{ fontSize: 12, marginTop: 3, color: 'var(--ob-label)' }}>{sub}</span>
-        {why && (
-          <span className="mt-1.5 inline-block rounded-full" style={{ padding: '3px 9px', fontSize: 10.5, fontWeight: 600, color: OB.TERRA, background: 'var(--ob-badge-bg)' }}>
-            {why}
-          </span>
-        )}
+      <span className="flex-1 min-w-0 truncate" style={{ fontSize: 13.5, lineHeight: 1.3 }}>
+        <span className="font-serif font-bold" style={{ color: 'var(--ob-ink)' }}>{name}</span>
+        <span style={{ color: 'var(--ob-label)' }}> · {sub}</span>
       </span>
       {rated ? (
         <span className="flex-none inline-flex items-center gap-1" style={{ fontSize: 12, fontWeight: 700, color: OB.TERRA }}>
           <Check size={13} strokeWidth={2.6} /> Rated
         </span>
       ) : (
-        <span className="flex-none inline-flex items-center gap-1 rounded-full text-white" style={{ padding: '0 14px', height: 32, fontSize: 12, fontWeight: 700, background: OB.TERRA }}>
+        <span className="flex-none inline-flex items-center gap-1 rounded-full text-white" style={{ padding: '0 14px', height: 30, fontSize: 12, fontWeight: 700, background: OB.TERRA }}>
           <Star size={12} strokeWidth={2.6} /> Rate
         </span>
       )}
@@ -322,7 +331,7 @@ const RatePlaceRow: React.FC<{
 
 /**
  * First-ratings step: search a place, tap Rate, and land in the REAL rating
- * flow (AddRestaurantModal → H2H → settle → community publish). Never a
+ * flow (RatingFlow → H2H → settle → community publish). Never a
  * parallel quick-rate — that would put unranked scores into the ladder.
  *
  * Below an empty search box, this always offers a starting point rather
@@ -332,7 +341,7 @@ const RatePlaceRow: React.FC<{
  * two steps ago. A search takes over the list the moment there's a query;
  * clearing it returns to the suggestions.
  *
- * The host wizard must have <AddRestaurantModal /> mounted: ProfileSetup
+ * The host wizard must have <RatingFlow /> mounted: ProfileSetup
  * renders before App's main branch, so App's own instance isn't there.
  */
 export const RatePlacesStep: React.FC<{
@@ -363,7 +372,7 @@ export const RatePlacesStep: React.FC<{
     if (!city || suggestions !== null) return;
     let cancelled = false;
     setSuggesting(true);
-    fetchTastePreview({ cuisines, prices }, city, { limit: 8 })
+    fetchTastePreview({ cuisines, prices }, city, { limit: 20 })
       .then((places) => { if (!cancelled) setSuggestions(places); })
       .finally(() => { if (!cancelled) setSuggesting(false); });
     return () => { cancelled = true; };
@@ -428,13 +437,13 @@ export const RatePlacesStep: React.FC<{
 
       {searchingActive ? (
         searching && results.length === 0 ? (
-          <div className="space-y-2.5">
-            {[0, 1, 2].map((i) => (
-              <div key={i} className="animate-pulse rounded-2xl" style={{ height: 62, background: 'var(--ob-divider)' }} />
+          <div className="space-y-2">
+            {[0, 1, 2, 3, 4].map((i) => (
+              <div key={i} className="animate-pulse rounded-2xl" style={{ height: 48, background: 'var(--ob-divider)' }} />
             ))}
           </div>
         ) : (
-          <ul className="space-y-2.5">
+          <ul className="space-y-2">
             {results.map((place, idx) => (
               <RatePlaceRow
                 key={place.id}
@@ -464,20 +473,19 @@ export const RatePlacesStep: React.FC<{
             </div>
           )}
           {suggesting ? (
-            <div className="space-y-2.5">
-              {[0, 1, 2, 3].map((i) => (
-                <div key={i} className="animate-pulse rounded-2xl" style={{ height: 62, background: 'var(--ob-divider)' }} />
+            <div className="space-y-2">
+              {[0, 1, 2, 3, 4, 5, 6, 7].map((i) => (
+                <div key={i} className="animate-pulse rounded-2xl" style={{ height: 48, background: 'var(--ob-divider)' }} />
               ))}
             </div>
           ) : suggestions && suggestions.length > 0 ? (
-            <ul className="space-y-2.5">
+            <ul className="space-y-2">
               {suggestions.map((place, idx) => (
                 <RatePlaceRow
                   key={place.id}
                   id={place.id}
                   name={place.name}
                   sub={[cuisineLabel(place), priceLevelToString(place.priceLevel)].filter(Boolean).join(' · ')}
-                  why={place.tasteReasons?.[0] ?? place.reasons?.[0]}
                   rated={ratedIds.has(place.id)}
                   index={idx}
                   onRate={() => rate(place)}

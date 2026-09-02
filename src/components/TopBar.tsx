@@ -8,6 +8,7 @@ import { useChat } from '../contexts/ChatContext';
 import { useNotifications } from '../contexts/NotificationsContext';
 import { useHeaderFade } from '../lib/useHeaderFade';
 import { GlassButton, GlassGroup, GlassSurface } from '../lib/glass-buttons';
+import { Logo } from './Logo';
 
 interface TopBarProps {
   title?: string;
@@ -34,7 +35,7 @@ interface TopBarProps {
   condensedTitle?: string;
 }
 
-export const TopBar: React.FC<TopBarProps> = ({ title = "Gourmet Canvas", rightAction, leftAction, centerLogo = false, showBackButton = false, onBack, fadeOnScroll = false, condensedTitle }) => {
+export const TopBar: React.FC<TopBarProps> = ({ title = "GoodEats", rightAction, leftAction, centerLogo = false, showBackButton = false, onBack, fadeOnScroll = false, condensedTitle }) => {
   const { pendingRequestCount } = useAuth();
   const { unreadCount } = useChat();
   // The Circle button is the only way into the notification centre on a
@@ -60,20 +61,13 @@ export const TopBar: React.FC<TopBarProps> = ({ title = "Gourmet Canvas", rightA
     }
   };
 
-  // The wordmark's serif is set directly rather than through the
-  // `font-serif` utility: pages that scope themselves to a different family
-  // (Home and the restaurant flow are set in Archivo) override that utility
-  // wholesale, and the brand mark was coming out in the page's font instead
-  // of its own. The mark is the one thing that must look identical on every
-  // screen.
-  const logo = (
-    <div
-      className="w-10 h-10 rounded-full bg-primary flex items-center justify-center text-white italic text-xl"
-      style={{ fontFamily: 'var(--font-serif)' }}
-    >
-      G
-    </div>
-  );
+  // Drawn, not set in type. The mark used to be an italic serif "G", which
+  // meant it inherited whatever family the page had scoped itself to —
+  // Home and the restaurant flow run in Archivo and override `font-serif`
+  // wholesale, so the brand mark came out in the page's font and had to
+  // pin `font-family` inline to defend itself. An SVG has no such problem:
+  // it looks identical on every screen because there is no font involved.
+  const logo = <Logo size={40} className="text-primary" />;
 
   // 44pt, not the old 40: a glass control needs enough of itself for the
   // material to read, which is why the system's own circular chrome is this

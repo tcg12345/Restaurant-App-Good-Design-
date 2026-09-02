@@ -1,5 +1,5 @@
 import React from 'react';
-import { LoadingSkeletonList } from 'gourmet-canvas';
+import { LoadingSkeletonList } from 'goodeats';
 
 /**
  * `count` placeholders of one variant, so callers don't map an array inline.

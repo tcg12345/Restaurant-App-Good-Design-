@@ -21,7 +21,8 @@ import { formatDuration, formatDurationCompact, getMealCoverUrl, scaleQuantity, 
 import { getHomeMealReviews, summarizeReviews, type HomeMealReview } from '../lib/supabase-home-meal-reviews';
 import { getProfilesByIds, getFriends, type UserProfile } from '../lib/supabase-community';
 import { useLists, DEFAULT_WANT_TO_COOK_ID, DEFAULT_COOKED_ID, type CustomList, type PhotoItem, type Trip, type TripRestaurant, type RestaurantRating, type RestaurantMeta, type HomeMeal, type Recipe } from '../contexts/ListsContext';
-import { PhonePantryHome } from '../components/PhonePantryHome';
+import { PantryPhoneHeader } from '../components/PantryPhoneHeader';
+import { PantryListSwitcherDrawer, type DrawerSection } from '../components/PantryListSwitcherDrawer';
 import { SearchPopup } from '../components/SearchPopup';
 import { useSettings } from '../contexts/SettingsContext';
 import { usePageAddAction } from '../contexts/PageAddActionContext';
@@ -1396,7 +1397,14 @@ const ListDetailView: React.FC<{
   viewMode: 'list' | 'grid';
   onViewModeChange: (m: 'list' | 'grid') => void;
   onBack: () => void;
-}> = ({ list, viewMode, onViewModeChange, onBack }) => {
+  /** The page owns the phone chrome now — drop this view's own top bar. */
+  hidePhoneHeader?: boolean;
+  /** Phone: search + filters fold away behind the header's search toggle. */
+  searchOpen?: boolean;
+  /** Delete confirmation, driven from the page header's ⋯ menu. */
+  confirmDelete?: boolean;
+  onConfirmDeleteChange?: (open: boolean) => void;
+}> = ({ list, viewMode, onViewModeChange, onBack, hidePhoneHeader = false, searchOpen = true, confirmDelete, onConfirmDeleteChange }) => {
   const { ratings, getRestaurantInfo, removeFromList, removeFromWishlistInList, openAddRestaurantModal, deleteList, wishlist, removeFromWishlist, addToList, setListRating, getListRating, getRecipes, openAddRecipeModal, openHomeMealModal, removeRecipe, removeRecipeFromCookedList, updateRecipe, restaurantMeta, scoresUnlocked } = useLists();
   const { phoneMode, twoDecimalScores } = useSettings();
   const { user } = useAuth();
@@ -1423,7 +1431,10 @@ const ListDetailView: React.FC<{
     }
   }, [ratings, list.id, setListRating]);
   const [searchQuery, setSearchQuery] = useState('');
-  const [confirmDeleteList, setConfirmDeleteList] = useState(false);
+  const [localConfirmDelete, setLocalConfirmDelete] = useState(false);
+  // Controlled by the page header when it owns the ⋯ menu; local otherwise.
+  const confirmDeleteList = confirmDelete ?? localConfirmDelete;
+  const setConfirmDeleteList = onConfirmDeleteChange ?? setLocalConfirmDelete;
 
   const isWishlistView = list.id === '__wishlist__';
   const isDefaultWantToCook = list.id === DEFAULT_WANT_TO_COOK_ID;
@@ -1879,7 +1890,7 @@ const ListDetailView: React.FC<{
           matching the All Rated layout. Desktop drops this entire row
           — Pantry's tab pill handles navigation, the toolbar below
           handles search, and delete moves to the More menu (⋯). */}
-      {phoneMode && (
+      {phoneMode && !hidePhoneHeader && (
         <div className="pt-safe-4 flex items-center gap-2.5 mb-3.5">
           <GlassButton
             id="list-back"
@@ -2095,19 +2106,21 @@ const ListDetailView: React.FC<{
         </div>
       )}
 
-      {/* Always-visible search input — phone only. Mirrors the All
-          Rated phone layout so every list reads the same. Desktop uses
-          the header-scoped "Search this list" button instead. */}
+      {/* Search input — phone only. Folds away behind the page header's
+          search toggle so three rows of chrome aren't permanently parked
+          above the list. Desktop uses its "Search this list" button. */}
       {phoneMode && (
-        <div className="mb-4">
-          <SearchField
-            glassId="list-detail-search"
-            value={searchQuery}
-            onChange={setSearchQuery}
-            placeholder="Search by name, cuisine, location…"
-            aria-label="Search this list"
-          />
-        </div>
+        <Collapse open={searchOpen}>
+          <div className="pb-4">
+            <SearchField
+              glassId="list-detail-search"
+              value={searchQuery}
+              onChange={setSearchQuery}
+              placeholder="Search by name, cuisine, location…"
+              aria-label="Search this list"
+            />
+          </div>
+        </Collapse>
       )}
 
       {/* Delete list confirmation */}
@@ -2637,9 +2650,13 @@ const WishlistFilterSheet: React.FC<{
 };
 
 /* ── Main Page ── */
-// Top-level tab on the Pantry landing. Restaurants is the default; Recipes
-// surfaces the cookbook (all home meals) plus user-created recipe lists.
-type PantryTab = 'restaurants' | 'recipes';
+// Synthetic ids for the views that aren't a real CustomList, so the header
+// chips and the switcher drawer can mark exactly one row active whatever is
+// on screen. Custom lists use their own id; cuisines are namespaced.
+const VIEW_RATED = 'rated';
+const VIEW_COOKBOOK = 'cookbook';
+const VIEW_WISHLIST = '__wishlist__';
+const cuisineViewId = (name: string) => `cuisine:${name}`;
 
 /* ── Helper: format date range ── */
 function formatDateRange(start: string, end: string): string {
@@ -2727,7 +2744,7 @@ const AddToNightSheet: React.FC<{
     if (resolvedCoordsRef.current) return resolvedCoordsRef.current;
     if (!tripDestination.trim() || !MAPBOX_TOKEN) return null;
     try {
-      const res = await fetch(`https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(tripDestination)}.json?access_token=${MAPBOX_TOKEN}&types=place,locality&limit=1`);
+      const res = await fetch(`https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(tripDestination)}.json?access_token=${MAPBOX_TOKEN}&types=place,locality&language=en&limit=1`);
       const data = await res.json();
       const center = data?.features?.[0]?.center;
       if (Array.isArray(center) && Number.isFinite(center[0]) && Number.isFinite(center[1])) {
@@ -3452,7 +3469,7 @@ const CreateTripSheet: React.FC<{
     setLocLoading(true);
     locDebounceRef.current = setTimeout(async () => {
       try {
-        const res = await fetch(`https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(locQuery)}.json?access_token=${MAPBOX_TOKEN}&types=place,locality&limit=5`);
+        const res = await fetch(`https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(locQuery)}.json?access_token=${MAPBOX_TOKEN}&types=place,locality&language=en&limit=5`);
         const data = await res.json();
         setLocResults((data.features || []).map((f: any) => ({ id: f.id, name: f.place_name, lat: f.center[1], lng: f.center[0] })));
       } catch { setLocResults([]); }
@@ -3685,11 +3702,16 @@ const HomeCookingTab: React.FC<{
   onBack: () => void;
   selectedMealId: string | null;
   onSelectMeal: (id: string | null) => void;
-  // When the desktop tabs render this view, the page already has a
-  // tab strip + back via the Restaurants tab — skip the local back
-  // button + duplicate header to avoid two layers of chrome.
+  // When the page's own tabs render this view, the chrome already exists
+  // above it — skip the local back button + duplicate header to avoid two
+  // layers of it.
   hideHeader?: boolean;
-}> = ({ meals, onUpdateMeal, onDeleteMeal, onOpenModal, onBack, selectedMealId, onSelectMeal, hideHeader = false }) => {
+  /** Phone: search + filters fold away behind the header's search toggle. */
+  searchOpen?: boolean;
+  /** Lifted to the page so the switcher's cuisine rows can drive it. */
+  cuisineFilter?: string[];
+  onCuisineFilterChange?: (next: string[]) => void;
+}> = ({ meals, onUpdateMeal, onDeleteMeal, onOpenModal, onBack, selectedMealId, onSelectMeal, hideHeader = false, searchOpen = true, cuisineFilter: cuisineFilterProp, onCuisineFilterChange }) => {
   const { phoneMode, twoDecimalScores } = useSettings();
   const { user } = useAuth();
   const { showToast } = useToast();
@@ -3698,7 +3720,14 @@ const HomeCookingTab: React.FC<{
   const [sortBy, setSortBy] = useState<'recent' | 'highest' | 'lowest' | 'quickest'>('recent');
   // Recipe filters — these are recipe-specific and mirror the
   // restaurant filter shape (Cuisine / Difficulty / Time / Sort).
-  const [cuisineFilter, setCuisineFilter] = useState<string[]>([]);
+  const [localCuisineFilter, setLocalCuisineFilter] = useState<string[]>([]);
+  const cuisineFilter = cuisineFilterProp ?? localCuisineFilter;
+  const setCuisineFilter = ((next) => {
+    const resolved = typeof next === 'function'
+      ? (next as (p: string[]) => string[])(cuisineFilter)
+      : next;
+    (onCuisineFilterChange ?? setLocalCuisineFilter)(resolved);
+  }) as React.Dispatch<React.SetStateAction<string[]>>;
   const [difficultyFilter, setDifficultyFilter] = useState<Array<'Easy' | 'Medium' | 'Hard'>>([]);
   const [timeFilter, setTimeFilter] = useState<'fast' | 'medium' | 'slow' | null>(null);
   const [recipeFiltersOpen, setRecipeFiltersOpen] = useState(false);
@@ -4423,7 +4452,7 @@ const HomeCookingTab: React.FC<{
 
   return (
     <div>
-      {hideHeader ? (
+      {hideHeader && !phoneMode ? (
         // Desktop toolbar — same shape as the rated view + list detail.
         // Search this list pill on the left, then Filters + anchored
         // recipe-specific pills (Cuisine / Difficulty / Time / Sort),
@@ -4565,12 +4594,14 @@ const HomeCookingTab: React.FC<{
         <>
           {/* Reference bar — glass back, the Saved toggle, a green add
               circle. The whole block sticks; the search field folds away
-              once the list scrolls so the chips ride just under the bar. */}
-          <div className={cn(
+              once the list scrolls so the chips ride just under the bar.
+              When the page owns the chrome (hideHeader) the sticky wrapper
+              and the action row drop out — only search + chips remain. */}
+          <div className={hideHeader ? undefined : cn(
             'sticky top-0 z-30 -mx-3 px-3 bg-surface/[0.94] backdrop-blur-lg border-b transition-colors duration-300',
             scrolled ? 'border-on-surface/[0.10]' : 'border-transparent',
           )}>
-            <div className="pt-safe-4 flex items-center gap-2">
+            <div className={cn('pt-safe-4 flex items-center gap-2', hideHeader && 'hidden')}>
               <GlassButton
                 id="cooking-back"
                 symbol="chevron.left"
@@ -4608,11 +4639,17 @@ const HomeCookingTab: React.FC<{
             </div>
 
             {/* Collapsing search — the native glass field hides itself when
-                the wrapper folds (opacity 0 → the mirror resigns + hides). */}
+                the wrapper folds (opacity 0 → the mirror resigns + hides).
+                With the page header in charge it folds on the header's
+                toggle instead of on scroll. */}
             <div
               className="overflow-hidden transition-[max-height,opacity] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)]"
-              style={{ maxHeight: scrolled ? 0 : 64, opacity: scrolled ? 0 : 1 }}
-              aria-hidden={scrolled || undefined}
+              style={
+                hideHeader
+                  ? { maxHeight: searchOpen ? 64 : 0, opacity: searchOpen ? 1 : 0 }
+                  : { maxHeight: scrolled ? 0 : 64, opacity: scrolled ? 0 : 1 }
+              }
+              aria-hidden={(hideHeader ? !searchOpen : scrolled) || undefined}
             >
               <div className="pt-3">
                 <SearchField
@@ -4626,7 +4663,10 @@ const HomeCookingTab: React.FC<{
             </div>
 
             {meals.length > 0 && (
-              <div className="flex gap-2 pt-3 pb-3 overflow-x-auto scrollbar-hide -mx-3 px-3" style={{ WebkitOverflowScrolling: 'touch' }}>
+              <div
+                className="flex gap-2 pt-3 pb-3 overflow-x-auto scrollbar-hide -mx-3 px-3"
+                style={{ WebkitOverflowScrolling: 'touch' }}
+              >
                 <FilterPill onClick={() => setRecipeFiltersOpen(true)}
                   icon={<SlidersHorizontal size={12} />} label="Filters"
                   active={recipeActiveFilterCount > 0}
@@ -5671,14 +5711,19 @@ export const Pantry: React.FC = () => {
   // appear and whether a custom list is tagged as a recipe list.
   const [createSheetKind, setCreateSheetKind] = useState<'restaurants' | 'recipes'>('restaurants');
   const [viewMode, setViewMode] = useState<'list' | 'grid'>('grid');
-  const [pantryTab, setPantryTab] = useState<PantryTab>('restaurants');
   const [showTrips, setShowTrips] = useState<boolean>(() => initialUrlState.view === 'trips');
   const [showHomeCooking, setShowHomeCooking] = useState<boolean>(() => initialUrlState.view === 'home-cooking');
   const [homeCookingSelectedMealId, setHomeCookingSelectedMealId] = useState<string | null>(null);
-  // Set to true when the user taps the rated "Your canvas" tile from the
-  // landing card grid — drops into the existing rated-list rendering.
-  const [showAllRated, setShowAllRated] = useState(false);
   const [createTripFromList, setCreateTripFromList] = useState(false);
+  // Phone chrome: the search + filter row folds away by default (three rows
+  // of header above a list you came here to read is enough), and the title
+  // opens the list switcher.
+  const [pantrySearchOpen, setPantrySearchOpen] = useState(false);
+  const [listDrawerOpen, setListDrawerOpen] = useState(false);
+  // Lifted out of HomeCookingTab / ListDetailView so the page header's
+  // cuisine rows and ⋯ menu can drive them.
+  const [recipeCuisineFilter, setRecipeCuisineFilter] = useState<string[]>([]);
+  const [confirmDeletePageList, setConfirmDeletePageList] = useState(false);
   const { phoneMode, setHideBottomNav, twoDecimalScores } = useSettings();
   const { user } = useAuth();
   const { setOverride: setPageAddAction } = usePageAddAction();
@@ -5745,7 +5790,7 @@ export const Pantry: React.FC = () => {
   const [recsOpen, setRecsOpen] = useState(false);
 
   // Desktop list switcher — replaces the sidebar's old Pantry tray. The
-  // button shows the current view ("All Rated", "All Recipes", "Wishlist"),
+  // button shows the current view ("Your rankings", "All Recipes", "Wishlist"),
   // and a popover lists every other list grouped by Restaurants / Recipes
   // so the user can jump between them without leaving the page.
   const [listSwitcherOpen, setListSwitcherOpen] = useState(false);
@@ -5852,16 +5897,37 @@ export const Pantry: React.FC = () => {
    *   ?view=trips          → Trips planner
    *   ?new-list=1          → opens the create-list sheet, then strips
    *                          the param so a refresh doesn't re-open it
-   * Plain `/pantry` resets back to the main lists overview.
+   * Plain `/pantry` resets back to the main lists overview — but only
+   * when that's a real in-page back-step (e.g. popping out of a custom
+   * list via the browser/swipe-back history). Pantry is a keep-alive tab
+   * root, so the bottom nav's Lists tab always targets bare `/pantry`
+   * too, and arriving there FROM ANOTHER ROUTE is a tab switch, not a
+   * "go back to the overview" — it should land wherever you left off
+   * (Recipes stays Recipes). `lastPathnameRef` is what tells the two
+   * apart: unchanged (still '/pantry') means an internal transition,
+   * changed means we just switched tabs.
    *
-   * Crucially this effect's deps are URL-only — `lists` lives in a
-   * sibling effect below. Mixing them caused a regression where any
+   * Crucially the URL-branches below are otherwise deps-only — `lists`
+   * lives in a sibling effect. Mixing them caused a regression where any
    * list mutation (e.g. addToList) re-ran this effect, found no URL
    * params (because the user had navigated via state, not URL), and
    * blew selectedList back to null — i.e. dumped the user back to the
    * rated view mid-action.
    */
+  const lastPathnameRef = useRef<string | null>(null);
   useEffect(() => {
+    const arrivedFromElsewhere = lastPathnameRef.current !== null && lastPathnameRef.current !== '/pantry';
+    lastPathnameRef.current = location.pathname;
+
+    // Pantry is a keep-alive tab root — it stays mounted (and this
+    // `location` keeps updating) for the entire app session, including
+    // while a completely different route is on screen. Without this guard,
+    // navigating AWAY to e.g. Home ran this effect with pathname '/' and
+    // fell straight through every branch below to "plain /pantry", wiping
+    // showHomeCooking the instant the user left — not when they returned —
+    // which is what made the Recipes tab forget itself in the first place.
+    if (location.pathname !== '/pantry') return;
+
     const sp = new URLSearchParams(location.search);
     const listId = sp.get('list');
     const view = sp.get('view');
@@ -5911,7 +5977,11 @@ export const Pantry: React.FC = () => {
       return;
     }
 
-    // Plain /pantry — clear any sub-view state.
+    // Plain /pantry — clear any sub-view state, UNLESS we just switched
+    // to this tab from a different route, in which case whatever
+    // section/list was open before we left is still the right thing to
+    // show (see the comment above this effect).
+    if (arrivedFromElsewhere) return;
     setSelectedList(null);
     setShowHomeCooking(false);
     setShowTrips(false);
@@ -6051,18 +6121,18 @@ export const Pantry: React.FC = () => {
       : lists.find((l) => l.id === selectedList.id) ?? null
     : null;
 
-  // The card-grid landing is phone-only — desktop lands on the rated list
-  // directly and uses the on-page list switcher to jump between lists.
-  // Hide the top More menu on that phone landing — the import/export/
-  // reorder actions live on the rated list where they make sense.
-  const onPhoneCardHome =
-    phoneMode && !currentList && !showHomeCooking && !showTrips && !showAllRated;
-  const hideTopBar =
-    (showHomeCooking && homeCookingSelectedMealId !== null) || onPhoneCardHome;
+  const hideTopBar = showHomeCooking && homeCookingSelectedMealId !== null;
 
-  // ── Override the desktop header's Add CTA per view ──
-  // Phone keeps the default behavior. On desktop, the button label and
-  // click handler swap based on which list is open:
+  // Phone's page-level chrome (segment · title · chip rail) sits above the
+  // whole view switch, so it has to stand down for the two things that are
+  // their own screen rather than a list: a recipe's detail drill-down, and
+  // Trips (which was never part of the list-switcher pattern on either
+  // platform and keeps its own navigation).
+  const showPhoneHeader =
+    phoneMode && !showTrips && !(showHomeCooking && homeCookingSelectedMealId !== null);
+
+  // ── The Add CTA for whichever view is open ──
+  // The label and handler swap based on which list is showing:
   //   • Recipe view (All Recipes or a custom recipe list) → "Add Recipe",
   //     opens the three-tab recipe builder (targeted at the current
   //     list when one is selected).
@@ -6070,50 +6140,42 @@ export const Pantry: React.FC = () => {
   //     SearchPopup in 'add-to-list' mode (rated section + search).
   //   • Rated list → "Add Rating", opens the SearchPopup in 'rate-new'
   //     mode (search-only — your rated places are already on the page).
-  //   • Trips / phone card landing → fall through to the default
-  //     /search/main route.
-  useEffect(() => {
-    if (phoneMode || onPhoneCardHome) {
-      setPageAddAction(null);
-      return;
-    }
-    if (showTrips) {
-      setPageAddAction(null);
-      return;
-    }
+  //   • Trips → nothing; it isn't a list.
+  // Computed as a value rather than pushed straight at the desktop header,
+  // because phone's own header needs the same decision and can't read it
+  // back out of usePageAddAction (that context only feeds the Sidebar).
+  const pantryAddAction = useMemo<{ label: string; onClick: () => void } | null>(() => {
+    if (showTrips) return null;
     if (showHomeCooking) {
-      setPageAddAction({
-        label: 'Add Recipe',
-        onClick: () => openHomeMealModal(),
-      });
-      return;
+      return { label: 'Add Recipe', onClick: () => openHomeMealModal() };
     }
     if (selectedList && selectedList.type === 'home-cooking') {
-      setPageAddAction({
+      return {
         label: 'Add Recipe',
         // Same three-tab builder as the cookbook — targetListId lands the
         // new recipe in this list too. (The basic AddRecipeModal is only
         // for editing a list's existing legacy entries.)
         onClick: () => openHomeMealModal(undefined, { targetListId: selectedList.id }),
-      });
-      return;
+      };
     }
     if (selectedList) {
       // Wishlist or custom restaurant list → SearchPopup with rated
       // section so the user can one-tap their already-rated places into
       // the list.
-      setPageAddAction({
+      return {
         label: 'Add Rating',
         onClick: () => { setSearchPopupMode('add-to-list'); setSearchPopupOpen(true); },
-      });
-      return;
+      };
     }
-    // Default rated view (with or without showAllRated): search-only popup.
-    setPageAddAction({
+    return {
       label: 'Add Rating',
       onClick: () => { setSearchPopupMode('rate-new'); setSearchPopupOpen(true); },
-    });
-  }, [phoneMode, onPhoneCardHome, showTrips, showHomeCooking, selectedList, openHomeMealModal, setPageAddAction]);
+    };
+  }, [showTrips, showHomeCooking, selectedList, openHomeMealModal]);
+
+  useEffect(() => {
+    setPageAddAction(phoneMode ? null : pantryAddAction);
+  }, [phoneMode, pantryAddAction, setPageAddAction]);
 
   // Reset the override when Pantry unmounts so other pages start clean.
   useEffect(() => {
@@ -6125,7 +6187,7 @@ export const Pantry: React.FC = () => {
   // path into a recipe-y view (cookbook, recipe sub-list) lights up the
   // Recipes tab; everything else (rated, wishlist, restaurant sub-list)
   // sits under Restaurants.
-  const activeDesktopTab: 'restaurants' | 'recipes' = showHomeCooking
+  const activePantrySection: 'restaurants' | 'recipes' = showHomeCooking
     ? 'recipes'
     : (selectedList && selectedList.type === 'home-cooking')
       ? 'recipes'
@@ -6137,11 +6199,11 @@ export const Pantry: React.FC = () => {
   // page) brings the user back to the same list, not All Rated.
   const goToRestaurantsTab = () => {
     setShowHomeCooking(false); setShowTrips(false);
-    setSelectedList(null); setShowAllRated(false);
+    setSelectedList(null);
     if (location.pathname !== '/pantry' || location.search) navigate('/pantry');
   };
   const goToRecipesTab = () => {
-    setSelectedList(null); setShowTrips(false); setShowAllRated(false);
+    setSelectedList(null); setShowTrips(false);
     setShowHomeCooking(true);
     navigate('/pantry?view=home-cooking');
   };
@@ -6164,7 +6226,7 @@ export const Pantry: React.FC = () => {
     }
     if (showHomeCooking) return { emoji: '🍳', name: 'All Recipes', count: homeMeals.length };
     if (showTrips) return { emoji: '✈️', name: 'Trips', count: trips.length };
-    return { emoji: '⭐', name: 'All Rated', count: regularRatingsCount };
+    return { emoji: '⭐', name: 'Your rankings', count: regularRatingsCount };
   })();
 
   // Restaurant + recipe lists split for the popover sections.
@@ -6190,15 +6252,14 @@ export const Pantry: React.FC = () => {
   // (e.g. clicking a restaurant or recipe) and back lands the user on
   // the same list — not All Rated.
   const switchToRated = () => {
-    setListSwitcherOpen(false);
+    setListSwitcherOpen(false); setListDrawerOpen(false);
     setShowHomeCooking(false); setShowTrips(false);
-    setSelectedList(null); setShowAllRated(false);
+    setSelectedList(null);
     if (location.pathname !== '/pantry' || location.search) navigate('/pantry');
   };
   const switchToWishlist = () => {
-    setListSwitcherOpen(false);
+    setListSwitcherOpen(false); setListDrawerOpen(false);
     setShowHomeCooking(false); setShowTrips(false);
-    setShowAllRated(false);
     setSelectedList({
       id: '__wishlist__', name: 'Wishlist', emoji: '🔖',
       restaurantIds: [], wishlistIds: regularWishlist.map((w) => w.restaurantId),
@@ -6207,23 +6268,181 @@ export const Pantry: React.FC = () => {
     navigate('/pantry?list=__wishlist__');
   };
   const switchToList = (list: CustomList) => {
-    setListSwitcherOpen(false);
-    setShowHomeCooking(false); setShowTrips(false); setShowAllRated(false);
+    setListSwitcherOpen(false); setListDrawerOpen(false);
+    setShowHomeCooking(false); setShowTrips(false);
     setSelectedList(list);
     navigate(`/pantry?list=${encodeURIComponent(list.id)}`);
   };
   const switchToAllRecipes = () => {
-    setListSwitcherOpen(false);
-    setSelectedList(null); setShowTrips(false); setShowAllRated(false);
+    setListSwitcherOpen(false); setListDrawerOpen(false);
+    setSelectedList(null); setShowTrips(false);
     setShowHomeCooking(true);
     navigate('/pantry?view=home-cooking');
   };
   const switchToTrips = () => {
-    setListSwitcherOpen(false);
-    setSelectedList(null); setShowHomeCooking(false); setShowAllRated(false);
+    setListSwitcherOpen(false); setListDrawerOpen(false);
+    setSelectedList(null); setShowHomeCooking(false);
     setShowTrips(true);
     navigate('/pantry?view=trips');
   };
+
+  // ── Phone header + switcher drawer data ──────────────────────────────
+  // Which list is on screen, as one id the chips and the drawer both
+  // compare against. A cuisine isn't a list of its own — it's the tab's
+  // default list with one cuisine filter on it — so that's what makes a
+  // cuisine row read as the active one.
+  const activeViewId = selectedList
+    ? selectedList.id
+    : showHomeCooking
+      ? (recipeCuisineFilter.length === 1 ? cuisineViewId(recipeCuisineFilter[0]) : VIEW_COOKBOOK)
+      : (cuisineFilter.length === 1 ? cuisineViewId(cuisineFilter[0]) : VIEW_RATED);
+
+  // Cuisine breakdowns — the drawer's third section. Restaurants average
+  // their ratings; recipes average their scores. Only cuisines with enough
+  // entries to have a meaningful average are worth a row.
+  const restaurantCuisineStats = useMemo(() => {
+    const by = new Map<string, { count: number; sum: number }>();
+    for (const r of ratings) {
+      const c = (r.cuisine || '').trim();
+      if (!c) continue;
+      const e = by.get(c) || { count: 0, sum: 0 };
+      e.count += 1; e.sum += r.score || 0;
+      by.set(c, e);
+    }
+    return [...by.entries()]
+      .filter(([, e]) => e.count >= 2)
+      .map(([name, e]) => ({ name, count: e.count, avg: e.sum / e.count }))
+      .sort((a, b) => b.count - a.count || b.avg - a.avg)
+      .slice(0, 8);
+  }, [ratings]);
+
+  // Recipes are often logged without a score, so the average is taken over
+  // the scored ones only and comes back null when there are none — a "0.0"
+  // ring would read as "rated zero" rather than "not rated".
+  const recipeCuisineStats = useMemo(() => {
+    const by = new Map<string, { count: number; scored: number; sum: number }>();
+    for (const m of homeMeals) {
+      const c = (m.cuisine || '').trim();
+      if (!c) continue;
+      const e = by.get(c) || { count: 0, scored: 0, sum: 0 };
+      e.count += 1;
+      if (m.score > 0) { e.scored += 1; e.sum += m.score; }
+      by.set(c, e);
+    }
+    return [...by.entries()]
+      .filter(([, e]) => e.count >= 2)
+      .map(([name, e]) => ({ name, count: e.count, avg: e.scored > 0 ? e.sum / e.scored : null }))
+      .sort((a, b) => b.count - a.count || (b.avg ?? 0) - (a.avg ?? 0))
+      .slice(0, 8);
+  }, [homeMeals]);
+
+  // A cuisine is the tab's default list with a cuisine filter applied —
+  // which is what the old landing's cuisine rail did too. Picking the
+  // default list itself therefore has to lift that filter back off, or
+  // "Rankings" would quietly still be showing only Italian.
+  const switchToRestaurantCuisine = (cuisine: string) => {
+    setCuisineFilter([cuisine]);
+    switchToRated();
+  };
+  const switchToRecipeCuisine = (cuisine: string) => {
+    setRecipeCuisineFilter([cuisine]);
+    switchToAllRecipes();
+  };
+  const switchToAllRated = () => { setCuisineFilter([]); switchToRated(); };
+  const switchToWholeCookbook = () => { setRecipeCuisineFilter([]); switchToAllRecipes(); };
+
+  const isRecipeSection = activePantrySection === 'recipes';
+
+  // The header names what you're actually looking at, so a cuisine view
+  // says the cuisine rather than leaving "Your rankings" over a list that
+  // is visibly only Indian.
+  const phoneViewLabel = (() => {
+    if (selectedList) return currentViewLabel;
+    const cuisines = isRecipeSection ? recipeCuisineFilter : cuisineFilter;
+    if (cuisines.length !== 1) return currentViewLabel;
+    const stats = (isRecipeSection ? recipeCuisineStats : restaurantCuisineStats)
+      .find((c) => c.name === cuisines[0]);
+    return { name: cuisines[0], count: stats?.count ?? 0 };
+  })();
+
+  const openNewListSheet = () => {
+    setListDrawerOpen(false);
+    setCreateSheetKind(isRecipeSection ? 'recipes' : 'restaurants');
+    setCreateSheetOpen(true);
+  };
+
+  const drawerSections: DrawerSection[] = isRecipeSection
+    ? [
+        { label: 'Essentials', items: [
+          { id: VIEW_COOKBOOK, name: 'All Recipes', meta: `${homeMeals.length} in your cookbook`, icon: <ChefHat size={17} />, onSelect: switchToWholeCookbook },
+        ] },
+        { label: 'Recipe lists', items: recipeListsForSwitcher.map((l) => ({
+          id: l.id, name: l.name,
+          meta: `${l.recipes?.length || 0} ${(l.recipes?.length || 0) === 1 ? 'recipe' : 'recipes'}`,
+          icon: <span className="text-base leading-none">{l.emoji}</span>,
+          onSelect: () => switchToList(l),
+        })) },
+        { label: 'By cuisine', items: recipeCuisineStats.map((c) => ({
+          id: cuisineViewId(c.name), name: c.name,
+          meta: `${c.count} ${c.count === 1 ? 'recipe' : 'recipes'}`,
+          ...(c.avg !== null ? { score: c.avg } : { icon: <ChefHat size={17} /> }),
+          onSelect: () => switchToRecipeCuisine(c.name),
+        })) },
+      ]
+    : [
+        { label: 'Essentials', items: [
+          { id: VIEW_RATED, name: 'Your rankings', meta: `${regularRatingsCount} rated`, icon: <Star size={17} />, onSelect: switchToAllRated },
+          { id: VIEW_WISHLIST, name: 'Want to try', meta: `${regularWishlist.length} saved for later`, icon: <Bookmark size={17} />, onSelect: switchToWishlist },
+        ] },
+        { label: 'Collections', items: restaurantListsForSwitcher.map((l) => ({
+          id: l.id, name: l.name,
+          meta: (() => {
+            const n = l.restaurantIds.length + (l.wishlistIds?.length || 0);
+            return `${n} ${n === 1 ? 'place' : 'places'}`;
+          })(),
+          icon: <span className="text-base leading-none">{l.emoji}</span>,
+          onSelect: () => switchToList(l),
+        })) },
+        { label: 'By cuisine', items: restaurantCuisineStats.map((c) => ({
+          id: cuisineViewId(c.name), name: c.name,
+          meta: `${c.count} ${c.count === 1 ? 'place' : 'places'} rated`,
+          score: c.avg,
+          onSelect: () => switchToRestaurantCuisine(c.name),
+        })) },
+      ];
+
+  // Row 1's ⋯ — whatever the view on screen can actually do.
+  const pantryMoreItems = (() => {
+    if (selectedList) {
+      const protectedList = selectedList.id === VIEW_WISHLIST
+        || selectedList.id === DEFAULT_WANT_TO_COOK_ID
+        || selectedList.id === DEFAULT_COOKED_ID;
+      const items: { label: string; icon?: React.ReactNode; onClick: () => void; destructive?: boolean }[] = [];
+      // Restaurant lists can be plotted; recipe lists have nothing to plot.
+      if (selectedList.type !== 'home-cooking') {
+        items.push({
+          label: 'View on map',
+          icon: <MapPin size={14} />,
+          onClick: () => navigate('/map', { state: { listView: { id: selectedList.id } } }),
+        });
+      }
+      if (!protectedList) {
+        items.push({
+          label: 'Delete list',
+          icon: <Trash2 size={14} />,
+          destructive: true,
+          onClick: () => setConfirmDeletePageList(true),
+        });
+      }
+      return items;
+    }
+    if (showHomeCooking) return [];
+    return [
+      { label: 'Export CSV', icon: <Download size={14} />, onClick: () => handleExport('csv') },
+      { label: 'Export JSON', icon: <Download size={14} />, onClick: () => handleExport('json') },
+      { label: 'Reorder ratings', icon: <ArrowUpDown size={14} />, onClick: () => navigate('/reorder') },
+    ];
+  })();
 
   return (
     <div className="pb-32 type-archivo">
@@ -6248,14 +6467,14 @@ export const Pantry: React.FC = () => {
             <div className="relative" ref={listSwitcherRef}>
               <div className="inline-flex bg-on-surface/[0.06] rounded-full p-1">
                 <CombinedTabButton
-                  isActive={activeDesktopTab === 'restaurants'}
+                  isActive={activePantrySection === 'restaurants'}
                   inactiveLabel="Restaurants"
                   activeEmoji={currentViewLabel.emoji}
                   activeName={currentViewLabel.name}
                   activeCount={currentViewLabel.count}
                   dropdownOpen={listSwitcherOpen}
                   onClick={() => {
-                    if (activeDesktopTab === 'restaurants') {
+                    if (activePantrySection === 'restaurants') {
                       setListSwitcherOpen((o) => !o);
                     } else {
                       goToRestaurantsTab();
@@ -6264,14 +6483,14 @@ export const Pantry: React.FC = () => {
                   }}
                 />
                 <CombinedTabButton
-                  isActive={activeDesktopTab === 'recipes'}
+                  isActive={activePantrySection === 'recipes'}
                   inactiveLabel="Recipes"
                   activeEmoji={currentViewLabel.emoji}
                   activeName={currentViewLabel.name}
                   activeCount={currentViewLabel.count}
                   dropdownOpen={listSwitcherOpen}
                   onClick={() => {
-                    if (activeDesktopTab === 'recipes') {
+                    if (activePantrySection === 'recipes') {
                       setListSwitcherOpen((o) => !o);
                     } else {
                       goToRecipesTab();
@@ -6291,11 +6510,11 @@ export const Pantry: React.FC = () => {
                     transition={{ duration: 0.14, ease: 'easeOut' }}
                     className="absolute left-0 top-full origin-top-left mt-2 w-72 max-h-[70vh] overflow-y-auto bg-surface rounded-2xl shadow-xl border border-on-surface/[0.08] z-50 py-2"
                   >
-                    {activeDesktopTab === 'restaurants' ? (
+                    {activePantrySection === 'restaurants' ? (
                       <>
                         <SwitcherRow
                           icon={<span className="text-base leading-none">⭐</span>}
-                          label="All Rated"
+                          label="Your rankings"
                           count={regularRatingsCount}
                           active={!showHomeCooking && !showTrips && !selectedList}
                           onClick={switchToRated}
@@ -6398,8 +6617,52 @@ export const Pantry: React.FC = () => {
       )}
 
       <main className="px-3">
+        {/* Phone's page chrome — segment · title · chip rail. It sits above
+            the whole view switch rather than inside one arm of it, because
+            every arm below is a list and they all navigate through it. */}
+        {showPhoneHeader && (
+          <PantryPhoneHeader
+            activeSection={activePantrySection}
+            onSelectRestaurants={goToRestaurantsTab}
+            onSelectRecipes={goToRecipesTab}
+            viewLabel={phoneViewLabel}
+            drawerOpen={listDrawerOpen}
+            onOpenDrawer={() => setListDrawerOpen(true)}
+            onOpenRecommendations={isRecipeSection ? undefined : () => navigate('/pantry/recommended')}
+            /* The recipes side of the same slot: "what should I cook
+               tonight?" → the AI creator, landed on the brainstorm. */
+            onOpenIdeas={isRecipeSection ? () => openHomeMealModal(undefined, { initialMethod: 'ai', initialAiView: 'ideas' }) : undefined}
+            searchOpen={pantrySearchOpen}
+            onToggleSearch={() => {
+              // Opening from the condensed cluster means the field itself is
+              // scrolled off — bring it back into view. Kept out of the state
+              // updater, which has to stay pure.
+              if (!pantrySearchOpen) window.scrollTo({ top: 0, behavior: 'smooth' });
+              setPantrySearchOpen((v) => !v);
+            }}
+            // Restaurants drop the Add button: rating a new place already
+            // has its own front doors (the Home create button and search),
+            // and the row reads cleaner without it. Recipes keep theirs —
+            // the cookbook is where you'd actually add one from.
+            addAction={isRecipeSection ? pantryAddAction : null}
+            moreMenu={<ListMoreMenu glass glassId="pantry-page-more" items={pantryMoreItems} />}
+            headerRef={listFade.headerRef as React.Ref<HTMLDivElement>}
+            headerStyle={listFade.headerStyle as React.CSSProperties}
+            condensedStyle={listFade.condensedStyle as React.CSSProperties}
+          />
+        )}
+
         {currentList ? (
-          <ListDetailView list={currentList} viewMode={effectiveViewMode} onViewModeChange={setViewMode} onBack={() => navigate('/pantry')} />
+          <ListDetailView
+            list={currentList}
+            viewMode={effectiveViewMode}
+            onViewModeChange={setViewMode}
+            onBack={() => navigate('/pantry')}
+            hidePhoneHeader={showPhoneHeader}
+            searchOpen={pantrySearchOpen}
+            confirmDelete={showPhoneHeader ? confirmDeletePageList : undefined}
+            onConfirmDeleteChange={showPhoneHeader ? setConfirmDeletePageList : undefined}
+          />
         ) : showHomeCooking ? (
           <HomeCookingTab
             meals={homeMeals}
@@ -6409,10 +6672,13 @@ export const Pantry: React.FC = () => {
             onBack={() => { setHomeCookingSelectedMealId(null); navigate("/pantry"); }}
             selectedMealId={homeCookingSelectedMealId}
             onSelectMeal={setHomeCookingSelectedMealId}
-            // On desktop the page-level Restaurants/Recipes tabs already
-            // own the chrome — drop HomeCookingTab's local header so we
-            // don't render duplicate titles + back arrows.
-            hideHeader={!phoneMode && homeCookingSelectedMealId === null}
+            // The page-level Restaurants/Recipes chrome already owns the
+            // title + navigation on both platforms — drop the local header
+            // so we don't render two layers of it.
+            hideHeader={homeCookingSelectedMealId === null}
+            searchOpen={pantrySearchOpen}
+            cuisineFilter={recipeCuisineFilter}
+            onCuisineFilterChange={setRecipeCuisineFilter}
           />
         ) : showTrips ? (
           <TripsTab
@@ -6429,79 +6695,6 @@ export const Pantry: React.FC = () => {
             onBack={() => navigate("/pantry")}
             autoCreate={createTripFromList}
             onAutoCreateHandled={() => setCreateTripFromList(false)}
-          />
-        ) : phoneMode && !showAllRated ? (
-          // Phone-only card landing. Tapping Wishlist, "Your canvas", or
-          // "All Recipes" routes back into the existing list / rated /
-          // cookbook views. The "+ New" cards on each tab open the
-          // create-list sheet seeded with the right kind so a custom
-          // list lands on the correct tab. Desktop skips this and goes
-          // straight to the rated-list view (with on-page list switcher).
-          <PhonePantryHome
-            lists={lists}
-            ratedCount={regularRatingsCount}
-            ratedTopScores={[...ratings]
-              .map((r) => r.score)
-              .sort((a, b) => b - a)
-              .slice(0, 3)}
-            topCuisines={(() => {
-              const byCuisine = new Map<string, { count: number; sum: number }>();
-              for (const r of ratings) {
-                const c = (r.cuisine || '').trim();
-                if (!c) continue;
-                const e = byCuisine.get(c) || { count: 0, sum: 0 };
-                e.count += 1; e.sum += r.score || 0;
-                byCuisine.set(c, e);
-              }
-              return [...byCuisine.entries()]
-                .map(([name, e]) => ({ name, count: e.count, avg: e.sum / e.count }))
-                .sort((a, b) => b.count - a.count || b.avg - a.avg)
-                .slice(0, 6);
-            })()}
-            onOpenCuisine={(cuisine) => {
-              setCuisineFilter([cuisine]);
-              setShowAllRated(true);
-            }}
-            onOpenMeal={(meal) => {
-              // The canonical recipe page — the same destination every
-              // cookbook row uses. The old inline Pantry detail this
-              // handler opened is a different, stale surface. Guests
-              // keep it as a fallback: the /recipe route needs an owner
-              // id to load.
-              if (user?.id) {
-                navigate(`/recipe/${user.id}/${meal.id}`);
-              } else {
-                setShowHomeCooking(true);
-                setHomeCookingSelectedMealId(meal.id);
-                navigate('/pantry?view=home-cooking');
-              }
-            }}
-            wishlistCount={regularWishlist.length}
-            homeMeals={homeMeals}
-            tab={pantryTab}
-            onTabChange={setPantryTab}
-            onOpenList={(list) => {
-              setSelectedList(list);
-              navigate(`/pantry?list=${encodeURIComponent(list.id)}`);
-            }}
-            onOpenWishlist={() => {
-              setSelectedList({
-                id: '__wishlist__',
-                name: 'Wishlist',
-                emoji: '🔖',
-                restaurantIds: [],
-                wishlistIds: regularWishlist.map((w) => w.restaurantId),
-                createdAt: 0,
-              } as CustomList);
-              navigate('/pantry?list=__wishlist__');
-            }}
-            onOpenRated={() => setShowAllRated(true)}
-            onCreateRestaurantList={() => { setCreateSheetKind('restaurants'); setCreateSheetOpen(true); }}
-            // Phone opens the ranked list as a real route so restaurant taps
-            // push the detail page and swipe-back returns to the ranking.
-            onOpenRecommendations={() => navigate('/pantry/recommended')}
-            onOpenAllRecipes={() => { setShowHomeCooking(true); navigate('/pantry?view=home-cooking'); }}
-            onCreateRecipeList={() => { setCreateSheetKind('recipes'); setCreateSheetOpen(true); }}
           />
         ) : (
           <>
@@ -6521,117 +6714,13 @@ export const Pantry: React.FC = () => {
                 buttons in random colors. */}
             {phoneMode ? (
               <>
-                {/* ── Scroll-collapsing header ──────────────────────────
-                    Three rows of chrome — the action bar, the search
-                    field, the chip rail — is a lot of furniture to keep
-                    above a list you came here to read. It scrolls away and
-                    fades, and a pinned glass cluster takes over: back,
-                    search, filters, rate. Same handoff Discover and
-                    Profile already use, so the app has one way of doing
-                    this rather than three. */}
-                <div className="sticky top-0 z-30 h-0">
-                  <motion.div
-                    style={listFade.condensedStyle}
-                    className="absolute inset-x-0 top-0 flex items-center gap-2.5 px-5 pt-safe-2 pb-2"
-                  >
-                    <GlassButton
-                      id="rated-mini-back"
-                      symbol="chevron.left"
-                      label="Back"
-                      onClick={() => setShowAllRated(false)}
-                      className="hit-44 flex-none w-10 h-10 rounded-full flex items-center justify-center text-on-surface active:scale-95 transition-transform"
-                    >
-                      <ChevronLeft size={18} strokeWidth={2.1} />
-                    </GlassButton>
-                    <div className="flex-1" />
-                    <GlassButton
-                      id="rated-mini-search"
-                      symbol="magnifyingglass"
-                      label="Search this list"
-                      onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
-                      className="hit-44 flex-none w-10 h-10 rounded-full flex items-center justify-center text-on-surface active:scale-95 transition-transform"
-                    >
-                      <Search size={17} />
-                    </GlassButton>
-                    <GlassButton
-                      id="rated-mini-filters"
-                      symbol="line.3.horizontal.decrease"
-                      label="Filters"
-                      badge={activeFilterCount > 0 ? String(activeFilterCount) : undefined}
-                      onClick={() => { openFiltersOn(null); closeAllDropdowns(); }}
-                      className="hit-44 relative flex-none w-10 h-10 rounded-full flex items-center justify-center text-on-surface active:scale-95 transition-transform"
-                    >
-                      <SlidersHorizontal size={16} />
-                      {activeFilterCount > 0 && (
-                        <span className="absolute -top-0.5 -right-0.5 grid h-[15px] min-w-[15px] place-items-center rounded-full bg-primary px-1 text-[9px] font-bold text-white">
-                          {activeFilterCount}
-                        </span>
-                      )}
-                    </GlassButton>
-                    <GlassButton
-                      id="rated-mini-add"
-                      symbol="plus"
-                      tint="primary"
-                      label="Add Rating"
-                      onClick={() => { setSearchPopupMode('rate-new'); setSearchPopupOpen(true); }}
-                      className="hit-44 flex-none w-10 h-10 rounded-full bg-primary text-white flex items-center justify-center active:scale-95 transition-transform"
-                    >
-                      <Plus size={17} strokeWidth={2.4} />
-                    </GlassButton>
-                  </motion.div>
-                </div>
-
-                <motion.div ref={listFade.headerRef} style={listFade.headerStyle}>
-                {/* Back · For you · rate · ⋯ — the design's header. The
-                    verb used to be a wide "＋ Add Rating" pill that ate a
-                    third of the row and left the two icon buttons beside
-                    it looking like an afterthought; a circle in the same
-                    red says the same thing in a quarter of the width. The
-                    three chrome controls are glass, like every other piece
-                    of floating chrome in the app. */}
-                <div className="pt-safe-4 flex items-center gap-2.5 mb-3.5">
-                  {showAllRated && (
-                    <GlassButton
-                      id="rated-back"
-                      symbol="chevron.left"
-                      label="Back"
-                      onClick={() => setShowAllRated(false)}
-                      className="hit-44 flex-none w-10 h-10 rounded-full flex items-center justify-center text-on-surface active:scale-95 transition-transform"
-                    >
-                      <ChevronLeft size={18} strokeWidth={2.1} />
-                    </GlassButton>
-                  )}
-                  <div className="flex-1" />
-                  <button
-                    type="button"
-                    onClick={() => navigate('/pantry/recommended')}
-                    className="flex-none inline-flex h-10 items-center gap-1.5 rounded-full border border-primary/30 bg-primary/10 text-primary px-3.5 active:opacity-80 transition-opacity"
-                    style={{ fontSize: '12px', fontWeight: 700 }}
-                  >
-                    <Sparkles size={13} />
-                    For you
-                  </button>
-                  <GlassButton
-                    id="rated-add"
-                    symbol="plus"
-                    tint="primary"
-                    label="Add Rating"
-                    onClick={() => { setSearchPopupMode('rate-new'); setSearchPopupOpen(true); }}
-                    className="hit-44 flex-none w-10 h-10 rounded-full bg-primary text-white flex items-center justify-center active:scale-95 transition-transform"
-                  >
-                    <Plus size={17} strokeWidth={2.4} />
-                  </GlassButton>
-                  <ListMoreMenu
-                    glass
-                    items={[
-                      { label: 'Export CSV', icon: <Download size={14} />, onClick: () => handleExport('csv') },
-                      { label: 'Export JSON', icon: <Download size={14} />, onClick: () => handleExport('json') },
-                      { label: 'Reorder ratings', icon: <ArrowUpDown size={14} />, onClick: () => navigate('/reorder') },
-                    ]}
-                  />
-                </div>
-
-                <div className="mb-4">
+                {/* The page header above owns the segment, the title and
+                    the scroll-collapse hand-off now — this view keeps what's
+                    specific to the rated list: its search field (folded
+                    behind the header's search toggle) and its filter bar
+                    (always visible, same as before the header existed). */}
+                <Collapse open={pantrySearchOpen}>
+                <div className="pb-4">
                   <SearchField
                     glassId="list-search"
                     value={mainSearchQuery}
@@ -6640,6 +6729,7 @@ export const Pantry: React.FC = () => {
                     aria-label="Search your rated places"
                   />
                 </div>
+                </Collapse>
 
                 <div className="flex gap-2 mb-4 overflow-x-auto scrollbar-hide -mx-3 px-3 pb-1" style={{ WebkitOverflowScrolling: 'touch' }}>
                   {/* Every chip opens the SAME page its filter owns inside
@@ -6677,7 +6767,6 @@ export const Pantry: React.FC = () => {
                     </button>
                   )}
                 </div>
-                </motion.div>
 
                 {!scoresUnlocked && regularRatingsCount > 0 && (
                   <div className="mb-3 flex items-center gap-3.5 rounded-2xl bg-primary/[0.05] border border-primary/15 px-4 py-3">
@@ -6692,19 +6781,6 @@ export const Pantry: React.FC = () => {
                         <div className="h-full bg-primary rounded-full transition-all" style={{ width: `${Math.min(100, (regularRatingsCount / SCORE_UNLOCK_THRESHOLD) * 100)}%` }} />
                       </div>
                     </div>
-                  </div>
-                )}
-                {regularRatingsCount > 0 && (
-                  <div className="flex items-center gap-4 px-1 mb-3">
-                    <p className="text-xs text-on-surface/40">
-                      <span className="font-bold text-on-surface">{filteredRatings.length}</span>
-                      {filteredRatings.length !== regularRatingsCount && ` of ${regularRatingsCount}`} rated
-                    </p>
-                    {filteredRatings.length > 0 && scoresUnlocked && (
-                      <p className="text-xs text-on-surface/40">
-                        Avg: <span className="font-bold text-on-surface">{(filteredRatings.reduce((sum, r) => sum + r.score, 0) / filteredRatings.length).toFixed(twoDecimalScores ? 2 : 1)}</span>/10
-                      </p>
-                    )}
                   </div>
                 )}
               </>
@@ -6852,10 +6928,31 @@ export const Pantry: React.FC = () => {
 
             {/* ── Restaurant list ── */}
             {regularRatingsCount === 0 ? (
-              <div className="text-center py-16">
-                <Star size={32} className="mx-auto text-on-surface/15 mb-3" />
-                <p className="text-sm font-medium text-on-surface/40">No restaurants yet</p>
-                <p className="text-xs text-on-surface/30 mt-1">Use the + button to rate or heart to wishlist</p>
+              // A CTA, not a caption: this used to point at a "+" button
+              // that no longer lives on this page (it moved to the Recipes
+              // side — see PantryPhoneHeader's addAction), so "use the +
+              // button" told a first-time visitor to tap something that
+              // wasn't there. The action is finding a place you've been,
+              // which is what Search is for — deliberately NOT the
+              // recommendations browser, which is locked until
+              // RECS_MIN_RATINGS anyway and can't say anything personal
+              // about someone who has rated nothing.
+              <div className="text-center py-16 px-6">
+                <div className="mx-auto w-14 h-14 rounded-full bg-primary/10 text-primary flex items-center justify-center">
+                  <Star size={24} strokeWidth={2} />
+                </div>
+                <p className="mt-4 font-serif text-[16px] font-bold text-on-surface">Add your first rating</p>
+                <p className="mt-1.5 text-[13px] text-on-surface/45 max-w-[270px] mx-auto">
+                  Search for a place you’ve been — a few quick head-to-head picks turn it into a ranked list.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => navigate('/search', { state: { openTakeover: true } })}
+                  className="mt-5 inline-flex items-center gap-1.5 h-10 px-5 rounded-full bg-primary text-white text-[13.5px] font-bold active:opacity-80 transition-opacity"
+                >
+                  <Search size={14} strokeWidth={2.4} />
+                  Find a restaurant
+                </button>
               </div>
             ) : (
               <div className="space-y-5">
@@ -7066,6 +7163,18 @@ export const Pantry: React.FC = () => {
         }}
       />
 
+      {/* Your lists — the phone header's title and hamburger both open it. */}
+      {showPhoneHeader && (
+        <PantryListSwitcherDrawer
+          open={listDrawerOpen}
+          onClose={() => setListDrawerOpen(false)}
+          activeId={activeViewId}
+          sections={drawerSections}
+          onNewList={openNewListSheet}
+          newListLabel={isRecipeSection ? 'New recipe list' : 'New restaurant list'}
+        />
+      )}
+
       {/* Create list bottom sheet */}
       <CreateListSheet
         open={createSheetOpen}
@@ -7073,7 +7182,7 @@ export const Pantry: React.FC = () => {
         onCreate={(name, emoji, type) => {
           createList(name, emoji, type);
           // Land the user on the matching tab so the new list is visible.
-          setPantryTab(type === 'home-cooking' ? 'recipes' : 'restaurants');
+          if (type === 'home-cooking') goToRecipesTab(); else goToRestaurantsTab();
         }}
         existingListNames={lists.map((l) => l.name)}
         onCreateTrip={() => { setShowTrips(true); setCreateTripFromList(true); }}

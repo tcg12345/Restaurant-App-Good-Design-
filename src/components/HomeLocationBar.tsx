@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
-import { ChevronDown, ChevronRight, MapPin, X, Navigation, Loader2, Check } from 'lucide-react';
+import { ChevronDown, ChevronRight, MapPin, MapPinOff, X, Navigation, Loader2, Check, History, Building2, LocateFixed } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { MAPBOX_TOKEN } from '../lib/keys';
 import { useSettings } from '../contexts/SettingsContext';
@@ -8,11 +8,33 @@ import { useBottomSheet } from '../lib/useBottomSheet';
 import { cn } from '../lib/utils';
 import { SearchField } from './SearchField';
 import { GlassButton } from '../lib/glass-buttons';
+import {
+  type HomeLocation,
+  type GeoPermission,
+  savePickedLocation,
+  noteGeolocationGranted,
+  noteGeolocationDenied,
+  geolocationPermission,
+} from '../lib/home-location-store';
+import { canOpenAppSettings, openAppSettings } from '../lib/native-settings';
 
-export type HomeLocation = { label: string; lat: number; lng: number };
+// The anchor itself lives in lib/home-location-store — one store, read by
+// the home feed, the map, search and every distance label. Re-exported here
+// because this file was its original home and half the app imports it by
+// this path.
+export type { HomeLocation };
+export {
+  loadLastSelectedLocation,
+  saveLastSelectedLocation,
+  loadPickedLocation,
+  savePickedLocation,
+  subscribeHomeLocation,
+  geolocationAllowed,
+  resolveStartupLocation,
+  sameHomeLocation,
+} from '../lib/home-location-store';
 
-const RECENT_KEY = 'gourmad-home-recent-locations';
-const LAST_SELECTED_KEY = 'gourmad-home-last-location';
+const RECENT_KEY = 'goodeats-home-recent-locations';
 const MAX_RECENTS = 8;
 
 // Small curated seed so the picker has content before the user has searched
@@ -47,20 +69,6 @@ function saveRecentLocations(recents: HomeLocation[]) {
   } catch {}
 }
 
-export function loadLastSelectedLocation(): HomeLocation | null {
-  try {
-    const raw = localStorage.getItem(LAST_SELECTED_KEY);
-    if (raw) return JSON.parse(raw);
-  } catch {}
-  return null;
-}
-
-export function saveLastSelectedLocation(loc: HomeLocation) {
-  try {
-    localStorage.setItem(LAST_SELECTED_KEY, JSON.stringify(loc));
-  } catch {}
-}
-
 // True when the saved location looks like a street address rather than a
 // city / neighborhood / POI. Mapbox address features (and our reverse-geocode
 // output) always start with the house number, so a leading digit is a robust
@@ -82,7 +90,7 @@ export async function geocodePlace(query: string): Promise<HomeLocation | null> 
   if (!q) return null;
   try {
     const res = await fetch(
-      `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(q)}.json?access_token=${MAPBOX_TOKEN}&types=place,locality,district,neighborhood&limit=1`,
+      `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(q)}.json?access_token=${MAPBOX_TOKEN}&types=place,locality,district,neighborhood&language=en&limit=1`,
     );
     const data = await res.json();
     const f = data.features?.[0];
@@ -105,7 +113,7 @@ export async function searchLocations(query: string): Promise<HomeLocation[]> {
   if (!q) return [];
   try {
     const res = await fetch(
-      `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(q)}.json?access_token=${MAPBOX_TOKEN}&types=place,locality,district,neighborhood,region,country&limit=6&autocomplete=true`,
+      `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(q)}.json?access_token=${MAPBOX_TOKEN}&types=place,locality,district,neighborhood,region,country&language=en&limit=6&autocomplete=true`,
     );
     if (!res.ok) return [];
     const data = await res.json();
@@ -137,7 +145,7 @@ export async function searchCities(
   if (!q) return [];
   try {
     const res = await fetch(
-      `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(q)}.json?access_token=${MAPBOX_TOKEN}&types=place,locality&limit=6&autocomplete=true`,
+      `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(q)}.json?access_token=${MAPBOX_TOKEN}&types=place,locality&language=en&limit=6&autocomplete=true`,
     );
     if (!res.ok) return [];
     const data = await res.json();
@@ -189,12 +197,18 @@ export async function getCurrentHomeLocation(opts?: { cityOnly?: boolean }): Pro
         if (settled) return;
         settled = true;
         clearTimeout(safety);
+        // A fix arrived, so permission exists. Remembered for the launch-time
+        // resolver on runtimes whose Permissions API can't answer that.
+        noteGeolocationGranted();
         resolve(p);
       },
       (err) => {
         if (settled) return;
         settled = true;
         clearTimeout(safety);
+        // 1 = permission denied. Only that clears the flag — a timeout or a
+        // failed fix indoors says nothing about permission.
+        if (err?.code === 1) noteGeolocationDenied();
         reject(err);
       },
       {
@@ -220,7 +234,7 @@ export async function getCurrentHomeLocation(opts?: { cityOnly?: boolean }): Pro
 export async function reverseGeocode(lat: number, lng: number, opts?: { cityOnly?: boolean }): Promise<string> {
   try {
     const addrRes = opts?.cityOnly ? null : await fetch(
-      `https://api.mapbox.com/geocoding/v5/mapbox.places/${lng},${lat}.json?access_token=${MAPBOX_TOKEN}&types=address&limit=1`,
+      `https://api.mapbox.com/geocoding/v5/mapbox.places/${lng},${lat}.json?access_token=${MAPBOX_TOKEN}&types=address&language=en&limit=1`,
     );
     const addrData = addrRes ? await addrRes.json() : null;
     const a = addrData?.features?.[0];
@@ -242,7 +256,7 @@ export async function reverseGeocode(lat: number, lng: number, opts?: { cityOnly
     }
     // No street match — fall back to the city/locality label.
     const cityRes = await fetch(
-      `https://api.mapbox.com/geocoding/v5/mapbox.places/${lng},${lat}.json?access_token=${MAPBOX_TOKEN}&types=place,locality&limit=1`,
+      `https://api.mapbox.com/geocoding/v5/mapbox.places/${lng},${lat}.json?access_token=${MAPBOX_TOKEN}&types=place,locality&language=en&limit=1`,
     );
     const cityData = await cityRes.json();
     const f = cityData.features?.[0];
@@ -276,9 +290,19 @@ interface Props {
   // rendering the default trigger button.
   open?: boolean;
   onOpenChange?: (next: boolean) => void;
+  /**
+   * Stacking layer for the portaled sheet. The default sits above ordinary
+   * page chrome, which is right almost everywhere — the picker's host is
+   * usually at the same level and later in DOM order, so it wins on order.
+   *
+   * A host on its OWN raised layer has to say so: the sheet portals to the
+   * phone-frame root, so a `z-[215]` caller would otherwise open this
+   * picker underneath itself and look like a dead button.
+   */
+  sheetZ?: string;
 }
 
-export const HomeLocationBar: React.FC<Props> = ({ location, onChange, onUseCurrent, variant = 'block', open: openProp, onOpenChange }) => {
+export const HomeLocationBar: React.FC<Props> = ({ location, onChange, onUseCurrent, variant = 'block', open: openProp, onOpenChange, sheetZ = 'z-50' }) => {
   const { setHideBottomNav, phoneMode } = useSettings();
   const [openInternal, setOpenInternal] = useState(false);
   const open = openProp !== undefined ? openProp : openInternal;
@@ -297,6 +321,11 @@ export const HomeLocationBar: React.FC<Props> = ({ location, onChange, onUseCurr
   const [recents, setRecents] = useState<HomeLocation[]>(() => loadRecentLocations());
   const [currentLoading, setCurrentLoading] = useState(false);
   const [currentError, setCurrentError] = useState<string | null>(null);
+  /* Asked (never prompted for) each time the sheet opens, so a blocked
+     permission is met with the way OUT of it rather than with a button
+     that can only fail. 'unknown' stays optimistic — see
+     geolocationPermission. */
+  const [geoPerm, setGeoPerm] = useState<GeoPermission>('unknown');
   const sheetScrollRef = useRef<HTMLDivElement | null>(null);
   const { dragProps, sheetRef } = useBottomSheet(open, () => setOpen(false), sheetScrollRef);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -314,8 +343,10 @@ export const HomeLocationBar: React.FC<Props> = ({ location, onChange, onUseCurr
     // Refresh recents from storage every time the sheet opens so external
     // writes (another tab, etc.) are reflected.
     setRecents(loadRecentLocations());
+    let cancelled = false;
+    void geolocationPermission().then((p) => { if (!cancelled) setGeoPerm(p); });
     const t = setTimeout(() => inputRef.current?.focus(), 180);
-    return () => clearTimeout(t);
+    return () => { cancelled = true; clearTimeout(t); };
   }, [open]);
 
   useEffect(() => {
@@ -328,20 +359,40 @@ export const HomeLocationBar: React.FC<Props> = ({ location, onChange, onUseCurr
     setSearching(true);
     debounceRef.current = setTimeout(async () => {
       try {
-        // Bias address-level matches toward whatever the user is currently
-        // anchored to (their last picked / GPS location) so "Main St" surfaces
-        // the nearby Main St rather than a random one across the country.
+        // Two calls, not one — Mapbox's `proximity` re-ranks the WHOLE
+        // response toward the anchor point, and this field has to serve two
+        // different intents at once: "change my browsing city" (global reach
+        // — searching "Tokyo" while anchored in New York must still find
+        // Tokyo, Japan, not a street called Tokyo Crescent three towns over)
+        // and "find this address" (local — "Main St" should mean the nearby
+        // Main St, not one across the country). One proximity-biased query
+        // can't be right for both: it was making city search actively worse,
+        // burying the real city under nearer but far-less-relevant address
+        // matches and sometimes dropping it from the result page entirely.
+        // So: place/locality/neighborhood/district run unbiased (global,
+        // ranked on text relevance alone), address/postcode keep the
+        // proximity bias (still local by nature). Cities are listed first —
+        // typing a city name is what this field is for; a precise address is
+        // the secondary case.
+        const encoded = encodeURIComponent(query);
+        // English labels regardless of the place's own local language —
+        // this app has no i18n, every other string in it is English, so a
+        // Japanese/Cyrillic/etc. result label would be the one inconsistent
+        // thing on the screen.
+        const LANG = '&language=en';
         const proximity = location ? `&proximity=${location.lng},${location.lat}` : '';
-        const res = await fetch(
-          `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(query)}.json?access_token=${MAPBOX_TOKEN}&types=address,place,locality,neighborhood,district,postcode&limit=8${proximity}`,
-        );
-        const data = await res.json();
-        const items: HomeLocation[] = (data.features || []).map((f: any) => ({
-          label: f.place_name,
-          lat: f.center[1],
-          lng: f.center[0],
-        }));
-        setResults(items);
+        const [placeRes, addressRes] = await Promise.all([
+          fetch(`https://api.mapbox.com/geocoding/v5/mapbox.places/${encoded}.json?access_token=${MAPBOX_TOKEN}&types=place,locality,neighborhood,district${LANG}&limit=6`),
+          fetch(`https://api.mapbox.com/geocoding/v5/mapbox.places/${encoded}.json?access_token=${MAPBOX_TOKEN}&types=address,postcode${LANG}&limit=4${proximity}`),
+        ]);
+        const [placeData, addressData] = await Promise.all([placeRes.json(), addressRes.json()]);
+        const toItems = (data: any): HomeLocation[] =>
+          (data.features || []).map((f: any) => ({
+            label: f.place_name,
+            lat: f.center[1],
+            lng: f.center[0],
+          }));
+        setResults([...toItems(placeData), ...toItems(addressData)]);
       } catch {
         setResults([]);
       } finally {
@@ -358,7 +409,11 @@ export const HomeLocationBar: React.FC<Props> = ({ location, onChange, onUseCurr
       const nextRecents = [loc, ...recents.filter((r) => !sameLoc(r, loc))].slice(0, MAX_RECENTS);
       setRecents(nextRecents);
       saveRecentLocations(nextRecents);
-      saveLastSelectedLocation(loc);
+      // A pick, not a guess: it anchors the app now AND becomes the place the
+      // next launch returns to when the device's location isn't available.
+      // The store broadcasts it, so surfaces this picker knows nothing about
+      // (the map, the search chip) follow without a remount.
+      savePickedLocation(loc);
       onChange(loc);
       setOpen(false);
       setQuery('');
@@ -391,7 +446,9 @@ export const HomeLocationBar: React.FC<Props> = ({ location, onChange, onUseCurr
       // GeolocationPositionError codes: 1 = permission denied, 2 = unavailable,
       // 3 = timeout. Surface something human instead of failing silently.
       if (err?.code === 1) {
-        setCurrentError("Location access is blocked. Enable it in your browser settings or pick a city below.");
+        // Not an error message but a state: the row below becomes the
+        // route to Settings, which is the only place this can be undone.
+        setGeoPerm('denied');
       } else if (err?.code === 2) {
         setCurrentError("Couldn't determine your location. Try picking a city below.");
       } else if (err?.code === 3) {
@@ -465,7 +522,8 @@ export const HomeLocationBar: React.FC<Props> = ({ location, onChange, onUseCurr
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               className={cn(
-                'fixed inset-0 z-50',
+                'fixed inset-0',
+                sheetZ,
                 phoneMode
                   ? 'bg-black/30 backdrop-blur-sm'
                   : 'bg-black/45 backdrop-blur-md flex items-start justify-center pt-[9vh] px-5',
@@ -490,7 +548,8 @@ export const HomeLocationBar: React.FC<Props> = ({ location, onChange, onUseCurr
                   })}
               onClick={(e: React.MouseEvent) => { if (!phoneMode) e.stopPropagation(); }}
               className={cn(
-                'z-50 bg-surface flex flex-col overflow-hidden',
+                'bg-surface flex flex-col overflow-hidden',
+                sheetZ,
                 phoneMode
                   // A FIXED height, not max-h. Sizing to content meant the
                   // sheet resized under the finger the moment you typed —
@@ -499,7 +558,7 @@ export const HomeLocationBar: React.FC<Props> = ({ location, onChange, onUseCurr
                   // down the screen. A picker that changes size while you
                   // use it is worse than one with room to spare at the
                   // bottom, so the height is settled once, on open.
-                  ? 'fixed bottom-0 left-0 right-0 rounded-t-3xl h-[88vh] shadow-2xl'
+                  ? 'fixed bottom-0 left-0 right-0 rounded-t-[28px] h-[88vh] shadow-[0_-16px_48px_rgba(0,0,0,0.35)]'
                   // Spotlight-style centered card. Position fixed with
                   // explicit centering rather than wrapping in a flex
                   // container so the backdrop above stays clickable to
@@ -509,34 +568,24 @@ export const HomeLocationBar: React.FC<Props> = ({ location, onChange, onUseCurr
             >
               {phoneMode && (
                 <div className="flex justify-center pt-2.5 pb-1 flex-shrink-0 cursor-grab active:cursor-grabbing">
-                  <div className="w-9 h-1 rounded-full bg-on-surface/15" />
+                  <div className="h-[5px] w-10 rounded-full bg-on-surface/20" />
                 </div>
               )}
-              {/* The identity block: the sheet leads with WHERE YOU ARE, at
-                  headline size, instead of a generic "Change location"
-                  caption. The live dot and the accent eyebrow are what make
-                  it read as a current state rather than a page title. */}
-              <div className="flex items-start justify-between gap-3 px-5 pt-1.5 pb-4 flex-shrink-0">
-                <div className="min-w-0">
-                  <span className="flex items-center gap-1.5">
-                    <span className="w-[5px] h-[5px] rounded-full bg-primary flex-none" />
-                    <span className="text-[10.5px] font-bold uppercase tracking-[0.16em] text-primary">
-                      Currently browsing
-                    </span>
-                  </span>
-                  <h3 className="mt-1.5 font-serif font-bold text-[27px] leading-[1.1] tracking-[-0.03em] text-on-surface truncate">
-                    {primaryOf(location?.label) || 'Set a location'}
-                  </h3>
-                  {location?.label && (
-                    <p className="mt-0.5 text-[13px] leading-snug text-on-surface/45 truncate">{location.label}</p>
-                  )}
-                </div>
+              {/* A plain title. The old header led with WHERE YOU ARE at
+                  headline size, then repeated it in Recent and again in
+                  Popular with checkmarks — three copies of the answer before
+                  the question. The current place now has exactly one home,
+                  the "Browsing now" row under the search. */}
+              <div className="flex items-center justify-between gap-3 px-5 pt-1.5 pb-3.5 flex-shrink-0">
+                <h3 className="font-serif font-bold text-[22px] leading-tight tracking-[-0.02em] text-on-surface">
+                  Where to?
+                </h3>
                 <GlassButton
                   id="location-picker-close"
                   symbol="xmark"
                   label="Close"
                   onClick={() => setOpen(false)}
-                  className="hit-44 flex-none w-9 h-9 rounded-full flex items-center justify-center text-on-surface/60 active:scale-95 transition-transform"
+                  className="hit-44 flex-none w-9 h-9 rounded-full flex items-center justify-center text-on-surface/70 active:scale-95 transition-transform"
                 >
                   <X size={16} />
                 </GlassButton>
@@ -553,40 +602,95 @@ export const HomeLocationBar: React.FC<Props> = ({ location, onChange, onUseCurr
                 />
               </div>
 
-              {/* Pinned under the search rather than sitting at the top of the
-                  scroller: it is the one-tap answer to the question the sheet
-                  asks, so it should not be something you can scroll past. */}
+              {/* Pinned under the search: the one place that is the answer
+                  right now, and the one-tap way to change it. One grouped
+                  card — the same row language as the chat's Find-a-place
+                  sheet that opens this picker, so the two read as a family. */}
               {!query.trim() && (
-                <div className="flex-shrink-0">
-                  <button
-                    onClick={useCurrent}
-                    disabled={currentLoading}
-                    className="w-full flex items-center gap-3 px-5 py-3.5 text-left border-t border-on-surface/[0.07] bg-primary/[0.06] active:bg-primary/[0.12] transition-colors disabled:opacity-60"
-                  >
-                    <span className="flex-none grid place-items-center w-6">
-                      {currentLoading
-                        ? <Loader2 size={18} className="text-primary animate-spin" />
-                        : <Navigation size={18} className="text-primary" />}
-                    </span>
-                    <span className="flex-1 min-w-0">
-                      <span className="block font-serif font-bold text-[15.5px] leading-tight tracking-[-0.02em] text-primary">
-                        {currentLoading ? 'Locating…' : 'Use my current location'}
-                      </span>
-                      <span className="block mt-[2px] text-[12.5px] text-on-surface/50">Find places around you right now</span>
-                    </span>
-                    <ChevronRight size={16} className="flex-none text-on-surface/25" />
-                  </button>
-                  {currentError && (
-                    <p className="px-5 py-2 text-[12px] leading-snug text-red-600 border-t border-on-surface/[0.07]">{currentError}</p>
-                  )}
+                <div className="flex-shrink-0 px-5 pb-4">
+                  <div className="overflow-hidden rounded-[22px] bg-on-surface/[0.04]">
+                    {location?.label && (
+                      <>
+                        <div className="flex items-center gap-3.5 px-4 py-3.5">
+                          <span className="grid h-10 w-10 flex-none place-items-center rounded-[14px] bg-primary text-white shadow-[0_1px_2px_rgba(0,0,0,0.12)]">
+                            <MapPin size={17} />
+                          </span>
+                          <span className="min-w-0 flex-1">
+                            <span className="block text-[11px] font-bold uppercase tracking-[0.12em] text-primary">Browsing now</span>
+                            <span className="mt-[2px] block truncate text-[15px] font-semibold text-on-surface">{primaryOf(location.label)}</span>
+                            {location.label.includes(',') && (
+                              <span className="block truncate text-[12.5px] text-on-surface/50">
+                                {location.label.split(',').map((x) => x.trim()).filter(Boolean).slice(1).join(', ')}
+                              </span>
+                            )}
+                          </span>
+                          <Check size={18} strokeWidth={2.6} className="flex-none text-primary" />
+                        </div>
+                        <div className="mx-4 h-px bg-on-surface/[0.07]" />
+                      </>
+                    )}
+
+                    {geoPerm === 'denied' ? (
+                      /* Denied is a dead end unless the app points out of it:
+                         iOS grants one dialog per permission, so "Use my
+                         current location" can only fail from here. The row
+                         becomes the way back instead — the same Settings
+                         deep link the photo and contacts primers use. */
+                      <div className="flex items-start gap-3.5 px-4 py-3.5">
+                        <span className="grid h-10 w-10 flex-none place-items-center rounded-[14px] bg-surface text-on-surface/45 shadow-[0_1px_2px_rgba(0,0,0,0.12)]">
+                          <MapPinOff size={17} />
+                        </span>
+                        <div className="min-w-0 flex-1">
+                          <span className="block text-[15px] font-semibold text-on-surface">Location is off for GoodEats</span>
+                          <span className="mt-[2px] block text-[12.5px] leading-snug text-on-surface/50">
+                            {canOpenAppSettings()
+                              ? 'Turn it on in Settings to see places around you — or pick a city below.'
+                              : 'Allow location for this site in your browser, or pick a city below.'}
+                          </span>
+                          {canOpenAppSettings() && (
+                            <button
+                              type="button"
+                              onClick={() => { void openAppSettings(); }}
+                              className="mt-2.5 inline-flex h-9 items-center rounded-full bg-primary px-4 text-[12.5px] font-bold text-white active:opacity-80 transition-opacity"
+                            >
+                              Open Settings
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    ) : (
+                      <>
+                        <button
+                          type="button"
+                          onClick={useCurrent}
+                          disabled={currentLoading}
+                          className="flex w-full items-center gap-3.5 px-4 py-3.5 text-left transition-colors active:bg-on-surface/[0.04] disabled:opacity-60"
+                        >
+                          <span className="grid h-10 w-10 flex-none place-items-center rounded-[14px] bg-surface text-primary shadow-[0_1px_2px_rgba(0,0,0,0.12)]">
+                            {currentLoading
+                              ? <Loader2 size={17} className="animate-spin" />
+                              : <LocateFixed size={17} />}
+                          </span>
+                          <span className="min-w-0 flex-1">
+                            <span className="block text-[15px] font-semibold text-on-surface">
+                              {currentLoading ? 'Locating…' : 'Use my current location'}
+                            </span>
+                            <span className="mt-[2px] block text-[12.5px] text-on-surface/50">Places around you right now</span>
+                          </span>
+                          <ChevronRight size={16} className="flex-none text-on-surface/30" />
+                        </button>
+                        {currentError && (
+                          <p className="px-4 pb-3 text-[12px] leading-snug text-red-600">{currentError}</p>
+                        )}
+                      </>
+                    )}
+                  </div>
                 </div>
               )}
 
-              {/* Edge-to-edge from here down. The rows used to sit in inset
-                  rounded cards, which stacked a second set of corners inside
-                  the sheet's own and made the whole thing read as boxes in a
-                  box; running them full width lets the sheet be the only
-                  container and the hairlines do the separating. */}
+              {/* Lists run edge to edge under the card, separated by space
+                  and small-caps captions rather than tinted bands and double
+                  hairlines. */}
               <div ref={sheetScrollRef} className="flex-1 min-h-0 overflow-y-auto pb-safe-5">
                 {query.trim() ? (
                   searching && results.length === 0 ? (
@@ -608,7 +712,7 @@ export const HomeLocationBar: React.FC<Props> = ({ location, onChange, onUseCurr
                   <>
                     {recents.length > 0 && (
                       <>
-                        <SectionLabel action={<button onClick={clearRecents} className="text-[12.5px] font-bold text-primary active:opacity-70">Clear</button>}>
+                        <SectionLabel icon={<History size={12} />} action={<button onClick={clearRecents} className="text-[12.5px] font-bold text-primary active:opacity-70">Clear</button>}>
                           Recent
                         </SectionLabel>
                         {recents.map((r, i) => (
@@ -623,9 +727,13 @@ export const HomeLocationBar: React.FC<Props> = ({ location, onChange, onUseCurr
                       </>
                     )}
 
-                    <SectionLabel>Popular cities</SectionLabel>
-                    {POPULAR_CITIES.map((c) => (
-                      <LocationRow key={c.label} location={c} onClick={() => select(c)} selected={!!location && sameLoc(location, c)} />
+                    <SectionLabel icon={<Building2 size={12} />}>Popular cities</SectionLabel>
+                    {/* The current place already has its home in the card
+                        above; listing it again here with a second check was
+                        the old sheet's third copy of the same answer. Recent
+                        keeps it — that list is history, not a menu. */}
+                    {POPULAR_CITIES.filter((c) => !(location && sameLoc(location, c))).map((c) => (
+                      <LocationRow key={c.label} location={c} onClick={() => select(c)} />
                     ))}
                   </>
                 )}
@@ -644,11 +752,14 @@ export const HomeLocationBar: React.FC<Props> = ({ location, onChange, onUseCurr
 const primaryOf = (label?: string): string =>
   (label || '').split(',')[0]?.trim() || label || '';
 
-/** A section caption with an optional trailing action. Full-bleed like the
- *  rows it heads, on the sheet's own tinted band rather than floating. */
-const SectionLabel: React.FC<{ children: React.ReactNode; action?: React.ReactNode }> = ({ children, action }) => (
-  <div className="flex items-center justify-between gap-3 px-5 py-2.5 border-t border-on-surface/[0.07] bg-on-surface/[0.02]">
-    <p className="text-[10.5px] font-bold uppercase tracking-[0.16em] text-on-surface/40">{children}</p>
+/** A section caption with an optional icon and trailing action. Space and
+ *  small caps do the separating — no tinted band, no double hairline. */
+const SectionLabel: React.FC<{ children: React.ReactNode; icon?: React.ReactNode; action?: React.ReactNode }> = ({ children, icon, action }) => (
+  <div className="flex items-center justify-between gap-3 px-5 pt-4 pb-1.5">
+    <p className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-[0.12em] text-on-surface/40">
+      {icon}
+      {children}
+    </p>
     {action}
   </div>
 );
@@ -659,33 +770,38 @@ const LocationRow: React.FC<{
   onDelete?: () => void;
   selected?: boolean;
 }> = ({ location, onClick, onDelete, selected }) => {
-  // "New York" over "New York, NY" — the old row put the city on the first
-  // line and then the SAME string again, region and all, on the second.
+  // "New York" over "NY" — city first, the rest as a quiet second line.
   const primary = primaryOf(location.label);
   const secondary = location.label.split(',').map((s) => s.trim()).filter(Boolean).slice(1).join(', ');
   return (
-    // Full-bleed, hairline-separated, and the whole row tints when it is the
-    // one you're on — a row that IS the answer shouldn't need a checkmark to
-    // carry that alone.
-    <div className={cn('relative flex items-center border-t border-on-surface/[0.07]', selected && 'bg-primary/[0.07]')}>
+    // A single row voice — sans, one weight — so the list reads as a list
+    // and the pinned card above it reads as the thing that matters. The
+    // current place is marked once, with a check, not a row-wide tint.
+    <div className="relative flex items-center">
       <button
         type="button"
         onClick={onClick}
-        className="flex-1 min-w-0 flex items-center gap-3 px-5 py-3 text-left active:bg-on-surface/[0.05] transition-colors"
+        className="flex min-w-0 flex-1 items-center gap-3.5 px-5 py-3 text-left transition-colors active:bg-on-surface/[0.04]"
       >
-        <span className="flex-none grid place-items-center w-6">
-          <MapPin size={17} className={selected ? 'text-primary' : 'text-on-surface/40'} />
+        <span className={cn(
+          'grid h-9 w-9 flex-none place-items-center rounded-full',
+          selected ? 'bg-primary/[0.12] text-primary' : 'bg-on-surface/[0.05] text-on-surface/55',
+        )}>
+          {/* One glyph for every row. isExactAddress is a leading-digit
+              proxy that reads "16th arrondissement" as a street address —
+              fine for gating distance UI, wrong as an icon rule. */}
+          <MapPin size={15} />
         </span>
-        <span className="flex-1 min-w-0">
-          <span className={cn('block truncate font-serif font-bold text-[15.5px] leading-tight tracking-[-0.02em]', selected ? 'text-primary' : 'text-on-surface')}>{primary}</span>
-          {secondary && <span className="block truncate mt-[2px] text-[12.5px] text-on-surface/45">{secondary}</span>}
+        <span className="min-w-0 flex-1">
+          <span className={cn('block truncate text-[15px] font-semibold leading-tight', selected ? 'text-primary' : 'text-on-surface')}>{primary}</span>
+          {secondary && <span className="mt-[2px] block truncate text-[12.5px] text-on-surface/50">{secondary}</span>}
         </span>
         {selected && <Check size={17} strokeWidth={2.6} className="flex-none text-primary" />}
       </button>
       {onDelete && (
         <button
           onClick={onDelete}
-          className="w-10 h-10 mr-1 rounded-full flex items-center justify-center text-on-surface/25 active:text-on-surface/60 transition-colors flex-shrink-0"
+          className="mr-2 flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full text-on-surface/30 transition-colors active:bg-on-surface/[0.06] active:text-on-surface/70"
           aria-label={`Remove ${primary}`}
         >
           <X size={15} />

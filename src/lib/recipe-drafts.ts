@@ -19,8 +19,8 @@
 
 import type { AdvancedRecipeState } from '../components/AdvancedRecipeBuilder';
 
-const SAVED_KEY = (userId: string | null) => `gourmad-recipe-drafts-${userId || 'anon'}`;
-const RESUME_FLAG_KEY = 'gourmad-resume-draft-id';
+const SAVED_KEY = (userId: string | null) => `goodeats-recipe-drafts-${userId || 'anon'}`;
+const RESUME_FLAG_KEY = 'goodeats-resume-draft-id';
 const MAX_DRAFTS = 30;
 
 export interface RecipeDraft {

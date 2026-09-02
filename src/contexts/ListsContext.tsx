@@ -167,6 +167,7 @@ export interface Recipe {
   stepDetails?: RecipeStepDetail[];
   stepGroups?: RecipeStepGroup[];
   linkedRecipes?: LinkedRecipeRef[];
+  combinedFrom?: CombinedFromRef[];
 }
 
 export interface CustomList {
@@ -297,6 +298,18 @@ export interface LinkedRecipeRef {
   inMethod: boolean;
 }
 
+/** Where a combined recipe came from — the two (or three) parents the
+ *  recipe page's "Combined from" note links. LinkedRecipeRef minus the
+ *  placement flags: provenance has no ingredients/method placement. */
+export interface CombinedFromRef {
+  id: string;
+  ownerId: string;
+  source: 'homeMeal' | 'recipe';
+  title: string;
+  coverPhoto?: string;
+  authorName?: string;
+}
+
 export interface HomeMeal {
   id: string;
   name: string;
@@ -368,6 +381,11 @@ export interface HomeMeal {
    *  (chat or Add Recipe modal). Drives the "Created with AI" note on the
    *  recipe page. Stays set after the user edits + publishes the draft. */
   createdWithAi?: boolean;
+  /** Set when this recipe was produced by the AI combine flow: the
+   *  recipes it was merged from. Drives the "Combined from" note on the
+   *  recipe page (which outranks the AI and Imported notes). Absent for
+   *  idea-only combines — there is nothing real to link. */
+  combinedFrom?: CombinedFromRef[];
   /** Set when this recipe came in through the Import tab: the source URL,
    *  or 'photo' / 'text'. Drives the "Imported from …" note on the recipe
    *  page (shown INSTEAD of the AI note). Survives editing + publishing. */
@@ -534,19 +552,27 @@ interface ListsContextValue {
    *  on a list page), the created meal is also added to this list on
    *  save — every builder tab (Basic / Advanced / AI) honors it. */
   homeMealModalTargetListId: string | null;
-  openHomeMealModal: (meal?: HomeMeal, opts?: { onBackToDraft?: () => void; targetListId?: string; initialMethod?: 'link' | 'photo' | 'text' | 'custom' | 'ai' }) => void;
+  openHomeMealModal: (meal?: HomeMeal, opts?: { onBackToDraft?: () => void; targetListId?: string; initialMethod?: 'link' | 'photo' | 'text' | 'custom' | 'ai'; initialAiView?: 'recipe' | 'ideas'; seed?: HomeMeal; seedKind?: 'ai' | 'import' | 'combine' }) => void;
   /** Creation method preselected by the caller (Create page surface) —
    *  the modal skips its chooser and opens that flow directly. */
   homeMealModalInitialMethod: 'link' | 'photo' | 'text' | 'custom' | 'ai' | null;
+  /** Which view the AI flow opens on when preselected — the Pantry
+   *  "Ideas" pill lands on the brainstorm grid instead of the prompt
+   *  hero. Consumed once by the modal (see its open effect). */
+  homeMealModalInitialAiView: 'recipe' | 'ideas' | null;
+  /** A NEW draft handed in from outside (recipe-page Combine) — the
+   *  modal opens it in the draft-preview flow rather than treating it
+   *  as an edit of an existing meal the way `meal` does. */
+  homeMealModalSeed: { meal: HomeMeal; kind: 'ai' | 'import' | 'combine' } | null;
   closeHomeMealModal: () => void;
 }
 
-const STORAGE_KEY_HOME_MEALS = 'gourmad-home-meals';
+const STORAGE_KEY_HOME_MEALS = 'goodeats-home-meals';
 // Ids of cookbook recipes the user has deleted. The home-meals cloud sync is a
 // union (local ∪ cloud) with no way to express a removal, so we keep an explicit
 // tombstone set and subtract it from the union — otherwise a deleted recipe that
 // still lingers in any store gets resurrected on the next load.
-const STORAGE_KEY_DELETED_MEALS = 'gourmad-deleted-meals';
+const STORAGE_KEY_DELETED_MEALS = 'goodeats-deleted-meals';
 // Unified deletion tombstones for everything that lives in the user_app_data
 // JSON blob (ratings, lists, list memberships, wishlist, trips). That blob is
 // synced with a union+reconcile that can't express a removal, so without
@@ -555,17 +581,17 @@ const STORAGE_KEY_DELETED_MEALS = 'gourmad-deleted-meals';
 // (id back in a list but its rating/meta gone) renders as a broken card. We
 // persist the deleted keys here and subtract them on load. (Cookbook recipes
 // use the separate STORAGE_KEY_DELETED_MEALS set above.)
-const STORAGE_KEY_TOMBSTONES = 'gourmad-tombstones';
-const STORAGE_KEY_RATINGS = 'gourmad-ratings';
-const STORAGE_KEY_LISTS = 'gourmad-lists';
-const STORAGE_KEY_WISHLIST = 'gourmad-wishlist';
-const STORAGE_KEY_META = 'gourmad-restaurant-meta';
-const STORAGE_KEY_TRIPS = 'gourmad-trips';
-const STORAGE_KEY_CUSTOM_ORDER = 'gourmad-custom-order';
+const STORAGE_KEY_TOMBSTONES = 'goodeats-tombstones';
+const STORAGE_KEY_RATINGS = 'goodeats-ratings';
+const STORAGE_KEY_LISTS = 'goodeats-lists';
+const STORAGE_KEY_WISHLIST = 'goodeats-wishlist';
+const STORAGE_KEY_META = 'goodeats-restaurant-meta';
+const STORAGE_KEY_TRIPS = 'goodeats-trips';
+const STORAGE_KEY_CUSTOM_ORDER = 'goodeats-custom-order';
 // Local-only mirror of the visit_history table so visit records
 // persist even when Supabase is unavailable or the user isn't signed
 // in yet. Keyed by restaurantId so the detail page can read it back.
-const STORAGE_KEY_VISIT_HISTORY = 'gourmad-visit-history';
+const STORAGE_KEY_VISIT_HISTORY = 'goodeats-visit-history';
 
 export interface LocalVisitRecord {
   id: string;
@@ -593,7 +619,7 @@ function loadLocalVisitHistory(): Record<string, LocalVisitRecord[]> {
 // each resetting the row's updated_at (which is what orders the friends
 // feed). Persist a fingerprint of what was last published per restaurant and
 // skip rows that haven't changed.
-const STORAGE_KEY_PUBLISHED_SIGS = 'gourmad-published-sigs';
+const STORAGE_KEY_PUBLISHED_SIGS = 'goodeats-published-sigs';
 
 /** Stable fingerprint of the fields publishCommunityRating sends (plus the
  *  photo set that syncCommunityPhotos reconciles). URLs are length+prefix
@@ -947,6 +973,7 @@ export function recipeToHomeMeal(r: Recipe): HomeMeal {
     stepDetails: r.stepDetails,
     stepGroups: r.stepGroups,
     linkedRecipes: r.linkedRecipes,
+    combinedFrom: r.combinedFrom,
   };
 }
 
@@ -987,6 +1014,7 @@ function homeMealToRecipe(m: HomeMeal): Recipe {
     stepDetails: m.stepDetails,
     stepGroups: m.stepGroups,
     linkedRecipes: m.linkedRecipes,
+    combinedFrom: m.combinedFrom,
   };
 }
 
@@ -1228,7 +1256,7 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     }
 
     // Check if localStorage belongs to a different user — if so, clear it
-    const storedUserId = localStorage.getItem('gourmad-user-id');
+    const storedUserId = localStorage.getItem('goodeats-user-id');
     if (storedUserId && storedUserId !== userId) {
       localStorage.removeItem(STORAGE_KEY_RATINGS);
       localStorage.removeItem(STORAGE_KEY_LISTS);
@@ -1239,7 +1267,7 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       localStorage.removeItem(STORAGE_KEY_HOME_MEALS);
       localStorage.removeItem(STORAGE_KEY_DELETED_MEALS);
       localStorage.removeItem(STORAGE_KEY_TOMBSTONES);
-      localStorage.removeItem('gourmad-recent-views');
+      localStorage.removeItem('goodeats-recent-views');
       // Reset state to empty (keep the eager meta ref in step so a
       // same-tick commitMeta can't resurrect the old blob)
       setRatings([]);
@@ -1253,7 +1281,7 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       deletedMealIdsRef.current = new Set();
       tombstonesRef.current = newTombstones();
     }
-    try { localStorage.setItem('gourmad-user-id', userId); } catch { /* quota — best-effort */ }
+    try { localStorage.setItem('goodeats-user-id', userId); } catch { /* quota — best-effort */ }
 
     let cancelled = false;
 
@@ -1566,7 +1594,7 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         saveToStorage(STORAGE_KEY_CUSTOM_ORDER, cloudCustomOrder);
         saveToStorage(STORAGE_KEY_HOME_MEALS, cloudHomeMeals);
         if (cloudRecentViews.length > 0) {
-          try { localStorage.setItem('gourmad-recent-views', JSON.stringify(cloudRecentViews)); } catch { /* quota — best-effort */ }
+          try { localStorage.setItem('goodeats-recent-views', JSON.stringify(cloudRecentViews)); } catch { /* quota — best-effort */ }
         }
 
         // If we used local fallback data (cloud was empty but local had
@@ -1689,7 +1717,7 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
             lists: migrateLists(loadFromStorage<CustomList[]>(STORAGE_KEY_LISTS, DEFAULT_LISTS)),
             wishlist: migrateWishlist(loadFromStorage<WishlistItem[]>(STORAGE_KEY_WISHLIST, [])),
             restaurantMeta: migrateMeta(loadFromStorage<Record<string, RestaurantMeta>>(STORAGE_KEY_META, {})),
-            recentViews: loadFromStorage<unknown[]>('gourmad-recent-views', []),
+            recentViews: loadFromStorage<unknown[]>('goodeats-recent-views', []),
             trips: loadFromStorage<Trip[]>(STORAGE_KEY_TRIPS, []),
             homeMeals: migrateHomeMeals(loadFromStorage<HomeMeal[]>(STORAGE_KEY_HOME_MEALS, [])),
             customOrder: loadFromStorage<string[]>(STORAGE_KEY_CUSTOM_ORDER, []),
@@ -2393,6 +2421,8 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   const [homeMealModalData, setHomeMealModalData] = useState<HomeMeal | null>(null);
   const [homeMealModalBackToDraft, setHomeMealModalBackToDraft] = useState<(() => void) | null>(null);
   const [homeMealModalInitialMethod, setHomeMealModalInitialMethod] = useState<'link' | 'photo' | 'text' | 'custom' | 'ai' | null>(null);
+  const [homeMealModalInitialAiView, setHomeMealModalInitialAiView] = useState<'recipe' | 'ideas' | null>(null);
+  const [homeMealModalSeed, setHomeMealModalSeed] = useState<{ meal: HomeMeal; kind: 'ai' | 'import' | 'combine' } | null>(null);
   const [homeMealModalTargetListId, setHomeMealModalTargetListId] = useState<string | null>(null);
 
   // Restaurant metadata cache
@@ -3457,7 +3487,7 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     setAddRestaurantModalOpen(true);
   }, [cacheRestaurantMeta, requireSignIn]);
   const closeAddRestaurantModal = useCallback(() => { setAddRestaurantModalOpen(false); setAddRestaurantModalMeta(null); setAddRestaurantModalInitialPage(null); }, []);
-  const openHomeMealModal = useCallback((meal?: HomeMeal, opts?: { onBackToDraft?: () => void; targetListId?: string; initialMethod?: 'link' | 'photo' | 'text' | 'custom' | 'ai' }) => {
+  const openHomeMealModal = useCallback((meal?: HomeMeal, opts?: { onBackToDraft?: () => void; targetListId?: string; initialMethod?: 'link' | 'photo' | 'text' | 'custom' | 'ai'; initialAiView?: 'recipe' | 'ideas'; seed?: HomeMeal; seedKind?: 'ai' | 'import' | 'combine' }) => {
     if (!userIdRef.current) { requireSignIn('Sign in to log a home meal'); return; }
     setHomeMealModalData(meal || null);
     // Store as a value-returning thunk so React doesn't treat the
@@ -3465,6 +3495,8 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     setHomeMealModalBackToDraft(() => opts?.onBackToDraft ?? null);
     setHomeMealModalTargetListId(opts?.targetListId ?? null);
     setHomeMealModalInitialMethod(opts?.initialMethod ?? null);
+    setHomeMealModalInitialAiView(opts?.initialAiView ?? null);
+    setHomeMealModalSeed(opts?.seed ? { meal: opts.seed, kind: opts.seedKind ?? 'ai' } : null);
     setHomeMealModalOpen(true);
   }, []);
   const closeHomeMealModal = useCallback(() => {
@@ -3473,6 +3505,8 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     setHomeMealModalBackToDraft(null);
     setHomeMealModalTargetListId(null);
     setHomeMealModalInitialMethod(null);
+    setHomeMealModalInitialAiView(null);
+    setHomeMealModalSeed(null);
   }, []);
 
   // Derived pending-upload badge for the settings sheet — recomputed only
@@ -3496,7 +3530,7 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       trips, createTrip, updateTrip, deleteTrip, addRestaurantToTrip, updateTripRestaurant, removeRestaurantFromTrip,
       customOrder, setCustomOrder,
       homeMeals, createHomeMeal, createHomeMealsBulk, updateHomeMeal, deleteHomeMeal, getHomeMeal,
-      homeMealModalOpen, homeMealModalData, homeMealModalBackToDraft, homeMealModalTargetListId, homeMealModalInitialMethod, openHomeMealModal, closeHomeMealModal,
+      homeMealModalOpen, homeMealModalData, homeMealModalBackToDraft, homeMealModalTargetListId, homeMealModalInitialMethod, homeMealModalInitialAiView, homeMealModalSeed, openHomeMealModal, closeHomeMealModal,
     }}>
       {children}
     </ListsContext.Provider>

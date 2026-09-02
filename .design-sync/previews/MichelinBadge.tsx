@@ -1,5 +1,5 @@
 import React from 'react';
-import { MichelinBadge } from 'gourmet-canvas';
+import { MichelinBadge } from 'goodeats';
 
 type Mich = React.ComponentProps<typeof MichelinBadge>['michelin'];
 

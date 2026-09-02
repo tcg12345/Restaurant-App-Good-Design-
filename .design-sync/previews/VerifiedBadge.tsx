@@ -1,5 +1,5 @@
 import React from 'react';
-import { VerifiedBadge, Avatar } from 'gourmet-canvas';
+import { VerifiedBadge, Avatar } from 'goodeats';
 
 /** The one verified-user mark, used everywhere a verified account appears —
  *  feeds, profiles, comments, messages, cards. A lucide `BadgeCheck` with the

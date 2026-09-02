@@ -1,5 +1,5 @@
 import React from 'react';
-import { FilterOptionList } from 'gourmet-canvas';
+import { FilterOptionList } from 'goodeats';
 
 /**
  * The body of a filter's own sub-page: a search field on a hairline, then one

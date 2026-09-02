@@ -1,10 +1,10 @@
 {
-  "name": "gourmet-canvas-promo",
+  "name": "goodeats-promo",
   "private": true,
-  "description": "Remotion promo ad for Gourmet Canvas — 9:16, ~20s",
+  "description": "Remotion promo ad for GoodEats — 9:16, ~20s",
   "scripts": {
     "studio": "remotion studio",
-    "render": "remotion render GourmetCanvasAd out/gourmet-canvas-ad.mp4 --browser-executable=/opt/pw-browsers/chromium"
+    "render": "remotion render GoodEatsAd out/goodeats-ad.mp4 --browser-executable=/opt/pw-browsers/chromium"
   },
   "dependencies": {
     "@remotion/cli": "^4.0.489",

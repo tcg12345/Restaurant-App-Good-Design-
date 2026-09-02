@@ -853,16 +853,14 @@
   margin: 56px 0 24px;
 }
 .gle-scope .gle-end-line { flex: 1; height: 1px; background: var(--gle-line); }
+/* The mark draws its own disc, so this only sizes and tints the SVG:
+   `color` is what the badge's disc inherits. */
 .gle-scope .gle-end-mono {
   width: 40px; height: 40px;
-  border-radius: 999px;
-  background: var(--gle-accent);
-  color: #fff;
-  font-family: var(--gle-font-serif);
-  font-style: italic;
-  font-size: 20px;
+  color: var(--gle-accent);
   display: flex; align-items: center; justify-content: center;
 }
+.gle-scope .gle-end-mono svg { width: 100%; height: 100%; display: block; }
 
 /* ── Dark surface adjustments ─────────────────────────────────── */
 .gle-scope.is-dark .gle-pill-cta { background: #fff; color: var(--gle-ink); }
@@ -1244,7 +1242,7 @@
   /* The rule-and-monogram belongs to a printed page. */
   .gle-scope.gle-scope .gle-end-cap { margin: 22px 0; gap: 12px; }
   .gle-scope.gle-scope .gle-end-line { display: none; }
-  .gle-scope.gle-scope .gle-end-mono { width: 28px; height: 28px; font-size: 14px; margin: 0 auto; }
+  .gle-scope.gle-scope .gle-end-mono { width: 28px; height: 28px; margin: 0 auto; }
 
   .gle-scope.gle-scope .gle-toc { margin-top: 0; }
   .gle-scope.gle-scope .gle-toc-label {
