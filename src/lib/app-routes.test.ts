@@ -3,7 +3,7 @@ import { isAllowedAppPath } from './app-routes';
 
 describe('isAllowedAppPath', () => {
   it('accepts static in-app routes', () => {
-    for (const p of ['/', '/pantry', '/experts', '/location', '/location/map', '/activity/saved']) {
+    for (const p of ['/', '/pantry', '/experts', '/location', '/location/map', '/activity/saved', '/profile/taste']) {
       expect(isAllowedAppPath(p)).toBe(true);
     }
   });
@@ -11,6 +11,7 @@ describe('isAllowedAppPath', () => {
   it('accepts dynamic routes with a non-empty segment', () => {
     expect(isAllowedAppPath('/restaurant/ChIJabc123')).toBe(true);
     expect(isAllowedAppPath('/user/jamie')).toBe(true);
+    expect(isAllowedAppPath('/user/jamie/taste')).toBe(true);
     expect(isAllowedAppPath('/recipe/user-1/recipe-9')).toBe(true);
     expect(isAllowedAppPath('/restaurant/xyz/circle')).toBe(true);
   });

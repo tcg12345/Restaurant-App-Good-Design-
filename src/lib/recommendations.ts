@@ -295,6 +295,12 @@ export function buildTasteProfile(
   lists: CustomList[],
   recentViews: Array<{ id: string }>,
   quiz?: TasteQuizSignals | null,
+  opts?: {
+    /** Cached coordinates per rated restaurant (ListsContext.restaurantMeta).
+     *  The Michelin matcher is far more reliable with them — name+address
+     *  alone under-counted a real account's Guide restaurants 4×. */
+    coordsById?: Map<string, { lat: number; lng: number }>;
+  },
 ): TasteProfile {
   const cuisineScore: Record<string, number> = {};
   const cuisineCounts: Record<string, number> = {};
@@ -638,7 +644,8 @@ export function buildTasteProfile(
       if (r.score <= 0) continue;
       if (r.score < anchor) continue; // only places they'd actually vouch for
       positiveN++;
-      const info = findMichelinMatchSync(r.name, undefined, undefined, r.address);
+      const at = opts?.coordsById?.get(r.restaurantId);
+      const info = findMichelinMatchSync(r.name, at?.lat, at?.lng, r.address);
       if (!info) continue;
       if (info.stars > 0) starHits++;
       else if (info.bibGourmand) bibHits++;

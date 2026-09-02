@@ -933,7 +933,7 @@ const RecipePanelBody: React.FC<{
         <Link
           to={fullRecipeHref}
           onClick={onClose}
-          className="group flex items-center justify-center gap-1.5 w-full h-12 rounded-full bg-primary text-white text-[14px] font-bold hover:bg-primary/90 transition-colors shadow-sm"
+          className="group flex items-center justify-center gap-1.5 w-full h-12 rounded-full bg-primary text-on-primary text-[14px] font-bold hover:bg-primary/90 transition-colors shadow-sm"
         >
           View full recipe
           <ArrowUpRight size={16} className="transition-transform group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />

@@ -201,7 +201,7 @@ export const GuideDetail: React.FC = () => {
         <BookOpen size={32} className="text-on-surface/25 mb-3" />
         <p className="text-base font-serif font-bold mb-1">Guide not found</p>
         <p className="text-sm text-on-surface/55 mb-4">It may have been unpublished or deleted.</p>
-        <button onClick={() => navigate('/')} className="px-4 py-2 rounded-full bg-primary text-white text-sm font-semibold">
+        <button onClick={() => navigate('/')} className="px-4 py-2 rounded-full bg-primary text-on-primary text-sm font-semibold">
           Back to Discover
         </button>
       </div>
@@ -358,7 +358,7 @@ export const GuideDetail: React.FC = () => {
   const authorTrailing = authorProfile?.username && !isOwner ? (
     <Link
       to={`/user/${authorProfile.username}`}
-      className="flex-shrink-0 px-3.5 py-1.5 rounded-full bg-primary text-white text-[12px] font-bold"
+      className="flex-shrink-0 px-3.5 py-1.5 rounded-full bg-primary text-on-primary text-[12px] font-bold"
     >
       View profile
     </Link>

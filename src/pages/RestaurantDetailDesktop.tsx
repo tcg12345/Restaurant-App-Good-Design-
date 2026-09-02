@@ -228,7 +228,7 @@ export const RestaurantDetailDesktop: React.FC = () => {
         onClick={() => (myRating
           ? openAddRestaurantModal(ratingMeta, 'new-visit')
           : openAddRestaurantModal(ratingMeta))}
-        className="inline-flex items-center gap-2 bg-primary text-white rounded-full pl-4 pr-5 py-2.5 text-sm font-bold hover:-translate-y-px transition-transform"
+        className="inline-flex items-center gap-2 bg-primary text-on-primary rounded-full pl-4 pr-5 py-2.5 text-sm font-bold hover:-translate-y-px transition-transform"
         style={{ boxShadow: onPhoto ? '0 4px 14px rgba(0,0,0,0.24)' : 'var(--shadow-sm)' }}
       >
         {myRating ? <RotateCw size={16} /> : <Plus size={17} strokeWidth={2.5} />}
@@ -598,7 +598,7 @@ export const RestaurantDetailDesktop: React.FC = () => {
                     <h2 className={H2}>My rating</h2>
                     <span className="w-7 h-7 rounded-full bg-on-surface/[0.05] grid place-items-center text-on-surface/55"><ChevronDown size={16} className={cn('transition-transform', myRatingOpen && 'rotate-180')} /></span>
                   </button>
-                  <button type="button" onClick={() => openAddRestaurantModal(ratingMeta, 'new-visit')} className="inline-flex items-center gap-1.5 bg-primary text-white text-[13px] font-bold px-4 py-2.5 rounded-full hover:-translate-y-px transition-transform" style={{ boxShadow: 'var(--shadow-primary)' }}>
+                  <button type="button" onClick={() => openAddRestaurantModal(ratingMeta, 'new-visit')} className="inline-flex items-center gap-1.5 bg-primary text-on-primary text-[13px] font-bold px-4 py-2.5 rounded-full hover:-translate-y-px transition-transform" style={{ boxShadow: 'var(--shadow-primary)' }}>
                     <RotateCw size={14} /> Re-rate
                   </button>
                 </div>

@@ -286,7 +286,7 @@ export const ChatRecsSheet: React.FC<{
                 <button
                   type="button"
                   onClick={go}
-                  className="flex h-[52px] w-full items-center justify-center gap-2 rounded-full bg-primary text-[15px] font-bold text-white shadow-[0_10px_28px_-10px_rgba(0,0,0,0.55)] transition-transform active:scale-[0.985]"
+                  className="flex h-[52px] w-full items-center justify-center gap-2 rounded-full bg-primary text-[15px] font-bold text-on-primary shadow-[0_10px_28px_-10px_rgba(0,0,0,0.55)] transition-transform active:scale-[0.985]"
                 >
                   <Sparkles size={16} />
                   {people.length === 0 ? 'Find places for me' : `Find a place for ${people.length + 1}`}

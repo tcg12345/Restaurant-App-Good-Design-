@@ -706,7 +706,7 @@ export const CirclePanel: React.FC<CirclePanelProps> = ({ variant, onClose }) =>
               type="button"
               onClick={() => handleAcceptRequest(r)}
               disabled={busy}
-              className="hit-44-y inline-flex items-center justify-center gap-1 px-4 h-9 rounded-full bg-primary text-white text-[12.5px] font-bold active:opacity-85 transition-opacity disabled:opacity-60"
+              className="hit-44-y inline-flex items-center justify-center gap-1 px-4 h-9 rounded-full bg-primary text-on-primary text-[12.5px] font-bold active:opacity-85 transition-opacity disabled:opacity-60"
             >
               {busy ? <Loader2 size={12} className="animate-spin" /> : null}
               Confirm
@@ -729,7 +729,7 @@ export const CirclePanel: React.FC<CirclePanelProps> = ({ variant, onClose }) =>
             type="button"
             onClick={() => handleFollowBackRequest(r)}
             disabled={busy}
-            className="hit-44-y flex-shrink-0 inline-flex items-center gap-1 px-3.5 h-9 rounded-full bg-primary text-white text-[12.5px] font-bold active:opacity-90 disabled:opacity-60"
+            className="hit-44-y flex-shrink-0 inline-flex items-center gap-1 px-3.5 h-9 rounded-full bg-primary text-on-primary text-[12.5px] font-bold active:opacity-90 disabled:opacity-60"
           >
             {busy ? <Loader2 size={12} className="animate-spin" /> : <UserPlus size={12} strokeWidth={2.6} />}
             Follow back

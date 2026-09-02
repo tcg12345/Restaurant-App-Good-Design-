@@ -1716,7 +1716,7 @@ export const CommentsBody: React.FC<CommentsBodyProps> = ({ targetId, onClose, v
               className={cn(
                 'w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 transition-all duration-200',
                 draft.trim() && !posting && currentUserId
-                  ? 'bg-primary text-white scale-100'
+                  ? 'bg-primary text-on-primary scale-100'
                   : 'bg-on-surface/[0.07] text-on-surface/30 scale-90 cursor-not-allowed',
               )}
               aria-label={replyTarget ? 'Post reply' : 'Post comment'}

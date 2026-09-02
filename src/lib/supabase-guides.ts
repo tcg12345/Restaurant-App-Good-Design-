@@ -169,7 +169,7 @@ export interface GuideTheme {
  *  theme. Mirrors the reference editor's `defaultTheme` so the editor and
  *  reader agree on the baseline. */
 export const DEFAULT_THEME: GuideTheme = {
-  accent: '#9F3012',
+  accent: '#1C1A19',
   surface: 'cream',
   headingFont: 'noto-serif',
   bodyFont: 'manrope',

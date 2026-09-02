@@ -250,7 +250,7 @@ export const PhotoLibraryGrid: React.FC<Props> = ({
                 className={cn(
                   'absolute top-1 right-1 w-[22px] h-[22px] rounded-full flex items-center justify-center text-[11px] font-bold transition-colors',
                   isSelected
-                    ? 'bg-primary text-white shadow-[0_0_0_1.5px_white]'
+                    ? 'bg-primary text-on-primary shadow-[0_0_0_1.5px_white]'
                     : 'bg-black/30 text-transparent border border-white/70',
                 )}
               >

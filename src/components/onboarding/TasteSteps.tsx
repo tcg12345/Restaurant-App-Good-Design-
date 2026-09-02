@@ -55,6 +55,72 @@ export const TASTE_PRICES: Array<{ tier: number; label: string; sub: string }> =
   { tier: 4, label: '$$$$', sub: 'Special occasions' },
 ];
 
+/**
+ * The spend question, asked the way lib/recommendations reads it: ONE
+ * usual tier, plus an optional second for occasions. A single dominant
+ * tier is what crosses priceDist's concentration bar and switches on the
+ * price-restricted queries; the old multi-select silently took whichever
+ * chip was tapped FIRST as that tier and never said so — someone who
+ * tapped $$$$ then $$ told the engine they mostly eat at $$$$.
+ */
+export const PriceStep: React.FC<{
+  primary?: number;
+  secondary?: number;
+  onChange: (primary: number | undefined, secondary: number | undefined) => void;
+}> = ({ primary, secondary, onChange }) => {
+  const options = TASTE_PRICES.map((t) => ({ id: String(t.tier), label: t.label, sub: t.sub }));
+  return (
+    <div className="flex flex-col" style={{ gap: 28 }}>
+      <div>
+        <OB.FieldLabel>A normal night out</OB.FieldLabel>
+        <TastePillGrid
+          options={options}
+          selected={primary !== undefined ? [String(primary)] : []}
+          onToggle={(id) => {
+            const tier = Number(id);
+            onChange(tier === primary ? undefined : tier, secondary);
+          }}
+        />
+      </div>
+      <div>
+        <OB.FieldLabel>And when you're celebrating · optional</OB.FieldLabel>
+        <TastePillGrid
+          dense
+          options={options}
+          selected={secondary !== undefined ? [String(secondary)] : []}
+          onToggle={(id) => {
+            const tier = Number(id);
+            onChange(primary, tier === secondary ? undefined : tier);
+          }}
+        />
+      </div>
+    </div>
+  );
+};
+
+/** ids MUST be keys of DIETARY_TAG_PRIORS (lib/recommendations.ts) — each
+ *  one lands as a tag prior on real ALL_TAGS tokens, which is the admission
+ *  rule for asking at all. Preferences, not health data: coarse on
+ *  purpose, optional on purpose. */
+export const DIETARY_OPTIONS: Array<{ id: string; title: string; description: string }> = [
+  { id: 'vegetarian', title: 'Vegetarian', description: 'Favor places with a real meat-free menu, not one token dish.' },
+  { id: 'vegan', title: 'Vegan', description: 'Plant-based options come first.' },
+  { id: 'healthy', title: 'Eating light', description: 'Fresh, wholesome, and not always a splurge.' },
+];
+
+export const DietaryStep: React.FC<{
+  selected: string[];
+  onToggle: (id: string) => void;
+}> = ({ selected, onToggle }) => (
+  <div className="flex flex-col" style={{ gap: 10 }}>
+    {DIETARY_OPTIONS.map((o, i) => (
+      <OB.Reveal key={o.id} i={i + 1}>
+        <OB.RadioCard multi selected={selected.includes(o.id)} onClick={() => onToggle(o.id)} title={o.title} description={o.description} />
+      </OB.Reveal>
+    ))}
+  </div>
+);
+
 /** Multi-select chip grid. `dense` shrinks the chips (for the cuisines
  *  grid, which has far more options to fit on one screen than a plain
  *  preference list does).
@@ -93,7 +159,9 @@ export const TastePillGrid: React.FC<{
             fontWeight: 600,
             letterSpacing: '-0.01em',
             background: sel ? OB.TERRA : 'var(--ob-card)',
-            color: sel ? '#fff' : 'var(--ob-ink)',
+            // ON_TERRA, never a literal white: the selected fill is bone
+            // on the dark theme, where white text vanished into it.
+            color: sel ? OB.ON_TERRA : 'var(--ob-ink)',
             border: `1px solid ${sel ? OB.TERRA : 'var(--ob-border)'}`,
             boxShadow: sel
               ? '0 6px 16px -6px color-mix(in srgb, var(--ob-terra) 55%, transparent)'
@@ -103,7 +171,7 @@ export const TastePillGrid: React.FC<{
         >
           {o.label}
           {o.sub && (
-            <span style={{ fontSize: 12, fontWeight: 500, color: sel ? 'rgba(255,255,255,0.78)' : 'var(--ob-label)', transition: 'color .18s var(--ease-out-strong)' }}>
+            <span style={{ fontSize: 12, fontWeight: 500, color: sel ? 'color-mix(in srgb, var(--ob-on-terra) 78%, transparent)' : 'var(--ob-label)', transition: 'color .18s var(--ease-out-strong)' }}>
               {o.sub}
             </span>
           )}
@@ -321,7 +389,7 @@ const RatePlaceRow: React.FC<{
           <Check size={13} strokeWidth={2.6} /> Rated
         </span>
       ) : (
-        <span className="flex-none inline-flex items-center gap-1 rounded-full text-white" style={{ padding: '0 14px', height: 30, fontSize: 12, fontWeight: 700, background: OB.TERRA }}>
+        <span className="flex-none inline-flex items-center gap-1 rounded-full" style={{ padding: '0 14px', height: 30, fontSize: 12, fontWeight: 700, background: OB.TERRA, color: OB.ON_TERRA }}>
           <Star size={12} strokeWidth={2.6} /> Rate
         </span>
       )}
@@ -388,16 +456,20 @@ export const RatePlacesStep: React.FC<{
     setSearching(true);
     const req = ++reqRef.current;
     debounceRef.current = setTimeout(async () => {
-      // Bias to the home city they gave two steps ago; null coords fall back
-      // to a global query-only search, right for "places I've been".
-      const found = await searchPlacesByText(q, profile?.home_lat ?? null, profile?.home_lng ?? null)
+      // Bias to the same city the suggestions use — the one picked earlier
+      // in THIS wizard. This used to read profile.home_lat, which is null
+      // for every new account until the wizard's final refreshProfile, so
+      // the search that was meant to be "near you" was global for exactly
+      // the people this step exists for. Null coords still fall back to a
+      // query-only search, right for "places I've been" elsewhere.
+      const found = await searchPlacesByText(q, city?.lat ?? null, city?.lng ?? null)
         .catch(() => [] as PlaceResult[]);
       if (req !== reqRef.current) return;
       setResults(found.slice(0, 8));
       setSearching(false);
     }, 350);
     return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
-  }, [query, profile?.home_lat, profile?.home_lng]);
+  }, [query, city?.lat, city?.lng]);
 
   const ratedIds = new Set(ratings.filter((r) => r.score > 0).map((r) => r.restaurantId));
   const searchingActive = query.trim().length >= 2;

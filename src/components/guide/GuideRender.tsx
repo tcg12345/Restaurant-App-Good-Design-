@@ -88,7 +88,7 @@ export const BODY_FONT_MAP: Record<GuideTheme['bodyFont'], { label: string; stac
 };
 
 export const ACCENT_SWATCHES = [
-  '#9F3012', '#C2410C', '#B45309', '#5C6144', '#1F5C3F',
+  '#1C1A19', '#C9B48E', '#B45309', '#5C6144', '#1F5C3F',
   '#1F3A5F', '#2F4858', '#6B2D5C', '#7C2D12', '#1e1b1a',
 ];
 

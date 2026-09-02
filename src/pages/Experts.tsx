@@ -253,7 +253,7 @@ export const Experts: React.FC = () => {
                   className={cn(
                     "hit-44-y px-3.5 h-8 rounded-full text-xs font-semibold whitespace-nowrap flex-shrink-0 transition-colors",
                     cuisineFilter === null
-                      ? "bg-primary text-white"
+                      ? "bg-primary text-on-primary"
                       : "bg-on-surface/[0.05] text-on-surface/60 hover:bg-on-surface/[0.08]"
                   )}
                 >
@@ -266,7 +266,7 @@ export const Experts: React.FC = () => {
                     className={cn(
                       "hit-44-y px-3.5 h-8 rounded-full text-xs font-semibold whitespace-nowrap flex-shrink-0 transition-colors",
                       cuisineFilter === cuisine
-                        ? "bg-primary text-white"
+                        ? "bg-primary text-on-primary"
                         : "bg-on-surface/[0.05] text-on-surface/60 hover:bg-on-surface/[0.08]"
                     )}
                   >

@@ -22,10 +22,15 @@ import { fileURLToPath } from 'node:url';
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
 /* ── Brand ─────────────────────────────────────────────────────────────── */
-const TERRA = [0x9f, 0x30, 0x12];
+// Graphite and bone: the brand is the two tones of the logo, and each
+// theme's accent is the other one. Light-theme assets are the graphite
+// mark ground with a white bowl (the app icon); dark-theme assets invert.
+const INK = [0x1c, 0x1a, 0x19];        // --color-primary, light
+const BONE = [0xf2, 0xef, 0xe9];       // --color-primary, dark
 const WHITE = [0xff, 0xff, 0xff];
 const CREAM = [0xff, 0xff, 0xff];      // --color-surface, light
 const GRAPHITE = [0x1e, 0x1e, 0x20];   // --color-surface, dark
+const DARK_BOWL = [0x1a, 0x19, 0x18];  // --color-on-primary, dark
 
 /* ── Geometry, on the same 100x100 viewBox as Logo.tsx ─────────────────── */
 const DISC = { cx: 50, cy: 50, r: 48 };
@@ -64,18 +69,22 @@ function inPolygon(x, y, pts) {
   return inside;
 }
 
+/** The vessel sits a shade under the rim (Logo.tsx draws it at 82%). */
+const shade = (c, ground, a = 0.82) => c.map((v, i) => Math.round(v * a + ground[i] * (1 - a)));
+
 /**
  * Colour at a point in viewBox space, or null for transparent.
- * `disc` draws the terracotta ground; without it the mark is drawn in
- * terracotta on whatever the caller already painted.
+ * `ground` is the disc colour and `on` the bowl's; `disc: false` draws the
+ * bowl in `ground` on whatever the caller already painted.
  */
-function markAt(x, y, { disc = true, bg = null } = {}) {
-  const onMark = inRoundRect(x, y, RIM) || inPolygon(x, y, BOWL);
+function markAt(x, y, { disc = true, bg = null, ground = INK, on = WHITE } = {}) {
+  const onRim = inRoundRect(x, y, RIM);
+  const onVessel = !onRim && inPolygon(x, y, BOWL);
   if (disc) {
     if (!inDisc(x, y)) return bg;
-    return onMark ? WHITE : TERRA;
+    return onRim ? on : onVessel ? shade(on, ground) : ground;
   }
-  return onMark ? TERRA : bg;
+  return onRim || onVessel ? ground : bg;
 }
 
 /* ── Rasteriser ────────────────────────────────────────────────────────── */
@@ -169,18 +178,18 @@ function write(relPath, image) {
 
 /* ── Draw helpers ──────────────────────────────────────────────────────── */
 /** Mark filling the frame (the disc IS the icon shape). */
-const fullBleedDisc = (inset = 0) => (x, y, w, h) => {
+const fullBleedDisc = (inset = 0, tones = {}) => (x, y, w, h) => {
   const span = 100 + inset * 2;
-  return markAt((x / w) * span - inset, (y / h) * span - inset);
+  return markAt((x / w) * span - inset, (y / h) * span - inset, tones);
 };
 
-/** Opaque square of `bg` with the terracotta disc centred at `frac` of the frame. */
-const centred = (bg, frac) => (x, y, w, h) => {
+/** Opaque square of `bg` with the mark's disc centred at `frac` of the frame. */
+const centred = (bg, frac, tones = {}) => (x, y, w, h) => {
   const side = Math.min(w, h) * frac;
   const vx = ((x - (w - side) / 2) / side) * 100;
   const vy = ((y - (h - side) / 2) / side) * 100;
   if (vx < 0 || vx > 100 || vy < 0 || vy > 100) return bg;
-  return markAt(vx, vy, { bg });
+  return markAt(vx, vy, { bg, ...tones });
 };
 
 console.log('GoodEats icons →');
@@ -188,14 +197,14 @@ console.log('GoodEats icons →');
 /* Web + PWA */
 write('public/icon-192.png', raster({ size: 192, draw: fullBleedDisc() }));
 write('public/icon-512.png', raster({ size: 512, draw: fullBleedDisc() }));
-/* The platform icons are the BOWL on a solid terracotta field, not a disc
+/* The platform icons are the BOWL on a solid graphite field, not a disc
    floating on one: iOS and Android both apply their own mask (squircle,
    circle, whatever a launcher decides), so the icon has to paint to the
    edge or it gets a ring of dead space inside the mask. `frac` slightly
    over 1 lets the disc overshoot the frame — invisible, since it is the
    same colour as the ground, and it keeps the bowl at ~54% of the width,
    which is the proportion Apple's own icons sit at. */
-const PLATFORM_ICON = centred(TERRA, 1.02);
+const PLATFORM_ICON = centred(INK, 1.02);
 
 // Maskable: the bowl sits well inside the 80% safe circle at this scale,
 // and the terracotta ground fills the corners a launcher may crop.
@@ -215,7 +224,8 @@ write('ios-assets/AppIcon-512@2x.png', raster({ size: 1024, draw: PLATFORM_ICON 
    billboard on the device. */
 for (const n of ['', '-1', '-2']) {
   write(`ios-assets/splash-2732x2732${n}.png`, raster({ size: 2732, draw: centred(CREAM, 0.11) }));
-  write(`ios-assets/splash-2732x2732-dark${n}.png`, raster({ size: 2732, draw: centred(GRAPHITE, 0.11) }));
+  // Dark launch: the brand's other face — a bone disc with a graphite bowl.
+  write(`ios-assets/splash-2732x2732-dark${n}.png`, raster({ size: 2732, draw: centred(GRAPHITE, 0.11, { ground: BONE, on: DARK_BOWL }) }));
 }
 
 console.log('done.');

@@ -243,7 +243,7 @@ export const FeedPost: React.FC<FeedPostProps> = ({
             type="button" onClick={save.onToggle} aria-label={save.label || (save.saved ? 'Saved' : 'Save')}
             className={cn(
               'w-9 h-9 rounded-full flex items-center justify-center active:opacity-75 transition-opacity',
-              save.saved ? 'bg-primary text-white' : 'bg-on-surface/[0.06] text-on-surface',
+              save.saved ? 'bg-primary text-on-primary' : 'bg-on-surface/[0.06] text-on-surface',
             )}
           >
             <Bookmark size={15} className={save.saved ? 'fill-current' : ''} />

@@ -19,12 +19,12 @@
 import React, { useMemo } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { motion } from 'motion/react';
-import { ArrowLeft, Star } from 'lucide-react';
+import { Star } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useLists } from '../contexts/ListsContext';
 import { useSettings } from '../contexts/SettingsContext';
 import { OwnScoreBadge } from '../components/ScoreBadge';
-import { GlassButton } from '../lib/glass-buttons';
+import { FloatingBack } from '../components/FloatingBack';
 import { useHeaderFade } from '../lib/useHeaderFade';
 import { cn } from '../lib/utils';
 import { scoreColor } from '../lib/score';
@@ -72,7 +72,7 @@ export const TopListPage: React.FC = () => {
   if (!config || !list || !stillVisible) {
     return (
       <div className="min-h-screen bg-surface">
-        <FloatingBack onBack={() => navigate('/profile')} />
+        <FloatingBack id="top-list-back" onBack={() => navigate('/profile')} />
         <div className="mx-auto w-full max-w-[860px] px-5 text-center" style={{ paddingTop: 'calc(env(safe-area-inset-top, 0px) + 76px)' }}>
           <span className="mx-auto mt-10 flex h-14 w-14 items-center justify-center rounded-2xl bg-on-surface/[0.05]">
             <Star size={26} className="text-on-surface/20" />
@@ -121,7 +121,7 @@ export const TopListPage: React.FC = () => {
             </div>
           </div>
         </motion.div>
-        <FloatingBack onBack={() => navigate('/profile')} />
+        <FloatingBack id="top-list-back" onBack={() => navigate('/profile')} />
       </div>
 
       <div className="mx-auto w-full max-w-[860px] px-5" style={{ paddingBottom: PAGE_BOTTOM }}>
@@ -182,25 +182,6 @@ export const TopListPage: React.FC = () => {
     </div>
   );
 };
-
-/** Back, on native Liquid Glass, held off the status bar by the safe area.
- *  Rendered in its own layer so it stays above the condensed strip that
- *  fades in underneath it. */
-const FloatingBack: React.FC<{ onBack: () => void }> = ({ onBack }) => (
-  <div className="pointer-events-none absolute inset-x-0 top-0 z-10 mx-auto w-full max-w-[860px] px-4 pt-safe-3">
-    <div className="flex h-11 items-center">
-      <GlassButton
-        id="top-list-back"
-        symbol="arrow.left"
-        label="Back"
-        onClick={onBack}
-        className="hit-44 pointer-events-auto flex h-11 w-11 items-center justify-center rounded-full text-on-surface/80 transition-transform active:scale-95"
-      >
-        <ArrowLeft size={18} />
-      </GlassButton>
-    </div>
-  </div>
-);
 
 const TopListRow: React.FC<{
   rank: number;

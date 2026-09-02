@@ -55,89 +55,112 @@ export interface RatingStripCardProps {
   liked: boolean;
   likeCount: number;
   commentCount: number;
+  /** The tile itself — the rating's own page, not the restaurant's. */
   onOpen: () => void;
+  /** The author chip. Omit and the chip is inert text (no username). */
+  onOpenAuthor?: () => void;
   onLike: () => void;
   onComment: () => void;
 }
 
 export const RatingStripCard: React.FC<RatingStripCardProps> = ({
   name, initial, avatarBg, avatarText, when, place, meta, score, photo,
-  liked, likeCount, commentCount, onOpen, onLike, onComment,
+  liked, likeCount, commentCount, onOpen, onOpenAuthor, onLike, onComment,
 }) => {
   const [failed, setFailed] = useState(false);
   const hasPhoto = !!photo && !failed;
 
+  /* Who rated it — a chip, so it reads over a photograph too.
+     A SIBLING of the tile button, not a child of it: the chip is its own
+     destination (the author's profile) and a button inside a button is
+     neither valid HTML nor separately clickable. It stays absolutely
+     positioned against the same box, so the geometry is unchanged. */
+  const chipInner = (
+    <>
+      <span className={cn('w-[21px] h-[21px] rounded-full flex items-center justify-center', avatarBg)}>
+        <span className={cn('leading-none', avatarText)} style={{ fontSize: '10.5px', fontWeight: 700 }}>{initial}</span>
+      </span>
+      <span className="max-w-[96px] truncate" style={{ fontSize: '12px', fontWeight: 600 }}>{name}</span>
+    </>
+  );
+  const chipClass = cn(
+    'absolute top-[11px] left-[11px] z-10 flex items-center gap-1.5 rounded-full py-[5px] pl-[5px] pr-2.5',
+    hasPhoto ? 'bg-black/45 backdrop-blur-md text-white' : 'bg-on-surface/[0.08] text-on-surface',
+  );
+
   return (
     <div className="min-w-0">
-      <button
-        type="button"
-        onClick={onOpen}
-        className={cn(
-          'relative block w-full overflow-hidden rounded-[24px] text-left active:opacity-80 transition-opacity',
-          hasPhoto ? 'h-[164px]' : 'h-[136px]',
-          !hasPhoto && scoreTint(score),
-        )}
-        aria-label={`Open ${place}`}
-      >
-        {hasPhoto && (
-          <>
-            <img
-              src={photo!}
-              alt=""
-              loading="lazy"
-              decoding="async"
-              onError={() => setFailed(true)}
-              onLoad={(e) => { if (e.currentTarget.naturalWidth === 0) setFailed(true); }}
-              className="absolute inset-0 h-full w-full object-cover"
-              referrerPolicy="no-referrer"
-            />
-            <span
-              className="absolute inset-0"
-              style={{ background: 'linear-gradient(to top, rgba(18,15,14,0.72), rgba(18,15,14,0.02) 62%)' }}
-            />
-          </>
-        )}
-
-        {/* Who rated it — a chip, so it reads over a photograph too. */}
-        <span
+      <div className="relative">
+        <button
+          type="button"
+          onClick={onOpen}
           className={cn(
-            'absolute top-[11px] left-[11px] flex items-center gap-1.5 rounded-full py-[5px] pl-[5px] pr-2.5',
-            hasPhoto ? 'bg-black/45 backdrop-blur-md text-white' : 'bg-on-surface/[0.08] text-on-surface',
+            'relative block w-full overflow-hidden rounded-[24px] text-left active:opacity-80 transition-opacity',
+            hasPhoto ? 'h-[164px]' : 'h-[136px]',
+            !hasPhoto && scoreTint(score),
           )}
+          aria-label={`Open ${name}'s review of ${place}`}
         >
-          <span className={cn('w-[21px] h-[21px] rounded-full flex items-center justify-center', avatarBg)}>
-            <span className={cn('leading-none', avatarText)} style={{ fontSize: '10.5px', fontWeight: 700 }}>{initial}</span>
-          </span>
-          <span className="max-w-[96px] truncate" style={{ fontSize: '12px', fontWeight: 600 }}>{name}</span>
-        </span>
-
-        <span
-          className={cn(
-            'absolute top-[11px] right-[11px] rounded-full px-[11px] py-2 tabular-nums',
-            hasPhoto ? cn(scoreChipBg(score), 'text-white') : 'bg-surface/70 text-on-surface',
+          {hasPhoto && (
+            <>
+              <img
+                src={photo!}
+                alt=""
+                loading="lazy"
+                decoding="async"
+                onError={() => setFailed(true)}
+                onLoad={(e) => { if (e.currentTarget.naturalWidth === 0) setFailed(true); }}
+                className="absolute inset-0 h-full w-full object-cover"
+                referrerPolicy="no-referrer"
+              />
+              <span
+                className="absolute inset-0"
+                style={{ background: 'linear-gradient(to top, rgba(18,15,14,0.72), rgba(18,15,14,0.02) 62%)' }}
+              />
+            </>
           )}
-          style={{ fontSize: '14px', fontWeight: 700 }}
-        >
-          {score.toFixed(1)}
-        </span>
 
-        <span className="absolute left-3.5 right-3.5 bottom-3">
           <span
-            className={cn('block line-clamp-2', hasPhoto ? 'text-white' : 'text-on-surface')}
-            style={{ fontSize: '17.5px', fontWeight: 700, lineHeight: 1.15, letterSpacing: '-0.03em' }}
+            className={cn(
+              'absolute top-[11px] right-[11px] rounded-full px-[11px] py-2 tabular-nums',
+              hasPhoto ? cn(scoreChipBg(score), 'text-white') : 'bg-surface/70 text-on-surface',
+            )}
+            style={{ fontSize: '14px', fontWeight: 700 }}
           >
-            {place}
+            {score.toFixed(1)}
           </span>
-          {meta && (
+
+          <span className="absolute left-3.5 right-3.5 bottom-3">
             <span
-              className={cn('mt-1.5 block truncate', hasPhoto ? 'text-white/75' : 'text-on-surface/50')}
-              style={{ fontSize: '12.5px', lineHeight: 1.2 }}
+              className={cn('block line-clamp-2', hasPhoto ? 'text-white' : 'text-on-surface')}
+              style={{ fontSize: '17.5px', fontWeight: 700, lineHeight: 1.15, letterSpacing: '-0.03em' }}
             >
-              {meta}
+              {place}
             </span>
-          )}
-        </span>
-      </button>
+            {meta && (
+              <span
+                className={cn('mt-1.5 block truncate', hasPhoto ? 'text-white/75' : 'text-on-surface/50')}
+                style={{ fontSize: '12.5px', lineHeight: 1.2 }}
+              >
+                {meta}
+              </span>
+            )}
+          </span>
+        </button>
+
+        {onOpenAuthor ? (
+          <button
+            type="button"
+            onClick={onOpenAuthor}
+            className={cn(chipClass, 'active:opacity-70 transition-opacity')}
+            aria-label={`${name}'s profile`}
+          >
+            {chipInner}
+          </button>
+        ) : (
+          <span className={chipClass}>{chipInner}</span>
+        )}
+      </div>
 
       <div className="flex items-center gap-1.5 pt-[11px] px-0.5">
         <button

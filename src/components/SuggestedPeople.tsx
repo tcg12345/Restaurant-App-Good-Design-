@@ -41,7 +41,7 @@ const FollowButton: React.FC<{
       aria-label={done ? `Following ${name}` : `Follow ${name}`}
       className={cn(
         'rounded-full inline-flex items-center justify-center gap-1 transition-opacity active:opacity-80 disabled:opacity-100',
-        done ? 'bg-on-surface/[0.06] text-on-surface/55' : 'bg-primary text-white',
+        done ? 'bg-on-surface/[0.06] text-on-surface/55' : 'bg-primary text-on-primary',
         className,
       )}
       style={{ fontSize: '12px', fontWeight: 700 }}

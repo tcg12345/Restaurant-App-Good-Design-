@@ -55,7 +55,7 @@ const SuggestionRow: React.FC<{
         className="flex items-center justify-center flex-shrink-0"
         style={{ width: 32, height: 32, borderRadius: 10, background: accent ? OB.TERRA : 'var(--ob-badge-bg)' }}
       >
-        {icon ?? <MapPin size={15} strokeWidth={1.8} style={{ color: accent ? '#fff' : OB.TERRA }} />}
+        {icon ?? <MapPin size={15} strokeWidth={1.8} style={{ color: accent ? OB.ON_TERRA : OB.TERRA }} />}
       </span>
       <span className="min-w-0 flex-1">
         <span className="block truncate" style={{ fontSize: 15, fontWeight: 600, color: accent ? OB.TERRA : 'var(--ob-ink)' }}>
@@ -251,7 +251,7 @@ export const CityAutocomplete: React.FC<{
                     index={0}
                     onPick={() => pick(detected!)}
                     accent
-                    icon={<LocateFixed size={15} strokeWidth={2.2} style={{ color: '#fff' }} />}
+                    icon={<LocateFixed size={15} strokeWidth={2.2} style={{ color: OB.ON_TERRA }} />}
                     divider={false}
                   />
                 )}

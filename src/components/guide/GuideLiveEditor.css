@@ -65,7 +65,7 @@
   font-weight: 800;
   letter-spacing: 0.18em;
   text-transform: uppercase;
-  color: #9F3012;
+  color: var(--color-primary);
 }
 .gle-overlay .gle-chrome-title {
   font-family: 'Noto Serif', serif;
@@ -138,7 +138,7 @@
 }
 .gle-overlay .gle-btn-ghost:hover { background: rgba(30,27,26,0.05); }
 .gle-overlay .gle-btn-primary {
-  background: #9F3012;
+  background: var(--color-primary);
   color: #fff;
 }
 .gle-overlay .gle-btn-primary:hover { background: #8a290f; }
@@ -289,8 +289,8 @@
 }
 .gle-overlay .gle-editable:focus,
 .gle-overlay .gle-editable.is-selected {
-  box-shadow: 0 0 0 2px #9F3012;
-  outline: 2px dashed #9F3012;
+  box-shadow: 0 0 0 2px var(--color-primary);
+  outline: 2px dashed var(--color-primary);
   outline-offset: 2px;
 }
 .gle-overlay .gle-editable[data-placeholder]:empty::before {
@@ -415,7 +415,7 @@
   align-items: center;
   gap: 4px;
 }
-.gle-overlay .gle-mini.primary { background: #9F3012; color: #fff; }
+.gle-overlay .gle-mini.primary { background: var(--color-primary); color: var(--color-on-primary); }
 .gle-overlay .gle-mini.ghost { background: transparent; border: 1px solid rgba(30,27,26,0.10); }
 
 /* Editable chips */
@@ -482,8 +482,8 @@
   cursor: pointer;
 }
 .gle-overlay .gle-chip-add:hover {
-  border-color: #9F3012;
-  color: #9F3012;
+  border-color: var(--color-primary);
+  color: var(--color-primary);
 }
 
 /* Editable score */
@@ -570,7 +570,7 @@
   color: rgba(30,27,26,0.65);
   font-size: 13px;
 }
-.gle-overlay .gle-price-opt.on { background: #9F3012; color: #fff; }
+.gle-overlay .gle-price-opt.on { background: var(--color-primary); color: var(--color-on-primary); }
 
 /* Custom section editor controls — sit beside the section header on
    hover so they don't clutter the preview. */
@@ -641,8 +641,8 @@
   cursor: pointer;
 }
 .gle-overlay .gle-add-entry:hover {
-  border-color: #9F3012;
-  color: #9F3012;
+  border-color: var(--color-primary);
+  color: var(--color-primary);
 }
 
 /* AddEntryPicker popover ─ minimalist dropdown anchored under the
@@ -828,7 +828,7 @@
   font-weight: 700;
   font-variant-numeric: tabular-nums;
   font-size: 12.5px;
-  color: #9F3012;
+  color: var(--color-primary);
   flex-shrink: 0;
 }
 .gle-overlay .gle-picker-item-plus,
@@ -838,7 +838,7 @@
 }
 .gle-overlay.is-dark .gle-picker-item-plus,
 .gle-overlay.is-dark .gle-picker-item-check { color: rgba(255,255,255,0.35); }
-.gle-overlay .gle-picker-item:hover:not(:disabled) .gle-picker-item-plus { color: #9F3012; }
+.gle-overlay .gle-picker-item:hover:not(:disabled) .gle-picker-item-plus { color: var(--color-primary); }
 .gle-overlay .gle-picker-foot {
   display: flex;
   align-items: center;
@@ -938,7 +938,7 @@
 .gle-overlay .gle-tab-dot {
   width: 6px; height: 6px;
   border-radius: 999px;
-  background: #9F3012;
+  background: var(--color-primary);
   position: absolute;
   top: 4px; right: 4px;
 }
@@ -1033,7 +1033,7 @@
   transition: background-color 0.15s;
   flex-shrink: 0;
 }
-.gle-overlay .gle-toggle-track.on { background: #9F3012; }
+.gle-overlay .gle-toggle-track.on { background: var(--color-primary); }
 .gle-overlay .gle-toggle-thumb {
   position: absolute;
   top: 2px; left: 2px;
@@ -1078,8 +1078,8 @@
   text-align: left;
 }
 .gle-overlay .gle-surf-card.on {
-  border-color: #9F3012;
-  box-shadow: 0 0 0 1px #9F3012;
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 1px var(--color-primary);
 }
 .gle-overlay .gle-surf-prev {
   width: 28px; height: 28px;
@@ -1113,8 +1113,8 @@
   text-align: left;
 }
 .gle-overlay .gle-font-row.on {
-  border-color: #9F3012;
-  box-shadow: 0 0 0 1px #9F3012;
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 1px var(--color-primary);
 }
 .gle-overlay .gle-font-name {
   font-size: 11px;
@@ -1252,12 +1252,12 @@
   font-size: 12px;
   font-weight: 600;
 }
-.gle-overlay .gle-color-chip.on { border-color: #9F3012; box-shadow: 0 0 0 1px #9F3012; }
+.gle-overlay .gle-color-chip.on { border-color: var(--color-primary); box-shadow: 0 0 0 1px var(--color-primary); }
 .gle-overlay .gle-color-dot {
   width: 12px; height: 12px;
   border-radius: 999px;
   background: rgba(30,27,26,0.20);
 }
-.gle-overlay .gle-color-chip[data-tone="accent"]  .gle-color-dot { background: #9F3012; }
+.gle-overlay .gle-color-chip[data-tone="accent"]  .gle-color-dot { background: var(--color-primary); }
 .gle-overlay .gle-color-chip[data-tone="muted"]   .gle-color-dot { background: rgba(30,27,26,0.45); }
 .gle-overlay .gle-color-chip[data-tone="inverse"] .gle-color-dot { background: #fff; border: 1px solid rgba(30,27,26,0.20); }

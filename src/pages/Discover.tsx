@@ -1,4 +1,5 @@
 import React, { useState, useRef, useCallback, useEffect, useMemo, useLayoutEffect } from 'react';
+import { primaryHex } from '../lib/brand';
 import { createPortal } from 'react-dom';
 import { useNavigate, useLocation, Link } from 'react-router-dom';
 import { motion, AnimatePresence, useMotionValue, useMotionTemplate, useTransform, animate } from 'motion/react';
@@ -2457,7 +2458,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, sear
       const el = document.createElement('div');
       el.style.cssText = `display:flex;align-items:center;justify-content:center;cursor:pointer;`;
       const inner = document.createElement('div');
-      inner.style.cssText = `width:${size}px;height:${size}px;border-radius:50%;background:#9f3012;border:2px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,0.28);display:flex;align-items:center;justify-content:center;transition:transform 0.2s ease;`;
+      inner.style.cssText = `width:${size}px;height:${size}px;border-radius:50%;background:var(--color-primary);border:2px solid var(--color-on-primary);box-shadow:0 2px 6px rgba(0,0,0,0.28);display:flex;align-items:center;justify-content:center;transition:transform 0.2s ease;`;
       inner.innerHTML = `<svg width="${iconSz}" height="${iconSz}" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5" fill="none" stroke="#fff" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
       el.appendChild(inner);
       el.addEventListener('mouseenter', () => { inner.style.transform = 'scale(1.15)'; });
@@ -2902,7 +2903,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, sear
       // Selected → brand primary; otherwise restore the marker's own score
       // colour. Content (white score / pin glyph) stays white in both states.
       pin.style.background = isSelected
-        ? 'var(--color-primary, #9f3012)'
+        ? 'var(--color-primary, #1c1a19)'
         : (pin.dataset.baseColor || '#94a3b8');
       el.style.zIndex = isSelected ? '5' : '';
     });
@@ -3634,7 +3635,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, sear
 
     const bounds = new mapboxgl.LngLatBounds();
     let hasMarkers = false;
-    const strokeColor = mapMode === 'friends' || followingView ? '#9f3012' : mapMode === 'experts' ? '#9f3012' : '#333';
+    const strokeColor = mapMode === 'friends' || followingView || mapMode === 'experts' ? primaryHex() : '#333';
 
     for (const r of ratings) {
       if (!r.lat || !r.lng) continue;
@@ -3663,7 +3664,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, sear
         span.textContent = initial;
         iconEl = span;
       } else if (mapMode === 'experts') {
-        fillColor = '#9f3012';
+        fillColor = primaryHex();
         iconHtml = `<svg width="${iconSz}" height="${iconSz}" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5" fill="none" stroke="#fff" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
       } else {
         // myratings: check if wishlisted (no rating) vs rated
@@ -4263,7 +4264,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, sear
                 >
                   <SlidersHorizontal size={15} className="text-on-surface/65" />
                   {activeFilterCount > 0 && (
-                    <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full bg-primary text-white text-[10px] font-bold flex items-center justify-center ring-2 ring-surface">
+                    <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full bg-primary text-on-primary text-[10px] font-bold flex items-center justify-center ring-2 ring-surface">
                       {activeFilterCount}
                     </span>
                   )}
@@ -5450,7 +5451,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, sear
                         <button
                           type="button"
                           onClick={goToRecommendations}
-                          className="group inline-flex h-10 flex-shrink-0 items-center gap-2 rounded-full bg-primary pl-4.5 pr-4 text-[13px] font-bold text-white transition-colors hover:bg-primary/90 active:scale-[0.98]"
+                          className="group inline-flex h-10 flex-shrink-0 items-center gap-2 rounded-full bg-primary pl-4.5 pr-4 text-[13px] font-bold text-on-primary transition-colors hover:bg-primary/90 active:scale-[0.98]"
                         >
                           See recommendations
                           <ArrowRight size={15} strokeWidth={2.4} className="transition-transform group-hover:translate-x-0.5" />
@@ -5655,7 +5656,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, sear
             {mode !== 'home' && (
               <button
                 onClick={() => setSheetState('peek')}
-                className="absolute bottom-6 right-4 z-10 w-14 h-14 rounded-full bg-primary text-white shadow-xl shadow-primary/30 flex items-center justify-center hover:bg-primary/90 transition-all active:scale-95 ring-4 ring-white"
+                className="absolute bottom-6 right-4 z-10 w-14 h-14 rounded-full bg-primary text-on-primary shadow-xl shadow-primary/30 flex items-center justify-center hover:bg-primary/90 transition-all active:scale-95 ring-4 ring-white"
               >
                 <MapIcon size={22} />
               </button>
@@ -5872,7 +5873,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, sear
                     <SlidersHorizontal size={18} className={activeFilterCount > 0 ? "text-primary" : "text-on-surface/70"} />
                   )}
                   {activeFilterCount > 0 && (
-                    <span className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-primary text-white text-[10px] font-bold flex items-center justify-center">
+                    <span className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-primary text-on-primary text-[10px] font-bold flex items-center justify-center">
                       {activeFilterCount}
                     </span>
                   )}
@@ -5902,7 +5903,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, sear
                       setMapModeDropdownOpen(willOpen);
                     }}
                     className={cn("flex items-center gap-2 px-5 py-3 rounded-full border-2 whitespace-nowrap transition-colors",
-                      mapMode === 'myratings' ? "bg-primary border-primary text-white shadow-sm shadow-primary/20" : "border-on-surface/10 hover:bg-muted")}
+                      mapMode === 'myratings' ? "bg-primary border-primary text-on-primary shadow-sm shadow-primary/20" : "border-on-surface/10 hover:bg-muted")}
                   >
                     {selectedListId === WISHLIST_LIST_ID
                       ? <Bookmark size={16} className={mapMode === 'myratings' ? "text-white fill-white" : "text-on-surface/50"} />
@@ -5955,7 +5956,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, sear
                 <button
                   onClick={() => { setMapMode(mapMode === 'friends' ? 'discover' : 'friends'); setSelectedFriendIds(new Set()); }}
                   className={cn("flex items-center gap-2 px-5 py-3 rounded-full border-2 whitespace-nowrap flex-shrink-0 transition-colors",
-                    mapMode === 'friends' ? "bg-primary border-primary text-white shadow-sm shadow-primary/20" : "border-on-surface/10 hover:bg-muted")}
+                    mapMode === 'friends' ? "bg-primary border-primary text-on-primary shadow-sm shadow-primary/20" : "border-on-surface/10 hover:bg-muted")}
                 >
                   <Users size={16} className={mapMode === 'friends' ? "text-white" : "text-on-surface/50"} />
                   <span className="text-xs font-bold uppercase tracking-wider">Friends{selectedFriendIds.size > 0 ? ` (${selectedFriendIds.size})` : ''}</span>
@@ -5965,7 +5966,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, sear
                   onClick={() => setMapMode(mapMode === 'experts' ? 'discover' : 'experts')}
                   className={cn(
                     "flex items-center gap-2 px-5 py-3 rounded-full border-2 whitespace-nowrap flex-shrink-0 transition-colors",
-                    mapMode === 'experts' ? "bg-primary border-primary text-white shadow-sm shadow-primary/20" : "border-on-surface/10 hover:bg-muted"
+                    mapMode === 'experts' ? "bg-primary border-primary text-on-primary shadow-sm shadow-primary/20" : "border-on-surface/10 hover:bg-muted"
                   )}
                 >
                   <BadgeCheck size={16} className={mapMode === 'experts' ? "text-white" : "text-on-surface/50"} />

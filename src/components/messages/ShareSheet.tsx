@@ -447,7 +447,7 @@ export const ShareSheet: React.FC<{
                   disabled={!canSend}
                   className={cn(
                     'flex-none inline-flex items-center gap-2 h-11 px-5 rounded-full text-[13px] font-bold transition-all',
-                    canSend ? 'bg-primary text-white active:scale-[0.97]' : 'bg-on-surface/[0.08] text-on-surface/35',
+                    canSend ? 'bg-primary text-on-primary active:scale-[0.97]' : 'bg-on-surface/[0.08] text-on-surface/35',
                   )}
                 >
                   <Send size={14} />

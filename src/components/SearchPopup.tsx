@@ -372,7 +372,7 @@ export const SearchPopup: React.FC<Props> = ({
                   className={cn(
                     'inline-flex items-center gap-2 px-4 py-2 rounded-full text-[13px] font-semibold transition-all',
                     selectedIds.size > 0
-                      ? 'bg-primary text-white hover:bg-primary/90 active:scale-[0.99] shadow-sm'
+                      ? 'bg-primary text-on-primary hover:bg-primary/90 active:scale-[0.99] shadow-sm'
                       : 'bg-on-surface/[0.06] text-on-surface/40 cursor-not-allowed',
                   )}
                 >
@@ -418,7 +418,7 @@ const PopupRow: React.FC<{
           className={cn(
             'flex-shrink-0 w-5 h-5 rounded-md border-2 flex items-center justify-center transition-colors',
             selected
-              ? 'bg-primary border-primary text-white'
+              ? 'bg-primary border-primary text-on-primary'
               : 'border-on-surface/20',
           )}
         >

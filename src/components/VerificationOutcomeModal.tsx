@@ -112,7 +112,7 @@ export const VerificationOutcomeModal: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => void dismissDenied(true)}
-                  className="flex-[1.4] py-3 rounded-2xl bg-primary text-white text-sm font-semibold"
+                  className="flex-[1.4] py-3 rounded-2xl bg-primary text-on-primary text-sm font-semibold"
                 >
                   Apply again
                 </button>

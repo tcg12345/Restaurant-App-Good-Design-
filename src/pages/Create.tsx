@@ -234,7 +234,7 @@ const ContinueBtn: React.FC<{ label?: string; disabled?: boolean; onClick: () =>
       'inline-flex items-center gap-2 px-7 py-3 rounded-full font-semibold text-[14px] transition-all active:scale-[0.98]',
       disabled
         ? 'bg-on-surface/[0.07] text-on-surface/35'
-        : 'bg-primary text-white shadow-sm hover:bg-primary/90',
+        : 'bg-primary text-on-primary shadow-sm hover:bg-primary/90',
     )}
   >
     {label}
@@ -491,7 +491,7 @@ const PostSurface: React.FC<{
             type="button"
             onClick={handleNext}
             disabled={anyLoading || handingOff}
-            className="h-9 pl-4 pr-3 rounded-full bg-primary text-white inline-flex items-center gap-1 text-[13px] font-bold shadow-lg pointer-events-auto active:scale-95 transition-transform disabled:opacity-60"
+            className="h-9 pl-4 pr-3 rounded-full bg-primary text-on-primary inline-flex items-center gap-1 text-[13px] font-bold shadow-lg pointer-events-auto active:scale-95 transition-transform disabled:opacity-60"
           >
             {anyLoading ? (
               <><Loader2 size={13} className="animate-spin" /> Loading…</>
@@ -554,7 +554,7 @@ const PostSurface: React.FC<{
                     <img src={p.previewUrl || p.thumb} alt="" className="w-full h-full object-cover" />
                   )}
                   {p.loading && <span className="absolute inset-0 bg-white/40 animate-pulse" />}
-                  <span className="absolute top-1 right-1 w-5 h-5 rounded-full bg-primary border-2 border-white text-white text-[10px] font-bold flex items-center justify-center">
+                  <span className="absolute top-1 right-1 w-5 h-5 rounded-full bg-primary border-2 border-white text-on-primary text-[10px] font-bold flex items-center justify-center">
                     {idx + 1}
                   </span>
                   <span className="absolute inset-x-0 bottom-0 bg-black/55 text-white/90 text-[9px] font-bold py-0.5">

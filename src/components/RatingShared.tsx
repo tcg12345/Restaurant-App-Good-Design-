@@ -239,7 +239,7 @@ export const Calendar: React.FC<{
               className={cn(
                 "relative flex items-center justify-center py-2.5 text-sm font-semibold transition-all rounded-full mx-auto w-10 h-10",
                 sel
-                  ? "bg-primary text-white"
+                  ? "bg-primary text-on-primary"
                   : tod
                     ? "text-primary font-bold"
                     : fut

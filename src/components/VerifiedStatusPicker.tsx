@@ -111,7 +111,7 @@ export const VerifiedStatusPicker: React.FC<{
         type="button"
         onClick={() => void handleSave()}
         disabled={!complete || saving}
-        className="w-full py-2.5 bg-primary text-white rounded-xl text-xs font-semibold disabled:opacity-40 flex items-center justify-center gap-2"
+        className="w-full py-2.5 bg-primary text-on-primary rounded-xl text-xs font-semibold disabled:opacity-40 flex items-center justify-center gap-2"
       >
         {saving && <Loader2 size={13} className="animate-spin" />}
         {saveLabel}

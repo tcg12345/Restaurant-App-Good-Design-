@@ -1183,7 +1183,7 @@ export const AddReelModal: React.FC = () => {
                     </div>
                   )}
                   {step === 3 && hasFeatured && (
-                    <div className="absolute left-5 top-2 inline-flex items-center gap-1.5 rounded-full bg-primary text-white px-2.5 py-1 text-[10.5px] font-bold shadow-lg pointer-events-none z-10">
+                    <div className="absolute left-5 top-2 inline-flex items-center gap-1.5 rounded-full bg-primary text-on-primary px-2.5 py-1 text-[10.5px] font-bold shadow-lg pointer-events-none z-10">
                       {kind === 'restaurant' ? <MapPin size={10} /> : <ChefHat size={10} />}
                       <span className="max-w-[180px] truncate">
                         {kind === 'restaurant' ? pickedRestaurant?.name : pickedRecipe?.title}
@@ -1205,7 +1205,7 @@ export const AddReelModal: React.FC = () => {
                     />
                   </div>
                   {step === 3 && hasFeatured && (
-                    <div className="absolute left-5 top-2 inline-flex items-center gap-1.5 rounded-full bg-primary text-white px-2.5 py-1 text-[10.5px] font-bold shadow-lg pointer-events-none z-10">
+                    <div className="absolute left-5 top-2 inline-flex items-center gap-1.5 rounded-full bg-primary text-on-primary px-2.5 py-1 text-[10.5px] font-bold shadow-lg pointer-events-none z-10">
                       {kind === 'restaurant' ? <MapPin size={10} /> : <ChefHat size={10} />}
                       <span className="max-w-[180px] truncate">
                         {kind === 'restaurant' ? pickedRestaurant?.name : pickedRecipe?.title}
@@ -1583,7 +1583,7 @@ export const AddReelModal: React.FC = () => {
                     )}
 
                     {step === 3 && hasFeatured && (
-                      <div className="absolute left-4 bottom-4 inline-flex items-center gap-1.5 rounded-full bg-primary text-white px-3 py-1.5 text-[11px] font-bold shadow-lg pointer-events-none">
+                      <div className="absolute left-4 bottom-4 inline-flex items-center gap-1.5 rounded-full bg-primary text-on-primary px-3 py-1.5 text-[11px] font-bold shadow-lg pointer-events-none">
                         {kind === 'restaurant' ? <MapPin size={11} /> : <ChefHat size={11} />}
                         <span className="max-w-[220px] truncate">
                           {kind === 'restaurant' ? pickedRestaurant?.name : pickedRecipe?.title}
@@ -1610,7 +1610,7 @@ export const AddReelModal: React.FC = () => {
                       />
                     </div>
                     {step === 3 && hasFeatured && (
-                      <div className="absolute left-4 bottom-4 inline-flex items-center gap-1.5 rounded-full bg-primary text-white px-3 py-1.5 text-[11px] font-bold shadow-lg pointer-events-none">
+                      <div className="absolute left-4 bottom-4 inline-flex items-center gap-1.5 rounded-full bg-primary text-on-primary px-3 py-1.5 text-[11px] font-bold shadow-lg pointer-events-none">
                         {kind === 'restaurant' ? <MapPin size={11} /> : <ChefHat size={11} />}
                         <span className="max-w-[220px] truncate">
                           {kind === 'restaurant' ? pickedRestaurant?.name : pickedRecipe?.title}

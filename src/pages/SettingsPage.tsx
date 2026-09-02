@@ -589,7 +589,7 @@ export const SettingsPage: React.FC = () => {
                       size={64}
                       letterSize={25}
                     />
-                    <span className="absolute -bottom-0.5 -right-0.5 w-[26px] h-[26px] rounded-full bg-primary text-white ring-[3px] ring-surface flex items-center justify-center">
+                    <span className="absolute -bottom-0.5 -right-0.5 w-[26px] h-[26px] rounded-full bg-primary text-on-primary ring-[3px] ring-surface flex items-center justify-center">
                       {avatarBusy ? <Loader2 size={13} className="animate-spin" /> : <Camera size={13} strokeWidth={2.2} />}
                     </span>
                   </button>
@@ -879,7 +879,7 @@ export const SettingsPage: React.FC = () => {
                       onClick={() => navigate('/verify/apply')}
                       className="mt-3 w-full flex items-center gap-3 rounded-[18px] border border-primary/[0.22] bg-primary/[0.06] px-4 py-3.5 text-left active:bg-primary/[0.11] transition-colors"
                     >
-                      <span className="flex-none w-[34px] h-[34px] rounded-full bg-primary text-white flex items-center justify-center">
+                      <span className="flex-none w-[34px] h-[34px] rounded-full bg-primary text-on-primary flex items-center justify-center">
                         <BadgeCheck size={17} strokeWidth={2} />
                       </span>
                       <span className="flex-1 min-w-0 block">

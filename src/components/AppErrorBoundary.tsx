@@ -28,7 +28,7 @@ const AppErrorFallback: React.FC<{ onTryAgain: () => void }> = ({ onTryAgain }) 
     <div className="flex items-center gap-3">
       <button
         onClick={onTryAgain}
-        className="mt-1 px-7 py-2.5 rounded-full bg-primary text-white text-sm font-medium transition-transform active:scale-[0.97]"
+        className="mt-1 px-7 py-2.5 rounded-full bg-primary text-on-primary text-sm font-medium transition-transform active:scale-[0.97]"
       >
         Try again
       </button>
@@ -106,7 +106,7 @@ function renderDetachedFallback() {
            terracotta are literal here on purpose. Keep in sync with
            Logo.tsx and public/logo.svg. -->
       <svg width="48" height="48" viewBox="0 0 100 100" aria-hidden="true">
-        <circle cx="50" cy="50" r="48" fill="#9f3012"/>
+        <circle cx="50" cy="50" r="48" fill="#1c1a19"/>
         <rect x="23" y="40" width="54" height="6.5" rx="3.25" fill="#fff"/>
         <path d="M28 52 Q50 75 72 52 Z" fill="#fff"/>
       </svg>
@@ -114,7 +114,7 @@ function renderDetachedFallback() {
         <p style="margin:0 0 6px;font-family:'Noto Serif',serif;font-size:20px;">Something went wrong</p>
         <p style="margin:0;font-size:14px;opacity:0.6;max-width:280px;">An unexpected error occurred. Reload to pick up where you left off.</p>
       </div>
-      <button id="app-error-reload" style="margin-top:4px;padding:10px 28px;border:none;border-radius:9999px;background:#9f3012;color:#fff;font-size:14px;font-weight:500;font-family:inherit;">Reload</button>
+      <button id="app-error-reload" style="margin-top:4px;padding:10px 28px;border:none;border-radius:9999px;background:#1c1a19;color:#fff;font-size:14px;font-weight:500;font-family:inherit;">Reload</button>
     </div>`;
   document.getElementById('app-error-reload')?.addEventListener('click', () => window.location.reload());
 }

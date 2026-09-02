@@ -12,6 +12,8 @@ import { AdminVerification } from './pages/AdminVerification';
 import { Profile } from './pages/Profile';
 import { SettingsPage } from './pages/SettingsPage';
 import { TopListPage } from './pages/TopListPage';
+import { TasteProfilePage } from './pages/TasteProfilePage';
+import { UserTasteProfilePage } from './pages/UserTasteProfilePage';
 import { AdminCuisineSuggestions } from './pages/AdminCuisineSuggestions';
 import { Pantry } from './pages/Pantry';
 import { RecommendedForYou } from './pages/RecommendedForYou';
@@ -28,7 +30,7 @@ import { SwipeBackContainer } from './components/SwipeBackContainer';
 import { ScrollRestoration } from './components/ScrollRestoration';
 import { KEEP_ALIVE_PATHS } from './lib/keep-alive';
 import { useHomeLocation } from './contexts/HomeLocationContext';
-import { recordNavEntry, backTargetFor, isTabRootLocation } from './lib/nav-stack';
+import { recordNavEntry, navEntryAt, backTargetFor, isTabRootLocation, isSheetPath, stackKeyFor } from './lib/nav-stack';
 import { Sidebar } from './components/Sidebar';
 import { AnimatePresence, motion, type Variants } from 'motion/react';
 import { SettingsProvider, useSettings } from './contexts/SettingsContext';
@@ -185,7 +187,7 @@ const ProfileLoadError: React.FC = () => {
           type="button"
           onClick={() => void retry()}
           disabled={retrying}
-          className="mt-6 w-full bg-primary text-white px-8 py-3 rounded-2xl text-base font-semibold shadow-lg shadow-primary/25 disabled:opacity-60"
+          className="mt-6 w-full bg-primary text-on-primary px-8 py-3 rounded-2xl text-base font-semibold shadow-lg shadow-primary/25 disabled:opacity-60"
         >
           {retrying ? 'Retrying…' : 'Retry'}
         </button>
@@ -394,6 +396,15 @@ const AppContent: React.FC = () => {
   // feels native rather than waiting for a fade-out first. Other routes
   // keep the existing fade + small vertical lift in `mode="wait"`.
   const isCreateRoute = location.pathname === '/create';
+  /**
+   * Routes that present as a SHEET rather than a push: they rise from the
+   * bottom over the page that opened them, which stays put behind, scaled
+   * back and dimmed the way iOS shrinks a presenting screen. The lists
+   * hanging off a profile's stat row are a modal view of that profile's
+   * data, not a place you navigate to — so they should read as the same
+   * page with something raised over it.
+   */
+  const isSheetRoute = isSheetPath(location.pathname);
   // Detail pages slide horizontally (iOS push/pop) rather than fading. Fading
   // an opaque page out over the kept tab caused a white wash; sliding it off
   // also covers the tab during its first repaint, so there's no flash.
@@ -419,7 +430,18 @@ const AppContent: React.FC = () => {
   // leaving it), but framer refreshes `custom` on exiting clones — so the
   // new navigation's instant-ness AND direction reach the old page's exit
   // while the create-vs-stack branch stays source-correct.
-  const stackNav = { instant: stackInstant, pop: navType === 'POP' };
+  // A dismissal is a POP whose FORWARD entry (the one being popped off) is
+  // a sheet — that is what tells the page underneath to come back by
+  // un-scaling rather than sliding in from the parallax slot.
+  const fromSheet = navType === 'POP'
+    && isSheetPath(navEntryAt((historyIdx ?? 0) + 1)?.pathname ?? '');
+  const stackNav = {
+    instant: stackInstant, pop: navType === 'POP',
+    // Read by the OUTGOING page: framer refreshes `custom` on exiting
+    // clones, so the presenter learns it is being covered by a sheet.
+    toSheet: isSheetRoute,
+    fromSheet,
+  };
   type StackNav = typeof stackNav;
   // Non-create pages live in normal flow (so the document is as tall as the
   // page and sticky chrome works) and only become absolute for the exit
@@ -429,14 +451,20 @@ const AppContent: React.FC = () => {
   // dim rides a brightness() filter, NOT opacity: the parked page must stay
   // opaque or the kept-alive tab beneath ghosts through it mid-slide.
   const stackVariants: Variants = {
-    enter: ({ instant, pop }: StackNav) => {
+    enter: ({ instant, pop, fromSheet }: StackNav) => {
       if (instant) return { x: 0 };
       if (isCreateRoute) return { x: '-100%', opacity: 1 };
+      // A sheet rises from the bottom edge, full width, no parallax.
+      if (isSheetRoute) return { y: '100%' };
+      // Revealed by a sheet going down: already in place, just held back
+      // and dimmed — the mirror of the presenter's exit below.
+      if (fromSheet) return { scale: 0.94, filter: 'brightness(0.82)' };
       // Pop: re-emerge from the parked parallax slot, brightening.
       return pop ? { x: '-30%', filter: 'brightness(0.85)' } : { x: '100%' };
     },
     center: ({ instant }: StackNav) => ({
       x: 0,
+      ...(isSheetRoute ? { y: 0 } : { scale: 1 }),
       ...(isCreateRoute
         ? { opacity: 1 }
         // Clear the filter once centered — any non-none filter turns the
@@ -445,9 +473,17 @@ const AppContent: React.FC = () => {
         : { filter: 'brightness(1)', transitionEnd: { filter: 'none' } }),
       transition: instant ? { duration: 0 } : motionTransition,
     }),
-    exit: ({ instant, pop }: StackNav) => ({
+    exit: ({ instant, pop, toSheet }: StackNav) => ({
       ...(isCreateRoute
         ? { x: '-100%', opacity: 1 }
+        : isSheetRoute
+          // The sheet itself, dismissing: straight back down.
+          ? { position: 'absolute' as const, top: 0, left: 0, right: 0, y: '100%', zIndex: 10 }
+        : toSheet
+          // The presenter, being covered: it does not travel. It settles
+          // back a little and dims, so the sheet reads as rising in front
+          // of the page you were already on.
+          ? { position: 'absolute' as const, top: 0, left: 0, right: 0, scale: 0.94, filter: 'brightness(0.82)', zIndex: 0 }
         : {
             position: 'absolute' as const, top: 0, left: 0, right: 0,
             ...(pop
@@ -510,7 +546,9 @@ const AppContent: React.FC = () => {
       <AnimatePresence mode="sync" initial={false} custom={stackNav}>
         {!isKeepAlivePath && (
         <motion.div
-          key={location.pathname}
+          // Keyed by the SHEET, not the tab, so moving between a sheet's
+          // tabs is an update rather than a dismiss-and-present.
+          key={stackKeyFor(location.pathname)}
           // Lets the swipe-back gesture verify the destination (this exact
           // pathname) is mounted and at rest before it drops the covering
           // snapshot — the exiting page's wrapper must not pass for it.
@@ -520,7 +558,15 @@ const AppContent: React.FC = () => {
           initial="enter"
           animate="center"
           exit="exit"
-          className={isCreateRoute ? 'absolute inset-0 z-30' : 'relative bg-surface'}
+          className={
+            isCreateRoute ? 'absolute inset-0 z-30'
+              // A sheet overlays the page it was opened from instead of
+              // taking its place in flow, and keeps a soft top edge while
+              // it travels (flush at rest, where it is full-bleed).
+              : isSheetRoute ? 'absolute inset-0 z-30 overflow-hidden rounded-t-[22px] bg-surface shadow-[0_-8px_40px_rgba(0,0,0,0.28)]'
+              : 'relative bg-surface'
+          }
+          style={isSheetRoute ? { transformOrigin: '50% 100%' } : { transformOrigin: '50% 50%' }}
         >
         <React.Fragment key={refreshKeyFor(location.pathname)}>
         <Routes location={location}>
@@ -549,6 +595,8 @@ const AppContent: React.FC = () => {
           <Route path="/profile" element={<RequireAuthRoute reason="Sign in to view your profile"><Profile /></RequireAuthRoute>} />
           <Route path="/settings" element={<RequireAuthRoute reason="Sign in to manage your account"><SettingsPage /></RequireAuthRoute>} />
           <Route path="/profile/top/:listKey" element={<RequireAuthRoute reason="Sign in to view your top lists"><TopListPage /></RequireAuthRoute>} />
+          <Route path="/profile/taste" element={<RequireAuthRoute reason="Sign in to see your taste profile"><TasteProfilePage /></RequireAuthRoute>} />
+          <Route path="/user/:username/taste" element={<UserTasteProfilePage />} />
           <Route path="/pantry" element={<RequireAuthRoute reason="Sign in to open your lists"><Pantry /></RequireAuthRoute>} />
           <Route path="/pantry/recommended" element={<RequireAuthRoute reason="Sign in for your recommendations"><RecommendedForYou /></RequireAuthRoute>} />
           <Route path="/restaurant/:id" element={<RestaurantDetail />} />
@@ -639,7 +687,7 @@ const AppContent: React.FC = () => {
   const backTarget = backTargetFor(historyIdx ?? 0, location.pathname, location.search);
   const isTabRoot = isTabRootLocation(location.pathname, location.search);
   const allowSwipeBack =
-    backTarget !== null && !isReelsPage && !isFocusedReel && !isMapPage && !isTabRoot &&
+    backTarget !== null && !isReelsPage && !isFocusedReel && !isMapPage && !isTabRoot && !isSheetRoute &&
     !['/create', '/location/map'].includes(location.pathname);
   return (
     <div className="min-h-screen bg-surface selection:bg-primary/20 selection:text-primary">

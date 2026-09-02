@@ -84,7 +84,7 @@ export function recipeMetaLine(r: Pick<FeaturedRecipe, 'prepTime' | 'cookTime' |
 
 /** Soft monogram tints — warm, low-chroma, readable in both themes. */
 const MONOGRAM_TINTS: { bg: string; ink: string }[] = [
-  { bg: 'bg-[#f4ece6]', ink: 'text-[#9f3012]' },
+  { bg: 'bg-[#f1efec]', ink: 'text-[#1c1a19]' },
   { bg: 'bg-[#eef0e8]', ink: 'text-[#5c6144]' },
   { bg: 'bg-[#f1ece4]', ink: 'text-[#8f6626]' },
   { bg: 'bg-[#eaf0ee]', ink: 'text-[#2e7d5c]' },
@@ -174,8 +174,8 @@ export const FeaturedRow: React.FC<{
       className={cn(
         'w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 transition-colors',
         selected
-          ? 'bg-primary text-white'
-          : 'bg-on-surface/[0.06] text-on-surface/40 group-hover:bg-primary group-hover:text-white',
+          ? 'bg-primary text-on-primary'
+          : 'bg-on-surface/[0.06] text-on-surface/40 group-hover:bg-primary group-hover:text-on-primary',
       )}
       aria-hidden
     >

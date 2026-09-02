@@ -185,7 +185,7 @@ export const Sidebar: React.FC = () => {
           aria-label="Create"
           title={collapsed ? 'Create' : undefined}
           className={cn(
-            'w-full bg-primary text-white rounded-full font-semibold text-sm',
+            'w-full bg-primary text-on-primary rounded-full font-semibold text-sm',
             'flex items-center justify-center gap-2',
             'shadow-sm hover:bg-primary/90 active:scale-[0.99] transition-all',
             collapsed ? 'h-11 px-0' : 'h-11 px-4',
@@ -388,7 +388,7 @@ export const Sidebar: React.FC = () => {
                 {unreadCount > 0 && (
                   <span
                     className={cn(
-                      'absolute -top-1 -right-1 min-w-[16px] h-4 px-1 rounded-full bg-primary text-white text-[10px] font-bold',
+                      'absolute -top-1 -right-1 min-w-[16px] h-4 px-1 rounded-full bg-primary text-on-primary text-[10px] font-bold',
                       'flex items-center justify-center ring-2 ring-surface',
                     )}
                   >
@@ -428,7 +428,7 @@ export const Sidebar: React.FC = () => {
           )}
           title={profile?.display_name || 'Profile'}
         >
-          <div className="w-9 h-9 rounded-full bg-secondary text-white flex items-center justify-center font-serif font-bold text-sm flex-shrink-0">
+          <div className="w-9 h-9 rounded-full bg-secondary text-on-primary flex items-center justify-center font-serif font-bold text-sm flex-shrink-0">
             {initial}
           </div>
           {!collapsed && (

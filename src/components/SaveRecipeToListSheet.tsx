@@ -142,7 +142,7 @@ export const SaveRecipeToListSheet: React.FC<SaveRecipeToListSheetProps> = ({ op
                   <div className={cn(
                     'w-[26px] h-[26px] rounded-full flex items-center justify-center transition-all flex-shrink-0',
                     inCookbook
-                      ? 'bg-primary text-white'
+                      ? 'bg-primary text-on-primary'
                       : 'border-2 border-on-surface/18',
                   )}>
                     {inCookbook && <Check size={14} strokeWidth={3} />}
@@ -174,7 +174,7 @@ export const SaveRecipeToListSheet: React.FC<SaveRecipeToListSheetProps> = ({ op
                     <div className={cn(
                       'w-[26px] h-[26px] rounded-full flex items-center justify-center transition-all flex-shrink-0',
                       isIn
-                        ? 'bg-primary text-white'
+                        ? 'bg-primary text-on-primary'
                         : 'border-2 border-on-surface/18',
                     )}>
                       {isIn && <Check size={14} strokeWidth={3} />}
@@ -224,7 +224,7 @@ export const SaveRecipeToListSheet: React.FC<SaveRecipeToListSheetProps> = ({ op
                     <button
                       onClick={handleCreate}
                       disabled={!newName.trim()}
-                      className="flex-1 py-2.5 rounded-xl bg-primary text-white text-[13px] font-semibold disabled:opacity-40 hover:opacity-90 transition-opacity"
+                      className="flex-1 py-2.5 rounded-xl bg-primary text-on-primary text-[13px] font-semibold disabled:opacity-40 hover:opacity-90 transition-opacity"
                     >
                       Create & save
                     </button>

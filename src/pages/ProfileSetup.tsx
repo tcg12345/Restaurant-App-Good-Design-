@@ -1,9 +1,11 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { User, ArrowLeft, ArrowRight, Loader2 } from 'lucide-react';
+import { User, ArrowLeft, ArrowRight, Camera, Loader2 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { VerifiedBadge } from '../components/VerifiedBadge';
+import { Avatar } from '../components/Avatar';
+import { processPhoto } from '../lib/images';
 import { saveProfile, isUsernameTaken } from '../lib/supabase-community';
 import { geocodePlace, savePickedLocation, type HomeLocation } from '../components/HomeLocationBar';
 import { CityAutocomplete } from '../components/CityAutocomplete';
@@ -12,11 +14,12 @@ import { AuthShell, useDesktopAuthLayout } from '../components/AuthShell';
 // original single-form AuthShell design.
 import * as OB from '../components/onboarding/OnboardingKit';
 import {
-  TastePillGrid, CuisineGrid, FollowRail, RatePlacesStep,
-  TASTE_CUISINES, TASTE_PRICES,
+  CuisineGrid, PriceStep, DietaryStep, FollowRail, RatePlacesStep,
+  TASTE_CUISINES,
 } from '../components/onboarding/TasteSteps';
 import { RatingFlow } from '../components/RatingFlow';
 import { ImportStep, importFooter, useOnboardingImport } from '../components/onboarding/ImportStep';
+import { SummaryStep } from '../components/onboarding/SummaryStep';
 import { loadLastSelectedLocation } from '../components/HomeLocationBar';
 import { saveTasteQuiz, getTasteQuiz } from '../lib/taste-quiz';
 import { getPreauthCity } from '../lib/preauth';
@@ -32,7 +35,11 @@ type StepKey =
   // Taste + first-actions steps — one wizard, one progress bar, instead of
   // the separate /onboarding page these lived on. The profile row persists
   // on leaving 'visibility', so a bail-out mid-taste still keeps the account.
-  | 'cuisines' | 'prices' | 'import' | 'follow' | 'rate';
+  | 'cuisines' | 'prices' | 'dietary' | 'import' | 'follow' | 'rate'
+  // The payoff: the taste profile the gate promised, shown back before
+  // the app opens. 'summary', not 'done' — the completion EVENT is named
+  // wizard_done, and an abandon on this screen must not read as one.
+  | 'summary';
 
 /**
  * Save failures are shown verbatim to someone in the middle of creating an
@@ -113,7 +120,41 @@ export const ProfileSetup: React.FC = () => {
     city: getPreauthCity(),
   }));
   const [cuisineSel, setCuisineSel] = useState<string[]>(preauth.answers?.cuisines ?? []);
-  const [priceSel, setPriceSel] = useState<number[]>(preauth.answers?.prices ?? []);
+  const [pricePrimary, setPricePrimary] = useState<number | undefined>(
+    preauth.answers?.pricePrimary ?? preauth.answers?.prices?.[0],
+  );
+  const [priceSecondary, setPriceSecondary] = useState<number | undefined>(
+    preauth.answers?.priceSecondary ?? preauth.answers?.prices?.[1],
+  );
+  const priceSel = [pricePrimary, priceSecondary].filter((n): n is number => n !== undefined);
+  // Dietary preferences — asked here, after the account exists, never in
+  // the pre-auth stretch (three questions is that flow's whole promise).
+  const [dietarySel, setDietarySel] = useState<string[]>(preauth.answers?.dietary ?? []);
+  // Profile photo. Uploaded on pick (processPhoto → the `photos` bucket, the
+  // same path Settings uses), so what they see is what gets saved; the row
+  // takes the URL on the handle step's "Save & continue". Untouched means
+  // undefined to saveProfile — an existing photo is never cleared by
+  // passing through here.
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(profile?.avatar_url ?? null);
+  const [avatarTouched, setAvatarTouched] = useState(false);
+  const [avatarBusy, setAvatarBusy] = useState(false);
+  const avatarInputRef = useRef<HTMLInputElement>(null);
+  const pickAvatar = async (file: File | undefined) => {
+    if (!file) return;
+    setAvatarBusy(true);
+    setError('');
+    try {
+      // 512px at a higher quality than feed photos: an avatar renders
+      // small almost everywhere, but it is also the one image blown up to
+      // 84px+ on a profile header.
+      const url = await processPhoto(file, { maxDim: 512, quality: 0.8 });
+      setAvatarUrl(url);
+      setAvatarTouched(true);
+    } catch {
+      setError("That image couldn't be read. Try another photo.");
+    }
+    setAvatarBusy(false);
+  };
   // The profile row saves once, on leaving 'visibility' — backing up and
   // coming forward again must not re-await a geocode + write.
   const [profileSaved, setProfileSaved] = useState(false);
@@ -189,9 +230,12 @@ export const ProfileSetup: React.FC = () => {
       ? { homeCity: geo?.label || cityTrim, homeLat: geo?.lat ?? null, homeLng: geo?.lng ?? null }
       : undefined;
     const isPublicToSave = (visibilityTouched || !profile) ? isPublic : undefined;
-    const result = await saveProfile(user.id, displayName.trim() || username.trim(), username.trim(), undefined, isPublicToSave, homeBase);
+    const result = await saveProfile(
+      user.id, displayName.trim() || username.trim(), username.trim(), undefined, isPublicToSave, homeBase,
+      avatarTouched ? avatarUrl : undefined,
+    );
     return { ok: result.success, error: result.error };
-  }, [user, profile, homeCity, homeGeo, displayName, username, isPublic, visibilityTouched]);
+  }, [user, profile, homeCity, homeGeo, displayName, username, isPublic, visibilityTouched, avatarUrl, avatarTouched]);
 
   /* ── Desktop split layout (original single form) ─────────────────────── */
   if (useDesktopLayout) {
@@ -305,7 +349,7 @@ export const ProfileSetup: React.FC = () => {
             )}
             <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}
               type="submit" disabled={submitting}
-              className="group flex items-center justify-center gap-3 bg-primary text-white px-8 py-3 rounded-2xl text-base font-semibold shadow-lg shadow-primary/25 mt-1 disabled:opacity-60">
+              className="group flex items-center justify-center gap-3 bg-primary text-on-primary px-8 py-3 rounded-2xl text-base font-semibold shadow-lg shadow-primary/25 mt-1 disabled:opacity-60">
               {submitting ? <Loader2 size={18} className="animate-spin" /> : (
                 <>Continue <ArrowRight size={18} className="group-hover:translate-x-1 transition-transform" /></>
               )}
@@ -355,9 +399,11 @@ export const ProfileSetup: React.FC = () => {
     ...(preauth.city || profile?.home_city ? [] : ['city' as const]),
     ...(hasPreauthCuisines ? [] : ['cuisines' as const]),
     ...(hasPreauthPrices ? [] : ['prices' as const]),
+    'dietary' as const,
     'import' as const,
     'follow' as const,
     ...(skipRate ? [] : ['rate' as const]),
+    'summary' as const,
   ];
   const provider = (user?.app_metadata?.provider as string) || 'email';
   // Create-account was "step 1" for signups that went through it. Phone
@@ -376,7 +422,8 @@ export const ProfileSetup: React.FC = () => {
    *  the wizard ends — an upsert either way, so backing up and re-answering
    *  just refreshes the row. Empty answers write nothing. */
   const persistTaste = useCallback(() => {
-    if (cuisineSel.length === 0 && priceSel.length === 0) return;
+    const prices = [pricePrimary, priceSecondary].filter((n): n is number => n !== undefined);
+    if (cuisineSel.length === 0 && prices.length === 0 && dietarySel.length === 0) return;
     // saveTasteQuiz is a FULL REPLACE (local mirror and DB row alike), so
     // every field the pre-auth flow wrote must ride along or it dies
     // here — which is exactly what used to happen: the primary/secondary
@@ -385,16 +432,16 @@ export const ProfileSetup: React.FC = () => {
     // seed city affinity in lib/recommendations.
     void saveTasteQuiz(user?.id, {
       cuisines: cuisineSel,
-      prices: priceSel,
-      pricePrimary: priceSel[0] ?? preauth.answers?.pricePrimary,
-      priceSecondary: priceSel[1] ?? preauth.answers?.priceSecondary,
+      prices,
+      pricePrimary,
+      priceSecondary,
       city: preauth.answers?.city ?? homeGeo?.label ?? (homeCity.trim() || undefined),
       atmosphere: preauth.answers?.atmosphere,
       avoidCuisines: preauth.answers?.avoidCuisines,
-      dietary: preauth.answers?.dietary,
+      dietary: dietarySel,
       completedAt: Date.now(),
     });
-  }, [user?.id, cuisineSel, priceSel, preauth.answers, homeGeo, homeCity]);
+  }, [user?.id, cuisineSel, pricePrimary, priceSecondary, dietarySel, preauth.answers, homeGeo, homeCity]);
 
   const finishThenVerify = async () => {
     setSubmitting(true);
@@ -454,7 +501,7 @@ export const ProfileSetup: React.FC = () => {
       })();
       return;
     }
-    if (stepKey === 'prices') persistTaste();
+    if (stepKey === 'prices' || stepKey === 'dietary') persistTaste();
     if (isLast) {
       persistTaste();
       logOnboardingEvent('wizard_done', user?.id);
@@ -511,7 +558,7 @@ export const ProfileSetup: React.FC = () => {
         const f = stepKey === 'import'
           ? importFooter(importState, next)
           : {
-              label: isLast ? 'Finish setup' : stepKey === 'handle' ? 'Save & continue' : 'Continue',
+              label: isLast ? 'Start exploring' : stepKey === 'handle' ? 'Save & continue' : 'Continue',
               onClick: next,
               loading: submitting,
               trailing: (isLast ? 'check' : 'arrow') as 'check' | 'arrow' | 'none',
@@ -555,8 +602,47 @@ export const ProfileSetup: React.FC = () => {
 
             {stepKey === 'handle' && (
               <div className="flex flex-1 flex-col">
-                <OB.StepHeader title="Claim your @" />
-                <OB.Reveal i={1} style={{ marginTop: 30 }}>
+                <OB.StepHeader title="Set up your profile" subtitle="Your @handle is how friends find you." />
+                {/* The photo, on the one step every signup sees (the name
+                    step is skipped when Apple or Google already gave us
+                    one). A social app whose new accounts are all
+                    monograms looks empty from the first feed; the nav bar
+                    and every follow row wear this image from day one. */}
+                <OB.Reveal i={1} style={{ marginTop: 26 }}>
+                  <input
+                    ref={avatarInputRef}
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; void pickAvatar(f); }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => avatarInputRef.current?.click()}
+                    disabled={avatarBusy}
+                    className="w-full flex items-center gap-3.5 rounded-2xl text-left cursor-pointer disabled:opacity-70"
+                    style={{ padding: '12px 14px', background: 'var(--ob-card)', border: '1px solid var(--ob-border)', boxShadow: '0 1px 2px rgba(0,0,0,0.03)' }}
+                  >
+                    <span className="relative flex-none">
+                      <Avatar src={avatarUrl} name={displayName.trim() || username.trim() || 'You'} size={56} />
+                      <span
+                        className="absolute flex items-center justify-center rounded-full"
+                        style={{ right: -3, bottom: -3, width: 23, height: 23, background: OB.TERRA, color: OB.ON_TERRA, border: '2px solid var(--ob-card)' }}
+                      >
+                        {avatarBusy ? <Loader2 size={11} className="animate-spin" /> : <Camera size={11} strokeWidth={2.4} />}
+                      </span>
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block" style={{ fontSize: 14.5, fontWeight: 600, color: 'var(--ob-ink)' }}>
+                        {avatarUrl ? 'Change photo' : 'Add a profile photo'}
+                      </span>
+                      <span className="block" style={{ fontSize: 12, marginTop: 2, lineHeight: 1.35, color: 'var(--ob-label)' }}>
+                        {avatarUrl ? 'Looking good.' : 'Friends recognize a face before a handle.'}
+                      </span>
+                    </span>
+                  </button>
+                </OB.Reveal>
+                <OB.Reveal i={2} style={{ marginTop: 16 }}>
                   <OB.Field value={username} onChange={(v) => { setUsername(v.replace(/\s/g, '').replace(/[^a-zA-Z0-9_]/g, '')); setError(''); }} placeholder="username" prefix="@" autoFocus autoComplete="username" autoCapitalize="off" onSubmit={next} />
                   <div className="flex items-center justify-between" style={{ marginTop: 11 }}>
                     <div style={{ fontSize: 13.5, color: 'var(--ob-label)' }}>Your handle: <span style={{ color: OB.TERRA, fontWeight: 600 }}>{handle}</span></div>
@@ -584,10 +670,10 @@ export const ProfileSetup: React.FC = () => {
                     the answer is better collected at the first publish — but
                     it stays visible here as one line, because a social app
                     silently defaulting this would be worse than a screen. */}
-                <OB.Reveal i={2}>
+                <OB.Reveal i={3}>
                   <div
                     className="flex items-center justify-between rounded-2xl"
-                    style={{ marginTop: 22, padding: '13px 16px', background: 'var(--ob-card)', border: '1px solid var(--ob-border)', boxShadow: '0 1px 2px rgba(0,0,0,0.03)' }}
+                    style={{ marginTop: 16, padding: '13px 16px', background: 'var(--ob-card)', border: '1px solid var(--ob-border)', boxShadow: '0 1px 2px rgba(0,0,0,0.03)' }}
                   >
                     <span className="min-w-0 flex-1" style={{ paddingRight: 12 }}>
                       <span className="block" style={{ fontSize: 14.5, fontWeight: 600, color: 'var(--ob-ink)' }}>
@@ -608,12 +694,14 @@ export const ProfileSetup: React.FC = () => {
                       className="flex-none relative rounded-full border-none cursor-pointer transition-colors"
                       style={{ width: 46, height: 28, background: isPublic ? OB.TERRA : 'var(--ob-radio-ring)' }}
                     >
+                      {/* Knob in ON_TERRA when on: the track is bone on the
+                          dark theme, where a white knob disappeared into it. */}
                       <motion.span
-                        className="absolute rounded-full bg-white"
+                        className="absolute rounded-full"
                         initial={false}
                         animate={{ left: isPublic ? 21 : 3 }}
                         transition={OB.SPRING}
-                        style={{ top: 3, width: 22, height: 22, boxShadow: '0 1px 3px rgba(0,0,0,0.2)' }}
+                        style={{ top: 3, width: 22, height: 22, background: isPublic ? OB.ON_TERRA : '#fff', boxShadow: '0 1px 3px rgba(0,0,0,0.2)' }}
                       />
                     </button>
                   </div>
@@ -645,15 +733,24 @@ export const ProfileSetup: React.FC = () => {
 
             {stepKey === 'prices' && (
               <div className="flex flex-1 flex-col">
-                <OB.StepHeader title="What do you usually spend?" />
-                <div style={{ marginTop: 26 }}>
-                  <TastePillGrid
-                    options={TASTE_PRICES.map((t) => ({ id: String(t.tier), label: t.label, sub: t.sub }))}
-                    selected={priceSel.map(String)}
-                    onToggle={(id) => {
-                      const tier = Number(id);
-                      setPriceSel((prev) => prev.includes(tier) ? prev.filter((t) => t !== tier) : [...prev, tier]);
-                    }}
+                <OB.StepHeader title="What do you usually spend?" subtitle="Your picks lean toward this, without ever excluding a great table." />
+                <OB.Reveal i={2} style={{ marginTop: 26 }}>
+                  <PriceStep
+                    primary={pricePrimary}
+                    secondary={priceSecondary}
+                    onChange={(p, s) => { setPricePrimary(p); setPriceSecondary(s); }}
+                  />
+                </OB.Reveal>
+              </div>
+            )}
+
+            {stepKey === 'dietary' && (
+              <div className="flex flex-1 flex-col">
+                <OB.StepHeader title="Anything to keep in mind?" subtitle="Optional — we'll favor places with good options for you." />
+                <div style={{ marginTop: 24 }}>
+                  <DietaryStep
+                    selected={dietarySel}
+                    onToggle={(id) => setDietarySel((prev) => prev.includes(id) ? prev.filter((d) => d !== id) : [...prev, id])}
                   />
                 </div>
               </div>
@@ -720,6 +817,19 @@ export const ProfileSetup: React.FC = () => {
                 <OB.Reveal i={2} style={{ marginTop: 20 }}>
                   <RatePlacesStep cuisines={cuisineSel} prices={priceSel} homeGeo={homeGeo ?? preauth.city} />
                 </OB.Reveal>
+              </div>
+            )}
+
+            {stepKey === 'summary' && (
+              <div className="flex flex-1 flex-col">
+                <SummaryStep
+                  name={displayName}
+                  cuisines={cuisineSel}
+                  pricePrimary={pricePrimary}
+                  priceSecondary={priceSecondary}
+                  dietary={dietarySel}
+                  city={homeGeo ?? preauth.city}
+                />
               </div>
             )}
           </motion.div>

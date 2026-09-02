@@ -425,7 +425,7 @@ export const ShareDialog: React.FC<ShareDialogProps> = ({ open, onClose, payload
                               <AvatarStack ids={t.stackIds} size={56} />
                             )}
                             <span
-                              className="absolute -right-0.5 -bottom-0.5 w-[21px] h-[21px] rounded-full bg-primary text-white flex items-center justify-center ring-[2.5px] ring-surface transition-all"
+                              className="absolute -right-0.5 -bottom-0.5 w-[21px] h-[21px] rounded-full bg-primary text-on-primary flex items-center justify-center ring-[2.5px] ring-surface transition-all"
                               style={{ opacity: on ? 1 : 0, transform: on ? 'scale(1)' : 'scale(0.3)' }}
                               aria-hidden
                             >

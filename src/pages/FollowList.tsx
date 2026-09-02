@@ -1,8 +1,10 @@
 /**
- * FollowList — full-page follower / following (and own rated) lists,
- * Instagram-style: back header with the username, count tabs, a search
- * field, and rows with a contextual action button. Replaces the old
- * Profile stat bottom-sheet, whose bottom the phone nav bar covered.
+ * FollowList — the follower / following (and own rated) lists behind a
+ * profile's stat row, presented as a SHEET: it rises from the bottom over
+ * the profile, which stays behind it (App.tsx `isSheetRoute`). So it is
+ * built like a sheet rather than a page — a grabber you can drag down to
+ * dismiss, fixed chrome, and one internal scroll area, because the route
+ * wrapper is a fixed-height box and the document itself does not scroll.
  *
  * Routes:
  *   /user/:username/followers
@@ -23,17 +25,16 @@
  *                          request for private ones; sign-in gated)
  */
 import React, { useState, useEffect, useMemo } from 'react';
-import { motion } from 'motion/react';
+import { motion, useDragControls } from 'motion/react';
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
-import { useSettings } from '../contexts/SettingsContext';
-import { useHeaderFade } from '../lib/useHeaderFade';
-import { ArrowLeft, Heart, Loader2, Lock, MapPin, Search, Star, UserCircle, X } from 'lucide-react';
+import { ChevronDown, Loader2, Lock, MapPin, Search, Star, UserCircle, Users } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useAuth } from '../contexts/AuthContext';
 import { useLists } from '../contexts/ListsContext';
 import { useToast } from '../contexts/ToastContext';
 import { useSignInModal } from '../contexts/SignInModalContext';
 import { VerifiedBadge } from '../components/VerifiedBadge';
+import { Avatar } from '../components/Avatar';
 import { ScoreBadge } from '../components/ScoreBadge';
 import { SearchField } from '../components/SearchField';
 import {
@@ -49,6 +50,75 @@ type Tab = 'rated' | 'followers' | 'following';
  *  refetch follow counts after an action taken here changes them. */
 const emitFollowsChanged = () => window.dispatchEvent(new Event('follows:changed'));
 
+/**
+ * The sheet shell: a grabber you can drag down to dismiss, a title row,
+ * optional fixed chrome (tabs + search), and ONE internal scroll area —
+ * the route wrapper is a fixed-height box (App.tsx presents sheet routes
+ * absolutely), so the document itself never scrolls here.
+ *
+ * Declared at module scope, not inside the page: a component defined in a
+ * render body is a new type on every render, so React would tear the whole
+ * subtree down and rebuild it — the search field would lose focus on every
+ * keystroke.
+ */
+const Sheet: React.FC<{
+  title: string;
+  subtitle?: string;
+  onDismiss: () => void;
+  children: React.ReactNode;
+  chrome?: React.ReactNode;
+}> = ({ title, subtitle, onDismiss, children, chrome }) => {
+  // The listener is off by default and started by hand from the grabber and
+  // title row only — starting it from the whole header would swallow taps on
+  // the tabs and the search field.
+  const dragControls = useDragControls();
+  return (
+    <motion.div
+      className="absolute inset-0 flex flex-col bg-surface"
+      drag="y"
+      dragListener={false}
+      dragControls={dragControls}
+      dragConstraints={{ top: 0, bottom: 0 }}
+      dragElastic={{ top: 0, bottom: 0.6 }}
+      dragMomentum={false}
+      onDragEnd={(_, info) => {
+        // A decisive pull or a fast flick dismisses; anything less springs back.
+        if (info.offset.y > 110 || info.velocity.y > 700) onDismiss();
+      }}
+    >
+      <div className="flex-none border-b border-on-surface/[0.07]">
+        <div
+          className="cursor-grab touch-none active:cursor-grabbing"
+          onPointerDown={(e) => dragControls.start(e)}
+          // The sheet covers the whole screen, status bar included, so the
+          // grabber owns the inset rather than sitting under the clock.
+          style={{ paddingTop: 'calc(env(safe-area-inset-top, 0px) + 10px)' }}
+        >
+          <div className="mx-auto h-[5px] w-10 rounded-full bg-on-surface/20" aria-hidden />
+          <div className="mx-auto flex max-w-[560px] items-center gap-3 px-5 pb-3 pt-3">
+            <div className="min-w-0 flex-1">
+              <h1 className="truncate text-on-surface" style={{ fontSize: '20px', fontWeight: 700, lineHeight: 1.1, letterSpacing: '-0.03em' }}>{title}</h1>
+              {subtitle && <p className="mt-1 truncate text-on-surface/45" style={{ fontSize: '12.5px' }}>{subtitle}</p>}
+            </div>
+            <button
+              type="button"
+              onClick={onDismiss}
+              aria-label="Close"
+              className="flex h-9 w-9 flex-none items-center justify-center rounded-full bg-on-surface/[0.06] text-on-surface/70 transition-colors active:bg-on-surface/[0.12]"
+            >
+              <ChevronDown size={18} strokeWidth={2.4} />
+            </button>
+          </div>
+        </div>
+        {chrome}
+      </div>
+      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain" style={{ paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 24px)' }}>
+        <div className="mx-auto max-w-[560px]">{children}</div>
+      </div>
+    </motion.div>
+  );
+};
+
 export const FollowList: React.FC = () => {
   const { username } = useParams();
   const navigate = useNavigate();
@@ -57,10 +127,14 @@ export const FollowList: React.FC = () => {
   const { requireSignIn } = useSignInModal();
   const { showToast } = useToast();
   const listsCtx = useLists();
-  const { phoneMode } = useSettings();
-  // Header (username + tabs) dissolves as the list scrolls, Discover-style.
-  const headerFade = useHeaderFade({ enabled: phoneMode, windowScroll: true });
   const userId = user?.id ?? null;
+  /** Back where we came from; a deep link has nowhere to go back TO, so it
+   *  falls through to the profile this list belongs to. */
+  const dismiss = () => {
+    const idx = typeof window.history.state?.idx === 'number' ? window.history.state.idx : 0;
+    if (idx > 0) navigate(-1);
+    else navigate(`/user/${encodeURIComponent(username || '')}`, { replace: true });
+  };
 
   // Active tab is the last path segment (/user/:username/<tab>).
   const rawTab = location.pathname.split('/').filter(Boolean).pop();
@@ -216,63 +290,53 @@ export const FollowList: React.FC = () => {
   // ── Early screens ──────────────────────────────────────────────────────
   if (loading) {
     return (
-      <div className="min-h-screen bg-surface flex items-center justify-center">
-        <Loader2 size={32} className="animate-spin text-primary" />
-      </div>
+      <Sheet title=" " onDismiss={dismiss}>
+        <div className="flex flex-col items-center py-20 text-on-surface/40">
+          <Loader2 size={26} className="animate-spin" />
+        </div>
+      </Sheet>
     );
   }
 
   if (!profile) {
     return (
-      <div className="min-h-screen bg-surface">
-        <header className="sticky top-0 px-4 pt-safe-3 pb-3 bg-surface/70 backdrop-blur-md z-10 flex items-center gap-3">
-          <button onClick={() => navigate(-1)} className="p-2 -ml-2 text-on-surface/50" aria-label="Back"><ArrowLeft size={20} /></button>
-          <h1 className="font-serif font-bold text-lg">User Not Found</h1>
-        </header>
-        <div className="text-center py-16">
-          <UserCircle size={48} className="mx-auto text-on-surface/15 mb-3" />
-          <p className="text-sm text-on-surface/40">This user doesn't exist</p>
+      <Sheet title="Not found" onDismiss={dismiss}>
+        <div className="px-8 py-16 text-center">
+          <UserCircle size={44} className="mx-auto mb-3 text-on-surface/15" />
+          <p className="text-on-surface" style={{ fontSize: '15px', fontWeight: 700 }}>This person isn't here</p>
+          <p className="mt-1 text-on-surface/45" style={{ fontSize: '13px' }}>The account was removed, or the link is wrong.</p>
         </div>
-      </div>
+      </Sheet>
     );
   }
 
   const tabs: { key: Tab; count: number; label: string }[] = [
-    ...(isOwnProfile ? [{ key: 'rated' as Tab, count: ratings.length, label: 'rated' }] : []),
-    { key: 'followers', count: counts.followers, label: counts.followers === 1 ? 'follower' : 'followers' },
-    { key: 'following', count: counts.following, label: 'following' },
+    ...(isOwnProfile ? [{ key: 'rated' as Tab, count: ratings.length, label: 'Rated' }] : []),
+    { key: 'followers', count: counts.followers, label: 'Followers' },
+    { key: 'following', count: counts.following, label: 'Following' },
   ];
 
   const rowButton = (p: UserProfileType): React.ReactNode => {
     if (userId && p.user_id === userId) return null; // that's me — no button
     const isBusy = busy.has(p.user_id);
+    const quiet = 'flex-none h-9 px-4 rounded-full bg-on-surface/[0.06] text-on-surface/80 disabled:opacity-50 active:bg-on-surface/[0.12] transition-colors';
     if (isOwnProfile && tab === 'followers') {
       return (
-        <button
-          type="button"
-          onClick={() => void handleRemoveFollower(p.user_id)}
-          disabled={isBusy}
-          className="flex-none h-8 px-3.5 rounded-full border border-on-surface/15 text-[12.5px] font-semibold text-on-surface/70 hover:bg-on-surface/[0.06] disabled:opacity-50 transition-colors"
-        >
+        <button type="button" onClick={() => void handleRemoveFollower(p.user_id)} disabled={isBusy} className={quiet} style={{ fontSize: '12.5px', fontWeight: 700 }}>
           {isBusy ? 'Removing…' : 'Remove'}
         </button>
       );
     }
     if (userId && myFollowing.has(p.user_id)) {
       return (
-        <button
-          type="button"
-          onClick={() => void handleUnfollow(p.user_id)}
-          disabled={isBusy}
-          className="flex-none h-8 px-3.5 rounded-full border border-on-surface/15 text-[12.5px] font-semibold text-on-surface/70 hover:bg-on-surface/[0.06] disabled:opacity-50 transition-colors"
-        >
+        <button type="button" onClick={() => void handleUnfollow(p.user_id)} disabled={isBusy} className={quiet} style={{ fontSize: '12.5px', fontWeight: 700 }}>
           Following
         </button>
       );
     }
     if (userId && myRequested.has(p.user_id)) {
       return (
-        <button type="button" disabled className="flex-none h-8 px-3.5 rounded-full bg-on-surface/[0.06] text-[12.5px] font-semibold text-ink-3 cursor-default">
+        <button type="button" disabled className="flex-none h-9 px-4 rounded-full bg-on-surface/[0.04] text-on-surface/40 cursor-default" style={{ fontSize: '12.5px', fontWeight: 700 }}>
           Requested
         </button>
       );
@@ -282,7 +346,8 @@ export const FollowList: React.FC = () => {
         type="button"
         onClick={() => handleFollow(p)}
         disabled={isBusy}
-        className="flex-none h-8 px-4 rounded-full bg-on-surface text-surface text-[12.5px] font-bold hover:bg-primary disabled:opacity-50 transition-colors"
+        className="flex-none h-9 px-4 rounded-full bg-primary text-on-primary disabled:opacity-50 active:opacity-85 transition-opacity"
+        style={{ fontSize: '12.5px', fontWeight: 700 }}
       >
         Follow
       </button>
@@ -290,178 +355,156 @@ export const FollowList: React.FC = () => {
   };
 
   const emptyState = (title: string, message: string, icon: React.ReactNode) => (
-    <div className="py-16 text-center px-8">
-      <div className="w-14 h-14 mx-auto rounded-full bg-on-surface/[0.05] grid place-items-center text-on-surface/25 mb-3">
+    <div className="px-8 py-16 text-center">
+      <div className="mx-auto mb-3.5 grid h-14 w-14 place-items-center rounded-full bg-on-surface/[0.05] text-on-surface/30">
         {icon}
       </div>
-      <p className="text-sm font-semibold text-on-surface/55">{title}</p>
-      <p className="text-xs text-on-surface/35 mt-1">{message}</p>
+      <p className="text-on-surface" style={{ fontSize: '15px', fontWeight: 700, letterSpacing: '-0.01em' }}>{title}</p>
+      <p className="mx-auto mt-1 max-w-[260px] text-on-surface/45" style={{ fontSize: '13px', lineHeight: 1.45 }}>{message}</p>
+    </div>
+  );
+
+  const title = profile.display_name || profile.username || 'Profile';
+  const subtitle = profile.username ? `@${profile.username}` : undefined;
+
+  if (!canView) {
+    return (
+      <Sheet title={title} subtitle={subtitle} onDismiss={dismiss}>
+        <div className="px-8 pb-16 pt-12 text-center">
+          <div className="mx-auto mb-4 grid h-16 w-16 place-items-center rounded-full bg-on-surface/[0.05]">
+            <Lock size={24} className="text-on-surface/35" />
+          </div>
+          <p className="text-on-surface" style={{ fontSize: '18px', fontWeight: 700, letterSpacing: '-0.02em' }}>This account is private</p>
+          <p className="mx-auto mt-1.5 max-w-[280px] text-on-surface/50" style={{ fontSize: '13.5px', lineHeight: 1.5 }}>
+            Follow {profile.display_name} to see who they follow and who follows them.
+          </p>
+        </div>
+      </Sheet>
+    );
+  }
+
+  const chrome = (
+    <div className="mx-auto max-w-[560px] px-5 pb-3">
+      {/* Segmented control — the same connected track the profile uses. */}
+      <div className="flex rounded-full bg-on-surface/[0.05] p-1" role="tablist">
+        {tabs.map((t) => {
+          const on = tab === t.key;
+          return (
+            <button
+              key={t.key}
+              type="button"
+              role="tab"
+              aria-selected={on}
+              onClick={() => {
+                if (t.key === tab) return;
+                setQuery('');
+                navigate(`/user/${encodeURIComponent(username || '')}/${t.key}`, { replace: true });
+              }}
+              className={cn(
+                'flex-1 min-w-0 inline-flex items-center justify-center gap-1.5 rounded-full py-2 transition-colors',
+                on
+                  ? 'bg-surface dark:bg-on-surface/[0.14] text-on-surface shadow-[0_1px_4px_rgba(0,0,0,0.08)]'
+                  : 'text-on-surface/55 active:text-on-surface',
+              )}
+              style={{ fontSize: '12.5px', fontWeight: 700 }}
+            >
+              <span className="tabular-nums">{t.count}</span>
+              <span className="truncate">{t.label}</span>
+            </button>
+          );
+        })}
+      </div>
+      <div className="mt-3">
+        <SearchField
+          glassId="follow-search"
+          value={query}
+          onChange={setQuery}
+          placeholder={tab === 'rated' ? 'Search your ratings' : 'Search people'}
+          aria-label={tab === 'rated' ? 'Search your ratings' : 'Search people'}
+        />
+      </div>
     </div>
   );
 
   return (
-    <div className="min-h-screen bg-surface pb-24">
-      {/* header — back on the left, the profile's username centered */}
-      <motion.header
-        ref={headerFade.headerRef}
-        style={headerFade.headerStyle}
-        className="sticky top-0 z-30 bg-surface/85 backdrop-blur-xl border-b border-line"
-      >
-        <div className="mx-auto max-w-[560px] grid grid-cols-[44px_1fr_44px] items-center px-2 pt-safe-3 pb-2">
-          <button
-            onClick={() => navigate(-1)}
-            className="w-9 h-9 rounded-full grid place-items-center text-on-surface hover:bg-on-surface/[0.06] transition-colors"
-            aria-label="Back"
-          >
-            <ArrowLeft size={20} />
-          </button>
-          <h1 className="text-[15.5px] font-bold text-on-surface text-center truncate">
-            {profile.username}
-          </h1>
-        </div>
-
-        {/* tabs — solid equal-width grid (no scroll, no drag) */}
-        {canView && (
-          <div className={cn('mx-auto max-w-[560px] grid', isOwnProfile ? 'grid-cols-3' : 'grid-cols-2')}>
-            {tabs.map((t) => {
-              const active = tab === t.key;
-              return (
-                <button
-                  key={t.key}
-                  type="button"
-                  onClick={() => {
-                    if (t.key === tab) return;
-                    setQuery('');
-                    navigate(`/user/${encodeURIComponent(username || '')}/${t.key}`, { replace: true });
-                  }}
-                  className="relative py-3 text-center"
+    <Sheet title={title} subtitle={subtitle} onDismiss={dismiss} chrome={chrome}>
+      {tab === 'rated' ? (
+        filteredRatings.length === 0 ? (
+          q
+            ? emptyState('No matches', 'Try a different restaurant, cuisine or city.', <Search size={22} strokeWidth={1.9} />)
+            : emptyState('Nothing rated yet', 'Rate a place and it shows up here, best first.', <Star size={22} strokeWidth={1.9} />)
+        ) : (
+          <ol className="px-3 pt-1">
+            {filteredRatings.map((r, i) => (
+              <li key={r.restaurantId}>
+                <Link
+                  to={`/restaurant/${r.restaurantId}`}
+                  className="flex items-center gap-3.5 rounded-[18px] px-2 py-2.5 active:bg-on-surface/[0.05] transition-colors"
                 >
-                  <span className={cn(
-                    'text-[13.5px] whitespace-nowrap',
-                    active ? 'font-bold text-on-surface' : 'font-semibold text-ink-3',
-                  )}>
-                    <span className="tabular-nums">{t.count}</span> {t.label}
-                  </span>
-                  {active && (
-                    <span className="absolute bottom-0 left-1/2 -translate-x-1/2 w-12 h-[2px] rounded-full bg-on-surface" />
-                  )}
-                </button>
-              );
-            })}
-          </div>
-        )}
-      </motion.header>
-
-      {!canView ? (
-        // Private account the viewer doesn't follow — mirror UserProfile's
-        // lock screen (the RPC returns nothing for them anyway).
-        <section className="text-center pt-14 pb-20 px-8 mx-auto max-w-[560px]">
-          <div className="w-16 h-16 mx-auto rounded-full bg-on-surface/[0.05] grid place-items-center mb-4">
-            <Lock size={26} className="text-ink-3" />
-          </div>
-          <h3 className="font-serif text-[20px] font-bold text-on-surface mb-1.5">This account is private</h3>
-          <p className="text-[13.5px] leading-relaxed text-ink-3">
-            Follow {profile.display_name} to see who they follow and who follows them.
-          </p>
-        </section>
+                  <span className="w-6 flex-none text-right font-serif text-[15px] font-bold leading-none tabular-nums text-on-surface/30">{i + 1}</span>
+                  <div className="h-12 w-12 flex-none overflow-hidden rounded-[14px] bg-on-surface/[0.06] flex items-center justify-center">
+                    {r.image ? (
+                      <img src={r.image} alt="" className="h-full w-full object-cover" referrerPolicy="no-referrer" />
+                    ) : (
+                      <MapPin size={16} className="text-on-surface/30" />
+                    )}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-on-surface" style={{ fontSize: '15px', fontWeight: 700, lineHeight: 1.2, letterSpacing: '-0.015em' }}>{r.name}</p>
+                    <p className="mt-1 truncate text-on-surface/45" style={{ fontSize: '12px' }}>
+                      {[r.cuisine, r.price, r.address?.split(',')[0]?.trim()].filter(Boolean).join(' · ')}
+                    </p>
+                  </div>
+                  <ScoreBadge rating={r.score} size="sm" />
+                </Link>
+              </li>
+            ))}
+          </ol>
+        )
       ) : (
-        <div className="mx-auto max-w-[560px]">
-          {/* search */}
-          <div className="px-4 pt-3 pb-1">
-            <SearchField
-              glassId="follow-search"
-              value={query}
-              onChange={setQuery}
-              placeholder="Search"
-              aria-label="Search people"
-            />
+        // `people` is null until this tab's first fetch lands — spinner
+        // (listLoading alone would flash the empty state pre-effect).
+        !people ? (
+          <div className="flex flex-col items-center py-16 text-on-surface/40">
+            <Loader2 size={22} className="animate-spin" />
           </div>
-
-          {/* ── Rated (own profile only) ── */}
-          {tab === 'rated' ? (
-            filteredRatings.length === 0 ? (
-              q
-                ? emptyState('No matches', 'Try a different restaurant, cuisine or city.', <Search size={24} strokeWidth={1.8} />)
-                : emptyState('No rated restaurants yet', 'Rate places to see them here.', <Star size={24} strokeWidth={1.8} />)
-            ) : (
-              <ul className="divide-y divide-on-surface/[0.06] mt-1">
-                {filteredRatings.map((r) => (
-                  <li key={r.restaurantId}>
-                    <Link
-                      to={`/restaurant/${r.restaurantId}`}
-                      className="flex items-center gap-3 px-4 py-3 hover:bg-on-surface/[0.03] transition-colors"
-                    >
-                      <div className="w-11 h-11 rounded-xl bg-on-surface/[0.05] overflow-hidden flex-none flex items-center justify-center">
-                        {r.image ? (
-                          <img src={r.image} alt="" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
-                        ) : (
-                          <MapPin size={15} className="text-on-surface/30" />
-                        )}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-[14px] font-serif font-bold text-on-surface truncate leading-tight">{r.name}</p>
-                        <p className="text-[11.5px] text-on-surface/45 truncate mt-0.5">
-                          {[r.cuisine, r.price, r.address?.split(',')[0]?.trim()].filter(Boolean).join(' · ')}
-                        </p>
-                      </div>
-                      <ScoreBadge rating={r.score} size="sm" />
-                    </Link>
-                  </li>
-                ))}
-              </ul>
-            )
-          ) : (
-            /* ── Followers / Following ── */
-            // `people` is null until this tab's first fetch lands — spinner
-            // (listLoading alone would flash the empty state pre-effect).
-            !people ? (
-              <div className="py-16 flex flex-col items-center text-center">
-                <div className="w-6 h-6 rounded-full border-2 border-on-surface/15 border-t-primary animate-spin" />
-                <p className="text-xs text-on-surface/45 mt-3">Loading…</p>
-              </div>
-            ) : !filteredPeople || filteredPeople.length === 0 ? (
-              q
-                ? emptyState('No matches', 'Try a different name or username.', <Search size={24} strokeWidth={1.8} />)
-                : tab === 'followers'
-                  ? emptyState(
-                      isOwnProfile ? 'No followers yet' : `${profile.display_name} has no followers yet`,
-                      isOwnProfile ? 'When people follow you, they’ll show up here.' : 'When people follow them, they’ll show up here.',
-                      <Heart size={24} strokeWidth={1.8} />,
-                    )
-                  : emptyState(
-                      isOwnProfile ? 'Not following anyone yet' : `${profile.display_name} isn’t following anyone yet`,
-                      isOwnProfile ? 'Find friends and experts to follow from the Circle page.' : 'Accounts they follow will show up here.',
-                      <Heart size={24} strokeWidth={1.8} />,
-                    )
-            ) : (
-              <ul className="mt-1">
-                {filteredPeople.map((p) => (
-                  <li key={p.user_id} className="flex items-center gap-3 px-4 py-2 hover:bg-on-surface/[0.03] transition-colors">
-                    <Link
-                      to={`/user/${encodeURIComponent(p.username || '')}`}
-                      className="flex items-center gap-3 flex-1 min-w-0 py-1"
-                    >
-                      <div className="w-11 h-11 rounded-full bg-primary/10 flex items-center justify-center flex-none">
-                        <span className="text-[15px] font-serif font-bold text-primary">
-                          {(p.display_name?.charAt(0) || p.username?.charAt(0) || '?').toUpperCase()}
-                        </span>
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-[14px] font-semibold text-on-surface truncate leading-tight inline-flex items-center gap-1.5 max-w-full">
-                          <span className="truncate">{p.display_name || p.username || 'User'}</span>
-                          {p.is_verified && <VerifiedBadge size={13} />}
-                        </p>
-                        <p className="text-[11.5px] text-on-surface/45 truncate mt-0.5">@{p.username || 'user'}</p>
-                      </div>
-                    </Link>
-                    {rowButton(p)}
-                  </li>
-                ))}
-              </ul>
-            )
-          )}
-        </div>
+        ) : !filteredPeople || filteredPeople.length === 0 ? (
+          q
+            ? emptyState('No matches', 'Try a different name or username.', <Search size={22} strokeWidth={1.9} />)
+            : tab === 'followers'
+              ? emptyState(
+                  isOwnProfile ? 'No followers yet' : `${profile.display_name} has no followers yet`,
+                  isOwnProfile ? 'When people follow you, they’ll show up here.' : 'When people follow them, they’ll show up here.',
+                  <Users size={22} strokeWidth={1.9} />,
+                )
+              : emptyState(
+                  isOwnProfile ? 'Not following anyone yet' : `${profile.display_name} isn’t following anyone yet`,
+                  isOwnProfile ? 'Find friends and experts to follow from the Circle page.' : 'Accounts they follow will show up here.',
+                  <Users size={22} strokeWidth={1.9} />,
+                )
+        ) : (
+          <ul className="px-3 pt-1">
+            {filteredPeople.map((p) => (
+              <li key={p.user_id} className="flex items-center gap-3 rounded-[18px] px-2 py-2 active:bg-on-surface/[0.05] transition-colors">
+                <Link
+                  to={`/user/${encodeURIComponent(p.username || '')}`}
+                  className="flex min-w-0 flex-1 items-center gap-3.5 py-1"
+                >
+                  <Avatar src={p.avatar_url} name={p.display_name || p.username || 'User'} size={46} />
+                  <div className="min-w-0 flex-1">
+                    <p className="inline-flex max-w-full items-center gap-1.5 truncate text-on-surface" style={{ fontSize: '15px', fontWeight: 700, lineHeight: 1.2, letterSpacing: '-0.015em' }}>
+                      <span className="truncate">{p.display_name || p.username || 'User'}</span>
+                      {p.is_verified && <VerifiedBadge size={13} />}
+                    </p>
+                    <p className="mt-1 truncate text-on-surface/45" style={{ fontSize: '12px' }}>@{p.username || 'user'}</p>
+                  </div>
+                </Link>
+                {rowButton(p)}
+              </li>
+            ))}
+          </ul>
+        )
       )}
-    </div>
+    </Sheet>
   );
 };

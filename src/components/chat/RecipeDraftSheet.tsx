@@ -908,7 +908,7 @@ export const RecipeDraftSheet: React.FC<RecipeDraftSheetProps> = ({
                           className={cn(
                             'flex items-center justify-center w-9 h-9 rounded-full transition-all flex-shrink-0',
                             refineText.trim() && !refining
-                              ? 'bg-primary text-white hover:opacity-90'
+                              ? 'bg-primary text-on-primary hover:opacity-90'
                               : 'bg-on-surface/[0.08] text-on-surface/30 cursor-not-allowed',
                           )}
                         >

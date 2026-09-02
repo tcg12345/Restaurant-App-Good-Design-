@@ -215,7 +215,7 @@ export const ImportRestaurants: React.FC = () => {
             <button
               type="button"
               onClick={() => screenshotInputRef.current?.click()}
-              className={`w-full text-left rounded-[22px] bg-primary text-white px-[17px] py-[18px] active:opacity-90 transition-all ${
+              className={`w-full text-left rounded-[22px] bg-primary text-on-primary px-[17px] py-[18px] active:opacity-90 transition-all ${
                 dragOver ? 'ring-4 ring-primary/30 scale-[1.01]' : ''
               }`}
             >
@@ -359,7 +359,7 @@ export const ImportRestaurants: React.FC = () => {
             {/* Primary action */}
             {!isRunning && !isDone && (
               <button onClick={runImport}
-                className="w-full h-12 rounded-2xl bg-primary text-white text-[15px] font-bold shadow-lg shadow-primary/25 hover:bg-primary/90 active:scale-[0.99] transition-all">
+                className="w-full h-12 rounded-2xl bg-primary text-on-primary text-[15px] font-bold shadow-lg shadow-primary/25 hover:bg-primary/90 active:scale-[0.99] transition-all">
                 Import {parsedRestaurants.length === 1 ? 'this restaurant' : `all ${parsedRestaurants.length}`}
               </button>
             )}
@@ -371,7 +371,7 @@ export const ImportRestaurants: React.FC = () => {
             )}
             {isDone && (
               <button onClick={() => navigate('/pantry')}
-                className="w-full h-12 rounded-2xl bg-primary text-white text-[15px] font-bold shadow-lg shadow-primary/25 hover:bg-primary/90 active:scale-[0.99] transition-all">
+                className="w-full h-12 rounded-2xl bg-primary text-on-primary text-[15px] font-bold shadow-lg shadow-primary/25 hover:bg-primary/90 active:scale-[0.99] transition-all">
                 View my ratings
               </button>
             )}

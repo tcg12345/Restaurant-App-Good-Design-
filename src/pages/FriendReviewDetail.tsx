@@ -218,7 +218,7 @@ export const FriendReviewDetail: React.FC = () => {
         <MessageSquare size={32} className="text-on-surface/20 mb-3" />
         <p className="text-sm font-semibold text-on-surface/60">Review not found</p>
         <p className="text-xs text-on-surface/40 mt-1 mb-6">This review may have been removed.</p>
-        <button onClick={() => navigate(-1)} className="px-4 py-2 rounded-full bg-primary text-white text-sm font-bold">Go Back</button>
+        <button onClick={() => navigate(-1)} className="px-4 py-2 rounded-full bg-primary text-on-primary text-sm font-bold">Go Back</button>
       </div>
     );
   }

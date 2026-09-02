@@ -116,7 +116,7 @@ export const PantryListSwitcherDrawer: React.FC<Props> = ({
                           <span
                             className={cn(
                               'flex-shrink-0 w-[38px] h-[38px] rounded-[13px] flex items-center justify-center',
-                              !tint && (active ? 'bg-primary text-white' : 'bg-cream-2 text-primary'),
+                              !tint && (active ? 'bg-primary text-on-primary' : 'bg-cream-2 text-primary'),
                             )}
                             style={tint ? {
                               background: tint.background,

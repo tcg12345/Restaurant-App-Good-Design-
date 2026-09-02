@@ -15,10 +15,22 @@
      below. (The `cream`/`paper` names are historical — the light theme
      is now a near-pure white rather than the old beige.) */
   --color-surface: #ffffff;
-  --color-on-surface: #1e1b1a;
-  --color-primary: #9f3012;
-  --color-secondary: #5c6144;
-  --color-accent: #d4a373;
+  --color-on-surface: #1c1a19;
+  /* ── Accent: graphite & bone ──
+     The brand is the logo's own two tones — a warm graphite and an
+     off-white — and the accent is simply the OTHER tone of the pair:
+     graphite on the light theme, bone on the dark one. `on-primary` is
+     whatever reads on top of it, so a `bg-primary text-on-primary` button
+     is black-on-white in the day and white-on-black at night without any
+     component knowing which. Nothing in the chrome is coloured; the only
+     hues left are the score tiers, the Michelin red and the danger red,
+     which each mean something. */
+  --color-primary: #1c1a19;
+  --color-on-primary: #ffffff;
+  /* A warm stone for secondary marks, and a champagne gold for the rare
+     place that wants one warm note (verified, featured). */
+  --color-secondary: #7a7168;
+  --color-accent: #c9b48e;
   --color-muted: #f1f1f1;
 
   /* Editorial tokens used by the restaurant detail redesign.
@@ -31,13 +43,14 @@
   --color-paper: #ffffff;
   --color-line: #eaeaea;
   --color-line-2: #dcdcdc;
-  --color-ink: #1e1b1a;
+  --color-ink: #1c1a19;
   --color-ink-2: #3d3835;
   --color-ink-3: #6b6359;
   --color-ink-4: #a19a8e;
-  --color-olive: #5c6144;
-  --color-clay: #9f3012;
-  --color-persimmon: #e85a2c;
+  /* Historical names, now aliases of the neutral pair. */
+  --color-olive: #7a7168;
+  --color-clay: #1c1a19;
+  --color-persimmon: #8a8178;
 
   /* ── Score tier system ──
      The ONE palette for every score-coded surface — chips, rings, map
@@ -143,16 +156,16 @@
   --color-ink-2: #c2c2c2;
   --color-ink-3: #8a8a8a;
   --color-ink-4: #5d5d5d;
-  /* Warm accents lift, the way iOS system colors do in dark: the deep
-     rust and moss olive sit at ≈2.3:1 against the graphite ground, so
-     every text-primary label, tinted icon and bg-primary wash went mud.
-     Same move the onboarding kit already makes (--ob-terra #a6371d →
-     #d3623d). Solids keep white text (bold labels hold at ≈3.5–3.8:1);
+  /* The accent is the logo's other tone: bone on graphite. Solids take
+     dark text (`on-primary`) so a primary button inverts with the theme;
      `clay`/`olive` are aliases of primary/secondary and flip with them. */
-  --color-primary: #d3623d;
-  --color-clay: #d3623d;
-  --color-secondary: #7f8f60;
-  --color-olive: #7f8f60;
+  --color-primary: #f2efe9;
+  --color-on-primary: #1a1918;
+  --color-clay: #f2efe9;
+  --color-secondary: #a39b90;
+  --color-olive: #a39b90;
+  --color-accent: #d8c39c;
+  --color-persimmon: #b5aca1;
   /* Score tiers: solids stay put (fills under white text); tints become
      low-alpha washes over the dark card and inks lighten for contrast. */
   --color-score-high-tint: rgba(64, 145, 108, 0.16);
@@ -191,8 +204,9 @@
   --ob-secondary: #6b6359;
   --ob-label: #a19a8e;
   --ob-border: #eaeaea;
-  --ob-terra: #9f3012;
-  --ob-terra-hover: #872a10;
+  --ob-terra: #1c1a19;
+  --ob-terra-hover: #000000;
+  --ob-on-terra: #ffffff;
   --ob-card: #ffffff;
   --ob-card-hover: #f6f6f6;
   --ob-ghost: #6b6359;
@@ -201,13 +215,13 @@
   --ob-pill-bg: #f1f1f1;
   --ob-pill-bg-hover: #e9e9e9;
   --ob-pill-text: #3d3835;
-  --ob-radio-selected: color-mix(in srgb, #9f3012 6%, #ffffff);
+  --ob-radio-selected: color-mix(in srgb, #1c1a19 6%, #ffffff);
   --ob-radio-ring: #d6d3d1;
-  --ob-badge-bg: color-mix(in srgb, #9f3012 10%, #ffffff);
+  --ob-badge-bg: color-mix(in srgb, #1c1a19 10%, #ffffff);
   --ob-error: #c0392b;
   --ob-success: #1b8a5e;
   --ob-success-dot: #1fa06d;
-  --ob-focus-ring: rgba(159, 48, 18, 0.13);
+  --ob-focus-ring: rgba(28, 26, 25, 0.13);
 }
 .dark {
   /* Graphite, exactly the app's dark surfaces — the old warm gradient
@@ -218,8 +232,9 @@
   --ob-secondary: #a3a3a3;
   --ob-label: #7f7f83;
   --ob-border: #3a3a3e;
-  --ob-terra: #d3623d;
-  --ob-terra-hover: #e1714b;
+  --ob-terra: #f2efe9;
+  --ob-terra-hover: #ffffff;
+  --ob-on-terra: #1a1918;
   --ob-card: #2b2b2e;
   --ob-card-hover: #333336;
   --ob-ghost: #a3a3a3;
@@ -228,13 +243,13 @@
   --ob-pill-bg: #2d2d30;
   --ob-pill-bg-hover: #38383b;
   --ob-pill-text: #c9c9c9;
-  --ob-radio-selected: rgba(211, 98, 61, 0.13);
+  --ob-radio-selected: rgba(242, 239, 233, 0.10);
   --ob-radio-ring: #55555a;
-  --ob-badge-bg: rgba(211, 98, 61, 0.16);
+  --ob-badge-bg: rgba(242, 239, 233, 0.14);
   --ob-error: #f2745f;
   --ob-success: #4fd49b;
   --ob-success-dot: #38c98e;
-  --ob-focus-ring: rgba(211, 98, 61, 0.28);
+  --ob-focus-ring: rgba(242, 239, 233, 0.24);
 }
 /* Route literal `bg-white` card surfaces (and its alphas) through the
    `paper` token so every card / pill / dropdown tracks the theme. In

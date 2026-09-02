@@ -20,6 +20,7 @@
  * modals handle them — no chrome duplicated here.
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { primaryHex } from '../lib/brand';
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import { Link } from 'react-router-dom';
@@ -485,7 +486,7 @@ export const RestaurantPanelBody: React.FC<{
     map.addControl(new mapboxgl.AttributionControl({ compact: true }));
     attachMapErrorFallback(map, el);
     mapInstanceRef.current = map;
-    new mapboxgl.Marker({ color: '#9f3012' }).setLngLat([lng, lat]).addTo(map);
+    new mapboxgl.Marker({ color: primaryHex() }).setLngLat([lng, lat]).addTo(map);
 
     const ro = new ResizeObserver(() => { try { map.resize(); } catch { /* noop */ } });
     ro.observe(el);
@@ -572,7 +573,7 @@ export const RestaurantPanelBody: React.FC<{
               className={cn(
                 'absolute top-3 left-3 w-11 h-11 rounded-full backdrop-blur ring-1 ring-white/[0.16] flex items-center justify-center transition-colors z-20',
                 wishlisted
-                  ? 'bg-primary text-white hover:bg-primary/90 shadow-md shadow-black/20'
+                  ? 'bg-primary text-on-primary hover:bg-primary/90 shadow-md shadow-black/20'
                   : 'bg-black/55 text-white hover:bg-black/75',
               )}
             >
@@ -1079,7 +1080,7 @@ export const RestaurantPanelBody: React.FC<{
         <Link
           to={`/restaurant/${encodeURIComponent(snapshot.id)}`}
           onClick={onClose}
-          className="group flex items-center justify-center gap-1.5 w-full h-12 rounded-full bg-primary text-white text-[14px] font-bold hover:bg-primary/90 transition-colors shadow-sm"
+          className="group flex items-center justify-center gap-1.5 w-full h-12 rounded-full bg-primary text-on-primary text-[14px] font-bold hover:bg-primary/90 transition-colors shadow-sm"
         >
           View full restaurant page
           <ArrowUpRight size={16} className="transition-transform group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />

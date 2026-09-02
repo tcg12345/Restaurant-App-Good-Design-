@@ -697,7 +697,7 @@ const InlineResult: React.FC<{
         <button
           type="button"
           onClick={onUse}
-          className="flex-1 py-2.5 bg-primary text-white rounded-xl font-semibold text-[13px] active:scale-[0.98] transition-transform"
+          className="flex-1 py-2.5 bg-primary text-on-primary rounded-xl font-semibold text-[13px] active:scale-[0.98] transition-transform"
         >
           Continue
         </button>

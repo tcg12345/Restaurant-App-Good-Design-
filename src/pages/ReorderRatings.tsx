@@ -324,7 +324,7 @@ export const ReorderRatings: React.FC = () => {
             <button
               onClick={handleSave}
               disabled={!hasChanges}
-              className="flex-1 flex items-center justify-center gap-2 py-3 rounded-2xl text-sm font-semibold transition-colors disabled:opacity-40 bg-primary text-white hover:bg-primary/90"
+              className="flex-1 flex items-center justify-center gap-2 py-3 rounded-2xl text-sm font-semibold transition-colors disabled:opacity-40 bg-primary text-on-primary hover:bg-primary/90"
             >
               <Save size={16} />
               Save

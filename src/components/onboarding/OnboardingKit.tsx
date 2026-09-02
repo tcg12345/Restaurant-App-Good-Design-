@@ -29,6 +29,8 @@ export const LABEL_GREY = 'var(--ob-label)';
 export const BORDER = 'var(--ob-border)';
 export const TERRA = 'var(--ob-terra)';
 export const TERRA_HOVER = 'var(--ob-terra-hover)';
+/** What reads on top of TERRA — white by day, graphite by night. */
+export const ON_TERRA = 'var(--ob-on-terra)';
 export const SERIF = 'var(--font-serif)'; // the app's heading serif
 
 /* ── Motion vocabulary ──────────────────────────────────────────────────── */
@@ -243,7 +245,7 @@ export const PrimaryButton: React.FC<{
     transition={SPRING}
     className="w-full flex items-center justify-center gap-2 rounded-full font-semibold cursor-pointer transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
     style={{
-      height: 52, border: 'none', background: TERRA, color: '#fff', fontSize: 16,
+      height: 52, border: 'none', background: TERRA, color: ON_TERRA, fontSize: 16,
       boxShadow: '0 10px 22px -10px color-mix(in srgb, var(--ob-terra) 60%, transparent)',
     }}
     onMouseEnter={(e) => { if (!disabled && !loading) (e.currentTarget as HTMLButtonElement).style.background = TERRA_HOVER; }}
@@ -390,16 +392,19 @@ export const EmailPill: React.FC<{ email: string; onClick?: () => void }> = ({ e
   </button>
 );
 
-/** A large selectable option card (radio) — account type, visibility. */
+/** A large selectable option card — a radio by default, a checkbox with
+ *  `multi` (the dietary step, where several can be true at once). */
 export const RadioCard: React.FC<{
   selected: boolean;
   onClick: () => void;
   title: React.ReactNode;
   description: string;
-}> = ({ selected, onClick, title, description }) => (
+  multi?: boolean;
+}> = ({ selected, onClick, title, description, multi }) => (
   <motion.div
     onClick={onClick}
-    role="button"
+    role={multi ? 'checkbox' : 'radio'}
+    aria-checked={selected}
     tabIndex={0}
     onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick(); } }}
     whileTap={{ scale: 0.985 }}
@@ -414,15 +419,18 @@ export const RadioCard: React.FC<{
   >
     <span
       className="flex items-center justify-center flex-shrink-0"
-      style={{ width: 24, height: 24, borderRadius: '50%', marginTop: 1, background: selected ? TERRA : 'transparent', border: selected ? 'none' : '2px solid var(--ob-radio-ring)', transition: 'background .18s var(--ease-out-strong)' }}
+      style={{ width: 24, height: 24, borderRadius: multi ? 8 : '50%', marginTop: 1, background: selected ? TERRA : 'transparent', border: selected ? 'none' : '2px solid var(--ob-radio-ring)', transition: 'background .18s var(--ease-out-strong)' }}
     >
       {selected && (
         <motion.span
+          className="inline-flex"
           initial={{ scale: 0 }}
           animate={{ scale: 1 }}
           transition={SPRING_SOFT}
-          style={{ width: 9, height: 9, borderRadius: '50%', background: '#fff' }}
-        />
+          style={multi ? { color: ON_TERRA } : { width: 9, height: 9, borderRadius: '50%', background: ON_TERRA }}
+        >
+          {multi && <Check size={14} strokeWidth={3} />}
+        </motion.span>
       )}
     </span>
     <div className="flex-1 min-w-0">

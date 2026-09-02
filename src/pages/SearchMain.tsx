@@ -672,7 +672,7 @@ export const SearchMain: React.FC<{
           type="button"
           onClick={() => handleAccept(p)}
           disabled={isPending}
-          className="inline-flex items-center gap-1 px-3.5 h-8 rounded-full bg-primary text-white text-[12px] font-bold hover:bg-primary/90 transition-colors disabled:opacity-60 flex-shrink-0"
+          className="inline-flex items-center gap-1 px-3.5 h-8 rounded-full bg-primary text-on-primary text-[12px] font-bold hover:bg-primary/90 transition-colors disabled:opacity-60 flex-shrink-0"
         >
           {isPending ? <Loader2 size={12} className="animate-spin" /> : <Check size={13} strokeWidth={2.6} />}
           Accept
@@ -684,7 +684,7 @@ export const SearchMain: React.FC<{
         type="button"
         onClick={() => followUser(p)}
         disabled={isPending}
-        className="inline-flex items-center gap-1 px-3.5 h-8 rounded-full bg-primary text-white text-[12px] font-bold hover:bg-primary/90 transition-colors disabled:opacity-60 flex-shrink-0"
+        className="inline-flex items-center gap-1 px-3.5 h-8 rounded-full bg-primary text-on-primary text-[12px] font-bold hover:bg-primary/90 transition-colors disabled:opacity-60 flex-shrink-0"
       >
         {isPending ? <Loader2 size={12} className="animate-spin" /> : <UserPlus size={12} strokeWidth={2.6} />}
         {status === 'followback' ? 'Follow back' : 'Follow'}

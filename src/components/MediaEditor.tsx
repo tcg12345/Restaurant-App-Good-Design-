@@ -92,7 +92,7 @@ export const TEXT_FONTS: { id: TextOverlay['font']; label: string; stack: string
 
 /** Swatches for overlay text + backgrounds — brand-adjacent palette. */
 export const TEXT_COLORS = [
-  '#ffffff', '#1d1a16', '#fbf4f0', '#9f3012',
+  '#ffffff', '#1d1a16', '#fbf4f0', '#c9b48e',
   '#d97706', '#1e7a55', '#2563eb', '#e11d48',
 ] as const;
 
@@ -1106,7 +1106,7 @@ const CropTab: React.FC<{ edits: EditState; setEdits: (n: Partial<EditState>) =>
               className={cn(
                 'px-3 h-8 rounded-full text-[12px] font-bold transition-colors',
                 active
-                  ? 'bg-primary text-white'
+                  ? 'bg-primary text-on-primary'
                   : 'bg-on-surface/[0.05] text-on-surface/65 hover:bg-on-surface/10',
               )}
             >
@@ -1367,7 +1367,7 @@ const TextTab: React.FC<{
         <button
           type="button"
           onClick={addText}
-          className="inline-flex items-center gap-1.5 h-9 px-4 rounded-full bg-primary text-white text-[12.5px] font-bold hover:opacity-90 transition-opacity"
+          className="inline-flex items-center gap-1.5 h-9 px-4 rounded-full bg-primary text-on-primary text-[12.5px] font-bold hover:opacity-90 transition-opacity"
         >
           <Plus size={14} strokeWidth={2.6} /> Add text
         </button>
@@ -1397,7 +1397,7 @@ const TextTab: React.FC<{
               onClick={() => onSelect(t.id)}
               className={cn(
                 'px-3 h-8 rounded-full text-[12px] font-bold transition-colors max-w-[140px] truncate',
-                isSel ? 'bg-primary text-white' : 'bg-on-surface/[0.05] text-on-surface/65 hover:bg-on-surface/10',
+                isSel ? 'bg-primary text-on-primary' : 'bg-on-surface/[0.05] text-on-surface/65 hover:bg-on-surface/10',
               )}
             >
               {label}
@@ -1434,7 +1434,7 @@ const TextTab: React.FC<{
                 onClick={() => patch({ font: f.id })}
                 className={cn(
                   'px-3 h-8 rounded-full text-[12.5px] transition-colors',
-                  selected.font === f.id ? 'bg-primary text-white' : 'bg-on-surface/[0.05] text-on-surface/65 hover:bg-on-surface/10',
+                  selected.font === f.id ? 'bg-primary text-on-primary' : 'bg-on-surface/[0.05] text-on-surface/65 hover:bg-on-surface/10',
                 )}
                 style={{ fontFamily: f.stack }}
               >
@@ -1447,7 +1447,7 @@ const TextTab: React.FC<{
               onClick={() => patch({ weight: selected.weight === 'bold' ? 'normal' : 'bold' })}
               className={cn(
                 'inline-flex items-center justify-center w-8 h-8 rounded-full transition-colors',
-                selected.weight === 'bold' ? 'bg-primary text-white' : 'bg-on-surface/[0.05] text-on-surface/65 hover:bg-on-surface/10',
+                selected.weight === 'bold' ? 'bg-primary text-on-primary' : 'bg-on-surface/[0.05] text-on-surface/65 hover:bg-on-surface/10',
               )}
               aria-label="Bold"
             >
@@ -1458,7 +1458,7 @@ const TextTab: React.FC<{
               onClick={() => patch({ italic: !selected.italic })}
               className={cn(
                 'inline-flex items-center justify-center w-8 h-8 rounded-full transition-colors',
-                selected.italic ? 'bg-primary text-white' : 'bg-on-surface/[0.05] text-on-surface/65 hover:bg-on-surface/10',
+                selected.italic ? 'bg-primary text-on-primary' : 'bg-on-surface/[0.05] text-on-surface/65 hover:bg-on-surface/10',
               )}
               aria-label="Italic"
             >
@@ -1500,7 +1500,7 @@ const TextTab: React.FC<{
                 onClick={() => patch({ bg: null })}
                 className={cn(
                   'px-3 h-8 rounded-full text-[12px] font-bold transition-colors',
-                  selected.bg === null ? 'bg-primary text-white' : 'bg-on-surface/[0.05] text-on-surface/65 hover:bg-on-surface/10',
+                  selected.bg === null ? 'bg-primary text-on-primary' : 'bg-on-surface/[0.05] text-on-surface/65 hover:bg-on-surface/10',
                 )}
               >
                 None
@@ -1510,7 +1510,7 @@ const TextTab: React.FC<{
                 onClick={() => patch({ bg: selected.bg ?? defaultBgFor(selected.color) })}
                 className={cn(
                   'px-3 h-8 rounded-full text-[12px] font-bold transition-colors',
-                  selected.bg !== null ? 'bg-primary text-white' : 'bg-on-surface/[0.05] text-on-surface/65 hover:bg-on-surface/10',
+                  selected.bg !== null ? 'bg-primary text-on-primary' : 'bg-on-surface/[0.05] text-on-surface/65 hover:bg-on-surface/10',
                 )}
               >
                 Solid
