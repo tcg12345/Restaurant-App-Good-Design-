@@ -1036,7 +1036,7 @@ export const RecommendationsBrowser: React.FC<RecommendationsBrowserProps> = ({ 
         <span
           className={cn(
             'grid h-7 w-7 flex-shrink-0 place-items-center rounded-full text-[12.5px] font-bold tabular-nums',
-            rank <= 3 ? 'bg-primary text-white' : 'bg-on-surface/[0.05] text-on-surface/55',
+            rank <= 3 ? 'bg-primary text-on-primary' : 'bg-on-surface/[0.05] text-on-surface/55',
           )}
         >
           {rank}
@@ -1152,7 +1152,7 @@ export const RecommendationsBrowser: React.FC<RecommendationsBrowserProps> = ({ 
       <button
         type="button"
         onClick={() => { onClose(); navigate('/search', { state: { openTakeover: true } }); }}
-        className="mt-6 inline-flex h-10 items-center gap-1.5 rounded-full bg-primary px-5 text-[13.5px] font-bold text-white transition-opacity active:opacity-80"
+        className="mt-6 inline-flex h-10 items-center gap-1.5 rounded-full bg-primary px-5 text-[13.5px] font-bold text-on-primary transition-opacity active:opacity-80"
       >
         <Search size={14} strokeWidth={2.4} />
         Rate a place you&rsquo;ve been
@@ -1174,7 +1174,7 @@ export const RecommendationsBrowser: React.FC<RecommendationsBrowserProps> = ({ 
           <button
             type="button"
             onClick={() => setPickerOpen(true)}
-            className="mt-4 rounded-full bg-primary px-4 py-2 text-[13px] font-semibold text-white transition-opacity hover:opacity-90"
+            className="mt-4 rounded-full bg-primary px-4 py-2 text-[13px] font-semibold text-on-primary transition-opacity hover:opacity-90"
           >
             Choose a location
           </button>

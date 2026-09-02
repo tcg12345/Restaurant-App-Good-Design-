@@ -110,7 +110,7 @@ const FilterPill: React.FC<{
     {icon}
     <span className="max-w-[130px] truncate">{label}</span>
     {badge !== undefined && (
-      <span className="inline-flex items-center justify-center min-w-[16px] h-4 px-1 rounded-full bg-primary text-white text-[9px] font-bold">
+      <span className="inline-flex items-center justify-center min-w-[16px] h-4 px-1 rounded-full bg-primary text-on-primary text-[9px] font-bold">
         {badge}
       </span>
     )}
@@ -605,7 +605,7 @@ export const FollowingFeed: React.FC<{
           <button
             type="button"
             onClick={() => navigate('/search/main')}
-            className="mt-5 inline-flex items-center gap-2 px-4 py-2.5 bg-primary text-white text-xs font-semibold rounded-xl hover:bg-primary/90 transition-colors"
+            className="mt-5 inline-flex items-center gap-2 px-4 py-2.5 bg-primary text-on-primary text-xs font-semibold rounded-xl hover:bg-primary/90 transition-colors"
           >
             <UserPlus size={14} />Find people to follow
           </button>

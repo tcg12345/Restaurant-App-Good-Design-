@@ -582,11 +582,11 @@ final class GlassTabBar: NSObject, UITabBarDelegate {
         case bar
     }
 
-    /// #9f3012, the app's `--color-primary`. Duplicated here rather than read
+    /// #1c1a19, the app's `--color-primary` (graphite; bone in dark). Duplicated here rather than read
     /// from the page: the bar has to draw before the WebView has told us
     /// anything, and this is stable brand chrome. It tints the *selected
     /// glyph* only — the lens stays neutral glass, which is what Apple's does.
-    static let primary = UIColor(red: 0.624, green: 0.188, blue: 0.071, alpha: 1.0)
+    static let primary = UIColor(red: 0.110, green: 0.102, blue: 0.098, alpha: 1.0)
 
     /// The ink the floating glass chrome writes in — the selector's words,
     /// the chips' glyphs and labels, the field's magnifier and placeholder.
@@ -626,7 +626,29 @@ final class GlassTabBar: NSObject, UITabBarDelegate {
 
     /// The same rust lifted until it reads against the charcoal the platter
     /// adapts to over a black page. See `setStyle`.
-    static let primaryOnDark = UIColor(red: 0.925, green: 0.435, blue: 0.267, alpha: 1.0)
+    static let primaryOnDark = UIColor(red: 0.949, green: 0.937, blue: 0.914, alpha: 1.0)
+
+    /// The ink every tab glyph and label wears, selected or not. The user's
+    /// call: a tab should not change colour because it is the current one —
+    /// the platter already says which is selected. White on the dark theme,
+    /// graphite on the light; `applyStyle` picks by the page's theme rather
+    /// than the trait, since the app's dark mode is its own switch.
+    static func tabInk(dark: Bool) -> UIColor {
+        dark ? UIColor.white : UIColor(red: 0.110, green: 0.102, blue: 0.098, alpha: 1.0)
+    }
+
+    /// The same ink as a dynamic colour, resolved by the bar's trait. The
+    /// app writes its theme to the window's `overrideUserInterfaceStyle`,
+    /// so this follows the in-app dark-mode switch without a bridge call —
+    /// `darkStyle` only ever meant "the page behind the bar is black" (Reels),
+    /// which is not the theme, and keyed off it the selected glyph came out
+    /// graphite on the dark theme. The unselected row is vibrant and already
+    /// adapts by itself; the selected copy under the lens takes `tintColor`.
+    static let tabInkDynamic = UIColor { trait in
+        trait.userInterfaceStyle == .dark
+            ? UIColor.white
+            : UIColor(red: 0.110, green: 0.102, blue: 0.098, alpha: 1.0)
+    }
 
     /// Avatar photos are drawn at the size UIKit gives a tab bar glyph.
     private static let avatarSize: CGFloat = 27
@@ -656,12 +678,13 @@ final class GlassTabBar: NSObject, UITabBarDelegate {
     private var trailing: NSLayoutConstraint?
     private var heightPin: NSLayoutConstraint?
     private var items: [Item] = []
-    private var barItems: [UITabBarItem] = []
-    /// Title-less twins of `barItems`. The system's minimized pill shows the
-    /// selected tab's icon and no label, and a `UITabBarItem`'s title is what
-    /// decides that — so the minimized state needs its own items rather than a
-    /// mutation of the expanded ones.
-    private var compactItems: [UITabBarItem] = []
+    /// The items currently ON the bar. Rebuilt — new instances — every time
+    /// they are applied: `UITabBar` measures an item view once, when the item
+    /// is handed to it, and reuses that view for the same instance forever
+    /// after. Reusing two cached arrays is what left labels measured for a
+    /// condensed platter ("Sea…", "Prof…") or missing entirely once the bar
+    /// came back at a different size. Five items; building them is nothing.
+    private var appliedItems: [UITabBarItem] = []
     /// May legitimately be "" — several routes show a tab bar without any tab
     /// owning them (/experts, /admin/*). Nothing is lit there, rather than
     /// Home being lit on a page it has nothing to do with.
@@ -696,7 +719,8 @@ final class GlassTabBar: NSObject, UITabBarDelegate {
         let bar = UITabBar()
         bar.translatesAutoresizingMaskIntoConstraints = false
         bar.delegate = self
-        bar.tintColor = Self.primary
+        bar.tintColor = Self.tabInkDynamic
+        bar.unselectedItemTintColor = Self.tabInkDynamic
         host.addSubview(bar)
         // Above the WebView, below anything the shell presents modally.
         host.bringSubviewToFront(bar)
@@ -743,18 +767,21 @@ final class GlassTabBar: NSObject, UITabBarDelegate {
 
     /// Drive the condense. Separate from `applyItems` because only one of the
     /// two touches the item list, and both have to land in one animation.
-    private func applyGeometry(animated: Bool) {
-        guard let bar, let host = bar.superview else { return }
+    private func applyGeometry(animated: Bool, completion: (() -> Void)? = nil) {
+        guard let bar, let host = bar.superview else { completion?(); return }
         leading?.constant = collapsed ? Self.condensedSideInset : 0
         trailing?.constant = collapsed ? -Self.condensedSideInset : 0
         heightPin?.isActive = collapsed
         guard animated else {
             host.layoutIfNeeded()
+            completion?()
             return
         }
         UIView.animate(withDuration: 0.28, delay: 0,
                        options: [.beginFromCurrentState, .curveEaseInOut]) {
             host.layoutIfNeeded()
+        } completion: { _ in
+            completion?()
         }
     }
 
@@ -780,8 +807,29 @@ final class GlassTabBar: NSObject, UITabBarDelegate {
         applyStyle()
     }
 
+    /// True when the bar is on the dark theme (the window's override style,
+    /// set by the app) or over a black page (Reels).
+    private var inkIsLight: Bool {
+        darkStyle || (bar?.traitCollection.userInterfaceStyle == .dark)
+    }
+
     private func applyStyle() {
-        bar?.tintColor = darkStyle ? Self.primaryOnDark : Self.primary
+        bar?.tintColor = Self.tabInkDynamic
+        bar?.unselectedItemTintColor = Self.tabInkDynamic
+        // The avatar cell is drawn `.alwaysOriginal`, so it does not follow
+        // `tintColor` the way the glyphs do — the monogram has to be redrawn
+        // in the new ink by hand. Keyed on "no photo to show yet" rather than
+        // "no photo configured": an avatarUrl whose download has not landed is
+        // showing the monogram too, and skipping it left that tab in the old
+        // theme's ink until the picture arrived.
+        for (index, item) in items.enumerated() where index < appliedItems.count {
+            guard item.avatarInitial != nil || item.avatarUrl != nil else { continue }
+            let photo = item.avatarUrl.flatMap { Self.avatarCache.object(forKey: $0 as NSString) }
+            guard photo == nil else { continue }
+            let image = Self.avatarImage(initial: item.avatarInitial, photo: nil, dark: inkIsLight)
+            appliedItems[index].image = image
+            appliedItems[index].selectedImage = image
+        }
     }
 
     /// Deliberately does *not* force `visible` back to true, which the
@@ -809,8 +857,7 @@ final class GlassTabBar: NSObject, UITabBarDelegate {
         leading = nil
         trailing = nil
         heightPin = nil
-        barItems = []
-        compactItems = []
+        appliedItems = []
         items = []
         collapsed = false
         visible = true
@@ -821,41 +868,49 @@ final class GlassTabBar: NSObject, UITabBarDelegate {
     func setItems(_ items: [Item], activePath: String?) {
         self.items = items
         self.activePath = activePath ?? ""
-        barItems = items.enumerated().map { index, item in
-            let barItem = UITabBarItem(title: item.label, image: nil, tag: index)
+        applyItems(animated: false)
+        loadAvatarsIfNeeded()
+    }
+
+    /// Build the bar's items. `titled: false` is the minimized pill, which
+    /// shows the selected tab's icon and no label — a `UITabBarItem`'s title
+    /// is what decides that.
+    private func makeItems(titled: Bool) -> [UITabBarItem] {
+        items.enumerated().map { index, item in
+            let barItem = UITabBarItem(title: titled ? item.label : nil, image: nil, tag: index)
+            // The already-downloaded photo, if there is one. Rebuilding an
+            // item used to hand the Profile tab `photo: nil`, so the user's
+            // face reverted to the monogram — permanently, since the only
+            // thing that ever re-applied it was `setItems`, and a scroll
+            // rebuilds without going near that.
+            let photo = item.avatarUrl.flatMap { Self.avatarCache.object(forKey: $0 as NSString) }
             // Deliberately no `SymbolConfiguration`. A real tab bar sizes and
             // weights its own glyphs, and every attempt to set that by hand is
             // one more way to look almost-right.
-            barItem.image = Self.image(for: item, selected: false)
-            barItem.selectedImage = Self.image(for: item, selected: true)
+            barItem.image = Self.image(for: item, selected: false, dark: inkIsLight, photo: photo)
+            barItem.selectedImage = Self.image(for: item, selected: true, dark: inkIsLight, photo: photo)
             barItem.accessibilityLabel = item.label
             return barItem
         }
-        compactItems = items.enumerated().map { index, item in
-            let barItem = UITabBarItem(title: nil, image: nil, tag: index)
-            barItem.image = Self.image(for: item, selected: false)
-            barItem.selectedImage = Self.image(for: item, selected: true)
-            barItem.accessibilityLabel = item.label
-            return barItem
-        }
-        applyItems(animated: false)
-        loadAvatarsIfNeeded()
     }
 
     func setActive(path: String) {
         activePath = path
         guard let bar else { return }
-        if collapsed {
-            // Membership changes with the selection while minimized, so the
-            // whole item list has to be re-applied rather than just the
-            // selection moved.
-            applyItems(animated: true)
-            return
-        }
-        // Just the selection: the lens flies to it, with the system's own
-        // timing. This is the one place the old bar needed 300 lines.
+        // Just the selection, collapsed or not: the lens flies to it, with the
+        // system's own timing. This is the one place the old bar needed 300
+        // lines.
+        //
+        // Collapsing used to take a different path here, on the grounds that
+        // "membership changes with the selection while minimized" — true of
+        // the version that shrank the platter by handing the bar a single
+        // item, and false since it started shrinking by dropping the titles
+        // instead. Every tab is on the bar in both states, so the item list
+        // does not depend on which one is lit, and rebuilding it on every
+        // navigation was churning five items and a forced layout to move a
+        // highlight.
         applyingSelection {
-            bar.selectedItem = selectedIndex.map { barItems[$0] }
+            bar.selectedItem = selectedIndex.flatMap { $0 < appliedItems.count ? appliedItems[$0] : nil }
         }
     }
 
@@ -868,6 +923,16 @@ final class GlassTabBar: NSObject, UITabBarDelegate {
     /// the same layout.
     private func applyItems(animated: Bool) {
         guard let bar else { return }
+        // `UITabBar` measures its item titles when the items are SET, against
+        // the width it has at that moment, and never re-measures them. A
+        // freshly installed bar has no width yet — constraints have not been
+        // resolved — so every label was sized for a zero-width cell and stayed
+        // truncated ("Sea…", "Prof…") once layout stretched the cells around
+        // it. That is why it only showed after a route that removes the bar
+        // (a restaurant page, messages) and not on a cold launch, where the
+        // avatar arriving late triggers a second configure at a real width.
+        // Resolve the geometry before handing over the items.
+        bar.superview?.layoutIfNeeded()
         let index = selectedIndex
         // Every tab, always. Condensing drops the labels and shrinks the
         // platter around them; it does not take tabs away. Handing the bar a
@@ -880,10 +945,26 @@ final class GlassTabBar: NSObject, UITabBarDelegate {
         // wrapped around it on purpose: an extra `UIView.animate` forces the
         // pending layout to commit inside a second curve while UIKit's own is
         // still running. The platter's resize rides `applyGeometry` instead.
-        let source = collapsed ? compactItems : barItems
+        // Fresh instances, measured against the geometry the bar has NOW.
+        let source = makeItems(titled: !collapsed)
+        appliedItems = source
         applyingSelection {
             bar.setItems(source, animated: animated)
             bar.selectedItem = index.map { source[$0] }
+        }
+        // Lay the new item views out NOW. `UITabBar` builds them lazily on its
+        // next layout pass, and on the path back from a route that removed the
+        // bar that pass did not come until something else forced one — which
+        // is why the labels were missing until a tab was tapped.
+        //
+        // Only when nothing is animating. `setItems(_:animated: true)` is a
+        // crossfade, and committing a layout synchronously in the middle of
+        // one snaps the item views to their final places under a transition
+        // that is still running — the stutter on every scroll-driven condense.
+        // The animated path gets its layout from the animation itself.
+        if !animated {
+            bar.setNeedsLayout()
+            bar.layoutIfNeeded()
         }
     }
 
@@ -912,11 +993,27 @@ final class GlassTabBar: NSObject, UITabBarDelegate {
     // MARK: Collapse on scroll
 
     func setCollapsed(_ next: Bool, animated: Bool) {
-        guard next != collapsed, bar != nil else { return }
+        guard next != collapsed, let bar else { return }
         collapsed = next
         let move = animated && !glassReduceMotion
-        applyItems(animated: move)
-        applyGeometry(animated: move)
+        if next {
+            // Condensing: drop the titles first, then shrink the platter
+            // around what is left.
+            applyItems(animated: move)
+            applyGeometry(animated: move)
+        } else {
+            // Expanding: grow the platter FIRST and only hand it the titled
+            // items once it is actually that size. `UITabBar` lays its item
+            // views out against the bar's CURRENT box when the items are set
+            // and never re-measures them, so setting titled items while the
+            // bar is still condensed produced a full-width bar whose labels
+            // had been laid out for a 56pt cell — truncated to "Sea…" and
+            // "Prof…", or dropped altogether. Growing first also matches what
+            // the system does: the platter widens, then the labels arrive.
+            applyGeometry(animated: move) { [weak self] in
+                self?.applyItems(animated: move)
+            }
+        }
         onCollapsedChange?(next)
     }
 
@@ -981,14 +1078,14 @@ final class GlassTabBar: NSObject, UITabBarDelegate {
 
     // MARK: Images
 
-    private static func image(for item: Item, selected: Bool) -> UIImage? {
+    private static func image(for item: Item, selected: Bool, dark: Bool = false, photo: UIImage? = nil) -> UIImage? {
         if item.avatarInitial != nil || item.avatarUrl != nil {
             // One image for both states. A ring or an inset to mark selection
             // would have to pick a fixed colour, and the platter's chrome is
             // decided by whatever is behind it rather than by the trait — so
             // any fixed colour is wrong on one of the two. The lens marks this
             // tab exactly as it marks the other four.
-            return avatarImage(initial: item.avatarInitial, photo: nil)
+            return avatarImage(initial: item.avatarInitial, photo: photo, dark: dark)
         }
         let name = selected ? (item.selectedSymbol ?? item.symbol) : item.symbol
         // `app.*` names are the app's own drawn glyphs — see `TabGlyph`.
@@ -1108,7 +1205,7 @@ final class GlassTabBar: NSObject, UITabBarDelegate {
     /// the profile page draws, for the same reason the ring is gone: this
     /// glyph has to stay legible on a platter that is a light fog on one page
     /// and charcoal on the next.
-    private static func avatarImage(initial: String?, photo: UIImage?) -> UIImage {
+    private static func avatarImage(initial: String?, photo: UIImage?, dark: Bool = false) -> UIImage {
         let size = CGSize(width: avatarSize, height: avatarSize)
         let renderer = UIGraphicsImageRenderer(size: size)
         let image = renderer.image { context in
@@ -1121,12 +1218,14 @@ final class GlassTabBar: NSObject, UITabBarDelegate {
                 context.cgContext.restoreGState()
                 return
             }
-            primary.setFill()
+            // Monogram fallback in the tab ink, lettered in its opposite —
+            // the same inversion the app's `bg-primary text-on-primary` does.
+            tabInk(dark: dark).setFill()
             path.fill()
             let letter = (initial ?? "").prefix(1).uppercased()
             let attributes: [NSAttributedString.Key: Any] = [
                 .font: UIFont.systemFont(ofSize: circle.height * 0.55, weight: .bold),
-                .foregroundColor: UIColor.white,
+                .foregroundColor: dark ? UIColor(red: 0.110, green: 0.102, blue: 0.098, alpha: 1.0) : UIColor.white,
             ]
             let text = NSAttributedString(string: letter, attributes: attributes)
             let bounds = text.boundingRect(with: circle.size, options: .usesLineFragmentOrigin, context: nil)
@@ -1136,30 +1235,34 @@ final class GlassTabBar: NSObject, UITabBarDelegate {
         return image.withRenderingMode(.alwaysOriginal)
     }
 
-    /// Nothing populates `avatarUrl` today; this is here so that the day the
-    /// data model grows real photos, the tab draws one without another pass.
+    /// The Profile tab draws the signed-in user's photo (`avatarUrl`, from
+    /// user_profiles.avatar_url) — the same picture the profile page shows,
+    /// so the tab is whatever the user made it. Cached per URL.
     private func loadAvatarsIfNeeded() {
         for (index, item) in items.enumerated() {
             guard let urlString = item.avatarUrl, let url = URL(string: urlString) else { continue }
             if let cached = Self.avatarCache.object(forKey: urlString as NSString) {
-                applyAvatar(cached, at: index)
+                applyAvatar(cached, for: urlString)
                 continue
             }
             URLSession.shared.dataTask(with: url) { [weak self] data, _, _ in
                 guard let data, let image = UIImage(data: data) else { return }
                 Self.avatarCache.setObject(image, forKey: urlString as NSString)
-                DispatchQueue.main.async { self?.applyAvatar(image, at: index) }
+                DispatchQueue.main.async { self?.applyAvatar(image, for: urlString) }
             }.resume()
         }
     }
 
-    private func applyAvatar(_ photo: UIImage, at index: Int) {
-        guard index < barItems.count, index < compactItems.count else { return }
+    /// Keyed by URL, not by the index the request was made at: a reconfigure
+    /// between the request and its response reorders `items`, and a download
+    /// that landed on a captured index would paint someone's face onto the
+    /// Search tab.
+    private func applyAvatar(_ photo: UIImage, for urlString: String) {
+        guard let index = items.firstIndex(where: { $0.avatarUrl == urlString }),
+              index < appliedItems.count else { return }
         let image = Self.avatarImage(initial: nil, photo: photo)
-        barItems[index].image = image
-        barItems[index].selectedImage = image
-        compactItems[index].image = image
-        compactItems[index].selectedImage = image
+        appliedItems[index].image = image
+        appliedItems[index].selectedImage = image
     }
 }
 

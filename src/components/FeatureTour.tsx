@@ -413,7 +413,7 @@ export const FeatureTour: React.FC = () => {
                   <button
                     type="button"
                     onClick={next}
-                    className="h-9 px-4 rounded-full bg-primary text-white text-[13.5px] font-bold active:scale-95 transition-transform"
+                    className="h-9 px-4 rounded-full bg-primary text-on-primary text-[13.5px] font-bold active:scale-95 transition-transform"
                   >
                     {isLast ? 'Done' : 'Next'}
                   </button>

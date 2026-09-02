@@ -3711,7 +3711,7 @@ const LocationListItem: React.FC<LocationListItemProps> = ({
       <span
         className={cn(
           'grid flex-shrink-0 place-items-center rounded-full font-bold tabular-nums',
-          rank <= 3 ? 'bg-primary text-white' : 'bg-on-surface/[0.05] text-on-surface/55',
+          rank <= 3 ? 'bg-primary text-on-primary' : 'bg-on-surface/[0.05] text-on-surface/55',
         )}
         style={{ width: size, height: size, fontSize: fs, marginTop }}
       >

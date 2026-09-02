@@ -1,8 +1,8 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { motion } from 'motion/react';
 import { Star, LogIn } from 'lucide-react';
 import * as OB from './OnboardingKit';
-import { TastePillGrid, CuisineGrid, TASTE_CUISINES, TASTE_PRICES } from './TasteSteps';
+import { CuisineGrid, PriceStep, TASTE_CUISINES } from './TasteSteps';
 import { CityAutocomplete } from '../CityAutocomplete';
 import { savePickedLocation, geocodePlace } from '../HomeLocationBar';
 import { saveTasteQuiz } from '../../lib/taste-quiz';
@@ -38,13 +38,77 @@ import type { HomeLocation } from '../HomeLocationBar';
 type PreStep = 'welcome' | 'cuisines' | 'prices' | 'city' | 'preview';
 const ORDER: PreStep[] = ['welcome', 'cuisines', 'prices', 'city', 'preview'];
 
-const PreviewCard: React.FC<{ place: ScoredPlace; index: number }> = ({ place, index }) => {
-  const sub = [cuisineLabel(place), priceLevelToString(place.priceLevel)].filter(Boolean).join(' · ');
+/**
+ * The welcome screen's one visual: three rows of a ranked list, scores
+ * worn as discs. It says what the app IS — a ladder you build, not a
+ * directory you browse — before a single question is asked, and it fills
+ * the two-thirds of the screen that used to sit empty under the headline.
+ * Real places, so the list reads like one a person would actually keep.
+ */
+const TEASER_ROWS = [
+  { rank: 1, name: 'Lucali', sub: 'Pizza · $$', score: '9.4' },
+  { rank: 2, name: 'Via Carota', sub: 'Italian · $$$', score: '9.1' },
+  { rank: 3, name: "Xi'an Famous Foods", sub: 'Chinese · $', score: '8.7' },
+];
+
+const TeaserStack: React.FC = () => (
+  <div>
+    <OB.Reveal i={3}>
+      <div style={{ fontSize: 11, letterSpacing: '1.4px', fontWeight: 700, color: 'var(--ob-label)', textTransform: 'uppercase', marginBottom: 12 }}>
+        Your list, ranked
+      </div>
+    </OB.Reveal>
+    <div className="flex flex-col" style={{ gap: 8 }} aria-hidden>
+      {TEASER_ROWS.map((row, i) => (
+        <motion.div
+          key={row.name}
+          initial={{ opacity: 0, y: 16 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.55, delay: 0.32 + i * 0.09, ease: OB.EASE }}
+          className="flex items-center gap-3 rounded-2xl"
+          style={{ padding: '11px 14px', background: 'var(--ob-card)', border: '1px solid var(--ob-border)', boxShadow: '0 1px 2px rgba(0,0,0,0.03)' }}
+        >
+          <span className="flex-none tabular-nums" style={{ width: 18, fontSize: 13, fontWeight: 700, color: 'var(--ob-label)' }}>{row.rank}</span>
+          <span className="flex-1 min-w-0">
+            <span className="block truncate font-serif font-bold" style={{ fontSize: 15.5, lineHeight: 1.2, color: 'var(--ob-ink)' }}>{row.name}</span>
+            <span className="block truncate" style={{ fontSize: 12.5, marginTop: 2, color: 'var(--ob-label)' }}>{row.sub}</span>
+          </span>
+          <motion.span
+            initial={{ scale: 0.6, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            transition={{ ...OB.SPRING_SOFT, delay: 0.55 + i * 0.09 }}
+            className="flex-none flex items-center justify-center rounded-full tabular-nums"
+            style={{ width: 40, height: 40, fontSize: 13.5, fontWeight: 700, background: OB.TERRA, color: OB.ON_TERRA }}
+          >
+            {row.score}
+          </motion.span>
+        </motion.div>
+      ))}
+    </div>
+  </div>
+);
+
+const PreviewCard: React.FC<{ place: ScoredPlace; index: number; picked: string[]; celebrate?: number }> = ({ place, index, picked, celebrate }) => {
+  const cuisine = cuisineLabel(place);
+  const price = priceLevelToString(place.priceLevel);
+  const sub = [cuisine, price].filter(Boolean).join(' · ');
   // This screen's headline is "built from your answers", so lead with a
   // reason that actually came from them. Google's star count is true but
   // says nothing about the person — leading with it is how the old preview
-  // made a personalization claim it couldn't support.
-  const why = place.tasteReasons?.[0] ?? place.reasons?.[0];
+  // made a personalization claim it couldn't support. And when the place
+  // is one of the cuisines they just tapped, SAY that: the engine's own
+  // ordering put "In your price range" on every card, because at cold
+  // start the cuisine term is confidence-halved and price is not.
+  const pickedMatch = cuisine && picked.find((p) => cuisine.toLowerCase().includes(p.toLowerCase()));
+  // The occasion tier carries half the usual tier's weight, so it never
+  // clears the engine's reason threshold on its own — name it here, or a
+  // $$$$ pick shows up explained by nothing but its star count.
+  const isCelebration = celebrate !== undefined && price.length === celebrate;
+  const why = pickedMatch
+    ? `${pickedMatch} — one of your picks`
+    : isCelebration
+      ? `For when you're celebrating (${price})`
+      : place.tasteReasons?.[0] ?? place.reasons?.[0];
   return (
     <motion.div
       initial={{ opacity: 0, y: 14 }}
@@ -84,7 +148,14 @@ export const PreAuthFlow: React.FC<{
   // +1 forward, -1 back — the entrance slide matches travel direction.
   const [dir, setDir] = useState(1);
   const [cuisineSel, setCuisineSel] = useState<string[]>([]);
-  const [priceSel, setPriceSel] = useState<number[]>([]);
+  // The usual tier and the occasional one — stated as such, not inferred
+  // from tap order (see PriceStep).
+  const [pricePrimary, setPricePrimary] = useState<number | undefined>(undefined);
+  const [priceSecondary, setPriceSecondary] = useState<number | undefined>(undefined);
+  const priceSel = useMemo(
+    () => [pricePrimary, priceSecondary].filter((n): n is number => n !== undefined),
+    [pricePrimary, priceSecondary],
+  );
   const [cityText, setCityText] = useState('');
   const [cityGeo, setCityGeo] = useState<HomeLocation | null>(null);
   const [preview, setPreview] = useState<ScoredPlace[] | null>(null);
@@ -109,12 +180,10 @@ export const PreAuthFlow: React.FC<{
     void saveTasteQuiz(undefined, {
       cuisines: cuisineSel,
       // Both shapes: the flat array for anything still reading it, and the
-      // primary/secondary split the pair + price priors actually want. The
-      // step is still a multi-select, so the first pick is the primary —
-      // the merged cuisine × spend screen will state it explicitly.
+      // primary/secondary split the pair + price priors actually want.
       prices: priceSel,
-      pricePrimary: priceSel[0],
-      priceSecondary: priceSel[1],
+      pricePrimary,
+      priceSecondary,
       city: geo?.label,
       completedAt: Date.now(),
     });
@@ -286,6 +355,11 @@ export const PreAuthFlow: React.FC<{
               <OB.Reveal blur i={1}><OB.Title size={36}>Find your next favorite table</OB.Title></OB.Reveal>
               <OB.Reveal i={2}><OB.Subtitle>A couple quick questions, and we'll show you where to eat.</OB.Subtitle></OB.Reveal>
             </div>
+            {/* Pushed to the bottom of the scroll region so it sits just
+                above the actions, whatever the screen height. */}
+            <div style={{ marginTop: 'auto', paddingTop: 36, paddingBottom: 8 }}>
+              <TeaserStack />
+            </div>
           </div>
         )}
 
@@ -309,17 +383,14 @@ export const PreAuthFlow: React.FC<{
 
         {step === 'prices' && (
           <div className="flex flex-1 flex-col">
-            <OB.StepHeader title="What do you usually spend?" />
-            <div style={{ marginTop: 26 }}>
-              <TastePillGrid
-                options={TASTE_PRICES.map((t) => ({ id: String(t.tier), label: t.label, sub: t.sub }))}
-                selected={priceSel.map(String)}
-                onToggle={(id) => {
-                  const tier = Number(id);
-                  setPriceSel((prev) => prev.includes(tier) ? prev.filter((t) => t !== tier) : [...prev, tier]);
-                }}
+            <OB.StepHeader title="What do you usually spend?" subtitle="Your picks lean toward this, without ever excluding a great table." />
+            <OB.Reveal i={2} style={{ marginTop: 26 }}>
+              <PriceStep
+                primary={pricePrimary}
+                secondary={priceSecondary}
+                onChange={(p, s) => { setPricePrimary(p); setPriceSecondary(s); }}
               />
-            </div>
+            </OB.Reveal>
           </div>
         )}
 
@@ -352,7 +423,9 @@ export const PreAuthFlow: React.FC<{
                     <div key={i} className="animate-pulse rounded-2xl" style={{ height: 74, background: 'var(--ob-divider)' }} />
                   ))
                 ) : preview.length > 0 ? (
-                  preview.slice(0, 4).map((p, i) => <PreviewCard key={p.id} place={p} index={i} />)
+                  preview.slice(0, 4).map((p, i) => (
+                    <PreviewCard key={p.id} place={p} index={i} picked={cuisineSel} celebrate={priceSecondary} />
+                  ))
                 ) : (
                   <p style={{ fontSize: 14, lineHeight: 1.5, color: 'var(--ob-label)' }}>
                     We couldn't pull picks for that area just now — your taste profile is saved and ready either way.

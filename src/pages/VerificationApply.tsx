@@ -327,7 +327,7 @@ export const VerificationApply: React.FC = () => {
             type="button"
             onClick={() => void handleSubmit()}
             disabled={!allComplete || submitting}
-            className="w-full py-3.5 bg-primary text-white rounded-2xl text-[15px] font-semibold shadow-lg shadow-primary/25 disabled:opacity-50 flex items-center justify-center gap-2"
+            className="w-full py-3.5 bg-primary text-on-primary rounded-2xl text-[15px] font-semibold shadow-lg shadow-primary/25 disabled:opacity-50 flex items-center justify-center gap-2"
           >
             {submitting && <Loader2 size={16} className="animate-spin" />}
             <PenLine size={16} /> Submit application

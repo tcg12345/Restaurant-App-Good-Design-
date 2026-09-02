@@ -1384,7 +1384,7 @@ export const AddPostModal: React.FC = () => {
                     </div>
                   )}
                   {step === 3 && activeItem.attachedKind && (
-                    <div className="absolute left-5 top-2 inline-flex items-center gap-1.5 rounded-full bg-primary text-white px-2.5 py-1 text-[10.5px] font-bold shadow-lg pointer-events-none z-10">
+                    <div className="absolute left-5 top-2 inline-flex items-center gap-1.5 rounded-full bg-primary text-on-primary px-2.5 py-1 text-[10.5px] font-bold shadow-lg pointer-events-none z-10">
                       {activeItem.attachedKind === 'restaurant' ? <MapPin size={10} /> : <ChefHat size={10} />}
                       <span className="max-w-[180px] truncate">
                         {activeItem.attachedKind === 'restaurant' ? activeItem.restaurant?.name : activeItem.recipe?.title}
@@ -1496,7 +1496,7 @@ export const AddPostModal: React.FC = () => {
                               ) : (
                                 <video src={it.previewUrl} muted playsInline preload="metadata" className="w-full h-full object-cover" />
                               )}
-                              <span className="absolute top-1 right-1 w-5 h-5 rounded-full bg-primary border-2 border-white text-white text-[10px] font-bold flex items-center justify-center">
+                              <span className="absolute top-1 right-1 w-5 h-5 rounded-full bg-primary border-2 border-white text-on-primary text-[10px] font-bold flex items-center justify-center">
                                 {idx + 1}
                               </span>
                               {!isEditing && (
@@ -1650,7 +1650,7 @@ export const AddPostModal: React.FC = () => {
                                     <video src={it.previewUrl} muted playsInline preload="metadata" className="w-full h-full object-cover" />
                                   )}
                                   {isTarget && (
-                                    <span className="absolute top-0.5 right-0.5 w-4 h-4 rounded-full bg-primary text-white flex items-center justify-center">
+                                    <span className="absolute top-0.5 right-0.5 w-4 h-4 rounded-full bg-primary text-on-primary flex items-center justify-center">
                                       <Check size={9} strokeWidth={3.2} />
                                     </span>
                                   )}
@@ -1677,7 +1677,7 @@ export const AddPostModal: React.FC = () => {
                                 className={cn(
                                   'inline-flex items-center gap-1 px-3.5 h-8 rounded-full text-[12px] font-bold transition-colors',
                                   multiApply.targets.size > 0
-                                    ? 'bg-primary text-white'
+                                    ? 'bg-primary text-on-primary'
                                     : 'bg-on-surface/10 text-on-surface/35',
                                 )}
                               >
@@ -2017,7 +2017,7 @@ export const AddPostModal: React.FC = () => {
 
                     {/* Featured pill (tag step) */}
                     {step === 3 && activeItem.attachedKind && (
-                      <div className="absolute left-4 bottom-4 inline-flex items-center gap-1.5 rounded-full bg-primary text-white px-3 py-1.5 text-[11px] font-bold shadow-lg pointer-events-none">
+                      <div className="absolute left-4 bottom-4 inline-flex items-center gap-1.5 rounded-full bg-primary text-on-primary px-3 py-1.5 text-[11px] font-bold shadow-lg pointer-events-none">
                         {activeItem.attachedKind === 'restaurant' ? <MapPin size={11} /> : <ChefHat size={11} />}
                         <span className="max-w-[220px] truncate">
                           {activeItem.attachedKind === 'restaurant' ? activeItem.restaurant?.name : activeItem.recipe?.title}
@@ -2318,7 +2318,7 @@ export const AddPostModal: React.FC = () => {
                                     className={cn(
                                       'inline-flex items-center gap-1 px-3.5 h-8 rounded-full text-[12px] font-bold transition-colors',
                                       multiApply.targets.size > 0
-                                        ? 'bg-primary text-white hover:bg-primary/90'
+                                        ? 'bg-primary text-on-primary hover:bg-primary/90'
                                         : 'bg-on-surface/10 text-on-surface/35 cursor-not-allowed',
                                     )}
                                   >
@@ -2367,7 +2367,7 @@ export const AddPostModal: React.FC = () => {
                                     {inMulti && !isSource && (
                                       <span className={cn(
                                         'ml-auto inline-flex items-center justify-center w-5 h-5 rounded-full transition-colors',
-                                        isTarget ? 'bg-primary text-white' : 'bg-on-surface/10 text-transparent',
+                                        isTarget ? 'bg-primary text-on-primary' : 'bg-on-surface/10 text-transparent',
                                       )}>
                                         <Check size={11} strokeWidth={3} />
                                       </span>

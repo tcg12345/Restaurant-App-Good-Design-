@@ -175,17 +175,17 @@ const RouteCard: React.FC<{
       className="flex-none flex items-center justify-center rounded-full"
       style={{
         width: 38, height: 38,
-        background: filled ? 'rgba(255,255,255,0.18)' : 'var(--ob-badge-bg)',
-        color: filled ? '#fff' : OB.TERRA,
+        background: filled ? 'color-mix(in srgb, var(--ob-on-terra) 18%, transparent)' : 'var(--ob-badge-bg)',
+        color: filled ? OB.ON_TERRA : OB.TERRA,
       }}
     >
       {icon}
     </span>
     <span className="min-w-0 flex-1">
-      <span className="block" style={{ fontSize: 15, fontWeight: 700, letterSpacing: '-0.01em', color: filled ? '#fff' : 'var(--ob-ink)' }}>
+      <span className="block" style={{ fontSize: 15, fontWeight: 700, letterSpacing: '-0.01em', color: filled ? OB.ON_TERRA : 'var(--ob-ink)' }}>
         {title}
       </span>
-      <span className="block" style={{ fontSize: 12.5, marginTop: 2, lineHeight: 1.35, color: filled ? 'rgba(255,255,255,0.8)' : 'var(--ob-label)' }}>
+      <span className="block" style={{ fontSize: 12.5, marginTop: 2, lineHeight: 1.35, color: filled ? 'color-mix(in srgb, var(--ob-on-terra) 80%, transparent)' : 'var(--ob-label)' }}>
         {description}
       </span>
     </span>
@@ -273,7 +273,7 @@ export const ImportStep: React.FC<{ state: OnboardingImportState }> = ({ state }
               <div className="flex gap-2" style={{ marginTop: 10 }}>
                 <button
                   type="button" onClick={() => state.applyScale(true)}
-                  className="rounded-full text-white" style={{ padding: '0 16px', height: 34, fontSize: 12.5, fontWeight: 700, background: OB.TERRA }}
+                  className="rounded-full" style={{ padding: '0 16px', height: 34, fontSize: 12.5, fontWeight: 700, background: OB.TERRA, color: OB.ON_TERRA }}
                 >Double to /10</button>
                 <button
                   type="button" onClick={() => state.applyScale(false)}
@@ -330,7 +330,7 @@ export const ImportStep: React.FC<{ state: OnboardingImportState }> = ({ state }
             className="flex items-center justify-center rounded-full"
             style={{ width: 62, height: 62, background: OB.TERRA, boxShadow: '0 12px 26px -10px color-mix(in srgb, var(--ob-terra) 55%, transparent)' }}
           >
-            <Check size={30} strokeWidth={3} color="#fff" />
+            <Check size={30} strokeWidth={3} style={{ color: OB.ON_TERRA }} />
           </motion.span>
           <p style={{ fontSize: 19, fontWeight: 700, marginTop: 16, color: 'var(--ob-ink)' }}>
             {state.summary.rated + state.summary.updated + state.summary.wishlisted} places are in your list

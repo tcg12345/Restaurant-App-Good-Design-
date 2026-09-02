@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useLayoutEffect, useRef, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { ArrowLeft, Plus, Send, Search, X, Users, Check, CheckCheck, MessageCircle, ChevronRight, MapPin, Trash2, ChefHat, Clock, Film, PlayCircle, Info, Store, AlertCircle, MoreVertical } from 'lucide-react';
+import { ArrowLeft, Plus, Send, Search, X, Users, Check, CheckCheck, MessageCircle, ChevronRight, MapPin, Trash2, ChefHat, Clock, Film, Images, PlayCircle, Info, Store, AlertCircle, MoreVertical } from 'lucide-react';
 import { cn, firstFrameSrc } from '../lib/utils';
 import { SearchField } from '../components/SearchField';
 import { VerifiedBadge } from '../components/VerifiedBadge';
@@ -75,10 +75,37 @@ const PersonAvatar: React.FC<{ name: string; userId: string; size?: number; expe
   </div>
 );
 
-/* ── Restaurant Share Card — the reference's card: serif title over one
-      meta line, the score worn as a 38pt disc, a hairline action strip.
-      No photo; the card is a pointer to the restaurant page, not a
-      preview of it. ── */
+/* ── Share cards ───────────────────────────────────────────────────────
+   Four cards, one shell. They are deliberately NOT tinted by who sent
+   them: a shared post looks the same in either direction (Instagram's
+   rule), and tinting them was also what made them unreadable — the card
+   painted itself `bg-primary` and wrote in white, and `--color-primary`
+   is now bone in dark mode. The bubble's tail corner still tells you
+   which side sent it. ── */
+
+/** The card's own surface + the tail-corner shaping. */
+const shareCardShell = (isMe: boolean, hasTextAbove: boolean) => cn(
+  'block overflow-hidden text-left align-top transition-transform active:scale-[0.985]',
+  'bg-on-surface/[0.06] ring-1 ring-on-surface/[0.08] rounded-[20px]',
+  hasTextAbove && (isMe ? 'rounded-tr-md' : 'rounded-tl-md'),
+  isMe ? 'rounded-br-md' : 'rounded-bl-md',
+);
+
+/** Author line above shared media — small avatar, @username. */
+const ShareAuthor: React.FC<{ color: string; initials: string; username: string }> = ({ color, initials, username }) => (
+  <div className="flex items-center gap-2 px-3 pb-2 pt-2.5">
+    <span className={cn('grid h-[22px] w-[22px] flex-none place-items-center rounded-full text-[9px] font-bold text-white', color)}>
+      {initials}
+    </span>
+    <span className="truncate text-[12.5px] font-bold text-on-surface">@{username}</span>
+  </div>
+);
+
+/* ── Restaurant ──
+   A cover thumbnail, the name, one meta line, and the score worn as a
+   disc. The hairline "View restaurant" strip is gone: the card IS the
+   link, and a row of chrome under every share was the noisiest thing in
+   the thread. ── */
 const RestaurantShareCard: React.FC<{
   restaurant: SharedRestaurant;
   isMe: boolean;
@@ -86,46 +113,43 @@ const RestaurantShareCard: React.FC<{
   onClick?: () => void;
 }> = ({ restaurant, isMe, hasTextAbove, onClick }) => {
   const meta = [restaurant.cuisine, restaurant.price, restaurant.address?.split(',')[0]].filter(Boolean).join(' · ');
+  const scored = restaurant.isReview && restaurant.score !== undefined && restaurant.score > 0;
   return (
-    <button
-      onClick={onClick}
-      className={cn(
-        'block w-[250px] overflow-hidden text-left active:scale-[0.985] transition-transform rounded-[20px] border',
-        hasTextAbove && 'rounded-t-2xl',
-        isMe ? 'bg-primary border-white/[0.18]' : 'bg-on-surface/[0.05] border-on-surface/[0.09]',
-      )}
-    >
-      <div className="px-3.5 py-3 flex items-start gap-3">
-        <div className="flex-1 min-w-0">
-          <p className={cn('font-serif font-bold text-[15px] leading-[1.2] tracking-[-0.02em] truncate', isMe ? 'text-white' : 'text-on-surface')}>{restaurant.name}</p>
-          {meta && <p className={cn('mt-1.5 text-[12px] leading-[1.3] truncate', isMe ? 'text-white/70' : 'text-on-surface/50')}>{meta}</p>}
-          {restaurant.isReview && restaurant.notes && (
-            <p className={cn('text-[12px] mt-1.5 line-clamp-2 leading-relaxed italic', isMe ? 'text-white/75' : 'text-on-surface/55')}>&ldquo;{restaurant.notes}&rdquo;</p>
-          )}
-        </div>
-        {restaurant.isReview && restaurant.score !== undefined && restaurant.score > 0 && (
+    <button onClick={onClick} className={cn(shareCardShell(isMe, hasTextAbove), 'w-[264px]')}>
+      <div className="flex items-center gap-3 p-2.5">
+        <span className="grid h-[52px] w-[52px] flex-none place-items-center overflow-hidden rounded-[14px] bg-on-surface/[0.07]">
+          {restaurant.image
+            ? <img src={restaurant.image} alt="" className="h-full w-full object-cover" referrerPolicy="no-referrer" onError={(e) => { e.currentTarget.style.display = 'none'; }} />
+            : <Store size={19} className="text-on-surface/35" />}
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="block truncate font-serif text-[15px] font-bold leading-[1.15] tracking-[-0.02em] text-on-surface">
+            {restaurant.name}
+          </span>
+          {meta && <span className="mt-1 block truncate text-[12px] leading-[1.25] text-on-surface/50">{meta}</span>}
+        </span>
+        {scored && (
           <span
-            className="flex-none w-[38px] h-[38px] rounded-full grid place-items-center font-serif font-bold text-[13px] tabular-nums"
-            style={isMe
-              ? { background: 'rgba(255,255,255,0.16)', color: '#fff' }
-              : (() => { const t = scoreTintStyle(restaurant.score); return { background: t.background, color: t.color, boxShadow: `inset 0 0 0 1.5px ${t.ring}` }; })()}
+            className="grid h-[38px] w-[38px] flex-none place-items-center rounded-full font-serif text-[13px] font-bold tabular-nums"
+            style={(() => {
+              const t = scoreTintStyle(restaurant.score as number);
+              return { background: t.background, color: t.color, boxShadow: `inset 0 0 0 1.5px ${t.ring}` };
+            })()}
           >
-            {restaurant.score >= 10 ? '10' : restaurant.score.toFixed(1)}
+            {(restaurant.score as number) >= 10 ? '10' : (restaurant.score as number).toFixed(1)}
           </span>
         )}
       </div>
-      <div className={cn(
-        'px-3.5 py-2.5 border-t text-[12px] font-semibold',
-        isMe ? 'border-white/[0.14] text-white/75' : 'border-on-surface/[0.08] text-on-surface/55',
-      )}>
-        View restaurant
-      </div>
+      {restaurant.isReview && restaurant.notes && (
+        <p className="line-clamp-2 px-3 pb-3 text-[12.5px] italic leading-[1.45] text-on-surface/60">
+          &ldquo;{restaurant.notes}&rdquo;
+        </p>
+      )}
     </button>
   );
 };
 
-/* ── Recipe Share Card — same anatomy as the restaurant card, with the
-      cook time worn as the disc. ── */
+/* ── Recipe — the same anatomy, with the cook time as the disc. ── */
 const RecipeShareCard: React.FC<{
   recipe: SharedRecipe;
   isMe: boolean;
@@ -137,187 +161,124 @@ const RecipeShareCard: React.FC<{
     : '';
   const meta = [`by ${recipe.authorName}`, recipe.difficulty, recipe.ingredientCount ? `${recipe.ingredientCount} ingredients` : ''].filter(Boolean).join(' · ');
   return (
-    <button
-      onClick={onClick}
-      className={cn(
-        'block w-[250px] overflow-hidden text-left active:scale-[0.985] transition-transform rounded-[20px] border',
-        hasTextAbove && 'rounded-t-2xl',
-        isMe ? 'bg-primary border-white/[0.18]' : 'bg-on-surface/[0.05] border-on-surface/[0.09]',
-      )}
-    >
-      <div className="px-3.5 py-3 flex items-start gap-3">
-        <div className="flex-1 min-w-0">
-          <p className={cn('font-serif font-bold text-[15px] leading-[1.2] tracking-[-0.02em] truncate', isMe ? 'text-white' : 'text-on-surface')}>{recipe.name}</p>
-          {meta && <p className={cn('mt-1.5 text-[12px] leading-[1.3] truncate', isMe ? 'text-white/70' : 'text-on-surface/50')}>{meta}</p>}
-          {recipe.description && (
-            <p className={cn('text-[12px] mt-1.5 line-clamp-1 leading-relaxed italic', isMe ? 'text-white/75' : 'text-on-surface/55')}>{recipe.description}</p>
-          )}
-        </div>
+    <button onClick={onClick} className={cn(shareCardShell(isMe, hasTextAbove), 'w-[264px]')}>
+      <div className="flex items-center gap-3 p-2.5">
+        <span className="grid h-[52px] w-[52px] flex-none place-items-center overflow-hidden rounded-[14px] bg-on-surface/[0.07]">
+          {recipe.image
+            ? <img src={recipe.image} alt="" className="h-full w-full object-cover" referrerPolicy="no-referrer" onError={(e) => { e.currentTarget.style.display = 'none'; }} />
+            : <ChefHat size={19} className="text-on-surface/35" />}
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="block truncate font-serif text-[15px] font-bold leading-[1.15] tracking-[-0.02em] text-on-surface">
+            {recipe.name}
+          </span>
+          {meta && <span className="mt-1 block truncate text-[12px] leading-[1.25] text-on-surface/50">{meta}</span>}
+        </span>
         {totalLabel && (
-          <span className={cn(
-            'flex-none min-w-[38px] h-[38px] px-1.5 rounded-full grid place-items-center font-serif font-bold text-[12px]',
-            isMe ? 'bg-white/[0.16] text-white' : 'bg-recipes-tint text-recipes-ink',
-          )}>
+          <span className="grid h-[38px] min-w-[38px] flex-none place-items-center rounded-full bg-recipes-tint px-1.5 font-serif text-[12px] font-bold text-recipes-ink">
             {totalLabel}
           </span>
         )}
       </div>
-      <div className={cn(
-        'px-3.5 py-2.5 border-t text-[12px] font-semibold',
-        isMe ? 'border-white/[0.14] text-white/75' : 'border-on-surface/[0.08] text-on-surface/55',
-      )}>
-        View recipe
-      </div>
+      {recipe.description && (
+        <p className="line-clamp-2 px-3 pb-3 text-[12.5px] leading-[1.45] text-on-surface/60">{recipe.description}</p>
+      )}
     </button>
   );
 };
 
-/* ── Reel Share Card (iMessage-style rich preview) ── */
+/* ── Reel — a tall poster, the way a shared reel arrives in a DM: the
+      video itself at 9:16 with the author over a scrim, and nothing
+      else competing with it. ── */
 const ReelShareCard: React.FC<{
   reel: SharedReel;
   isMe: boolean;
   hasTextAbove: boolean;
   onClick?: () => void;
-}> = ({ reel, isMe, hasTextAbove, onClick }) => {
-  const titleCls = isMe ? 'text-white' : 'text-on-surface';
-  const subCls = isMe ? 'text-white/75' : 'text-on-surface/55';
-  const faintCls = isMe ? 'text-white/60' : 'text-on-surface/40';
-  const accentCls = isMe ? 'text-white' : 'text-on-surface';
-
-  return (
-    <button
-      onClick={onClick}
-      className={cn(
-        'block w-full max-w-[280px] overflow-hidden text-left active:scale-[0.985] transition-transform',
-        hasTextAbove ? 'rounded-b-2xl' : 'rounded-2xl',
-        isMe
-          ? cn('bg-primary', hasTextAbove ? '' : 'rounded-br-md')
-          : cn('bg-on-surface/[0.06]', hasTextAbove ? '' : 'rounded-bl-md'),
+}> = ({ reel, isMe, hasTextAbove, onClick }) => (
+  <button onClick={onClick} className={cn(shareCardShell(isMe, hasTextAbove), 'w-[188px]')}>
+    <div className={cn('relative aspect-[9/16] w-full overflow-hidden bg-gradient-to-br', reel.bgGradient || 'from-stone-800 to-stone-900')}>
+      {reel.videoUrl && (
+        <video
+          src={reel.videoUrl}
+          poster={reel.posterUrl}
+          muted
+          playsInline
+          preload="metadata"
+          className="absolute inset-0 h-full w-full object-cover"
+        />
       )}
-    >
-      {/* Video / gradient preview, 9:16 cropped to 5:3 to keep the
-          card vertically compact in a chat thread. */}
-      <div className={cn('relative w-full aspect-[5/3] overflow-hidden bg-gradient-to-br', reel.bgGradient || 'from-stone-800 to-stone-900')}>
-        {reel.videoUrl && (
-          <video
-            src={reel.videoUrl}
-            poster={reel.posterUrl}
-            muted
-            playsInline
-            preload="metadata"
-            className="absolute inset-0 w-full h-full object-cover"
-          />
-        )}
-        <div className="absolute inset-0 bg-gradient-to-t from-black/55 to-transparent pointer-events-none" />
-        <div className="absolute top-2 left-2 inline-flex items-center gap-1 px-2 h-6 rounded-full bg-black/55 text-white text-[10px] font-bold">
-          <Film size={10} />
-          REEL
-        </div>
-        <div className="absolute bottom-2 left-2 right-2 flex items-center gap-2">
-          <div className={cn('w-7 h-7 rounded-full ring-2 ring-white/40 flex items-center justify-center text-white text-[10px] font-bold', reel.authorAvatarColor)}>
+      {/* Only where the text sits — a full-height wash greys the video. */}
+      <div className="pointer-events-none absolute inset-x-0 bottom-0 h-2/5 bg-gradient-to-t from-black/75 to-transparent" />
+      <span className="absolute right-2 top-2 grid h-7 w-7 place-items-center rounded-full bg-black/45 text-white backdrop-blur-sm">
+        <Film size={13} />
+      </span>
+      <div className="absolute inset-x-2.5 bottom-2.5">
+        <div className="flex items-center gap-1.5">
+          <span className={cn('grid h-5 w-5 flex-none place-items-center rounded-full text-[8px] font-bold text-white ring-1 ring-white/50', reel.authorAvatarColor)}>
             {reel.authorInitials}
-          </div>
-          <span className="text-white text-[12px] font-bold truncate drop-shadow">@{reel.authorUsername}</span>
-        </div>
-        <div className="absolute right-2 bottom-2 w-9 h-9 rounded-full bg-black/55 flex items-center justify-center text-white">
-          <PlayCircle size={20} />
-        </div>
-      </div>
-      {/* Body */}
-      <div className="px-3.5 py-2.5">
-        <div className="flex items-center gap-1.5 mb-0.5">
-          {reel.kind === 'restaurant' ? (
-            <MapPin size={11} className={accentCls} />
-          ) : (
-            <ChefHat size={11} className={accentCls} />
-          )}
-          <span className={cn('text-[10px] font-bold uppercase tracking-wider', accentCls)}>
-            {reel.kind === 'restaurant' ? 'Featured place' : 'Featured recipe'}
           </span>
+          <span className="truncate text-[11.5px] font-bold text-white drop-shadow">@{reel.authorUsername}</span>
         </div>
-        <p className={cn('text-sm font-bold truncate leading-snug', titleCls)}>{reel.attachedTitle}</p>
-        {reel.attachedSubtitle && (
-          <p className={cn('text-[11px] truncate', subCls)}>{reel.attachedSubtitle}</p>
+        {reel.attachedTitle && (
+          <p className="mt-1 truncate text-[11px] text-white/80 drop-shadow">{reel.attachedTitle}</p>
         )}
-        {reel.caption && (
-          <p className={cn('text-[12px] mt-1.5 line-clamp-2 leading-relaxed italic', subCls)}>"{reel.caption}"</p>
-        )}
-        <div className={cn('flex items-center gap-1 mt-2 text-[10px] font-semibold', faintCls)}>
-          <span>Open in Reels</span>
-          <ChevronRight size={10} />
-        </div>
       </div>
-    </button>
-  );
-};
+    </div>
+    {reel.caption && (
+      <p className="line-clamp-2 px-3 py-2.5 text-[12.5px] leading-[1.4] text-on-surface/65">{reel.caption}</p>
+    )}
+  </button>
+);
 
-/* ── Post Share Card (iMessage-style rich preview) ── */
+/* ── Post — Instagram's shared-post anatomy: who posted it, the picture
+      at square crop, then the caption. The picture is the message. ── */
 const PostShareCard: React.FC<{
   post: SharedPost;
   isMe: boolean;
   hasTextAbove: boolean;
   onClick?: () => void;
-}> = ({ post, isMe, hasTextAbove, onClick }) => {
-  const titleCls = isMe ? 'text-white' : 'text-on-surface';
-  const subCls = isMe ? 'text-white/75' : 'text-on-surface/55';
-  const faintCls = isMe ? 'text-white/60' : 'text-on-surface/40';
-  const accentCls = isMe ? 'text-white' : 'text-on-surface';
-
-  return (
-    <button
-      onClick={onClick}
-      className={cn(
-        'block w-full max-w-[280px] overflow-hidden text-left active:scale-[0.985] transition-transform',
-        hasTextAbove ? 'rounded-b-2xl' : 'rounded-2xl',
-        isMe
-          ? cn('bg-primary', hasTextAbove ? '' : 'rounded-br-md')
-          : cn('bg-on-surface/[0.06]', hasTextAbove ? '' : 'rounded-bl-md'),
+}> = ({ post, isMe, hasTextAbove, onClick }) => (
+  <button onClick={onClick} className={cn(shareCardShell(isMe, hasTextAbove), 'w-[250px]')}>
+    <ShareAuthor color={post.authorAvatarColor} initials={post.authorInitials} username={post.authorUsername} />
+    <div className={cn('relative aspect-square w-full overflow-hidden bg-gradient-to-br', post.bgGradient || 'from-stone-800 to-stone-900')}>
+      {post.coverUrl && post.coverMediaType === 'video' && (
+        <video src={firstFrameSrc(post.coverUrl)} muted playsInline preload="metadata" className="absolute inset-0 h-full w-full object-cover" />
       )}
-    >
-      <div className={cn('relative w-full aspect-[5/3] overflow-hidden bg-gradient-to-br', post.bgGradient || 'from-stone-800 to-stone-900')}>
-        {post.coverUrl && post.coverMediaType === 'video' && (
-          <video src={firstFrameSrc(post.coverUrl)} muted playsInline preload="metadata" className="absolute inset-0 w-full h-full object-cover" />
-        )}
-        {post.coverUrl && post.coverMediaType === 'photo' && (
-          <img src={post.coverUrl} alt="" className="absolute inset-0 w-full h-full object-cover" />
-        )}
-        <div className="absolute inset-0 bg-gradient-to-t from-black/55 to-transparent pointer-events-none" />
-        <div className="absolute top-2 left-2 inline-flex items-center gap-1 px-2 h-6 rounded-full bg-black/55 text-white text-[10px] font-bold">
-          POST
-        </div>
-        {post.itemCount > 1 && (
-          <div className="absolute top-2 right-2 inline-flex items-center gap-1 px-2 h-6 rounded-full bg-black/55 text-white text-[10px] font-bold">
-            {post.itemCount} items
-          </div>
-        )}
-        <div className="absolute bottom-2 left-2 right-2 flex items-center gap-2">
-          <div className={cn('w-7 h-7 rounded-full ring-2 ring-white/40 flex items-center justify-center text-white text-[10px] font-bold', post.authorAvatarColor)}>
-            {post.authorInitials}
-          </div>
-          <span className="text-white text-[12px] font-bold truncate drop-shadow">@{post.authorUsername}</span>
-        </div>
-      </div>
-      <div className="px-3.5 py-2.5">
+      {post.coverUrl && post.coverMediaType === 'photo' && (
+        <img src={post.coverUrl} alt="" className="absolute inset-0 h-full w-full object-cover" referrerPolicy="no-referrer" onError={(e) => { e.currentTarget.style.display = 'none'; }} />
+      )}
+      {/* A carousel says so with the stacked-squares glyph, like the feed. */}
+      {post.itemCount > 1 && (
+        <span className="absolute right-2 top-2 grid h-7 w-7 place-items-center rounded-full bg-black/45 text-white backdrop-blur-sm">
+          <Images size={13} />
+        </span>
+      )}
+      {post.coverMediaType === 'video' && post.itemCount <= 1 && (
+        <span className="absolute right-2 top-2 grid h-7 w-7 place-items-center rounded-full bg-black/45 text-white backdrop-blur-sm">
+          <PlayCircle size={14} />
+        </span>
+      )}
+    </div>
+    {(post.caption || post.locationLabel) ? (
+      <div className="px-3 py-2.5">
         {post.locationLabel && (
-          <div className={cn('flex items-center gap-1 mb-0.5', accentCls)}>
-            <MapPin size={11} />
-            <span className="text-[11px] font-bold truncate">{post.locationLabel}</span>
-          </div>
+          <p className="mb-0.5 flex items-center gap-1 truncate text-[11.5px] font-bold text-on-surface/70">
+            <MapPin size={11} className="flex-none" />
+            <span className="truncate">{post.locationLabel}</span>
+          </p>
         )}
         {post.caption && (
-          <p className={cn('text-[13px] leading-snug line-clamp-2 italic', titleCls)}>"{post.caption}"</p>
+          <p className="line-clamp-2 text-[12.5px] leading-[1.4] text-on-surface/65">{post.caption}</p>
         )}
-        {!post.caption && !post.locationLabel && (
-          <p className={cn('text-[12px]', subCls)}>{post.itemCount} {post.itemCount === 1 ? 'photo or video' : 'photos and videos'}</p>
-        )}
-        <div className={cn('flex items-center gap-1 mt-2 text-[10px] font-semibold', faintCls)}>
-          <span>Open in feed</span>
-          <ChevronRight size={10} />
-        </div>
       </div>
-    </button>
-  );
-};
+    ) : (
+      <p className="px-3 py-2.5 text-[12px] text-on-surface/45">
+        {post.itemCount} {post.itemCount === 1 ? 'photo or video' : 'photos and videos'}
+      </p>
+    )}
+  </button>
+);
 
 
 /* ── New Chat Sheet ── */
@@ -465,7 +426,7 @@ const NewChatSheet: React.FC<{
                       </div>
                       {mode === 'group' && (
                         <div className={cn("w-5 h-5 rounded flex items-center justify-center border-2 transition-all flex-shrink-0",
-                          selected ? "bg-primary border-primary text-white" : "border-on-surface/20")}>
+                          selected ? "bg-primary border-primary text-on-primary" : "border-on-surface/20")}>
                           {selected && <Check size={12} strokeWidth={3} />}
                         </div>
                       )}
@@ -479,7 +440,7 @@ const NewChatSheet: React.FC<{
             {mode === 'group' && selectedFriends.length >= 2 && (
               <div className="px-5 pt-4 pb-safe-4 flex-shrink-0 border-t border-on-surface/6 bg-surface">
                 <button onClick={handleCreateGroup}
-                  className="w-full py-3 bg-primary text-white rounded-2xl font-semibold text-sm active:scale-[0.98] transition-transform">
+                  className="w-full py-3 bg-primary text-on-primary rounded-2xl font-semibold text-sm active:scale-[0.98] transition-transform">
                   Create Group ({selectedFriends.length} members)
                 </button>
               </div>
@@ -835,7 +796,7 @@ const ChatView: React.FC<{
                 {groupNameDraft.trim() ? (
                   <button
                     onClick={handleSaveGroupName}
-                    className="px-3 h-7 text-[11px] font-bold text-white bg-primary rounded-full flex-shrink-0 active:scale-95 transition-transform"
+                    className="px-3 h-7 text-[11px] font-bold text-on-primary bg-primary rounded-full flex-shrink-0 active:scale-95 transition-transform"
                   >
                     Save
                   </button>
@@ -891,7 +852,7 @@ const ChatView: React.FC<{
                         <div className={cn(
                           "selectable px-3.5 py-2 text-sm leading-relaxed rounded-2xl mb-1",
                           isMe
-                            ? "bg-primary text-white rounded-br-md"
+                            ? "bg-primary text-on-primary rounded-br-md"
                             : "bg-on-surface/[0.06] text-on-surface rounded-bl-md"
                         )}>
                           {msg.text}
@@ -933,7 +894,7 @@ const ChatView: React.FC<{
                   ) : (
                     <div className={cn("selectable px-3.5 py-2.5 rounded-2xl text-sm leading-relaxed",
                       isMe
-                        ? "bg-primary text-white rounded-br-md"
+                        ? "bg-primary text-on-primary rounded-br-md"
                         : "bg-on-surface/[0.06] text-on-surface rounded-bl-md"
                     )}>
                       {msg.text}
@@ -993,7 +954,7 @@ const ChatView: React.FC<{
           aria-label="Send"
           className={cn(
             'flex-none w-10 h-10 rounded-full grid place-items-center transition-all active:scale-95',
-            text.trim() ? 'bg-primary text-white' : 'bg-on-surface/[0.07] text-on-surface/30',
+            text.trim() ? 'bg-primary text-on-primary' : 'bg-on-surface/[0.07] text-on-surface/30',
           )}
         >
           <Send size={16} />
@@ -1091,7 +1052,7 @@ const ConvRow: React.FC<{
             <span className="truncate">{lastMessagePreview(conv, profiles, selfId)}</span>
           </p>
           {unread > 0 && (
-            <span className="min-w-[20px] h-[20px] px-1.5 bg-primary text-white text-[11px] font-bold rounded-full grid place-items-center flex-shrink-0 shadow-sm shadow-primary/25">{unread}</span>
+            <span className="min-w-[20px] h-[20px] px-1.5 bg-primary text-on-primary text-[11px] font-bold rounded-full grid place-items-center flex-shrink-0 shadow-sm shadow-primary/25">{unread}</span>
           )}
         </div>
       </div>
@@ -1242,7 +1203,7 @@ const DesktopEmptyChat: React.FC<{ onCompose: () => void }> = ({ onCompose }) =>
       </div>
       <h2 className="font-serif font-bold text-[30px] tracking-tight">Your messages</h2>
       <p className="text-[14.5px] text-on-surface/55 leading-relaxed">Pick a conversation, or message any friend to start a thread. Share a restaurant or recipe in a single tap.</p>
-      <button onClick={onCompose} className="mt-1 inline-flex items-center gap-2 px-5 py-2.5 bg-primary text-white text-sm font-semibold rounded-full hover:bg-primary/90 transition-colors">
+      <button onClick={onCompose} className="mt-1 inline-flex items-center gap-2 px-5 py-2.5 bg-primary text-on-primary text-sm font-semibold rounded-full hover:bg-primary/90 transition-colors">
         <Plus size={16} /> New message
       </button>
     </div>
@@ -1277,7 +1238,7 @@ const MobileConvRow: React.FC<{
             {share && <Store size={12} className="flex-shrink-0" />}
             <span className="truncate">{lastMessagePreview(conv, profiles, selfId)}</span>
           </p>
-          {unread > 0 && <span className="min-w-[20px] h-[20px] px-1.5 bg-primary text-white text-[11px] font-bold rounded-full grid place-items-center flex-shrink-0">{unread}</span>}
+          {unread > 0 && <span className="min-w-[20px] h-[20px] px-1.5 bg-primary text-on-primary text-[11px] font-bold rounded-full grid place-items-center flex-shrink-0">{unread}</span>}
         </div>
       </div>
     </button>
@@ -1420,7 +1381,7 @@ const MobileMessageList: React.FC<{
             <p className="text-[14px] font-semibold text-on-surface/45">{q ? 'No one by that name' : tab === 'unread' ? 'No unread messages' : tab === 'shares' ? 'No shared cards yet' : 'No conversations yet'}</p>
             {q && <p className="mt-1.5 text-[12.5px] text-on-surface/35 leading-relaxed max-w-[260px] mx-auto">Search only covers people you follow and the threads you already have.</p>}
             {!q && tab === 'all' && (
-              <button onClick={onCompose} className="mt-4 inline-flex items-center gap-2 px-5 py-2.5 bg-primary text-white text-sm font-semibold rounded-full active:scale-95 transition-transform"><Plus size={16} /> New message</button>
+              <button onClick={onCompose} className="mt-4 inline-flex items-center gap-2 px-5 py-2.5 bg-primary text-on-primary text-sm font-semibold rounded-full active:scale-95 transition-transform"><Plus size={16} /> New message</button>
             )}
           </div>
         )}

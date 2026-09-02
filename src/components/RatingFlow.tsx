@@ -842,7 +842,7 @@ export const RatingFlow: React.FC = () => {
                         onClick={() => setTags((prev) => (prev.includes(t) ? prev.filter((x) => x !== t) : [...prev, t]))}
                         className={cn(
                           'h-7 px-3 rounded-full text-[12px] font-bold transition-colors',
-                          tags.includes(t) ? 'bg-primary text-white' : 'bg-surface border border-line text-ink-2',
+                          tags.includes(t) ? 'bg-primary text-on-primary' : 'bg-surface border border-line text-ink-2',
                         )}
                       >
                         {t}

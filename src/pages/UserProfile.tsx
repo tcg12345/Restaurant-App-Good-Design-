@@ -36,6 +36,8 @@ import { FilterSection, Segment, SegmentItem, Pill, PillRow, RangeSlider, Filter
 import { ProfileRestaurantRow } from '../components/profile/ProfileRestaurantRow';
 import { ProfileRestaurantRowMinimal } from '../components/profile/ProfileRestaurantRowMinimal';
 import { ProfilePalate } from '../components/profile/ProfilePalate';
+import { TasteSummaryCard } from '../components/profile/TasteProfileCard';
+import { buildTasteStateFromCommunity } from '../lib/taste-state';
 import { ProfileRecipeRow } from '../components/profile/ProfileRecipeRow';
 import { ProfilePostsSection, ProfileReelsSection, ProfileGuidesSection } from '../components/ProfileReelsSection';
 import { SearchField } from '../components/SearchField';
@@ -353,28 +355,26 @@ export const UserProfile: React.FC = () => {
       .slice(0, 5);
   }, [userRatings]);
 
-  // "Taste signature" — the reference card's numbers, every one derived
-  // from ratings already loaded: the average score, the three most-rated
-  // cuisines, and up to three honest trait chips (price mode, scoring
-  // posture, whether they write). Nothing here is invented.
-  const tasteStats = useMemo(() => {
-    if (userRatings.length < 3) return null;
-    const scores = userRatings.map((r) => Number(r.score)).filter((n) => Number.isFinite(n) && n > 0);
-    const avg = scores.length ? scores.reduce((a, b) => a + b, 0) / scores.length : 0;
-    const bars = topCuisines.slice(0, 3);
-    const traits: string[] = [];
-    const priceCounts = new Map<string, number>();
-    userRatings.forEach((r) => { if (r.price) priceCounts.set(r.price, (priceCounts.get(r.price) ?? 0) + 1); });
-    const topPrice = Array.from(priceCounts.entries()).sort((a, b) => b[1] - a[1])[0];
-    if (topPrice && topPrice[1] / userRatings.length >= 0.4) traits.push(`Mostly ${topPrice[0]}`);
-    if (scores.length >= 5) {
-      if (avg <= 6.8) traits.push('Rates hard');
-      else if (avg >= 8.5) traits.push('Rates generous');
-    }
-    const noteShare = userRatings.filter((r) => r.notes?.trim()).length / userRatings.length;
-    if (noteShare >= 0.3) traits.push('Writes notes');
-    return { avg, bars, traits, max: bars[0]?.count || 1 };
-  }, [userRatings, topCuisines]);
+  // The person's taste profile, from the community rows already loaded —
+  // the same builder the /user/:username/taste page uses, so the card and
+  // the page can't disagree. Only for viewers who may see the profile.
+  const tasteState = useMemo(() => {
+    if (!canView || !profile || userRatings.length === 0) return null;
+    const name = (profile.display_name || profile.username || 'They').trim().split(/\s+/)[0];
+    return buildTasteStateFromCommunity({ rows: userRatings, photos: userPhotos, profile, michelinReady: michelinReady, name });
+  }, [canView, profile, userRatings, userPhotos, michelinReady]);
+  const tasteCard = tasteState && profile ? (
+    <TasteSummaryCard
+      standing={tasteState.standing}
+      points={tasteState.points.total}
+      archetype={tasteState.insights.palate.archetype}
+      lead={tasteState.insights.palate.tagline ?? tasteState.insights.sentences[0]?.headline ?? `${tasteState.ratingCount} places rated.`}
+      chips={tasteState.insights.chips}
+      onPress={() => navigate(`/user/${encodeURIComponent(profile.username)}/taste`)}
+      ariaLabel={`${profile.display_name || profile.username}'s taste profile`}
+    />
+  ) : null;
+
 
   const activeFilterCount =
     (filterPrice ? 1 : 0) + (filterCity ? 1 : 0) +
@@ -652,7 +652,7 @@ export const UserProfile: React.FC = () => {
       );
     }
     const followFill = variant === 'sidebar'
-      ? 'bg-primary text-white shadow-[var(--shadow-primary)] hover:-translate-y-0.5 hover:shadow-lg'
+      ? 'bg-primary text-on-primary shadow-[var(--shadow-primary)] hover:-translate-y-0.5 hover:shadow-lg'
       : 'bg-on-surface text-surface hover:bg-primary hover:-translate-y-px';
     return (
       <button onClick={handleFollow} className={cn(base, followFill)}>
@@ -977,6 +977,8 @@ export const UserProfile: React.FC = () => {
               })}
             </div>
 
+            {tasteCard && <div className="mt-7">{tasteCard}</div>}
+
             {/* palate */}
             {canView && topCuisines.length > 0 && (
               <div className="mt-7">
@@ -1092,7 +1094,7 @@ export const UserProfile: React.FC = () => {
                       >
                         <SlidersHorizontal size={15} /> Filter
                         {activeFilterCount > 0 && (
-                          <span className="ml-0.5 min-w-[18px] h-[18px] px-1 rounded-full bg-primary text-white text-[10.5px] font-bold grid place-items-center tabular-nums">
+                          <span className="ml-0.5 min-w-[18px] h-[18px] px-1 rounded-full bg-primary text-on-primary text-[10.5px] font-bold grid place-items-center tabular-nums">
                             {activeFilterCount}
                           </span>
                         )}
@@ -1259,7 +1261,7 @@ export const UserProfile: React.FC = () => {
       );
     }
     return (
-      <button type="button" onClick={handleFollow} className={cn(base, 'bg-primary text-white shadow-[0_6px_16px_rgba(159,48,18,0.22)] active:opacity-85')}>
+      <button type="button" onClick={handleFollow} className={cn(base, 'bg-primary text-on-primary shadow-[0_6px_16px_rgba(159,48,18,0.22)] active:opacity-85')}>
         {!mini && <Plus size={15} strokeWidth={2.3} />}
         {theyFollowMe ? 'Follow back' : 'Follow'}
       </button>
@@ -1415,47 +1417,8 @@ export const UserProfile: React.FC = () => {
         })}
       </div>
 
-      {/* Taste signature — what this person actually rates */}
-      {canView && tasteStats && (
-        <div className="mx-5 mt-5 rounded-[20px] bg-on-surface/[0.045] px-4 py-[15px]">
-          <div className="flex items-center gap-2.5">
-            <span className="flex-none text-[10px] font-bold uppercase tracking-[0.16em] text-on-surface/45">Taste signature</span>
-            <span className="flex-1 h-px bg-on-surface/[0.10]" />
-          </div>
-          <div className="mt-3 flex items-center gap-3.5">
-            <div className="flex-none flex flex-col gap-1.5">
-              <span className={cn('font-serif text-[25px] font-bold leading-none tracking-[-0.04em]', scoreColor(tasteStats.avg))}>
-                {tasteStats.avg.toFixed(twoDecimalScores ? 2 : 1)}
-              </span>
-              <span className="text-[11px] text-ink-3">avg score</span>
-            </div>
-            <span className="flex-none w-px h-[34px] bg-on-surface/[0.12]" />
-            <div className="flex-1 min-w-0 flex flex-col gap-2">
-              {tasteStats.bars.map((b) => (
-                <div key={b.name} className="flex items-center gap-2.5">
-                  <span className="flex-none w-[74px] text-[11.5px] font-medium text-ink-2 truncate">{b.name}</span>
-                  <span className="flex-1 h-[5px] rounded-full bg-on-surface/[0.09] overflow-hidden">
-                    <span
-                      className={cn('block h-full rounded-full', b.count >= tasteStats.max ? 'bg-primary' : 'bg-primary/45')}
-                      style={{ width: `${Math.round((b.count / tasteStats.max) * 100)}%` }}
-                    />
-                  </span>
-                  <span className="flex-none text-[11px] font-semibold text-ink-4 tabular-nums">{b.count}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-          {tasteStats.traits.length > 0 && (
-            <div className="mt-3 flex gap-1.5 flex-wrap">
-              {tasteStats.traits.map((t) => (
-                <span key={t} className="rounded-full bg-paper border border-on-surface/[0.08] px-3 py-[7px] text-[11px] font-semibold text-ink-2">
-                  {t}
-                </span>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
+      {/* Taste profile — the palate behind the ratings; tap for the reading. */}
+      {tasteCard && <div className="mx-5 mt-5">{tasteCard}</div>}
 
       {canView ? (
         <>
@@ -1504,7 +1467,7 @@ export const UserProfile: React.FC = () => {
                 >
                   <SlidersHorizontal size={17} />
                   {activeFilterCount > 0 && (
-                    <span className="absolute -top-0.5 -right-0.5 min-w-[16px] h-4 px-1 rounded-full bg-primary text-white text-[9.5px] font-bold grid place-items-center tabular-nums">{activeFilterCount}</span>
+                    <span className="absolute -top-0.5 -right-0.5 min-w-[16px] h-4 px-1 rounded-full bg-primary text-on-primary text-[9.5px] font-bold grid place-items-center tabular-nums">{activeFilterCount}</span>
                   )}
                 </button>
               </div>

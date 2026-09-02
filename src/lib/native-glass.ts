@@ -356,11 +356,14 @@ export function useNativeGlassNav(options: {
    *  material handles the chrome itself; this only lifts the accent. */
   darkPage?: boolean;
   /** First letter of the signed-in user's name; the Profile tab draws it as
-   *  the app's initial-circle avatar, Instagram-style. */
+   *  the app's initial-circle avatar when there is no photo. */
   avatarInitial?: string;
+  /** The user's profile photo — the Profile tab shows it, so the tab is
+   *  whatever they set on their profile. */
+  avatarUrl?: string;
   onSelect: (path: string) => void;
 }): { active: boolean } {
-  const { enabled, hidden, activePath, pathname, darkPage = false, avatarInitial, onSelect } = options;
+  const { enabled, hidden, activePath, pathname, darkPage = false, avatarInitial, avatarUrl, onSelect } = options;
   const [supported, setSupported] = useState(false);
   const [overlayOpen, setOverlayOpen] = useState(false);
   // Latest handler without re-subscribing the native listener on every
@@ -418,8 +421,8 @@ export function useNativeGlassNav(options: {
   // initial-circle without a blink.
   useEffect(() => {
     if (!active) return;
-    const items = avatarInitial
-      ? GLASS_TAB_ITEMS.map((item) => (item.path === '/profile' ? { ...item, avatarInitial } : item))
+    const items = avatarInitial || avatarUrl
+      ? GLASS_TAB_ITEMS.map((item) => (item.path === '/profile' ? { ...item, avatarInitial, avatarUrl } : item))
       : GLASS_TAB_ITEMS;
     void LiquidGlass.configureTabBar({
       // Vestigial: `UITabBar` draws the iOS 26 floating platter and insets and
@@ -431,7 +434,7 @@ export function useNativeGlassNav(options: {
     // `activePath` is the *initial* selection only; the effect below moves it
     // afterwards without reinstalling the bar.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [active, avatarInitial]);
+  }, [active, avatarInitial, avatarUrl]);
 
   // `pathname` is deliberately a dep even though only `activePath` is sent:
   // a screen recording caught the bar resting with Search lit on the Home

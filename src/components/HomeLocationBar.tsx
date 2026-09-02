@@ -612,7 +612,7 @@ export const HomeLocationBar: React.FC<Props> = ({ location, onChange, onUseCurr
                     {location?.label && (
                       <>
                         <div className="flex items-center gap-3.5 px-4 py-3.5">
-                          <span className="grid h-10 w-10 flex-none place-items-center rounded-[14px] bg-primary text-white shadow-[0_1px_2px_rgba(0,0,0,0.12)]">
+                          <span className="grid h-10 w-10 flex-none place-items-center rounded-[14px] bg-primary text-on-primary shadow-[0_1px_2px_rgba(0,0,0,0.12)]">
                             <MapPin size={17} />
                           </span>
                           <span className="min-w-0 flex-1">
@@ -651,7 +651,7 @@ export const HomeLocationBar: React.FC<Props> = ({ location, onChange, onUseCurr
                             <button
                               type="button"
                               onClick={() => { void openAppSettings(); }}
-                              className="mt-2.5 inline-flex h-9 items-center rounded-full bg-primary px-4 text-[12.5px] font-bold text-white active:opacity-80 transition-opacity"
+                              className="mt-2.5 inline-flex h-9 items-center rounded-full bg-primary px-4 text-[12.5px] font-bold text-on-primary active:opacity-80 transition-opacity"
                             >
                               Open Settings
                             </button>

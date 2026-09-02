@@ -162,7 +162,7 @@ export const GroupPicker: React.FC<{
                       </span>
                       <span className={cn(
                         'grid h-6 w-6 flex-none place-items-center rounded-full border transition-colors',
-                        on ? 'border-primary bg-primary text-white' : 'border-on-surface/25 text-transparent',
+                        on ? 'border-primary bg-primary text-on-primary' : 'border-on-surface/25 text-transparent',
                       )}>
                         <Check size={13} strokeWidth={3} />
                       </span>
@@ -187,7 +187,7 @@ export const GroupPicker: React.FC<{
           <button
             type="button"
             onClick={() => { onDone(Object.values(picked)); onClose(); }}
-            className="ml-auto h-11 flex-1 rounded-full bg-primary px-5 text-[14px] font-bold text-white active:opacity-90 disabled:opacity-50"
+            className="ml-auto h-11 flex-1 rounded-full bg-primary px-5 text-[14px] font-bold text-on-primary active:opacity-90 disabled:opacity-50"
             disabled={count === 0}
           >
             {count === 0 ? 'Pick someone' : `Find a place for ${count + 1}`}

@@ -625,7 +625,7 @@ export const ImportRecipesModal: React.FC<Props> = ({ open, onClose }) => {
                     {!isRunning && !isDone && (
                       <button
                         onClick={runImport}
-                        className="flex-1 flex items-center justify-center gap-2 bg-primary text-white py-3 rounded-xl font-medium hover:bg-primary/90 transition-colors"
+                        className="flex-1 flex items-center justify-center gap-2 bg-primary text-on-primary py-3 rounded-xl font-medium hover:bg-primary/90 transition-colors"
                       >
                         <Upload className="w-4 h-4" /> Import {parsed.length}{' '}
                         {parsed.length === 1 ? 'recipe' : 'recipes'}
@@ -651,7 +651,7 @@ export const ImportRecipesModal: React.FC<Props> = ({ open, onClose }) => {
                           // user lands directly on the populated list.
                           if (stats.created > 0) closeHomeMealModal();
                         }}
-                        className="flex-1 flex items-center justify-center gap-2 bg-primary text-white py-3 rounded-xl font-medium"
+                        className="flex-1 flex items-center justify-center gap-2 bg-primary text-on-primary py-3 rounded-xl font-medium"
                       >
                         Done
                       </button>

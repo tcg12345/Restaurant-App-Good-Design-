@@ -92,7 +92,7 @@ export const AddToListModal: React.FC = () => {
                     </div>
                     <div className={cn(
                       "w-6 h-6 rounded-full flex items-center justify-center border-2 transition-all",
-                      isIn ? "bg-primary border-primary text-white" : "border-on-surface/15"
+                      isIn ? "bg-primary border-primary text-on-primary" : "border-on-surface/15"
                     )}>
                       {isIn && <Check size={14} strokeWidth={3} />}
                     </div>
@@ -138,7 +138,7 @@ export const AddToListModal: React.FC = () => {
                     <button
                       onClick={handleCreate}
                       disabled={!newName.trim()}
-                      className="flex-1 py-2 rounded-xl bg-primary text-white text-sm font-semibold disabled:opacity-40"
+                      className="flex-1 py-2 rounded-xl bg-primary text-on-primary text-sm font-semibold disabled:opacity-40"
                     >
                       Create
                     </button>

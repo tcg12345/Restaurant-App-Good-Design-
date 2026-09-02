@@ -205,7 +205,7 @@ export const RecipeCommentThread: FC<Props> = ({ targetId, className, variant = 
               className={cn(
                 'grid h-9 w-9 place-items-center rounded-full flex-shrink-0 transition-all duration-200',
                 replyText.trim() && !posting
-                  ? 'bg-primary text-white scale-100'
+                  ? 'bg-primary text-on-primary scale-100'
                   : 'bg-on-surface/[0.07] text-on-surface/30 scale-90 cursor-not-allowed',
               )}
               aria-label="Post reply"
@@ -249,7 +249,7 @@ export const RecipeCommentThread: FC<Props> = ({ targetId, className, variant = 
           className={cn(
             'w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 transition-all duration-200',
             text.trim() && !posting
-              ? 'bg-primary text-white scale-100'
+              ? 'bg-primary text-on-primary scale-100'
               : 'bg-on-surface/[0.07] text-on-surface/30 scale-90 cursor-not-allowed',
           )}
           aria-label="Post comment"

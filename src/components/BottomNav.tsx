@@ -69,9 +69,10 @@ export const BottomNav: React.FC = () => {
     // Reels is black regardless of theme. The material re-chromes itself from
     // what's behind it, so this only lifts the brand accent.
     darkPage: location.pathname.startsWith('/reels'),
-    // The Profile tab draws the signed-in user as the app's initial-circle
-    // avatar (there are no avatar photos in the data model to show).
+    // The Profile tab is the user's own photo when they have one, else the
+    // initial-circle avatar.
     avatarInitial,
+    avatarUrl: profile?.avatar_url || undefined,
     onSelect: (path) => navigate(path),
   });
 
@@ -98,12 +99,21 @@ export const BottomNav: React.FC = () => {
           to={item.path}
           end={item.path === '/'}
           aria-label={item.label}
-          className={({ isActive }) => cn(
-            'flex items-center justify-center w-11 h-11 transition-colors duration-200',
-            isActive ? 'text-primary' : 'text-on-surface/50',
-          )}
+          // One ink for every tab, selected or not: the weight of the stroke
+          // (and the photo, on Profile) is the only thing that changes.
+          className="flex items-center justify-center w-11 h-11 text-on-surface"
         >
-          {({ isActive }) => <item.icon size={24} strokeWidth={isActive ? 2.5 : 2} />}
+          {({ isActive }) => (
+            item.path === '/profile' && profile?.avatar_url ? (
+              <img
+                src={profile.avatar_url}
+                alt=""
+                className={cn('h-6 w-6 rounded-full object-cover', isActive ? 'ring-2 ring-on-surface' : 'ring-1 ring-on-surface/30')}
+              />
+            ) : (
+              <item.icon size={24} strokeWidth={isActive ? 2.5 : 2} />
+            )
+          )}
         </NavLink>
       ))}
     </motion.nav>

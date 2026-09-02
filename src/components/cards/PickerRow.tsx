@@ -63,7 +63,7 @@ export const PickerRow: React.FC<PickerRowProps> = ({
     <div className="flex flex-shrink-0 items-center gap-2">
       {right}
       {selected && !right && (
-        <span className="flex h-6 w-6 items-center justify-center rounded-full bg-primary text-white">
+        <span className="flex h-6 w-6 items-center justify-center rounded-full bg-primary text-on-primary">
           <Check size={14} strokeWidth={3} />
         </span>
       )}

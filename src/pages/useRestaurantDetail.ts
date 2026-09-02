@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import { primaryHex } from '../lib/brand';
 import { useParams, useNavigate } from 'react-router-dom';
 import mapboxgl from 'mapbox-gl';
 import { attachMapErrorFallback } from '../lib/map-error';
@@ -146,7 +147,7 @@ export function useRestaurantDetail() {
     attachMapErrorFallback(map, el);
     mapRef.current = map;
 
-    new mapboxgl.Marker({ color: '#9f3012' }).setLngLat([p.lng, p.lat]).addTo(map);
+    new mapboxgl.Marker({ color: primaryHex() }).setLngLat([p.lng, p.lat]).addTo(map);
 
     // ResizeObserver keeps the canvas in sync with the container size
     // (fixes "blank map" when the section is below the fold at init time).

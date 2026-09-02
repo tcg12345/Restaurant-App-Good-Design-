@@ -12,6 +12,9 @@ describe('logicalParent', () => {
     expect(logicalParent('/pantry', '?list=abc')).toBe('/pantry');
     expect(logicalParent('/pantry', '?list=__wishlist__')).toBe('/pantry');
     expect(logicalParent('/pantry', '?view=home-cooking')).toBe('/pantry');
+    expect(logicalParent('/profile/taste', '')).toBe('/profile');
+    expect(logicalParent('/profile/top/cuisine:Japanese', '')).toBe('/profile');
+    expect(logicalParent('/user/jamie/taste', '')).toBe('/user/jamie');
     expect(logicalParent('/pantry', '?view=trips')).toBe('/pantry');
   });
 

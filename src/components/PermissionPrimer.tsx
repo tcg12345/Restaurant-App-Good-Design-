@@ -40,7 +40,7 @@ export const PermissionPrimer: React.FC<{
     <button
       type="button"
       onClick={onAction}
-      className="mt-4 px-5 py-2 rounded-full bg-primary text-white text-[13px] font-semibold active:opacity-80 transition-opacity"
+      className="mt-4 px-5 py-2 rounded-full bg-primary text-on-primary text-[13px] font-semibold active:opacity-80 transition-opacity"
     >
       {cta}
     </button>

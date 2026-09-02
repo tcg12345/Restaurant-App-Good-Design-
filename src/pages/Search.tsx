@@ -391,7 +391,7 @@ const PhoneSearch: React.FC = () => {
                   'inline-flex items-center justify-center h-[44px] px-4 rounded-full text-[13.5px] font-bold transition-colors',
                   seg.active ? 'opacity-0'
                     : tab === key
-                      ? 'bg-primary text-white shadow-[0_2px_8px_-2px_rgba(159,48,18,0.55)]'
+                      ? 'bg-primary text-on-primary shadow-[0_2px_8px_-2px_rgba(159,48,18,0.55)]'
                       : 'text-on-surface/50 active:text-on-surface/80',
                 )}
               >
@@ -664,7 +664,7 @@ const ClassicSearch: React.FC = () => {
                 'inline-flex items-center justify-center h-[44px] px-4 rounded-full text-[13.5px] font-bold transition-colors',
                 seg.active ? 'opacity-0'
                   : tab === key
-                    ? 'bg-primary text-white shadow-[0_2px_8px_-2px_rgba(159,48,18,0.55)]'
+                    ? 'bg-primary text-on-primary shadow-[0_2px_8px_-2px_rgba(159,48,18,0.55)]'
                     : 'text-on-surface/50 active:text-on-surface/80',
               )}
             >

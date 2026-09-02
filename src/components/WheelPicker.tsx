@@ -146,7 +146,7 @@ const PickerSheet: React.FC<{
           <button
             type="button"
             onClick={onConfirm}
-            className="w-full mt-6 py-3.5 bg-primary text-white rounded-full font-semibold text-sm shadow-[0_6px_20px_-6px_color-mix(in_srgb,var(--color-primary)_55%,transparent)] active:scale-[0.98] transition-transform"
+            className="w-full mt-6 py-3.5 bg-primary text-on-primary rounded-full font-semibold text-sm shadow-[0_6px_20px_-6px_color-mix(in_srgb,var(--color-primary)_55%,transparent)] active:scale-[0.98] transition-transform"
           >
             {confirmLabel}
           </button>

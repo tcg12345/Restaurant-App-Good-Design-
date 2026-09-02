@@ -1177,6 +1177,7 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
           const r = e.source.rating!;
           const color = avatarColor(e.authorId);
           const name = getName(e.authorId);
+          const username = getUsername(e.authorId);
           const place = e.restaurant?.name || r.restaurant_name;
           return (
             <li key={e.key} className="snap-start min-w-0">
@@ -1193,7 +1194,12 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
                 liked={userLiked.has(r.id)}
                 likeCount={likes[r.id] || 0}
                 commentCount={commentCounts[r.id] || 0}
-                onOpen={() => navigate(`/restaurant/${r.restaurant_id}`)}
+                /* The card is a REVIEW, so it opens the review — the person,
+                   the score and their notes — not the restaurant's own page,
+                   which says nothing about the rating that put it here. The
+                   restaurant is one tap further, from there. */
+                onOpen={() => navigate(`/review/${r.id}`)}
+                onOpenAuthor={username ? () => navigate(`/user/${encodeURIComponent(username)}`) : undefined}
                 onLike={() => handleLike(r.id)}
                 /* The inline comment thread lives inside the FULL feed card;
                    these compact strip cards have no room for one, so tapping

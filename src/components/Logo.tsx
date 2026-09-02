@@ -15,14 +15,16 @@ import React from 'react';
  * generated from the same path data (scripts/generate-icons.mjs).
  */
 
-/** The mark itself, on a 100×100 viewBox. `on` is the colour it draws in. */
+/** The mark itself, on a 100×100 viewBox. `on` is the colour it draws in.
+ *  The vessel sits a shade under the rim — the one bit of depth the mark
+ *  has, and what keeps it from reading as a flat glyph on the app icon. */
 const bowl = (on: string) => (
   <>
     {/* The rim, floating just clear of the vessel — the gap is what keeps
         the two shapes reading as a bowl seen slightly from above rather
         than as one solid blob at small sizes. */}
     <rect x="23" y="40" width="54" height="6.5" rx="3.25" fill={on} />
-    <path d="M28 52 Q50 75 72 52 Z" fill={on} />
+    <path d="M28 52 Q50 75 72 52 Z" fill={on} opacity="0.82" />
   </>
 );
 
@@ -31,8 +33,10 @@ export const Logo: React.FC<{
   size?: number;
   /**
    * `badge` — the mark reversed out of a filled disc, which is the app's
-   *   primary lockup (it inherits `currentColor`, so put `text-primary` on
-   *   it and dark mode follows the token).
+   *   primary lockup. The disc is `currentColor` and the bowl is
+   *   `--color-on-primary`, so with `text-primary` on it the badge is
+   *   graphite-and-white by day and bone-and-graphite by night: the two
+   *   tones of the brand, swapping with the theme.
    * `tint` — the same disc at 12% and the bowl in full colour, for resting
    *   states where a saturated disc would shout: the profile-load error,
    *   empty states.
@@ -63,7 +67,7 @@ export const Logo: React.FC<{
     {variant === 'badge' && (
       <>
         <circle cx="50" cy="50" r="48" fill="currentColor" />
-        {bowl('#fff')}
+        {bowl('var(--color-on-primary, #fff)')}
       </>
     )}
     {variant === 'tint' && (
@@ -82,9 +86,9 @@ export const Logo: React.FC<{
  * the bundle is guaranteed) and the generated icon/asset files. Colours are
  * literal here on purpose — no tokens, no webfont, nothing to load.
  */
-export const LOGO_SVG_MARKUP = (fill = '#9f3012'): string =>
+export const LOGO_SVG_MARKUP = (fill = '#1c1a19', on = '#ffffff'): string =>
   `<svg width="100%" height="100%" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">`
   + `<circle cx="50" cy="50" r="48" fill="${fill}"/>`
-  + `<rect x="23" y="40" width="54" height="6.5" rx="3.25" fill="#fff"/>`
-  + `<path d="M28 52 Q50 75 72 52 Z" fill="#fff"/>`
+  + `<rect x="23" y="40" width="54" height="6.5" rx="3.25" fill="${on}"/>`
+  + `<path d="M28 52 Q50 75 72 52 Z" fill="${on}" opacity="0.82"/>`
   + `</svg>`;

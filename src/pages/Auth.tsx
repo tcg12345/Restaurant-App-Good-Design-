@@ -103,7 +103,7 @@ const PrimaryButton: React.FC<{
     disabled={disabled || loading}
     whileHover={!disabled && !loading ? { scale: 1.01 } : undefined}
     whileTap={!disabled && !loading ? { scale: 0.99 } : undefined}
-    className="group w-full flex items-center justify-center gap-3 bg-primary text-white px-6 py-3 rounded-2xl text-base font-semibold shadow-lg shadow-primary/25 hover:shadow-xl hover:shadow-primary/30 transition-shadow cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
+    className="group w-full flex items-center justify-center gap-3 bg-primary text-on-primary px-6 py-3 rounded-2xl text-base font-semibold shadow-lg shadow-primary/25 hover:shadow-xl hover:shadow-primary/30 transition-shadow cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
   >
     {loading ? (
       <Loader2 size={18} className="animate-spin" />
@@ -531,6 +531,28 @@ const EyeToggle: React.FC<{ shown: boolean; onClick: () => void }> = ({ shown, o
   >
     {shown ? <EyeOff size={18} /> : <Eye size={18} />}
   </button>
+);
+
+/** The consent line. It used to live only on the choose-password screen,
+ *  which an Apple or Google signup never sees — so a third of new accounts
+ *  agreed to nothing. Now on the identifier screen too, under every way in. */
+const TermsNote: React.FC<{ style?: React.CSSProperties }> = ({ style }) => (
+  <p style={{ textAlign: 'center', fontSize: 12.5, color: 'var(--ob-label)', margin: '16px 0 0', lineHeight: 1.5, ...style }}>
+    By continuing you agree to our{' '}
+    <button
+      type="button"
+      onClick={() => { void openExternalUrl(TERMS_URL); }}
+      className="cursor-pointer bg-transparent border-none p-0"
+      style={{ color: OB.TERRA, fontWeight: 600, fontSize: 'inherit', lineHeight: 'inherit' }}
+    >Terms</button>
+    {' '}&amp;{' '}
+    <button
+      type="button"
+      onClick={() => { void openExternalUrl(PRIVACY_URL); }}
+      className="cursor-pointer bg-transparent border-none p-0"
+      style={{ color: OB.TERRA, fontWeight: 600, fontSize: 'inherit', lineHeight: 'inherit' }}
+    >Privacy</button>.
+  </p>
 );
 
 const FadeStep: React.FC<{ stepKey: string; children: React.ReactNode }> = ({ stepKey, children }) => (
@@ -1076,6 +1098,7 @@ export const Auth: React.FC<{
               onClick={() => handleOAuth('google')} disabled={oauthPending !== null}
             >Continue with Google</OB.SocialButton>
           </div>
+          <TermsNote style={{ marginTop: 18 }} />
           {lockedToSignIn && (
             <div style={{ marginTop: 6 }}>
               <OB.GhostButton onClick={unlockSignup}>New to GoodEats? Create an account</OB.GhostButton>
@@ -1167,9 +1190,12 @@ export const Auth: React.FC<{
               inputMode="numeric"
               autoFocus
               className="w-full rounded-2xl border text-center focus:outline-none"
+              // The kit's own field fill. This read `--ob-field-bg`, a token
+              // that never existed, so it fell back to a 70% white box — on
+              // the dark theme, near-white ink on a near-white field.
               style={{
                 padding: '14px 16px', fontSize: 24, fontWeight: 700, letterSpacing: '0.4em',
-                background: 'var(--ob-field-bg, rgba(255,255,255,0.7))', borderColor: OB.BORDER, color: OB.INK,
+                background: 'var(--ob-field)', borderColor: 'transparent', color: OB.INK,
               }}
             />
             {error && <OB.ErrorRow>{error}</OB.ErrorRow>}
@@ -1235,22 +1261,7 @@ export const Auth: React.FC<{
           {error && <OB.ErrorRow>{error}</OB.ErrorRow>}
           <div style={{ marginTop: 'auto', paddingTop: 28 }}>
             <OB.PrimaryButton type="submit" loading={submitting} disabled={!pwOk} trailing="check">Continue</OB.PrimaryButton>
-            <p style={{ textAlign: 'center', fontSize: 12.5, color: 'var(--ob-label)', margin: '16px 0 0', lineHeight: 1.5 }}>
-              By continuing you agree to our{' '}
-              <button
-                type="button"
-                onClick={() => { void openExternalUrl(TERMS_URL); }}
-                className="cursor-pointer bg-transparent border-none p-0"
-                style={{ color: OB.TERRA, fontWeight: 600, fontSize: 'inherit', lineHeight: 'inherit' }}
-              >Terms</button>
-              {' '}&amp;{' '}
-              <button
-                type="button"
-                onClick={() => { void openExternalUrl(PRIVACY_URL); }}
-                className="cursor-pointer bg-transparent border-none p-0"
-                style={{ color: OB.TERRA, fontWeight: 600, fontSize: 'inherit', lineHeight: 'inherit' }}
-              >Privacy</button>.
-            </p>
+            <TermsNote />
           </div>
         </form>
       </FadeStep>

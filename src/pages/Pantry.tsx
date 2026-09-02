@@ -340,7 +340,7 @@ const CreateListSheet: React.FC<{
                     <button
                       onClick={() => setSelectedCategory(null)}
                       className={cn("px-3 py-1.5 rounded-full text-[11px] font-semibold whitespace-nowrap flex-shrink-0 transition-colors",
-                        selectedCategory === null ? "bg-primary text-white" : "bg-transparent text-on-surface/50 hover:text-on-surface/70")}
+                        selectedCategory === null ? "bg-primary text-on-primary" : "bg-transparent text-on-surface/50 hover:text-on-surface/70")}
                     >
                       All
                     </button>
@@ -349,7 +349,7 @@ const CreateListSheet: React.FC<{
                         key={cat}
                         onClick={() => setSelectedCategory(cat)}
                         className={cn("px-3 py-1.5 rounded-full text-[11px] font-semibold whitespace-nowrap flex-shrink-0 transition-colors",
-                          selectedCategory === cat ? "bg-primary text-white" : "bg-transparent text-on-surface/50 hover:text-on-surface/70")}
+                          selectedCategory === cat ? "bg-primary text-on-primary" : "bg-transparent text-on-surface/50 hover:text-on-surface/70")}
                       >
                         {cat}
                       </button>
@@ -428,7 +428,7 @@ const CreateListSheet: React.FC<{
                 )}
                 <div className="flex gap-3 pt-1">
                   <button onClick={() => { setMode('browse'); setCustomName(''); setCustomEmoji('📋'); }} className="flex-1 py-3 rounded-xl border border-on-surface/10 text-sm font-medium text-on-surface/50">Back</button>
-                  <button onClick={handleCreateCustom} disabled={!customName.trim()} className="flex-1 py-3 rounded-xl bg-primary text-white text-sm font-semibold disabled:opacity-40 transition-colors">Create List</button>
+                  <button onClick={handleCreateCustom} disabled={!customName.trim()} className="flex-1 py-3 rounded-xl bg-primary text-on-primary text-sm font-semibold disabled:opacity-40 transition-colors">Create List</button>
                 </div>
               </div>
             )}
@@ -523,7 +523,7 @@ const AddFromRatedSheet: React.FC<{
                       <p className="text-[11px] text-on-surface/40 truncate">{r.cuisine}{r.price ? ` · ${r.price}` : ''}</p>
                     </div>
                     {r.score > 0 && <OwnScoreBadge rating={r.score} unlocked={scoresUnlocked} size="xs" />}
-                    <div className={cn("w-6 h-6 rounded-full flex items-center justify-center border-2 transition-all flex-shrink-0", isInList ? "bg-primary border-primary text-white" : "border-on-surface/15")}>
+                    <div className={cn("w-6 h-6 rounded-full flex items-center justify-center border-2 transition-all flex-shrink-0", isInList ? "bg-primary border-primary text-on-primary" : "border-on-surface/15")}>
                       {isInList && <Check size={14} strokeWidth={3} />}
                     </div>
                   </button>
@@ -549,7 +549,7 @@ const AddFromRatedSheet: React.FC<{
                       <p className="text-[11px] text-on-surface/40 mb-4">How would you like to add this?</p>
                       <div className="space-y-2">
                         <button onClick={handleUseSame}
-                          className="w-full py-3 bg-primary text-white rounded-xl text-sm font-semibold active:scale-[0.98] transition-transform">
+                          className="w-full py-3 bg-primary text-on-primary rounded-xl text-sm font-semibold active:scale-[0.98] transition-transform">
                           Use Existing Rating ({promptRating.score.toFixed(1)})
                         </button>
                         <button onClick={handleCreateNew}
@@ -2287,7 +2287,7 @@ const ListDetailView: React.FC<{
           <p className="text-sm font-medium text-on-surface/40">This list is empty</p>
           <p className="text-xs text-on-surface/30 mt-1">Add restaurants from your rated collection</p>
           <button onClick={() => setAddSheetOpen(true)}
-            className="mt-4 inline-flex items-center gap-2 px-4 py-2.5 bg-primary text-white text-xs font-semibold rounded-xl hover:bg-primary/90 transition-colors">
+            className="mt-4 inline-flex items-center gap-2 px-4 py-2.5 bg-primary text-on-primary text-xs font-semibold rounded-xl hover:bg-primary/90 transition-colors">
             <Plus size={14} />Add Restaurants
           </button>
         </div>
@@ -2948,7 +2948,7 @@ const AddToNightSheet: React.FC<{
                 </div>
 
                 <div className="px-5 py-4 flex-shrink-0 border-t border-on-surface/6 bg-surface">
-                  <button onClick={onClose} className="w-full py-3 bg-primary text-white rounded-2xl font-semibold text-sm active:scale-[0.98] transition-transform">Done</button>
+                  <button onClick={onClose} className="w-full py-3 bg-primary text-on-primary rounded-2xl font-semibold text-sm active:scale-[0.98] transition-transform">Done</button>
                 </div>
               </motion.div>
             )}
@@ -2969,7 +2969,7 @@ const AddToNightSheet: React.FC<{
                     <input type="text" value={placeSearch} onChange={(e) => setPlaceSearch(e.target.value)} placeholder="Restaurant name..."
                       autoFocus className="w-full pl-10 pr-20 py-2.5 bg-on-surface/5 rounded-xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20" />
                     <button type="submit" disabled={placeLoading || !placeSearch.trim()}
-                      className="absolute right-2 top-1/2 -translate-y-1/2 px-3 py-1.5 bg-primary text-white rounded-lg text-xs font-bold disabled:opacity-30 transition-opacity">
+                      className="absolute right-2 top-1/2 -translate-y-1/2 px-3 py-1.5 bg-primary text-on-primary rounded-lg text-xs font-bold disabled:opacity-30 transition-opacity">
                       {placeLoading ? '...' : 'Search'}
                     </button>
                   </div>
@@ -3332,7 +3332,7 @@ const TripsTab: React.FC<{
           <button
             type="button"
             onClick={() => setCreateOpen(true)}
-            className="ml-auto inline-flex items-center gap-1.5 h-9 px-3.5 rounded-full text-[13px] font-bold bg-primary text-white hover:opacity-90 transition-opacity flex-shrink-0"
+            className="ml-auto inline-flex items-center gap-1.5 h-9 px-3.5 rounded-full text-[13px] font-bold bg-primary text-on-primary hover:opacity-90 transition-opacity flex-shrink-0"
           >
             <Plus size={15} strokeWidth={2.5} />
             <span>New Trip</span>
@@ -3346,7 +3346,7 @@ const TripsTab: React.FC<{
           <h3 className="font-serif font-bold text-lg text-on-surface/60 mb-1">Plan Your First Trip</h3>
           <p className="text-sm text-on-surface/30 mb-6 max-w-[240px] mx-auto">Organize restaurants by night and share your itinerary</p>
           <button onClick={() => setCreateOpen(true)}
-            className="px-6 py-3 bg-primary text-white rounded-2xl text-sm font-bold shadow-lg shadow-primary/20 hover:opacity-90 transition-opacity">
+            className="px-6 py-3 bg-primary text-on-primary rounded-2xl text-sm font-bold shadow-lg shadow-primary/20 hover:opacity-90 transition-opacity">
             <Plus size={16} className="inline mr-2 -mt-0.5" />Create Trip
           </button>
         </div>
@@ -3374,7 +3374,7 @@ const TripsTab: React.FC<{
                     <span className={cn("px-2 py-0.5 rounded-full text-[9px] font-bold uppercase backdrop-blur-sm",
                       trip.status === 'active' ? "bg-green-500/80 text-white" :
                       trip.status === 'completed' ? "bg-white/30 text-white" :
-                      "bg-primary/80 text-white"
+                      "bg-primary/80 text-on-primary"
                     )}>{trip.status}</span>
                   </div>
                 </div>
@@ -3395,7 +3395,7 @@ const TripsTab: React.FC<{
           doesn't sit half behind the bar on notched iPhones. */}
       {sortedTrips.length > 0 && (
         <button onClick={() => setCreateOpen(true)} aria-label="Create trip"
-          className="fixed bottom-[calc(6rem+env(safe-area-inset-bottom))] right-6 z-40 w-14 h-14 bg-primary text-white rounded-full shadow-xl shadow-primary/30 flex items-center justify-center hover:scale-105 transition-transform">
+          className="fixed bottom-[calc(6rem+env(safe-area-inset-bottom))] right-6 z-40 w-14 h-14 bg-primary text-on-primary rounded-full shadow-xl shadow-primary/30 flex items-center justify-center hover:scale-105 transition-transform">
           <Plane size={22} />
         </button>
       )}
@@ -3680,7 +3680,7 @@ const CreateTripSheet: React.FC<{
 
             {/* Save */}
             <button onClick={handleSave} disabled={!name.trim() || !startDate || !endDate}
-              className="w-full py-3.5 bg-primary text-white rounded-2xl font-bold text-sm shadow-lg shadow-primary/20 hover:opacity-90 transition-opacity disabled:opacity-40">
+              className="w-full py-3.5 bg-primary text-on-primary rounded-2xl font-bold text-sm shadow-lg shadow-primary/20 hover:opacity-90 transition-opacity disabled:opacity-40">
               {trip ? 'Save Changes' : 'Create Trip'}
             </button>
           </div>
@@ -5445,7 +5445,7 @@ const FilterPill: React.FC<{
       <span
         className={cn(
           'inline-flex items-center justify-center min-w-[16px] h-4 px-1 rounded-full',
-          active ? 'bg-cream text-on-surface' : 'bg-primary text-white',
+          active ? 'bg-cream text-on-surface' : 'bg-primary text-on-primary',
         )}
         style={{ fontSize: '9.5px', fontWeight: 700 }}
       >
@@ -6902,7 +6902,7 @@ export const Pantry: React.FC = () => {
                     <button
                       type="button"
                       onClick={() => setRecsOpen(true)}
-                      className="inline-flex items-center gap-1.5 h-8 px-3.5 rounded-full bg-primary text-white text-[12px] font-bold hover:bg-primary/90 transition-colors flex-shrink-0"
+                      className="inline-flex items-center gap-1.5 h-8 px-3.5 rounded-full bg-primary text-on-primary text-[12px] font-bold hover:bg-primary/90 transition-colors flex-shrink-0"
                     >
                       <span>Recommendations</span>
                     </button>
@@ -6948,7 +6948,7 @@ export const Pantry: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => navigate('/search', { state: { openTakeover: true } })}
-                  className="mt-5 inline-flex items-center gap-1.5 h-10 px-5 rounded-full bg-primary text-white text-[13.5px] font-bold active:opacity-80 transition-opacity"
+                  className="mt-5 inline-flex items-center gap-1.5 h-10 px-5 rounded-full bg-primary text-on-primary text-[13.5px] font-bold active:opacity-80 transition-opacity"
                 >
                   <Search size={14} strokeWidth={2.4} />
                   Find a restaurant

@@ -32,6 +32,7 @@ import { safeImage, localISODate } from '../lib/utils';
 import { applySettleChanges, settleScores, type SettleChange } from '../lib/settleScores';
 import { applyRatingSave } from '../lib/applyRatingSave';
 import { SCORE_UNLOCK_THRESHOLD, scoresUnlocked, rankAmong } from '../lib/scoreUnlock';
+import { invalidateTasteBenchmarks } from '../lib/supabase-taste';
 
 /* ── Types ── */
 
@@ -611,6 +612,18 @@ function loadLocalVisitHistory(): Record<string, LocalVisitRecord[]> {
     const raw = localStorage.getItem(STORAGE_KEY_VISIT_HISTORY);
     return raw ? JSON.parse(raw) : {};
   } catch { return {}; }
+}
+
+/** restaurantId → number of EARLIER visits logged beyond the current
+ *  rating (each "new visit" pushes the previous rating in here). The
+ *  taste profile reads it for loyalty — how often you go back. */
+export function readLocalVisitHistoryCounts(): Record<string, number> {
+  const all = loadLocalVisitHistory();
+  const out: Record<string, number> = {};
+  for (const [id, list] of Object.entries(all)) {
+    if (Array.isArray(list) && list.length > 0) out[id] = list.length;
+  }
+  return out;
 }
 
 // ── Community-publish delta tracking ──
@@ -2541,6 +2554,9 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     }, activityAt);
     // Record what was published so the boot-time delta sync skips this row.
     stampPublishedSig(row);
+    // A published row is what can move the taste rank — let the taste
+    // surfaces refetch their benchmarks instead of serving the 2-min cache.
+    void done.then(() => invalidateTasteBenchmarks()).catch(() => {});
     return done;
   }, []);
 

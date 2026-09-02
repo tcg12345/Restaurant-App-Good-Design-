@@ -1090,7 +1090,7 @@ export const RestaurantDetailMobile: React.FC = () => {
                     <button
                       type="button"
                       onClick={() => openAddRestaurantModal(wishMeta)}
-                      className="mt-2.5 inline-flex items-center gap-2 rounded-full bg-primary text-white px-5 py-3.5 active:opacity-85 transition-opacity"
+                      className="mt-2.5 inline-flex items-center gap-2 rounded-full bg-primary text-on-primary px-5 py-3.5 active:opacity-85 transition-opacity"
                       style={{ fontSize: '13.5px', fontWeight: 700 }}
                     >
                       <Star size={14} />

@@ -28,6 +28,7 @@ import { OwnScoreBadge, ScoreBadge } from '../components/ScoreBadge';
 import { scoreColor, scoreTint, scoreSolid } from '../lib/score';
 import { useBottomSheet } from '../lib/useBottomSheet';
 import { TopListCard } from '../components/TopListCard';
+import { TasteProfileCard } from '../components/profile/TasteProfileCard';
 import {
   MIN_LIST_SIZE, cityFromAddress, countCategories, autoTopListConfigs, visibleTopListConfigs,
   buildTopList, loadCustomization, saveCustomization, topListKey,
@@ -196,7 +197,7 @@ const EmptyTabState: React.FC<{
     <button
       type="button"
       onClick={onCta}
-      className="mt-2.5 inline-flex items-center gap-2 rounded-full bg-primary text-white px-[18px] py-[13px] active:opacity-85 transition-opacity"
+      className="mt-2.5 inline-flex items-center gap-2 rounded-full bg-primary text-on-primary px-[18px] py-[13px] active:opacity-85 transition-opacity"
       style={{ fontSize: '13px', fontWeight: 700 }}
     >
       <Plus size={14} strokeWidth={2.1} />
@@ -494,7 +495,7 @@ const EditTopListsSheet: React.FC<{
                         onClick={() => onAdd(config)}
                         className="group flex items-center gap-2.5 rounded-2xl border border-on-surface/[0.07] px-3 py-2.5 text-left transition-colors hover:border-primary/35 hover:bg-primary/[0.04]"
                       >
-                        <span className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full bg-on-surface/[0.05] text-on-surface/40 transition-colors group-hover:bg-primary group-hover:text-white">
+                        <span className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full bg-on-surface/[0.05] text-on-surface/40 transition-colors group-hover:bg-primary group-hover:text-on-primary">
                           <Plus size={13} strokeWidth={2.8} />
                         </span>
                         <span className="min-w-0 flex-1 truncate text-[13.5px] font-semibold text-on-surface/80 transition-colors group-hover:text-primary">
@@ -830,16 +831,6 @@ export const Profile: React.FC = () => {
     setCustomization((prev) => ({ ...prev, order: nextOrder }));
   };
 
-  /** Headline numbers for the RATED tab: the best-scoring place overall
-   *  and the average across everything. */
-  const topOverall = useMemo(
-    () => [...ratings].sort((a, b) => numericScore(b.score) - numericScore(a.score))[0] ?? null,
-    [ratings],
-  );
-  const overallAvg = useMemo(
-    () => (ratings.length === 0 ? 0 : ratings.reduce((sum, r) => sum + numericScore(r.score), 0) / ratings.length),
-    [ratings],
-  );
 
   const recentRatings = useMemo(() => {
     return [...ratings].sort((a, b) => ratingRecencyIso(b).localeCompare(ratingRecencyIso(a))).slice(0, 6);
@@ -1008,7 +999,7 @@ export const Profile: React.FC = () => {
             onClick={() => setCreateMenuOpen((o) => !o)}
             aria-haspopup="menu"
             aria-expanded={createMenuOpen}
-            className="flex-1 inline-flex items-center justify-center gap-[7px] rounded-full bg-primary text-white px-4 py-[13px] active:opacity-85 transition-opacity"
+            className="flex-1 inline-flex items-center justify-center gap-[7px] rounded-full bg-primary text-on-primary px-4 py-[13px] active:opacity-85 transition-opacity"
             style={{ fontSize: '13px', fontWeight: 700 }}
           >
             <Plus size={15} strokeWidth={2.1} className={cn('transition-transform duration-200', createMenuOpen && 'rotate-45')} />
@@ -1182,65 +1173,25 @@ export const Profile: React.FC = () => {
 
         {activeTab === 'rated' && (
           ratings.length === 0 ? (
-            <EmptyTabState
-              icon={<Star size={22} />}
-              title="No ratings yet"
-              subtitle="Rate restaurants to build your top lists and see your cuisine breakdown."
-              ctaLabel="Rate a place"
-              onCta={() => navigate('/')}
-            />
+            <>
+              {/* The ladder exists before the first rating — Newcomer,
+                  zero points — so a new account sees what it is
+                  climbing toward, not just an empty tab. */}
+              <TasteProfileCard className="mt-5" />
+              <EmptyTabState
+                icon={<Star size={22} />}
+                title="No ratings yet"
+                subtitle="Rate restaurants to build your top lists and see your cuisine breakdown."
+                ctaLabel="Rate a place"
+                onCta={() => navigate('/')}
+              />
+            </>
           ) : (
             <div className="pb-10">
-              {/* ── Your #1 ──
-                  The headline of the whole tab. It used to sit inside a
-                  bordered panel with a thumbnail and the three totals
-                  welded underneath — one object doing three jobs. The
-                  place is named at size, the score sits beside it, and
-                  the totals get their own row below. */}
-              {topOverall ? (
-                <section className="pt-6">
-                  <p className="flex items-center gap-[7px] text-primary" style={{ fontSize: '11px', fontWeight: 700, letterSpacing: '0.14em', textTransform: 'uppercase' }}>
-                    <Star size={13} className="fill-current" />
-                    Your #1
-                  </p>
-                  <Link to={`/restaurant/${topOverall.restaurantId}`} className="mt-3.5 flex items-center gap-3.5 active:opacity-70 transition-opacity">
-                    <span className="flex-1 min-w-0">
-                      <span className="block truncate text-on-surface" style={{ fontSize: '20px', fontWeight: 700, lineHeight: 1.1, letterSpacing: '-0.03em' }}>
-                        {topOverall.name}
-                      </span>
-                      <span className="mt-1.5 block truncate text-on-surface/45" style={{ fontSize: '13px', lineHeight: 1.3 }}>
-                        {[topOverall.cuisine, topOverall.price, cityFromAddress(topOverall.address || '')].filter(Boolean).join(' · ')}
-                      </span>
-                    </span>
-                    {scoresUnlocked ? (
-                      <span className={cn('flex-none rounded-full px-3.5 py-2.5 tabular-nums', scoreTint(numericScore(topOverall.score)))} style={{ fontSize: '16px', fontWeight: 700, letterSpacing: '-0.02em' }}>
-                        {numericScore(topOverall.score).toFixed(twoDecimalScores ? 2 : 1)}
-                      </span>
-                    ) : (
-                      <span className="flex-none w-11 h-11 rounded-full bg-on-surface/[0.06] text-on-surface/40 flex items-center justify-center" aria-label="Score hidden until you rate more places">
-                        <Lock size={17} />
-                      </span>
-                    )}
-                  </Link>
-                </section>
-              ) : (
-                <p className="pt-6 text-on-surface/45" style={{ fontSize: '13.5px' }}>Rate a few places and your #1 shows up here.</p>
-              )}
-
-              {/* Three tinted cells — the totals, given room rather than
-                  squeezed into a hairline-divided strip. */}
-              <div className="mt-6 grid grid-cols-3 gap-2.5">
-                {([
-                  [String(ratings.length), `Place${ratings.length === 1 ? '' : 's'} rated`, false],
-                  [scoresUnlocked && overallAvg > 0 ? overallAvg.toFixed(twoDecimalScores ? 2 : 1) : '—', 'Your average', true],
-                  [String(visibleLists.length), `Top list${visibleLists.length === 1 ? '' : 's'}`, false],
-                ] as const).map(([value, label, accent]) => (
-                  <div key={label} className={cn('flex flex-col items-start gap-2 rounded-[20px] px-3.5 py-4', accent ? 'bg-primary/10' : 'bg-on-surface/[0.05]')}>
-                    <span className={cn('tabular-nums', accent ? 'text-primary' : 'text-on-surface')} style={{ fontSize: '24px', fontWeight: 700, lineHeight: 1, letterSpacing: '-0.04em' }}>{value}</span>
-                    <span className="text-on-surface/45" style={{ fontSize: '11px', fontWeight: 600, lineHeight: 1.1 }}>{label}</span>
-                  </div>
-                ))}
-              </div>
+              {/* ── Taste profile ──
+                  The tier, the points, and the palate behind the
+                  ratings. The full reading is a tap away. */}
+              <TasteProfileCard className="mt-5" />
 
               {/* ── Top lists ── */}
               {visibleLists.length > 0 && (

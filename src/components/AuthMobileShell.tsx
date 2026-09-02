@@ -119,7 +119,7 @@ export const MobilePrimaryButton: React.FC<{
     onClick={onClick}
     disabled={disabled || loading}
     whileTap={!disabled && !loading ? { scale: 0.985 } : undefined}
-    className="relative w-full overflow-hidden rounded-2xl bg-primary text-white px-6 py-4 text-base font-semibold shadow-xl shadow-primary/40 disabled:opacity-60 disabled:cursor-not-allowed"
+    className="relative w-full overflow-hidden rounded-2xl bg-primary text-on-primary px-6 py-4 text-base font-semibold shadow-xl shadow-primary/40 disabled:opacity-60 disabled:cursor-not-allowed"
   >
     <motion.span
       aria-hidden

@@ -654,7 +654,7 @@ export const LocationMap: React.FC = () => {
               <SlidersHorizontal size={13} className="opacity-80" />
               Filters
               {activeFilterCount > 0 && (
-                <span className="inline-grid place-items-center min-w-[17px] h-[17px] px-1 rounded-full bg-primary text-white text-[10.5px] font-bold">
+                <span className="inline-grid place-items-center min-w-[17px] h-[17px] px-1 rounded-full bg-primary text-on-primary text-[10.5px] font-bold">
                   {activeFilterCount}
                 </span>
               )}
@@ -1021,7 +1021,7 @@ export const LocationMap: React.FC = () => {
             <SlidersHorizontal size={15} className="opacity-75" />
             Filters
             {activeFilterCount > 0 && (
-              <span className="inline-grid place-items-center min-w-[17px] h-[17px] px-1 rounded-full bg-primary text-white text-[10.5px] font-bold">
+              <span className="inline-grid place-items-center min-w-[17px] h-[17px] px-1 rounded-full bg-primary text-on-primary text-[10.5px] font-bold">
                 {activeFilterCount}
               </span>
             )}

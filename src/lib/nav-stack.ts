@@ -56,6 +56,9 @@ const isPantrySubView = (search: string): boolean => {
 export function logicalParent(pathname: string, search: string): string | null {
   if (pathname === '/pantry' && isPantrySubView(search)) return '/pantry';
   if (pathname === '/pantry/recommended') return '/pantry';
+  if (pathname === '/profile/taste' || /^\/profile\/top\/[^/]+$/.test(pathname)) return '/profile';
+  const userTaste = /^(\/user\/[^/]+)\/taste$/.exec(pathname);
+  if (userTaste) return userTaste[1];
   if (/^\/activity\/(saved|likes|comments|drafts)$/.test(pathname)) return '/activity';
   const circle = /^(\/restaurant\/[^/]+)\/circle$/.exec(pathname);
   if (circle) return circle[1];
@@ -95,4 +98,26 @@ export function backTargetFor(idx: number, pathname: string, search: string): Ba
   }
   if (idx > 0) return { kind: 'pop' };
   return null;
+}
+
+/**
+ * Routes presented as a SHEET — they rise from the bottom over the page
+ * that opened them rather than pushing it aside. Today that is the stat
+ * lists hanging off a profile (`/user/:username/followers|following|rated`),
+ * which are a modal view of that profile rather than a destination.
+ */
+export function isSheetPath(pathname: string): boolean {
+  return /^\/user\/[^/]+\/(followers|following|rated)$/.test(pathname);
+}
+
+/**
+ * The identity of the SHEET a path belongs to, ignoring which tab inside it
+ * is open. The route stack keys its pages by this, so switching between a
+ * profile's followers / following / rated tabs updates the sheet in place
+ * instead of tearing it down and playing the whole rise-from-the-bottom
+ * animation again for what is really one sheet with three tabs.
+ */
+export function stackKeyFor(pathname: string): string {
+  const sheet = /^(\/user\/[^/]+)\/(followers|following|rated)$/.exec(pathname);
+  return sheet ? `${sheet[1]}#sheet` : pathname;
 }

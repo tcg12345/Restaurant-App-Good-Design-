@@ -431,7 +431,7 @@ export const RecipeModal: React.FC = () => {
                       <p className="text-xs text-red-500 font-medium text-center">{actionError}</p>
                     )}
                     <button onClick={handleSave} disabled={!title.trim() || saving || deleting}
-                      className="w-full py-3.5 bg-primary text-white rounded-2xl font-semibold text-sm active:scale-[0.98] transition-transform disabled:opacity-40">
+                      className="w-full py-3.5 bg-primary text-on-primary rounded-2xl font-semibold text-sm active:scale-[0.98] transition-transform disabled:opacity-40">
                       {saving ? 'Saving…' : existing ? 'Update Recipe' : 'Save Recipe'}
                     </button>
                     {existing && !confirmDelete && (
@@ -577,7 +577,7 @@ export const RecipeModal: React.FC = () => {
                             sel ? "bg-primary/3" : "hover:bg-on-surface/3"
                           )}>
                           <div className={cn("w-5 h-5 rounded flex items-center justify-center border-2 transition-all flex-shrink-0",
-                            sel ? "bg-primary border-primary text-white" : "border-on-surface/20"
+                            sel ? "bg-primary border-primary text-on-primary" : "border-on-surface/20"
                           )}>{sel && <Check size={12} strokeWidth={3} />}</div>
                           <span className={cn("text-sm font-medium", sel ? "text-primary" : "text-on-surface/70")}>{tag}</span>
                         </button>
@@ -715,6 +715,6 @@ const SubPage: React.FC<{
 
 const BottomBtn: React.FC<{ label: string; onClick: () => void; disabled?: boolean }> = ({ label, onClick, disabled }) => (
   <div className="px-5 pt-4 pb-safe-4 flex-shrink-0 border-t border-on-surface/6 bg-surface">
-    <button onClick={onClick} disabled={disabled} className="w-full py-3 bg-primary text-white rounded-2xl font-semibold text-sm active:scale-[0.98] transition-transform disabled:opacity-40">{label}</button>
+    <button onClick={onClick} disabled={disabled} className="w-full py-3 bg-primary text-on-primary rounded-2xl font-semibold text-sm active:scale-[0.98] transition-transform disabled:opacity-40">{label}</button>
   </div>
 );

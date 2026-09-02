@@ -298,7 +298,7 @@ export const ContactsSync: React.FC<ContactsSyncProps> = ({
           <button
             type="button"
             onClick={() => { void runSync(); }}
-            className="w-full rounded-full bg-primary px-5 py-2.5 text-[13.5px] font-bold text-white active:opacity-80 transition-opacity"
+            className="w-full rounded-full bg-primary px-5 py-2.5 text-[13.5px] font-bold text-on-primary active:opacity-80 transition-opacity"
           >
             Check my contacts
           </button>

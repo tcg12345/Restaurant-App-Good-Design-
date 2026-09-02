@@ -121,7 +121,7 @@ export const PantryPhoneHeader: React.FC<Props> = ({
               type="button"
               onClick={addAction.onClick}
               aria-label={addAction.label}
-              className="hit-44 flex-none w-10 h-10 rounded-full bg-primary text-white flex items-center justify-center shadow-[0_2px_10px_-2px_rgba(159,48,18,0.5)] active:scale-95 transition-transform"
+              className="hit-44 flex-none w-10 h-10 rounded-full bg-primary text-on-primary flex items-center justify-center shadow-[0_2px_10px_-2px_rgba(159,48,18,0.5)] active:scale-95 transition-transform"
             >
               <Plus size={17} strokeWidth={2.4} />
             </button>
@@ -157,7 +157,7 @@ export const PantryPhoneHeader: React.FC<Props> = ({
                     'inline-flex items-center gap-1.5 h-[38px] pl-2.5 pr-3 rounded-full text-[13px] font-bold transition-colors',
                     seg.active ? 'opacity-0'
                       : active
-                        ? 'bg-primary text-white shadow-[0_2px_8px_-2px_rgba(159,48,18,0.55)]'
+                        ? 'bg-primary text-on-primary shadow-[0_2px_8px_-2px_rgba(159,48,18,0.55)]'
                         : darkMode
                           ? 'text-white/55 active:text-white/80'
                           : 'text-on-surface/50 active:text-on-surface/80',
@@ -189,7 +189,7 @@ export const PantryPhoneHeader: React.FC<Props> = ({
               type="button"
               onClick={addAction.onClick}
               aria-label={addAction.label}
-              className="hit-44 flex-none w-10 h-10 rounded-full bg-primary text-white flex items-center justify-center shadow-[0_2px_10px_-2px_rgba(159,48,18,0.5)] active:scale-95 transition-transform"
+              className="hit-44 flex-none w-10 h-10 rounded-full bg-primary text-on-primary flex items-center justify-center shadow-[0_2px_10px_-2px_rgba(159,48,18,0.5)] active:scale-95 transition-transform"
             >
               <Plus size={17} strokeWidth={2.4} />
             </button>

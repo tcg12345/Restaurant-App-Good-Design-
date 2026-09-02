@@ -1,3 +1,4 @@
+import { cityFromAddress as parseCity } from './city';
 /**
  * Top lists — the user's ratings sliced into ranked leaderboards.
  *
@@ -68,18 +69,14 @@ const PREVIEW_SIZE = 3;
 const storageKey = (userId: string | null | undefined) => `goodeats-top-lists-${userId || 'anon'}`;
 
 /**
- * The city out of a formatted address.
- *
- * Heuristic: in "<street>, <city>, <state-or-country>" the city is the
- * middle part; in "<street>, <city>" it's the last. Picking accordingly is
- * what stops "CT" or "USA" being rendered as a place label.
+ * The city out of a formatted address — lib/city's parser, which knows
+ * about countries, state+zip segments and glued-on postcodes. This used
+ * to be its own "middle part of three" heuristic, which turned Google's
+ * four-part "150 Main St, Westport, CT 06880, USA" into a city called
+ * "CT 06880" on the profile's top lists and city filters.
  */
 export function cityFromAddress(address: string): string | null {
-  if (!address) return null;
-  const parts = address.split(',').map((p) => p.trim()).filter(Boolean);
-  if (parts.length === 0) return null;
-  if (parts.length >= 3) return parts[parts.length - 2];
-  return parts[parts.length - 1];
+  return parseCity(address) || null;
 }
 
 /** Stable identity for a list — also the :listKey in its URL. */
