@@ -614,7 +614,7 @@ export const ProfileSetup: React.FC = () => {
           >
             {stepKey === 'name' && (
               <div className="flex flex-1 flex-col">
-                <OB.StepHeader title="What should we call you?" subtitle="The name friends see on your profile." />
+                <OB.StepHeader title={<>What should we <em>call you?</em></>} subtitle="The name friends see on your profile." />
                 <OB.Reveal i={2} style={{ marginTop: 30 }}>
                   <OB.Field value={displayName} onChange={setDisplayName} placeholder="Jane Doe" icon={<User size={17} strokeWidth={1.6} />} autoFocus autoComplete="name" autoCapitalize="words" onSubmit={next} />
                 </OB.Reveal>
@@ -623,7 +623,7 @@ export const ProfileSetup: React.FC = () => {
 
             {stepKey === 'handle' && (
               <div className="flex flex-1 flex-col">
-                <OB.StepHeader title="Set up your profile" subtitle="Your @handle is how friends find you." />
+                <OB.StepHeader title={<>Set up <em>your profile</em></>} subtitle="Your @handle is how friends find you." />
                 {/* The photo, on the one step every signup sees (the name
                     step is skipped when Apple or Google already gave us
                     one). A social app whose new accounts are all
@@ -732,7 +732,7 @@ export const ProfileSetup: React.FC = () => {
 
             {stepKey === 'city' && (
               <div className="flex flex-1 flex-col">
-                <OB.StepHeader title="Where do you eat?" subtitle="We'll surface tables near you — change it anytime." />
+                <OB.StepHeader title={<>Where do you <em>eat?</em></>} subtitle="We'll surface tables near you — change it anytime." />
                 <OB.Reveal i={2} style={{ marginTop: 30 }}>
                   <CityAutocomplete value={homeCity} onChange={(v) => { setHomeCity(v); setHomeGeo(null); }} onPick={setHomeGeo} onSubmit={next} />
                 </OB.Reveal>
@@ -741,7 +741,7 @@ export const ProfileSetup: React.FC = () => {
 
             {stepKey === 'cuisines' && (
               <div className="flex flex-1 flex-col">
-                <OB.StepHeader title="Which cuisines do you love?" subtitle="Pick as many as you like." />
+                <OB.StepHeader title={<>Which cuisines do you <em>love?</em></>} subtitle="Pick as many as you like." />
                 <div style={{ marginTop: 22 }}>
                   <CuisineGrid
                     options={TASTE_CUISINES}
@@ -754,7 +754,7 @@ export const ProfileSetup: React.FC = () => {
 
             {stepKey === 'prices' && (
               <div className="flex flex-1 flex-col">
-                <OB.StepHeader title="What do you usually spend?" subtitle="Your picks lean toward this, without ever excluding a great table." />
+                <OB.StepHeader title={<>What do you usually <em>spend?</em></>} subtitle="Your picks lean toward this, without ever excluding a great table." />
                 <OB.Reveal i={2} style={{ marginTop: 26 }}>
                   <PriceStep
                     primary={pricePrimary}
@@ -767,7 +767,7 @@ export const ProfileSetup: React.FC = () => {
 
             {stepKey === 'dietary' && (
               <div className="flex flex-1 flex-col">
-                <OB.StepHeader title="Anything to keep in mind?" subtitle="Optional — we'll favor places with good options for you." />
+                <OB.StepHeader title={<>Anything to <em>keep in mind?</em></>} subtitle="Optional — we'll favor places with good options for you." />
                 <div style={{ marginTop: 24 }}>
                   <DietaryStep
                     selected={dietarySel}
@@ -791,7 +791,7 @@ export const ProfileSetup: React.FC = () => {
 
             {stepKey === 'follow' && (
               <div className="flex flex-1 flex-col">
-                <OB.StepHeader title="Find some friends" subtitle="Their ratings and posts fill your feed from day one." />
+                <OB.StepHeader title={<>Find some <em>friends</em></>} subtitle="Their ratings and posts fill your feed from day one." />
                 {canUseNativeContacts() && (
                   <OB.Reveal i={1} style={{ marginTop: 20 }}>
                     {/* `auto`: arriving at this step IS the ask — the iOS
@@ -834,7 +834,7 @@ export const ProfileSetup: React.FC = () => {
 
             {stepKey === 'rate' && (
               <div className="flex flex-1 flex-col">
-                <OB.StepHeader title="Rate places you've been" subtitle="A few real ratings beat any quiz." />
+                <OB.StepHeader title={<>Rate places <em>you've been</em></>} subtitle="A few real ratings beat any quiz." />
                 <OB.Reveal i={2} style={{ marginTop: 20 }}>
                   <RatePlacesStep cuisines={cuisineSel} prices={priceSel} homeGeo={homeGeo ?? preauth.city} />
                 </OB.Reveal>

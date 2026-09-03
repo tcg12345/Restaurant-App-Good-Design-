@@ -1038,12 +1038,12 @@ export const Auth: React.FC<{
           <div style={{ marginTop: 24 }}>
             {saveTasteFraming ? (
               <>
-                <OB.Title>Save your<br />taste profile</OB.Title>
+                <OB.Title>Save your<br /><em>taste profile</em></OB.Title>
                 <OB.Subtitle>Create a free account to keep your picks and start rating — or sign in.</OB.Subtitle>
               </>
             ) : (
               <>
-                <OB.Title>{lockedToSignIn ? 'Welcome back' : 'Welcome to GoodEats'}</OB.Title>
+                <OB.Title>{lockedToSignIn ? <>Welcome <em>back</em></> : <>Welcome to <em>GoodEats</em></>}</OB.Title>
                 <OB.Subtitle>
                   {lockedToSignIn
                     ? (channel === 'phone'
@@ -1121,7 +1121,7 @@ export const Auth: React.FC<{
         <FadeStep stepKey="password">
           <OB.RoundBackButton onClick={handleBack} />
           <div style={{ marginTop: 24 }}><OB.BrandMark size={50} /></div>
-          <OB.Title size={30}>Welcome back</OB.Title>
+          <OB.Title size={30}>Welcome <em>back</em></OB.Title>
           <div style={{ marginTop: 14 }}><OB.EmailPill email={identifierDisplay} onClick={handleBack} /></div>
           <form onSubmit={(e) => { e.preventDefault(); handleSignIn(); }} style={{ marginTop: 24 }}>
             <OB.FieldLabel>Password</OB.FieldLabel>
@@ -1175,7 +1175,7 @@ export const Auth: React.FC<{
         <FadeStep stepKey="verify">
           <OB.RoundBackButton onClick={handleBack} />
           <div style={{ marginTop: 24 }}><OB.BrandMark size={50} /></div>
-          <OB.Title size={30}>{channel === 'phone' ? 'Check your texts' : 'Check your email'}</OB.Title>
+          <OB.Title size={30}>Check your <em>{channel === 'phone' ? 'texts' : 'email'}</em></OB.Title>
           <OB.Subtitle>{verifyNotice || 'We sent a 6-digit code to'}</OB.Subtitle>
           <div style={{ marginTop: 10 }}><OB.EmailPill email={identifierDisplay} onClick={handleBack} /></div>
           <form onSubmit={(e) => { e.preventDefault(); handleVerify(); }} style={{ marginTop: 24 }} className="flex flex-1 flex-col">
@@ -1225,7 +1225,7 @@ export const Auth: React.FC<{
     <OB.OnboardingScreen>
       <FadeStep stepKey="setpassword">
         <div style={{ marginTop: 26 }}><OB.BrandMark size={50} /></div>
-        <OB.Title size={30}>{passwordSetupMode === 'recovery' ? 'Set a new password' : 'Choose a password'}</OB.Title>
+        <OB.Title size={30}>{passwordSetupMode === 'recovery' ? <>Set a new <em>password</em></> : <>Choose a <em>password</em></>}</OB.Title>
         {passwordSetupMode === 'recovery' ? (
           <div style={{ marginTop: 14, fontSize: 14, color: 'var(--ob-secondary)' }}>
             Pick a new password for <span style={{ color: OB.TERRA, fontWeight: 600 }}>{identifierDisplay}</span>.
