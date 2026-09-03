@@ -352,7 +352,7 @@ export const PreAuthFlow: React.FC<{
               <OB.BrandMark size={56} />
             </motion.div>
             <div style={{ marginTop: 26 }}>
-              <OB.Reveal blur i={1}><OB.Title size={36}>Find your next favorite table</OB.Title></OB.Reveal>
+              <OB.Reveal blur i={1}><OB.Title size={36}>Find your next <em>favorite table</em></OB.Title></OB.Reveal>
               <OB.Reveal i={2}><OB.Subtitle>A couple quick questions, and we'll show you where to eat.</OB.Subtitle></OB.Reveal>
             </div>
             {/* Pushed to the bottom of the scroll region so it sits just
@@ -383,7 +383,7 @@ export const PreAuthFlow: React.FC<{
 
         {step === 'prices' && (
           <div className="flex flex-1 flex-col">
-            <OB.StepHeader title="What do you usually spend?" subtitle="Your picks lean toward this, without ever excluding a great table." />
+            <OB.StepHeader title={<>What do you usually <em>spend?</em></>} subtitle="Your picks lean toward this, without ever excluding a great table." />
             <OB.Reveal i={2} style={{ marginTop: 26 }}>
               <PriceStep
                 primary={pricePrimary}
@@ -396,7 +396,7 @@ export const PreAuthFlow: React.FC<{
 
         {step === 'city' && (
           <div className="flex flex-1 flex-col">
-            <OB.StepHeader title="Where do you eat?" subtitle="Your first picks come from here." />
+            <OB.StepHeader title={<>Where do you <em>eat?</em></>} subtitle="Your first picks come from here." />
             <OB.Reveal i={2} style={{ marginTop: 26 }}>
               <CityAutocomplete
                 value={cityText}

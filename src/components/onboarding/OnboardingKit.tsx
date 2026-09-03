@@ -1,10 +1,11 @@
 /**
- * Onboarding design kit — the account-creation flow's primitives, in the
- * MAIN APP'S design language: clean surface background (white / graphite),
- * the app serif for headings, terracotta `--color-primary` accents, iOS-
- * style recessed input fills, capsule buttons, and liquid-glass chrome for
- * the navigation layer (the back button rides `.glass-control`, exactly
- * like the app's own top bars).
+ * Onboarding design kit — the account-creation flow's primitives, in
+ * GLASS NIGHT: always dark whatever the theme, a slate glow at the top,
+ * glass fields and cards, a thin display serif for the headline, a pale
+ * slate capsule for the one action, and liquid-glass chrome for the
+ * navigation layer (the back button rides `.glass-control`, exactly like
+ * the app's own top bars). The same look as the Pro flow that ends it
+ * (components/pro/night.ts).
  *
  * Motion: springs from one shared config, and a `Reveal` primitive that
  * staggers step content in (soft blur on the title, rise + fade on the
@@ -19,6 +20,8 @@ import { motion } from 'motion/react';
 import { ArrowLeft, ArrowRight, Check, Loader2 } from 'lucide-react';
 import { GlassButton } from '../../lib/glass-buttons';
 import { Logo } from '../Logo';
+import { NIGHT_BG } from '../pro/night';
+import { useNightStatusBar } from '../../lib/night-status-bar';
 
 /* Colour values resolve through CSS custom properties (index.css) so the
    whole flow flips with the app's `.dark` class. */
@@ -32,6 +35,8 @@ export const TERRA_HOVER = 'var(--ob-terra-hover)';
 /** What reads on top of TERRA — white by day, graphite by night. */
 export const ON_TERRA = 'var(--ob-on-terra)';
 export const SERIF = 'var(--font-serif)'; // the app's heading serif
+/** The headline face: Fraunces, light, with an italic turn available. */
+export const DISPLAY = 'var(--font-display)';
 
 /* ── Motion vocabulary ──────────────────────────────────────────────────── */
 /** The app's arrival curve (--ease-out-strong), as a motion-usable tuple. */
@@ -78,13 +83,19 @@ export const OnboardingScreen: React.FC<{
   /** Kept for API compatibility. The page is a clean app surface now — the
    *  old cream radial glows are gone; depth comes from glass and motion. */
   glow?: 'corner' | 'center';
-}> = ({ children, header, footer }) => (
+}> = ({ children, header, footer }) => {
+  // A dark page in a light app: the status bar text goes light while any
+  // onboarding screen is up.
+  useNightStatusBar();
+  return (
   // Without a footer, height stays a MINIMUM: a screen whose content grows
   // past one viewport (an error row, a reset notice, a keyboard-shrunk
   // viewport) still needs the page itself to scroll, same as always. Only
   // a footer screen gets the hard-height + internal-scroll treatment below
   // — that trade only makes sense once something is actually pinned to it.
-  <div className="relative w-full overflow-hidden" style={footer ? { height: '100dvh', background: CREAM, color: INK } : { minHeight: '100dvh', background: CREAM, color: INK }}>
+  // `ob-night` hands every theme utility inside the dark tokens, so the
+  // step components read right on this ground in both app themes.
+  <div className="ob-night relative w-full overflow-hidden" style={footer ? { height: '100dvh', background: NIGHT_BG, color: INK } : { minHeight: '100dvh', background: NIGHT_BG, color: INK }}>
     <div
       className="relative z-10 mx-auto flex w-full max-w-[430px] flex-col"
       style={{
@@ -119,7 +130,8 @@ export const OnboardingScreen: React.FC<{
       )}
     </div>
   </div>
-);
+  );
+};
 
 /* ── Brand mark (the GoodEats bowl, in a terracotta disc) ───────────────── */
 /** Onboarding's mark: the shared Logo, tinted with the flow's own terracotta
@@ -140,11 +152,13 @@ export const BrandMark: React.FC<{ size?: number }> = ({ size = 54 }) => (
 /** Quiet micro-label. The flows no longer lead with these — headlines carry
  *  the screen — but form sections and older pages still use it. */
 export const Eyebrow: React.FC<{ children: React.ReactNode }> = ({ children }) => (
-  <div style={{ fontSize: 11, letterSpacing: '1.4px', fontWeight: 700, color: LABEL_GREY, textTransform: 'uppercase' }}>{children}</div>
+  <div style={{ display: 'inline-flex', alignItems: 'center', padding: '5px 10px', borderRadius: 999, fontFamily: 'var(--font-mono)', fontSize: 9.5, letterSpacing: '0.18em', fontWeight: 600, color: TERRA, background: 'var(--ob-badge-bg)', textTransform: 'uppercase' }}>{children}</div>
 );
 
+/** The headline: the display serif, light, tight. Pass an <em> for the
+ *  italic turn ("Where do you <em>eat?</em>"). */
 export const Title: React.FC<{ children: React.ReactNode; size?: number }> = ({ children, size = 34 }) => (
-  <h1 style={{ fontFamily: SERIF, fontWeight: 700, fontSize: size, lineHeight: 1.06, letterSpacing: '-0.02em', margin: 0 }}>{children}</h1>
+  <h1 style={{ fontFamily: DISPLAY, fontWeight: 300, fontSize: size, lineHeight: 1.04, letterSpacing: '-0.02em', margin: 0, textWrap: 'balance' } as React.CSSProperties}>{children}</h1>
 );
 
 export const Subtitle: React.FC<{ children: React.ReactNode }> = ({ children }) => (
@@ -214,7 +228,9 @@ export const Field: React.FC<{
       style={{
         height: 54,
         background: 'var(--ob-field)',
-        border: 'none',
+        border: '1px solid var(--ob-border)',
+        backdropFilter: 'blur(18px)',
+        WebkitBackdropFilter: 'blur(18px)',
         paddingLeft: icon ? 46 : prefix ? 42 : 16,
         paddingRight: rightSlot ? 50 : 16,
         fontSize: 16.5,
@@ -293,7 +309,7 @@ export const SecondaryButton: React.FC<{
     whileTap={!disabled && !loading ? { scale: 0.98 } : undefined}
     transition={SPRING}
     className="w-full flex items-center justify-center gap-2.5 rounded-full font-semibold cursor-pointer transition-colors disabled:opacity-60"
-    style={{ height: 52, background: 'var(--ob-card)', border: `1.5px solid ${BORDER}`, color: INK, fontSize: 15.5, boxShadow: '0 1px 2px rgba(0,0,0,0.04)' }}
+    style={{ height: 52, background: 'var(--ob-card)', border: `1.5px solid ${BORDER}`, color: INK, fontSize: 15.5, backdropFilter: 'blur(18px)', WebkitBackdropFilter: 'blur(18px)' }}
     onMouseEnter={(e) => { if (!disabled && !loading) (e.currentTarget as HTMLButtonElement).style.background = 'var(--ob-card-hover)'; }}
     onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'var(--ob-card)'; }}
   >
@@ -314,7 +330,7 @@ export const SocialButton: React.FC<{ children: React.ReactNode; icon: React.Rea
     whileTap={!disabled ? { scale: 0.98 } : undefined}
     transition={SPRING}
     className="w-full flex items-center justify-center gap-2.5 rounded-full font-semibold cursor-pointer transition-colors disabled:opacity-60"
-    style={{ height: 52, background: 'var(--ob-card)', border: `1px solid ${BORDER}`, color: INK, fontSize: 15.5, boxShadow: '0 1px 2px rgba(0,0,0,0.04)' }}
+    style={{ height: 52, background: 'var(--ob-card)', border: `1px solid ${BORDER}`, color: INK, fontSize: 15.5, backdropFilter: 'blur(18px)', WebkitBackdropFilter: 'blur(18px)' }}
     onMouseEnter={(e) => { if (!disabled) (e.currentTarget as HTMLButtonElement).style.background = 'var(--ob-card-hover)'; }}
     onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'var(--ob-card)'; }}
   >
@@ -353,25 +369,30 @@ export const RoundBackButton: React.FC<{ onClick?: () => void }> = ({ onClick })
   </GlassButton>
 );
 
-/** Glass back capsule + a slim spring-animated progress track. The bar is
- *  the progress statement — no "Step N of total" caption. */
+/** Glass back capsule + the dots: one per step, the current one drawn
+ *  long — the same progress mark the Pro intro uses at the end of the
+ *  flow. No "Step N of total" caption; the dots are the statement. */
 export const ProgressHeader: React.FC<{ step: number; total: number; onBack?: () => void }> = ({ step, total, onBack }) => (
   <div className="flex items-center" style={{ gap: 16 }}>
     <RoundBackButton onClick={onBack} />
     <div
-      className="flex-1 overflow-hidden"
+      className="flex items-center"
       role="progressbar"
-      aria-valuemin={0}
+      aria-valuemin={1}
       aria-valuemax={total}
       aria-valuenow={step}
-      style={{ height: 4, borderRadius: 2, background: 'var(--ob-divider)' }}
+      style={{ gap: 5 }}
     >
-      <motion.div
-        style={{ height: '100%', borderRadius: 2, background: TERRA }}
-        initial={false}
-        animate={{ width: `${Math.min(100, (step / total) * 100)}%` }}
-        transition={SPRING_SOFT}
-      />
+      {Array.from({ length: total }, (_, i) => (
+        <motion.i
+          key={i}
+          className="block rounded-full"
+          style={{ height: 6, background: INK }}
+          initial={false}
+          animate={{ width: i + 1 === step ? 18 : 6, opacity: i + 1 === step ? 1 : i + 1 < step ? 0.55 : 0.28 }}
+          transition={SPRING_SOFT}
+        />
+      ))}
     </div>
   </div>
 );
@@ -415,6 +436,8 @@ export const RadioCard: React.FC<{
       padding: '16px 17px',
       border: `1.5px solid ${selected ? TERRA : BORDER}`,
       background: selected ? 'var(--ob-radio-selected)' : 'var(--ob-card)',
+      backdropFilter: 'blur(18px)',
+      WebkitBackdropFilter: 'blur(18px)',
     }}
   >
     <span
