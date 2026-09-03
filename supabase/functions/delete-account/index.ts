@@ -12,7 +12,7 @@
 //      (user_app_data, user_profiles, user_friends, community_ratings,
 //      community_photos, recipes, recipe_reviews, posts/*, reels/*,
 //      guides, saved_guides, activity_*, expert_recommendations,
-//      visit_history, hotel_dining, home_rec_cache) declares
+//      visit_history, home_rec_cache) declares
 //      REFERENCES auth.users(id) ON DELETE CASCADE, so the row delete
 //      wipes them all transactionally.
 //

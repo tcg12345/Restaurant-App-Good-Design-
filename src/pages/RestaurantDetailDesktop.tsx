@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Star, MapPin, Phone, Globe, ChevronLeft, ChevronRight, ChevronDown, Loader2, Navigation, ExternalLink, X, Users, UserCircle, Bookmark, Edit3, Send, Building2, TrendingUp, TrendingDown, Car, Footprints, Trash2, RotateCw, Award, Plus, Image as ImageIcon, Pencil } from 'lucide-react';
+import { Star, MapPin, Phone, Globe, ChevronLeft, ChevronRight, ChevronDown, Loader2, Navigation, ExternalLink, X, Users, UserCircle, Bookmark, Edit3, Send, Building2, Car, Footprints, RotateCw, Award, Plus, Image as ImageIcon, Pencil } from 'lucide-react';
 import { ShareIcon } from '../components/icons/ShareIcon';
 import { cn, parseVisitDate } from '../lib/utils';
 import { tierOfScore } from '../lib/settleScores';
@@ -9,6 +9,7 @@ import { VerifiedBadge } from '../components/VerifiedBadge';
 import { CuisinePicker, EditableCuisineLine } from '../components/CuisinePicker';
 import { SquarePen } from 'lucide-react';
 import { ScoreBadge } from '../components/ScoreBadge';
+import { ScoreHistory } from '../components/ScoreHistory';
 import { useRestaurantDetail, formatReviewCount, getTodayHours, getCuisineLabel } from './useRestaurantDetail';
 import { MichelinBadge } from '../components/MichelinBadge';
 import { useLists } from '../contexts/ListsContext';
@@ -103,12 +104,10 @@ export const RestaurantDetailDesktop: React.FC = () => {
   const [myRatingOpen, setMyRatingOpen] = useState(true);
 
   const { toggleWishlist, isWishlisted, getRating, openAddRestaurantModal, deleteVisit, scoresUnlocked } = useLists();
-  const [confirmDeleteVisitId, setConfirmDeleteVisitId] = useState<string | null>(null);
   const friendsDetailScrollRef = useRef<HTMLDivElement | null>(null);
   const { dragProps: friendsDetailDragProps, sheetRef: friendsDetailSheetRef } = useBottomSheet(showFriendsDetail, () => setShowFriendsDetail(false), friendsDetailScrollRef);
   const { user } = useAuth();
   const myRatingRef = useRef<HTMLElement | null>(null);
-  const [expandedVisit, setExpandedVisit] = useState<string | null>(null);
   const [friendNames, setFriendNames] = useState<Record<string, string>>({});
   const [chatShareTarget, setChatShareTarget] = useState<SharedRestaurant | null>(null);
   const [expandedExpertId, setExpandedExpertId] = useState<string | null>(null);
@@ -673,80 +672,18 @@ export const RestaurantDetailDesktop: React.FC = () => {
             <YourReviewComments restaurantId={place.id} variant="desktop" />
           )}
 
-          {/* ── Visit history ── */}
-          {myRating && visitHistory.length > 0 && place && (() => {
-            const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-            const parseDate = parseVisitDate;
-            type Entry = { id: string; score: number; date: Date | null; notes?: string; tags?: string[]; photos?: { url: string }[]; trend: 'up' | 'down' | null };
-            const entries: Entry[] = [
-              { id: 'current', score: myRating.score, date: parseDate(myRating.visitDate), notes: myRating.notes, tags: myRating.tags, photos: myRating.photos, trend: null },
-              ...visitHistory.map((v) => ({ id: v.id, score: v.score, date: parseDate(v.visit_date), notes: v.notes, tags: v.tags, photos: v.photos, trend: null as 'up' | 'down' | null })),
-            ];
-            entries.sort((a, b) => (b.date ? b.date.getTime() : 0) - (a.date ? a.date.getTime() : 0));
-            for (let i = 0; i < entries.length; i++) {
-              const older = entries[i + 1];
-              if (!older) { entries[i].trend = null; continue; }
-              const diff = entries[i].score - older.score;
-              entries[i].trend = diff > 0.1 ? 'up' : diff < -0.1 ? 'down' : null;
-            }
-            return (
-              <section>
-                <div className="flex items-baseline justify-between gap-4 mb-4">
-                  <h2 className={H2}>Visit history</h2>
-                  <span className="text-xs font-semibold text-on-surface/55">{entries.length} {entries.length === 1 ? 'visit' : 'visits'}</span>
-                </div>
-                <ul className={cn(CARD, 'px-[22px] overflow-hidden')}>
-                  {entries.map((e, idx) => {
-                    const isExpanded = expandedVisit === e.id;
-                    const month = e.date ? MONTHS[e.date.getMonth()].toUpperCase() : '—';
-                    const day = e.date ? e.date.getDate() : '';
-                    const fullDate = e.date ? e.date.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) : 'Date not recorded';
-                    const noDay = !e.date;
-                    return (
-                      <li key={e.id} className={cn(idx > 0 && 'border-t border-on-surface/[0.06]')}>
-                        <button type="button" onClick={() => setExpandedVisit(isExpanded ? null : e.id)} className="w-full grid grid-cols-[56px_minmax(0,1fr)_auto] items-start gap-4 py-[18px] text-left hover:opacity-90 transition-opacity">
-                          <div className={cn('text-center pt-0.5', noDay && 'opacity-60')}>
-                            <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-on-surface/55">{month}</div>
-                            <div className={cn('font-serif text-[26px] leading-none mt-0.5 tabular-nums tracking-[-0.02em]', noDay ? 'font-normal text-on-surface/40' : 'font-bold text-on-surface')}>{day || '—'}</div>
-                          </div>
-                          <div className="min-w-0">
-                            {e.notes ? <p className="font-serif text-[15px] leading-[1.5] text-on-surface line-clamp-2">{e.notes}</p> : <p className="font-serif italic text-[15px] text-on-surface/55">No notes from this visit.</p>}
-                            <p className="mt-1 text-xs font-medium text-on-surface/55">{fullDate}</p>
-                          </div>
-                          <div className="flex items-center gap-2 pt-1">
-                            {e.trend === 'up' && <TrendingUp size={15} className="text-green-600" />}
-                            {e.trend === 'down' && <TrendingDown size={15} className="text-red-500" />}
-                            <span className="font-serif font-bold text-[20px] tabular-nums tracking-[-0.02em]" style={{ color: scoreColor(e.score) }}>{e.score.toFixed(1)}</span>
-                          </div>
-                        </button>
-                        <AnimatePresence>
-                          {isExpanded && (
-                            <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.2 }} className="overflow-hidden">
-                              <div className="pb-4 pl-[72px] space-y-3">
-                                {e.tags && e.tags.length > 0 && <div className="flex flex-wrap gap-1.5">{e.tags.map((t) => <span key={t} className="text-xs font-medium px-2.5 py-0.5 rounded-full bg-primary/[0.08] text-primary/75">{t}</span>)}</div>}
-                                {e.photos && e.photos.length > 0 && <div className="flex gap-2 overflow-x-auto no-scrollbar">{e.photos.slice(0, 8).map((p, i) => <img key={i} src={p.url} alt="" referrerPolicy="no-referrer" className="w-24 h-24 rounded-lg object-cover flex-shrink-0" />)}</div>}
-                                {confirmDeleteVisitId === e.id ? (
-                                  <div className="flex items-center justify-between gap-2 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
-                                    <p className="text-xs font-medium text-red-700">Delete this visit?</p>
-                                    <div className="flex gap-1.5">
-                                      <button type="button" onClick={() => setConfirmDeleteVisitId(null)} className="px-2.5 py-1 text-[11px] font-semibold text-on-surface/70 border border-on-surface/15 rounded-md bg-white hover:bg-on-surface/[0.04]">Cancel</button>
-                                      <button type="button" onClick={() => { if (!place) return; deleteVisit(place.id, e.id); setConfirmDeleteVisitId(null); setExpandedVisit(null); }} className="px-2.5 py-1 text-[11px] font-semibold text-white bg-red-500 rounded-md hover:bg-red-600">Delete</button>
-                                    </div>
-                                  </div>
-                                ) : (
-                                  <button type="button" onClick={() => setConfirmDeleteVisitId(e.id)} className="inline-flex items-center gap-1.5 text-xs font-semibold text-red-500 hover:text-red-600 transition-colors"><Trash2 size={13} /> Delete visit</button>
-                                )}
-                              </div>
-                            </motion.div>
-                          )}
-                        </AnimatePresence>
-                      </li>
-                    );
-                  })}
-                </ul>
-              </section>
-            );
-          })()}
+          {/* ── Score history — only once there's more than one visit ── */}
+          {myRating && visitHistory.length > 0 && place && (
+            <ScoreHistory
+              variant="desktop"
+              heading={<h2 className={H2}>Score history</h2>}
+              entries={[
+                { id: 'current', score: myRating.score, date: parseVisitDate(myRating.visitDate), notes: myRating.notes, tags: myRating.tags, photos: myRating.photos, isCurrent: true },
+                ...visitHistory.map((v) => ({ id: v.id, score: v.score, date: parseVisitDate(v.visit_date), notes: v.notes, tags: v.tags, photos: v.photos })),
+              ]}
+              onDeleteVisit={(id) => deleteVisit(place.id, id)}
+            />
+          )}
 
           {/* ── Expert picks ── */}
           {expertRecommendations.length > 0 && (

@@ -127,6 +127,9 @@ export const RatingFlow: React.FC = () => {
   const [photosProcessing, setPhotosProcessing] = useState(0);
   const [share, setShare] = useState(true);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  // A return visit archives the rating that's there now into the score
+  // history before the new one replaces it. Anything else is an edit.
+  const [newVisit, setNewVisit] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const previewUrls = useRef<Set<string>>(new Set());
 
@@ -139,21 +142,26 @@ export const RatingFlow: React.FC = () => {
   useEffect(() => {
     if (!addRestaurantModalOpen || !restaurant) return;
     const prior = getRating(restaurant.id);
+    // "Re-rate" on the restaurant page opens as a new visit: fresh notes,
+    // dishes, tags, photos and today's date, with the old rating kept as
+    // history. Everything else opens as an edit of the rating that exists.
+    const asNewVisit = !!prior && addRestaurantModalInitialPage === 'new-visit';
+    setNewVisit(asNewVisit);
     setEditor(null);
     setEdVisited(false);
     setH2h(null);
     setPick(null);
     setTieBreak(false);
     setConfirmDelete(false);
-    setNotes(prior?.notes ?? '');
-    setDishes(prior?.favoriteDishes ?? []);
+    setNotes(asNewVisit ? '' : (prior?.notes ?? ''));
+    setDishes(asNewVisit ? [] : (prior?.favoriteDishes ?? []));
     setDishDraft('');
     setPriceIndex(prior?.price ? PRICE_RANGES.findIndex((r) => r.signs === prior.price) : -1);
     setPriceAmount('');
-    setVisitDate(prior?.visitDate || localISODate());
-    setTags(prior?.tags ?? []);
+    setVisitDate(asNewVisit ? localISODate() : (prior?.visitDate || localISODate()));
+    setTags(asNewVisit ? [] : (prior?.tags ?? []));
     setTagQuery('');
-    setPhotos(prior?.photos ?? []);
+    setPhotos(asNewVisit ? [] : (prior?.photos ?? []));
     setPhotosProcessing(0);
     setShare(true);
     if (prior) {
@@ -163,7 +171,7 @@ export const RatingFlow: React.FC = () => {
       setDisplay(prior.score);
       setOrder(null);
       setSliderVal(prior.score);
-      setStep(addRestaurantModalInitialPage === 'rate' ? 'gut' : 'details');
+      setStep(addRestaurantModalInitialPage === 'rate' || asNewVisit ? 'gut' : 'details');
     } else {
       setMethod(null);
       setScore(0);
@@ -325,7 +333,7 @@ export const RatingFlow: React.FC = () => {
         listIds: existing?.listIds ?? [], friendIds: existing?.friendIds ?? [], createdAt: Date.now(),
         ratingMethod: how ?? existing?.ratingMethod,
       },
-      { isNewVisit: false, settleOrder: placement ?? undefined, shareToFeed: share },
+      { isNewVisit: newVisit, settleOrder: placement ?? undefined, shareToFeed: share },
     );
     setStep('saved');
   };
@@ -590,7 +598,8 @@ export const RatingFlow: React.FC = () => {
             <div className="flex items-start gap-1.5">
               <span className="flex-1 min-w-0 pt-0.5">
                 <span className="block text-[10px] font-extrabold tracking-[1.4px] text-primary">
-                  {method === 'slider' ? 'SCORED BY YOU'
+                  {newVisit ? 'NEW VISIT'
+                    : method === 'slider' ? 'SCORED BY YOU'
                     : method === 'h2h' ? 'COMPARED'
                     : 'YOUR RATING'}
                 </span>
@@ -604,6 +613,34 @@ export const RatingFlow: React.FC = () => {
               </button>
               {closeBtn}
             </div>
+
+            {/* Only when a rating already exists: is this the same visit
+                (an edit) or a return trip? A return trip keeps the old score
+                in this restaurant's history instead of overwriting it. */}
+            {existing && (
+              <div className="flex rounded-full p-[3px] bg-on-surface/[0.06]" role="radiogroup" aria-label="Edit or new visit">
+                {([['edit', 'Update rating'], ['new', 'New visit']] as const).map(([k, label]) => {
+                  const on = (k === 'new') === newVisit;
+                  return (
+                    <button
+                      key={k}
+                      type="button"
+                      role="radio"
+                      aria-checked={on}
+                      onClick={() => {
+                        const nv = k === 'new';
+                        if (nv === newVisit) return;
+                        setNewVisit(nv);
+                        if (nv) setVisitDate(localISODate());
+                      }}
+                      className={cn('flex-1 h-8 rounded-full text-[12.5px] font-bold transition-colors', on ? 'bg-surface text-on-surface shadow-[0_1px_2px_rgba(0,0,0,0.08)]' : 'text-on-surface/55')}
+                    >
+                      {label}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
 
             <div
               className="flex items-center gap-3 rounded-[18px] px-4 py-3"
@@ -690,7 +727,7 @@ export const RatingFlow: React.FC = () => {
             </div>
 
             <button type="button" className="rf-cta" onClick={onSave} disabled={saving || photosProcessing > 0}>
-              {photosProcessing > 0 ? 'Processing photos…' : existing ? 'Update rating' : 'Save rating'}
+              {photosProcessing > 0 ? 'Processing photos…' : existing ? (newVisit ? 'Save visit' : 'Update rating') : 'Save rating'}
             </button>
 
             {existing && (

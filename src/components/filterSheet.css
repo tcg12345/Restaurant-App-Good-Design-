@@ -268,15 +268,7 @@
   padding: 0 14px;
   font-size: 12.5px;
 }
-/* Teal tone for Discover hotels mode (keeps that mode visually distinct). */
-.fs-pill.is-teal.is-active,
-.fs-pill.is-teal.is-active:hover {
-  background: #0f766e;
-  border-color: #0f766e;
-  color: #fff;
-}
-
-/* Segmented control (price, total-time, hotel star/price) */
+/* Segmented control (price, total-time) */
 .fs-segment {
   display: flex;
   gap: 2px;
@@ -304,10 +296,6 @@
   color: var(--fs-ink);
   box-shadow: 0 1px 2px rgba(28, 24, 22, 0.06), 0 0 0 1px rgba(28, 24, 22, 0.05);
 }
-/* Teal tone for Discover hotels mode (preserves its mode-distinct accent). */
-.fs-segment.is-teal .fs-segment-item.is-active { color: #0f766e; }
-.dark .fs-segment.is-teal .fs-segment-item.is-active { color: #5eead4; }
-
 /* Single-thumb slider (distance) */
 .fs-slider {
   -webkit-appearance: none;

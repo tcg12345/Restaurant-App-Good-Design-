@@ -28,7 +28,6 @@ import {
   TrendingUp,
   TrendingDown,
   StickyNote,
-  Trash2,
   ImageOff,
   Car,
   Footprints,
@@ -42,6 +41,7 @@ import {
 import { ShareIcon } from '../components/icons/ShareIcon';
 import { cn, parseVisitDate } from '../lib/utils';
 import { Collapse } from '../components/Collapse';
+import { ScoreHistory } from '../components/ScoreHistory';
 import { GlassButton, GlassGroup } from '../lib/glass-buttons';
 import { FriendReviewSheet, FriendAvatar } from '../components/FriendReviewSheet';
 import { SCORE_UNLOCK_THRESHOLD } from '../lib/scoreUnlock';
@@ -291,19 +291,14 @@ export const RestaurantDetailMobile: React.FC = () => {
   const { driveMin, walkMin } = useTravelTimes(homeLocationForDistance, destForDistance);
   const driveLabel = formatTravelTime(driveMin);
   const walkLabel = formatTravelTime(walkMin);
-  const [confirmDeleteVisitId, setConfirmDeleteVisitId] = useState<string | null>(null);
   const { conversations, sendMessage } = useChat();
   const { user } = useAuth();
   // Hours start collapsed — the summary row already shows the Open/Closed
   // status and today's hours; expanding reveals the full week.
   const [hoursOpen, setHoursOpen] = useState(false);
-  // Earlier visits fold away under the current rating — the summary is
-  // always visible now, so there is nothing left to collapse at the top.
-  const [earlierVisitsOpen, setEarlierVisitsOpen] = useState(false);
   // Ref on the "My Rating Details" section so the Your Rating summary
   // card above can smooth-scroll down to it when tapped.
   const myRatingRef = useRef<HTMLElement | null>(null);
-  const [expandedVisit, setExpandedVisit] = useState<string | null>(null);
   const [friendNames, setFriendNames] = useState<Record<string, string>>({});
   // ShareDialog payload — built lazily at click time from `place` + the
   // viewer's rating. The dialog itself owns the friends list /
@@ -836,10 +831,6 @@ export const RestaurantDetailMobile: React.FC = () => {
           const openAt = (pg: RatingPage) => openAddRestaurantModal(meta, pg);
           const dateLabel = myRating ? (parseVisitDate(myRating.visitDate)?.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) ?? null) : null;
           const companions = ((myRating?.friendIds) || []).map((fid) => friendNames[fid] || fid.slice(0, 8));
-          const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-          const earlier = [...visitHistory]
-            .map((v) => ({ id: v.id, score: v.score, date: parseVisitDate(v.visit_date), notes: v.notes, tags: v.tags, photos: v.photos }))
-            .sort((a, b) => (b.date?.getTime() ?? 0) - (a.date?.getTime() ?? 0));
           // The facts under the score, joined rather than stacked.
           const facts = [
             dateLabel && `Visited ${dateLabel}`,
@@ -1007,75 +998,6 @@ export const RestaurantDetailMobile: React.FC = () => {
                       </div>
                     </div>
 
-                    {/* Earlier visits — the old timeline, folded away. Each
-                        row is date, score and the note; tapping opens the
-                        rest. */}
-                    {earlier.length > 0 && (
-                      <div className="mt-5 pt-4 border-t border-on-surface/[0.09]">
-                        <button
-                          type="button"
-                          onClick={() => setEarlierVisitsOpen(!earlierVisitsOpen)}
-                          className="w-full flex items-center justify-between text-left active:opacity-70 transition-opacity"
-                        >
-                          <span className="text-on-surface/70" style={{ fontSize: '13px', fontWeight: 600 }}>
-                            {earlier.length} earlier {earlier.length === 1 ? 'visit' : 'visits'}
-                          </span>
-                          <ChevronDown size={15} className={cn('text-on-surface/40 transition-transform duration-200', earlierVisitsOpen && 'rotate-180')} />
-                        </button>
-                        <Collapse open={earlierVisitsOpen}>
-                          <ul>
-                            {earlier.map((e) => {
-                              const isExpanded = expandedVisit === e.id;
-                              const month = e.date ? MONTHS[e.date.getMonth()].toUpperCase() : '—';
-                              const day = e.date ? e.date.getDate() : '';
-                              return (
-                                <li key={e.id} className="border-t border-on-surface/[0.09]">
-                                  <button type="button" onClick={() => setExpandedVisit(isExpanded ? null : e.id)} className="w-full flex items-center gap-3 py-3 text-left active:opacity-70 transition-opacity">
-                                    <div className="flex-shrink-0 w-10 flex flex-col items-center">
-                                      <span className="text-on-surface/35 leading-none" style={{ fontSize: '9px', letterSpacing: '0.1em' }}>{month}</span>
-                                      <span className="text-on-surface/70 leading-none mt-1 tabular-nums" style={{ fontSize: '15px', fontWeight: 700 }}>{day}</span>
-                                    </div>
-                                    <p className={cn('flex-1 min-w-0 truncate', e.notes ? 'text-on-surface/70' : 'text-on-surface/35')} style={{ fontSize: '13px' }}>
-                                      {e.notes || 'No notes'}
-                                    </p>
-                                    <span className={cn('flex-shrink-0 inline-flex items-center h-7 px-2.5 rounded-full tabular-nums', softChip(e.score))} style={{ fontSize: '13px', fontWeight: 700 }}>
-                                      {e.score.toFixed(1)}
-                                    </span>
-                                  </button>
-                                  <Collapse open={isExpanded}>
-                                    <div className="pb-3 pl-[52px] space-y-2.5">
-                                      {e.tags && e.tags.length > 0 && (
-                                        <div className="flex flex-wrap gap-1.5">
-                                          {e.tags.map((t) => (<span key={t} className="rounded-full bg-on-surface/[0.06] text-on-surface/60 px-2.5 py-1" style={{ fontSize: '11px', fontWeight: 600 }}>{t}</span>))}
-                                        </div>
-                                      )}
-                                      {e.photos && e.photos.length > 0 && (
-                                        <div className="flex gap-1.5 overflow-x-auto no-scrollbar snap-x snap-mandatory">
-                                          {e.photos.slice(0, 6).map((ph, i) => (<img key={i} src={ph.url} alt="" className="w-16 h-16 rounded-xl object-cover flex-shrink-0 snap-start" referrerPolicy="no-referrer" />))}
-                                        </div>
-                                      )}
-                                      {confirmDeleteVisitId === e.id ? (
-                                        <div className="flex items-center justify-between gap-2 bg-score-low-tint rounded-xl px-3 py-2">
-                                          <p className="text-xs font-medium text-score-low-ink">Delete this visit?</p>
-                                          <div className="flex gap-1.5">
-                                            <button type="button" onClick={() => setConfirmDeleteVisitId(null)} className="px-2.5 py-1 text-[11px] font-semibold text-on-surface/70 rounded-full bg-on-surface/[0.06]">Cancel</button>
-                                            <button type="button" onClick={() => { if (!place) return; deleteVisit(place.id, e.id); setConfirmDeleteVisitId(null); setExpandedVisit(null); }} className="px-2.5 py-1 text-[11px] font-semibold text-white bg-score-low rounded-full">Delete</button>
-                                          </div>
-                                        </div>
-                                      ) : (
-                                        <button type="button" onClick={() => setConfirmDeleteVisitId(e.id)} className="inline-flex items-center gap-1.5 text-[12px] font-semibold text-score-low-ink active:opacity-70 transition-opacity">
-                                          <Trash2 size={13} /> Delete visit
-                                        </button>
-                                      )}
-                                    </div>
-                                  </Collapse>
-                                </li>
-                              );
-                            })}
-                          </ul>
-                        </Collapse>
-                      </div>
-                    )}
                   </>
                 ) : (
                   /* Nothing recorded yet — say what would go here and give
@@ -1102,6 +1024,25 @@ export const RestaurantDetailMobile: React.FC = () => {
             </section>
           );
         })()}
+
+        {/* ── Score history — only once there's more than one visit. The
+            current rating is the newest point; earlier visits come from
+            the visit history the rating flow archives on a return trip. ── */}
+        {myRating && place && visitHistory.length > 0 && (
+          <div className="mt-8">
+            <SectionRule />
+            <ScoreHistory
+              className="pt-3"
+              variant="mobile"
+              heading={<SectionTitle>Score history</SectionTitle>}
+              entries={[
+                { id: 'current', score: myRating.score, date: parseVisitDate(myRating.visitDate), notes: myRating.notes, tags: myRating.tags, photos: myRating.photos, isCurrent: true },
+                ...visitHistory.map((v) => ({ id: v.id, score: v.score, date: parseVisitDate(v.visit_date), notes: v.notes, tags: v.tags, photos: v.photos })),
+              ]}
+              onDeleteVisit={(id) => deleteVisit(place.id, id)}
+            />
+          </div>
+        )}
 
         {/* Likes + comments friends left on your rating. */}
         {myRating && place && (
