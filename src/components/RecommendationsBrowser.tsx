@@ -1001,12 +1001,6 @@ export const RecommendationsBrowser: React.FC<RecommendationsBrowserProps> = ({ 
     const metaLine = [entry.cuisineLabel, priceText, Number.isFinite(entry.distanceMi) ? fmtMiles(entry.distanceMi) : '']
       .filter(Boolean)
       .join(' · ');
-    // The strongest reason that isn't Google's. "4.9★ from 327 reviews" is
-    // a fact about a website, and on a page whose whole argument is
-    // "because of what YOU rated" it was the one line with nothing to do
-    // with the reader.
-    const topReason = ((p as { reasons?: string[] }).reasons || [])
-      .find((r) => !/reviews?\b|★/i.test(r)) || '';
     const meta = {
       id: p.id,
       name: p.name,
@@ -1082,9 +1076,7 @@ export const RecommendationsBrowser: React.FC<RecommendationsBrowserProps> = ({ 
                 {groupVerdict(gScore, (uid) => liveMembers.find((m) => m.userId === uid)?.name ?? 'Friend')}
               </span>
             </div>
-          ) : (
-            topReason && <p className="mt-1.5 truncate text-on-surface/35" style={{ fontSize: '11.5px', lineHeight: 1.3 }}>{topReason}</p>
-          )}
+          ) : null}
         </div>
 
         {/* Actions + prediction — one horizontal cluster on BOTH layouts:

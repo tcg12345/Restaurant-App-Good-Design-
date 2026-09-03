@@ -41,7 +41,7 @@ check risks confusion). What each renumbered migration creates:
   "Anyone can read app data" policy. *(This is the privacy fix — confirm it
   ran.)*
 - **042** — adds the `home_meals` JSONB column to `user_app_data`.
-- **043** — creates the `dining_type` enum and the `hotel_dining` table + RLS.
+- **043** — created the `dining_type` enum and the `hotel_dining` table. Superseded: **084** drops both (the hotels feature is gone).
 - **044** — creates the `recipes` and `recipe_reviews` tables + RLS + indexes.
 - **045** — creates the `visit_history` table + RLS + indexes.
 
@@ -53,10 +53,8 @@ SELECT policyname FROM pg_policies WHERE tablename = 'user_app_data';
 -- tables the renumbered migrations create
 SELECT table_name FROM information_schema.tables
   WHERE table_schema = 'public'
-    AND table_name IN ('hotel_dining', 'recipes', 'recipe_reviews', 'visit_history');
+    AND table_name IN ('recipes', 'recipe_reviews', 'visit_history');
 -- the home_meals column (042)
 SELECT column_name FROM information_schema.columns
   WHERE table_name = 'user_app_data' AND column_name = 'home_meals';
--- the dining_type enum (043)
-SELECT typname FROM pg_type WHERE typname = 'dining_type';
 ```

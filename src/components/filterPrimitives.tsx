@@ -48,22 +48,21 @@ export const PillRow: React.FC<{ children: React.ReactNode }> = ({ children }) =
 export const Pill: React.FC<{
   active?: boolean;
   sm?: boolean;
-  tone?: 'teal';
   onClick: () => void;
   children: React.ReactNode;
-}> = ({ active, sm, tone, onClick, children }) => (
+}> = ({ active, sm, onClick, children }) => (
   <button
     type="button"
     onClick={onClick}
-    className={cn('fs-pill', sm && 'is-sm', tone === 'teal' && 'is-teal', active && 'is-active')}
+    className={cn('fs-pill', sm && 'is-sm', active && 'is-active')}
   >
     {children}
   </button>
 );
 
 /* ── Segmented control (price, total-time) ── */
-export const Segment: React.FC<{ tone?: 'teal'; children: React.ReactNode }> = ({ tone, children }) => (
-  <div className={cn('fs-segment', tone === 'teal' && 'is-teal')}>{children}</div>
+export const Segment: React.FC<{ children: React.ReactNode }> = ({ children }) => (
+  <div className="fs-segment">{children}</div>
 );
 
 export const SegmentItem: React.FC<{

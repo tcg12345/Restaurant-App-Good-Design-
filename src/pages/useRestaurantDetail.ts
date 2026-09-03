@@ -257,7 +257,7 @@ export function useRestaurantDetail() {
   // visit history whenever it changes (e.g. after saving a new visit,
   // the previous rating is pushed into the visit_history table and we
   // need to see it reflected on the page without a hard reload).
-  const { ratings, cacheRestaurantMeta } = useLists();
+  const { ratings, cacheRestaurantMeta, cloudLoaded } = useLists();
 
   // Cache the place's lat/lng on the meta so list cards can show distance.
   // Persist the FULL formatted address (rather than the truncated short
@@ -458,7 +458,7 @@ export function useRestaurantDetail() {
         setVisitHistory(merged);
       }).catch(warn('visit history'));
     }
-  }, [place?.id, user?.id, ratingFingerprint]);
+  }, [place?.id, user?.id, ratingFingerprint, cloudLoaded]);
 
   // Community-supplied price fallback: when Google has no priceLevel
   // for this place, take the mode of users' rated prices from the
