@@ -11,13 +11,26 @@
  */
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Lock, Globe, Trash2, ChevronRight, Layers, Pencil, BookOpen, ChefHat, MoreHorizontal, Play, Heart, MapPin, ArrowRight } from 'lucide-react';
+import { Lock, Globe, Trash2, ChevronRight, Layers, Pencil, BookOpen, ChefHat, MoreHorizontal, Play, Heart, MapPin, ArrowRight, Pin, PinOff } from 'lucide-react';
 import { cn, firstFrameSrc } from '../lib/utils';
 import { useSettings } from '../contexts/SettingsContext';
 import { useCardLongPress, CardActionMenu, type CardAction } from './CardActionMenu';
+import { usePins } from '../lib/pins-store';
+import type { PinnedItem } from '../lib/pins';
 import type { Reel } from '../contexts/ReelsContext';
 import type { Post } from '../contexts/PostsContext';
 import { isPublicGuide, type Guide } from '../lib/supabase-guides';
+
+/** The owner's pin/unpin row for a tile menu. One helper for all three
+ *  grids so the wording and icon can't drift between them. */
+function pinAction(pin: PinnedItem, pins: ReturnType<typeof usePins>): CardAction {
+  const on = pins.isPinned(pin);
+  return {
+    label: on ? 'Unpin from profile' : 'Pin to profile',
+    icon: on ? <PinOff size={16} /> : <Pin size={16} />,
+    onClick: () => { void pins.toggle(pin); },
+  };
+}
 
 /** Compact engagement count: 12400 → "12.4k", 980 → "980". */
 const formatCount = (n: number): string => {
@@ -93,6 +106,7 @@ export const ProfilePostsSection: React.FC<ProfilePostsSectionProps> = ({
   const [showAll, setShowAll] = useState(false);
   // Long-press (or right-click) a tile to open its actions menu — owner only.
   const [menu, setMenu] = useState<{ id: string; isPublic: boolean; rect: DOMRect } | null>(null);
+  const pins = usePins();
   const press = useCardLongPress<Post>((p, target) => {
     if (!isOwn) return;
     setMenu({ id: p.id, isPublic: p.isPublic, rect: target.getBoundingClientRect() });
@@ -122,6 +136,7 @@ export const ProfilePostsSection: React.FC<ProfilePostsSectionProps> = ({
           icon: menu.isPublic ? <Lock size={16} /> : <Globe size={16} />,
           onClick: () => onToggleVisibility(menu.id, !menu.isPublic),
         }] : []),
+        pinAction({ type: 'post', id: menu.id }, pins),
         ...(onDelete ? [{ label: 'Delete', icon: <Trash2 size={16} />, onClick: () => onDelete(menu.id), danger: true }] : []),
       ] as CardAction[]}
     />
@@ -264,6 +279,7 @@ export const ProfileReelsSection: React.FC<ProfileReelsSectionProps> = ({
   const [showAll, setShowAll] = useState(false);
   // Long-press (or right-click) a tile to open its actions menu — owner only.
   const [menu, setMenu] = useState<{ id: string; isPublic: boolean; rect: DOMRect } | null>(null);
+  const pins = usePins();
   const press = useCardLongPress<Reel>((r, target) => {
     if (!isOwn) return;
     setMenu({ id: r.id, isPublic: r.isPublic, rect: target.getBoundingClientRect() });
@@ -288,6 +304,7 @@ export const ProfileReelsSection: React.FC<ProfileReelsSectionProps> = ({
           icon: menu.isPublic ? <Lock size={16} /> : <Globe size={16} />,
           onClick: () => onToggleVisibility(menu.id, !menu.isPublic),
         }] : []),
+        pinAction({ type: 'reel', id: menu.id }, pins),
         ...(onDelete ? [{ label: 'Delete', icon: <Trash2 size={16} />, onClick: () => onDelete(menu.id), danger: true }] : []),
       ] as CardAction[]}
     />
@@ -435,6 +452,7 @@ export const ProfileGuidesSection: React.FC<ProfileGuidesSectionProps> = ({
   const [showAll, setShowAll] = useState(false);
   // Long-press (or right-click) a tile to open its actions menu — owner only.
   const [menu, setMenu] = useState<{ guide: Guide; rect: DOMRect } | null>(null);
+  const pins = usePins();
   const press = useCardLongPress<Guide>((g, target) => {
     if (!isOwn) return;
     setMenu({ guide: g, rect: target.getBoundingClientRect() });
@@ -461,6 +479,7 @@ export const ProfileGuidesSection: React.FC<ProfileGuidesSectionProps> = ({
           icon: isPublicGuide(menu.guide) ? <Lock size={16} /> : <Globe size={16} />,
           onClick: () => onToggleVisibility(menu.guide.id, !isPublicGuide(menu.guide)),
         }] : []),
+        pinAction({ type: 'guide', id: menu.guide.id }, pins),
         ...(onDelete ? [{ label: 'Delete', icon: <Trash2 size={16} />, onClick: () => onDelete(menu.guide.id), danger: true }] : []),
       ] as CardAction[]}
     />

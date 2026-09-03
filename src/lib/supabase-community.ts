@@ -2,6 +2,7 @@
  * Community ratings & photos — shared data across all users.
  */
 import { supabase, supabaseConfigured } from './supabase';
+import type { PinnedItem } from './pins';
 import { rankSuggestedProfiles, diversifySuggestions, tasteMatchScore, tasteMatchReason, type TasteSignal } from './suggestions';
 import { reportClientError } from './error-reporting';
 import { buildRatingPayload, type ActivityStamp, type RatingPayloadData } from './ratingPayload';
@@ -529,6 +530,10 @@ export interface UserProfile {
    *  same `photos` bucket as every other user image. Null/absent means the
    *  generated monogram is the avatar — see components/Avatar.tsx. */
   avatar_url?: string | null;
+  /** Up to three things pinned to the top of the profile (migration 085):
+   *  references the profile pages resolve against data the viewer can
+   *  already read. See lib/pins.ts. */
+  pinned?: PinnedItem[] | null;
 }
 
 /** Optional home-base extras for {@link saveProfile}. Pass any subset; only
@@ -604,7 +609,7 @@ export async function isUsernameTaken(username: string, excludeUserId?: string):
  */
 const OPTIONAL_PROFILE_COLUMNS = new Set([
   'home_city', 'home_lat', 'home_lng', 'bio', 'is_public', 'taste_profile',
-  'avatar_url',
+  'avatar_url', 'pinned',
 ]);
 
 /**
@@ -682,6 +687,25 @@ export async function saveProfile(
       return { success: false, error: error.message };
     }
     return { success: false, error: 'Could not save your profile. Please try again.' };
+  } catch (err) { return { success: false, error: String(err) }; }
+}
+
+/** Write the profile's pinned items (migration 085). Same unknown-column
+ *  tolerance as saveProfile: on a database that hasn't run the migration
+ *  the write fails softly and the caller keeps its local state. */
+export async function savePinned(userId: string, pinned: PinnedItem[]): Promise<{ success: boolean; error?: string }> {
+  if (!supabaseConfigured || !userId) return { success: false, error: 'Not configured' };
+  try {
+    const { error } = await supabase
+      .from('user_profiles')
+      .update({ pinned: pinned.slice(0, 3), updated_at: new Date().toISOString() })
+      .eq('user_id', userId);
+    if (!error) return { success: true };
+    if (missingSchemaColumn(error) === 'pinned') {
+      reportClientError('savePinned:unknown-column', new Error(error.message), 'pinned');
+      return { success: false, error: 'Pins need a database update before they can be saved.' };
+    }
+    return { success: false, error: error.message };
   } catch (err) { return { success: false, error: String(err) }; }
 }
 

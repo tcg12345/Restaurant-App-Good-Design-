@@ -29,6 +29,9 @@ import { scoreColor, scoreTint, scoreSolid } from '../lib/score';
 import { useBottomSheet } from '../lib/useBottomSheet';
 import { TopListCard } from '../components/TopListCard';
 import { TasteProfileCard } from '../components/profile/TasteProfileCard';
+import { PinnedShelf, usePinnedCards } from '../components/profile/PinnedShelf';
+import { EditPinsSheet, type PinCandidate } from '../components/profile/EditPinsSheet';
+import { usePins } from '../lib/pins-store';
 import {
   MIN_LIST_SIZE, cityFromAddress, countCategories, autoTopListConfigs, visibleTopListConfigs,
   buildTopList, loadCustomization, saveCustomization, topListKey,
@@ -610,6 +613,22 @@ export const Profile: React.FC = () => {
     });
   }, [myGuides]);
 
+  // ── Pinned ──
+  // Pins resolve against what this page already holds; the editor offers
+  // the same pools. Drafts and private things can be pinned — they just
+  // won't resolve for anyone who can't see them.
+  const { pins } = usePins();
+  const [editPinsOpen, setEditPinsOpen] = useState(false);
+  const homeMeals = listsCtx.homeMeals;
+  const pinnedCards = usePinnedCards(pins, { ownerId: user?.id ?? null, ratings, meals: homeMeals, guides: myGuides, posts: myPosts, reels: myReels });
+  const pinCandidates = useMemo<PinCandidate[]>(() => [
+    ...[...ratings].sort((a, b) => b.score - a.score).map((r) => ({ pin: { type: 'restaurant' as const, id: r.restaurantId }, title: r.name, subtitle: [r.cuisine, r.score ? r.score.toFixed(1) : ''].filter(Boolean).join(' · '), image: r.photos?.[0]?.url || r.image || '' })),
+    ...homeMeals.map((m) => ({ pin: { type: 'meal' as const, id: m.id }, title: m.name, subtitle: m.cuisine || 'Recipe', image: m.coverPhoto || m.photos?.[0]?.url || '' })),
+    ...visibleGuides.map((g) => ({ pin: { type: 'guide' as const, id: g.id }, title: g.title, subtitle: g.subtitle || 'Guide', image: g.coverPhoto || '' })),
+    ...myPosts.filter((p) => p.items.length > 0).map((p) => ({ pin: { type: 'post' as const, id: p.id }, title: p.caption || p.items[0]?.restaurant?.name || 'Post', subtitle: 'Post', image: p.items[0]?.mediaType === 'video' ? (p.items[0]?.posterUrl || '') : (p.items[0]?.mediaUrl || '') })),
+    ...myReels.map((r) => ({ pin: { type: 'reel' as const, id: r.id }, title: r.recipe?.title || r.restaurant?.name || r.caption || 'Reel', subtitle: 'Reel', image: r.posterUrl || '' })),
+  ], [ratings, homeMeals, visibleGuides, myPosts, myReels]);
+
   const onConfirmDeleteReel = async () => {
     if (!confirmDeleteReelId) return;
     setDeletingReel(true);
@@ -1065,6 +1084,9 @@ export const Profile: React.FC = () => {
         </div>
       </div>
 
+      {/* ── Pinned ── Above the tabs because pins span every kind. */}
+      <PinnedShelf className="mt-6 px-[22px]" cards={pinnedCards} isOwn onEdit={() => setEditPinsOpen(true)} />
+
       {/* ── Tabs ──────────────────────────────────────────────────────
           One full-width segmented track, not four free-floating pills —
           the same connected control the Friends and Lists pages use, so
@@ -1349,6 +1371,7 @@ export const Profile: React.FC = () => {
       </main>
       </div>
 
+      <EditPinsSheet open={editPinsOpen} onClose={() => setEditPinsOpen(false)} candidates={pinCandidates} />
       <EditTopListsSheet
         open={editListsOpen}
         onClose={() => setEditListsOpen(false)}

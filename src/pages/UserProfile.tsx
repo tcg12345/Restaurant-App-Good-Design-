@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
+import { PinnedShelf, usePinnedCards } from '../components/profile/PinnedShelf';
+import { normalizePins } from '../lib/pins';
 import { ArrowLeft, Lock, UserCircle, Loader2, Check, Star, MapPin, ChevronDown, Search, SlidersHorizontal, X, Map as MapIcon, Send, ArrowUpDown, Image as ImageIcon, Plus } from 'lucide-react';
 import { ShareIcon } from '../components/icons/ShareIcon';
 import { motion, AnimatePresence } from 'motion/react';
@@ -363,6 +365,14 @@ export const UserProfile: React.FC = () => {
     const name = (profile.display_name || profile.username || 'They').trim().split(/\s+/)[0];
     return buildTasteStateFromCommunity({ rows: userRatings, photos: userPhotos, profile, michelinReady: michelinReady, name });
   }, [canView, profile, userRatings, userPhotos, michelinReady]);
+  // ── Pinned ── resolved from what this page already fetched for the
+  // tabs (ratings, public meals, public guides) plus by-id reads for posts
+  // and reels; everything fails closed under RLS.
+  const ownerPins = useMemo(() => normalizePins(profile?.pinned), [profile?.pinned]);
+  const pinnedCards = usePinnedCards(canView ? ownerPins : [], {
+    ownerId: profile?.user_id ?? null, communityRatings: userRatings, photos: userPhotos, meals: publicHomeMeals, guides: publicGuides, posts: profilePosts, reels: profileReels, viewer: true,
+  });
+
   const tasteCard = tasteState && profile ? (
     <TasteSummaryCard
       standing={tasteState.standing}
@@ -995,6 +1005,7 @@ export const UserProfile: React.FC = () => {
           <main className="min-w-0">
             {canView ? (
               <>
+                <PinnedShelf className="mb-8" gutter={0} cards={pinnedCards} isOwn={false} />
                 {/* tabs + map view */}
                 <div className="flex items-stretch gap-3 border-b border-line mb-7">
                   <div className="flex items-center gap-1 overflow-x-auto scrollbar-hide min-w-0 flex-1">
@@ -1418,6 +1429,7 @@ export const UserProfile: React.FC = () => {
       </div>
 
       {/* Taste profile — the palate behind the ratings; tap for the reading. */}
+      {canView && <PinnedShelf className="mx-5 mt-6" gutter={20} cards={pinnedCards} isOwn={false} />}
       {tasteCard && <div className="mx-5 mt-5">{tasteCard}</div>}
 
       {canView ? (
