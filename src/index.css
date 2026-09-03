@@ -10,47 +10,49 @@
   --font-display: "Fraunces", "Noto Serif", serif;
   --font-mono: "JetBrains Mono", ui-monospace, monospace;
 
-  /* Surface palette — clean neutral white. Single source of truth for
-     the app background; `cream` aliases it for the editorial tokens
-     below. (The `cream`/`paper` names are historical — the light theme
-     is now a near-pure white rather than the old beige.) */
-  --color-surface: #ffffff;
-  --color-on-surface: #1c1a19;
-  /* ── Accent: graphite & bone ──
-     The brand is the logo's own two tones — a warm graphite and an
-     off-white — and the accent is simply the OTHER tone of the pair:
-     graphite on the light theme, bone on the dark one. `on-primary` is
-     whatever reads on top of it, so a `bg-primary text-on-primary` button
-     is black-on-white in the day and white-on-black at night without any
-     component knowing which. Nothing in the chrome is coloured; the only
-     hues left are the score tiers, the Michelin red and the danger red,
-     which each mean something. */
-  --color-primary: #1c1a19;
-  --color-on-primary: #ffffff;
-  /* A warm stone for secondary marks, and a champagne gold for the rare
-     place that wants one warm note (verified, featured). */
-  --color-secondary: #7a7168;
+  /* Surface palette — a near-white with the faintest cool cast, so
+     pure #fff never appears next to the accent. Single source of truth
+     for the app background; `cream` aliases it for the editorial tokens
+     below. (The `cream`/`paper` names are historical.) */
+  --color-surface: #f7f7f6;
+  --color-on-surface: #1d1c1e;
+  /* ── Accent: slate, carrying a little stone ──
+     The accent is a slate blue that sits mid-brightness in BOTH themes —
+     a deep slate by day, a pale one by night — so a filled control is
+     never the brightest or darkest thing on the screen (the graphite/bone
+     pair before it flashed: near-white on near-black). It is greyed a
+     touch toward warm stone rather than a clean blue, and `on-primary`
+     is a warm off-white, never pure white. `bg-primary text-on-primary`
+     still inverts with the theme without any component knowing which.
+     The score tiers, the Michelin red and the danger red keep their own
+     hues — they mean something. Blue is absent from food, so the accent
+     frames the photos instead of blending with them. */
+  --color-primary: #4b5670;
+  --color-on-primary: #f5f4f0;
+  /* A cool stone for secondary marks, and the champagne gold for the
+     rare warm note (Pro, verified, featured) — gold on slate. */
+  --color-secondary: #767a85;
   --color-accent: #c9b48e;
-  --color-muted: #f1f1f1;
+  --color-muted: #eeeff0;
 
   /* Editorial tokens used by the restaurant detail redesign.
      `cream` is the page bg, `paper` is the card fill, `ink-*`
      are text tones, and `olive`/`clay`/`persimmon` map the
      score-coded accents. On white, `cream-2` is the recessed/hover
      tone and `line`/`line-2` are neutral hairline borders. */
-  --color-cream: #ffffff;
-  --color-cream-2: #f1f1f1;
-  --color-paper: #ffffff;
-  --color-line: #eaeaea;
-  --color-line-2: #dcdcdc;
-  --color-ink: #1c1a19;
-  --color-ink-2: #3d3835;
-  --color-ink-3: #6b6359;
-  --color-ink-4: #a19a8e;
-  /* Historical names, now aliases of the neutral pair. */
-  --color-olive: #7a7168;
-  --color-clay: #1c1a19;
-  --color-persimmon: #8a8178;
+  --color-cream: #f7f7f6;
+  --color-cream-2: #eeeff0;
+  --color-paper: #fcfcfb;
+  --color-line: #e5e6e8;
+  --color-line-2: #d8dade;
+  --color-ink: #1d1c1e;
+  --color-ink-2: #3c3e46;
+  --color-ink-3: #676c78;
+  --color-ink-4: #9ca1ab;
+  /* Historical names, now aliases of the slate pair. */
+  --color-olive: #767a85;
+  --color-clay: #4b5670;
+  --color-persimmon: #868a95;
 
   /* ── Score tier system ──
      The ONE palette for every score-coded surface — chips, rings, map
@@ -146,28 +148,29 @@
      every card and hairline sitting on them. Elevation reads by lightness
      — surface (pages) < muted (wells) ≈ paper (cards) — with lines bumped
      to stay visible on the lighter grounds. */
-  --color-surface: #1e1e20;
-  --color-on-surface: #ededed;
-  --color-muted: #29292c;
-  --color-cream: #232326;
-  --color-cream-2: #2d2d30;
-  --color-paper: #2b2b2e;
-  --color-line: #3a3a3e;
-  --color-line-2: #48484c;
-  --color-ink: #ededed;
-  --color-ink-2: #c2c2c2;
-  --color-ink-3: #8a8a8a;
-  --color-ink-4: #5d5d5d;
-  /* The accent is the logo's other tone: bone on graphite. Solids take
-     dark text (`on-primary`) so a primary button inverts with the theme;
-     `clay`/`olive` are aliases of primary/secondary and flip with them. */
-  --color-primary: #f2efe9;
-  --color-on-primary: #1a1918;
-  --color-clay: #f2efe9;
-  --color-secondary: #a39b90;
-  --color-olive: #a39b90;
+  --color-surface: #1b1c20;
+  --color-on-surface: #e9e9ec;
+  --color-muted: #26282d;
+  --color-cream: #202227;
+  --color-cream-2: #2a2c32;
+  --color-paper: #282a30;
+  --color-line: #383b42;
+  --color-line-2: #464a52;
+  --color-ink: #e9e9ec;
+  --color-ink-2: #bfc1c6;
+  --color-ink-3: #888b93;
+  --color-ink-4: #5c5f67;
+  /* The accent by night is a pale slate — far from white, so a filled
+     button is a colour, not a flash. Solids take dark text (`on-primary`)
+     so a primary button inverts with the theme; `clay`/`olive` are
+     aliases of primary/secondary and flip with them. */
+  --color-primary: #aebbd3;
+  --color-on-primary: #161a22;
+  --color-clay: #aebbd3;
+  --color-secondary: #9ea3ae;
+  --color-olive: #9ea3ae;
   --color-accent: #d8c39c;
-  --color-persimmon: #b5aca1;
+  --color-persimmon: #adb2bc;
   /* Score tiers: solids stay put (fills under white text); tints become
      low-alpha washes over the dark card and inks lighten for contrast. */
   --color-score-high-tint: rgba(64, 145, 108, 0.16);
