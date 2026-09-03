@@ -582,11 +582,11 @@ final class GlassTabBar: NSObject, UITabBarDelegate {
         case bar
     }
 
-    /// #1c1a19, the app's `--color-primary` (graphite; bone in dark). Duplicated here rather than read
+    /// #4b5670, the app's `--color-primary` (slate; pale slate in dark). Duplicated here rather than read
     /// from the page: the bar has to draw before the WebView has told us
     /// anything, and this is stable brand chrome. It tints the *selected
     /// glyph* only — the lens stays neutral glass, which is what Apple's does.
-    static let primary = UIColor(red: 0.110, green: 0.102, blue: 0.098, alpha: 1.0)
+    static let primary = UIColor(red: 0.294, green: 0.337, blue: 0.439, alpha: 1.0)
 
     /// The ink the floating glass chrome writes in — the selector's words,
     /// the chips' glyphs and labels, the field's magnifier and placeholder.
@@ -626,7 +626,7 @@ final class GlassTabBar: NSObject, UITabBarDelegate {
 
     /// The same rust lifted until it reads against the charcoal the platter
     /// adapts to over a black page. See `setStyle`.
-    static let primaryOnDark = UIColor(red: 0.949, green: 0.937, blue: 0.914, alpha: 1.0)
+    static let primaryOnDark = UIColor(red: 0.682, green: 0.733, blue: 0.827, alpha: 1.0)
 
     /// The ink every tab glyph and label wears, selected or not. The user's
     /// call: a tab should not change colour because it is the current one —

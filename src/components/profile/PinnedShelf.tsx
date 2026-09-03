@@ -254,9 +254,9 @@ export const PinnedShelf: React.FC<{
         <button
           type="button"
           onClick={onEdit}
-          className="w-full flex items-center gap-3 rounded-2xl border border-dashed border-on-surface/[0.16] px-4 py-3 text-left active:opacity-70 transition-opacity"
+          className="w-full flex items-center gap-3 rounded-2xl border border-dashed border-primary/40 bg-primary/[0.07] px-4 py-3 text-left active:opacity-70 transition-opacity"
         >
-          <span className="flex-none w-8 h-8 rounded-full bg-on-surface/[0.06] text-on-surface/60 flex items-center justify-center"><Pin size={14} /></span>
+          <span className="flex-none w-8 h-8 rounded-full bg-primary/20 text-primary flex items-center justify-center"><Pin size={14} /></span>
           <span className="flex-1 min-w-0">
             <span className="block text-on-surface" style={{ fontSize: '13.5px', fontWeight: 700 }}>Pin up to three things</span>
             <span className="block text-on-surface/50" style={{ fontSize: '12px' }}>A place, a recipe, a guide, a post — at the top of your profile.</span>

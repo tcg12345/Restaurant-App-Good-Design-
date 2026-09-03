@@ -54,7 +54,7 @@
    is intentionally dark in both themes and the @media print block is left as
    white paper. */
 .dark .recipe-detail-page {
-  --bg: #1e1e20;
+  --bg: #1b1c20;
   --bg-2: #28282b;
   --surface: #2b2b2e;
   --surface-2: #232326;
@@ -3492,7 +3492,7 @@
   padding: 10px 18px;
   border: none;
   border-radius: 999px;
-  background: var(--color-primary, #1c1a19);
+  background: var(--color-primary, #4b5670);
   color: #fff;
   font-size: 13px;
   font-weight: 700;

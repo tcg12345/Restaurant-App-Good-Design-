@@ -123,7 +123,7 @@ export const TasteSummaryCard: React.FC<{
           {chips.map((chip) => (
             <span
               key={chip}
-              className="rounded-full bg-on-surface/[0.06] text-on-surface/70"
+              className="rounded-full bg-primary/[0.12] text-primary"
               style={{ padding: '5px 10px', fontSize: '11.5px', fontWeight: 600 }}
             >
               {chip}

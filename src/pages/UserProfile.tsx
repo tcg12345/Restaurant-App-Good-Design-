@@ -1287,13 +1287,17 @@ export const UserProfile: React.FC = () => {
   ];
 
   return (
-    <div className="min-h-screen bg-surface pb-16">
+    <div className="relative min-h-screen bg-surface pb-16">
+      {/* The same wash the owner's profile wears: the accent, fading out
+          under the header, running up behind the bar. The bar only takes
+          its glass once the page has scrolled under it. */}
+      <div aria-hidden className="pointer-events-none absolute inset-x-0 top-0 h-[360px] bg-gradient-to-b from-primary/30 via-primary/[0.12] via-55% to-transparent" />
       {/* Top bar — always present; mini identity + follow fade in on scroll */}
       <header
         ref={barRef}
         className={cn(
-          'sticky top-0 z-30 bg-surface/90 backdrop-blur-xl border-b transition-colors duration-300',
-          scrolled ? 'border-on-surface/[0.10]' : 'border-transparent',
+          'sticky top-0 z-30 border-b transition-colors duration-300',
+          scrolled ? 'bg-surface/90 backdrop-blur-xl border-on-surface/[0.10]' : 'bg-transparent border-transparent',
         )}
       >
         <div className="flex items-center gap-2.5 px-4 pt-safe-3 pb-2.5">

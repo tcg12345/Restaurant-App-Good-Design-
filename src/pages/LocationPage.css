@@ -102,7 +102,7 @@
    on non-/location routes; `.dark .location-page-root` overrides the page's
    local token block (which otherwise wins by specificity). */
 .dark {
-  --bg: #1e1e20;
+  --bg: #1b1c20;
   --bg-2: #28282b;
   --surface: #2b2b2e;
   --surface-2: #232326;
@@ -122,7 +122,7 @@
   --overlay-ink: 235, 235, 235;
 }
 .dark .location-page-root {
-  --bg: #1e1e20;
+  --bg: #1b1c20;
   --bg-2: #28282b;
   --surface: #2b2b2e;
   --surface-2: #232326;

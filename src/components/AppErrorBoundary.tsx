@@ -96,7 +96,7 @@ function renderDetachedFallback() {
   // If React already painted something, leave it to the boundary.
   if (!root || root.childElementCount > 0) return;
   const dark = document.documentElement.classList.contains('dark');
-  const bg = dark ? '#1e1e20' : '#ffffff';
+  const bg = dark ? '#1b1c20' : '#f7f7f6';
   const fg = dark ? '#ededed' : '#1e1b1a';
   root.innerHTML = `
     <div style="min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:20px;padding:0 32px;text-align:center;background:${bg};color:${fg};font-family:Manrope,system-ui,sans-serif;">
@@ -114,7 +114,7 @@ function renderDetachedFallback() {
         <p style="margin:0 0 6px;font-family:'Noto Serif',serif;font-size:20px;">Something went wrong</p>
         <p style="margin:0;font-size:14px;opacity:0.6;max-width:280px;">An unexpected error occurred. Reload to pick up where you left off.</p>
       </div>
-      <button id="app-error-reload" style="margin-top:4px;padding:10px 28px;border:none;border-radius:9999px;background:#1c1a19;color:#fff;font-size:14px;font-weight:500;font-family:inherit;">Reload</button>
+      <button id="app-error-reload" style="margin-top:4px;padding:10px 28px;border:none;border-radius:9999px;background:#4b5670;color:#fff;font-size:14px;font-weight:500;font-family:inherit;">Reload</button>
     </div>`;
   document.getElementById('app-error-reload')?.addEventListener('click', () => window.location.reload());
 }
