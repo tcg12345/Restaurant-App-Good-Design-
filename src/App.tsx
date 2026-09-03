@@ -36,6 +36,7 @@ import { AnimatePresence, motion, type Variants } from 'motion/react';
 import { SettingsProvider, useSettings } from './contexts/SettingsContext';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { ListsProvider } from './contexts/ListsContext';
+import { SharedListsProvider } from './contexts/SharedListsContext';
 import { ToastProvider } from './contexts/ToastContext';
 import { RecipesProvider } from './contexts/RecipesContext';
 import { configureNativeKeyboard } from './lib/native-keyboard';
@@ -757,6 +758,7 @@ export default function App() {
                 the overlay's <Auth> screen has what it needs. */}
             <SignInModalProvider>
             <ListsProvider>
+              <SharedListsProvider>
               <RecipesProvider>
                 <ChatProvider>
                   <NotificationsProvider>
@@ -780,6 +782,7 @@ export default function App() {
                   </NotificationsProvider>
                 </ChatProvider>
               </RecipesProvider>
+              </SharedListsProvider>
             </ListsProvider>
             </SignInModalProvider>
           </ToastProvider>

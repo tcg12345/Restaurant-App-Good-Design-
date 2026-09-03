@@ -23,6 +23,10 @@ import { getProfilesByIds, getFriends, type UserProfile } from '../lib/supabase-
 import { useLists, DEFAULT_WANT_TO_COOK_ID, DEFAULT_COOKED_ID, type CustomList, type PhotoItem, type Trip, type TripRestaurant, type RestaurantRating, type RestaurantMeta, type HomeMeal, type Recipe } from '../contexts/ListsContext';
 import { PantryPhoneHeader } from '../components/PantryPhoneHeader';
 import { PantryListSwitcherDrawer, type DrawerSection } from '../components/PantryListSwitcherDrawer';
+import { useSharedLists } from '../contexts/SharedListsContext';
+import { SharedListView } from '../components/shared-lists/SharedListView';
+import { CreateSharedListSheet } from '../components/shared-lists/CreateSharedListSheet';
+import type { SharedList } from '../lib/supabase-shared-lists';
 import { SearchPopup } from '../components/SearchPopup';
 import { useSettings } from '../contexts/SettingsContext';
 import { usePageAddAction } from '../contexts/PageAddActionContext';
@@ -5720,6 +5724,12 @@ export const Pantry: React.FC = () => {
   // opens the list switcher.
   const [pantrySearchOpen, setPantrySearchOpen] = useState(false);
   const [listDrawerOpen, setListDrawerOpen] = useState(false);
+  // ── Shared lists ── selected by id from ?shared=; the view itself lives in
+  // components/shared-lists so this page only routes to it.
+  const { sharedLists, entriesFor: sharedEntriesFor } = useSharedLists();
+  const [selectedSharedId, setSelectedSharedId] = useState<string | null>(null);
+  const [createSharedOpen, setCreateSharedOpen] = useState(false);
+  const selectedShared = selectedSharedId ? (sharedLists.find((l) => l.id === selectedSharedId) ?? null) : null;
   // Lifted out of HomeCookingTab / ListDetailView so the page header's
   // cuisine rows and ⋯ menu can drive them.
   const [recipeCuisineFilter, setRecipeCuisineFilter] = useState<string[]>([]);
@@ -5932,6 +5942,16 @@ export const Pantry: React.FC = () => {
     const listId = sp.get('list');
     const view = sp.get('view');
     const newList = sp.get('new-list');
+    const sharedId = sp.get('shared');
+
+    if (sharedId) {
+      setShowTrips(false);
+      setShowHomeCooking(false);
+      setSelectedList(null);
+      setSelectedSharedId(sharedId);
+      return;
+    }
+    setSelectedSharedId(null);
 
     // Open the create-list sheet from the sidebar's "+ New List" entry.
     // Strip the param right away so the sheet doesn't re-open if the
@@ -6214,6 +6234,9 @@ export const Pantry: React.FC = () => {
   // Wishlist or "Best Pizza" updates the active tab's label/count
   // instead of stranding "All Rated" up there.
   const currentViewLabel = (() => {
+    if (selectedShared) {
+      return { emoji: selectedShared.emoji, name: selectedShared.name, count: sharedEntriesFor(selectedShared.id)?.length ?? 0 };
+    }
     if (selectedList) {
       if (selectedList.id === '__wishlist__') {
         return { emoji: '🔖', name: 'Wishlist', count: regularWishlist.length };
@@ -6273,6 +6296,13 @@ export const Pantry: React.FC = () => {
     setSelectedList(list);
     navigate(`/pantry?list=${encodeURIComponent(list.id)}`);
   };
+  const switchToSharedList = (list: SharedList) => {
+    setListSwitcherOpen(false); setListDrawerOpen(false);
+    setShowHomeCooking(false); setShowTrips(false);
+    setSelectedList(null);
+    setSelectedSharedId(list.id);
+    navigate(`/pantry?shared=${encodeURIComponent(list.id)}`);
+  };
   const switchToAllRecipes = () => {
     setListSwitcherOpen(false); setListDrawerOpen(false);
     setSelectedList(null); setShowTrips(false);
@@ -6291,7 +6321,9 @@ export const Pantry: React.FC = () => {
   // compare against. A cuisine isn't a list of its own — it's the tab's
   // default list with one cuisine filter on it — so that's what makes a
   // cuisine row read as the active one.
-  const activeViewId = selectedList
+  const activeViewId = selectedShared
+    ? `shared:${selectedShared.id}`
+    : selectedList
     ? selectedList.id
     : showHomeCooking
       ? (recipeCuisineFilter.length === 1 ? cuisineViewId(recipeCuisineFilter[0]) : VIEW_COOKBOOK)
@@ -6403,6 +6435,15 @@ export const Pantry: React.FC = () => {
           icon: <span className="text-base leading-none">{l.emoji}</span>,
           onSelect: () => switchToList(l),
         })) },
+        { label: 'Shared with friends', items: [
+          ...sharedLists.map((l) => ({
+            id: `shared:${l.id}`, name: l.name,
+            meta: `${l.memberIds.length} ${l.memberIds.length === 1 ? 'person' : 'people'} · ${l.ratingMode === 'group' ? 'group score' : 'individual scores'}`,
+            icon: <span className="text-base leading-none">{l.emoji}</span>,
+            onSelect: () => switchToSharedList(l),
+          })),
+          { id: 'shared:new', name: 'New shared list', meta: 'Keep a list with friends', icon: <Users size={17} />, onSelect: () => { setListDrawerOpen(false); setCreateSharedOpen(true); } },
+        ] },
         { label: 'By cuisine', items: restaurantCuisineStats.map((c) => ({
           id: cuisineViewId(c.name), name: c.name,
           meta: `${c.count} ${c.count === 1 ? 'place' : 'places'} rated`,
@@ -6413,6 +6454,7 @@ export const Pantry: React.FC = () => {
 
   // Row 1's ⋯ — whatever the view on screen can actually do.
   const pantryMoreItems = (() => {
+    if (selectedShared) return [];
     if (selectedList) {
       const protectedList = selectedList.id === VIEW_WISHLIST
         || selectedList.id === DEFAULT_WANT_TO_COOK_ID
@@ -6544,6 +6586,24 @@ export const Pantry: React.FC = () => {
                           <Plus size={14} />
                           <span>New restaurant list</span>
                         </button>
+                        {sharedLists.map((l) => (
+                          <SwitcherRow
+                            key={`shared:${l.id}`}
+                            icon={<span className="text-base leading-none">{l.emoji}</span>}
+                            label={l.name}
+                            count={sharedEntriesFor(l.id)?.length ?? l.memberIds.length}
+                            active={selectedShared?.id === l.id}
+                            onClick={() => switchToSharedList(l)}
+                          />
+                        ))}
+                        <button
+                          type="button"
+                          onClick={() => { setListSwitcherOpen(false); setCreateSharedOpen(true); }}
+                          className="w-full flex items-center gap-2.5 px-4 py-2 text-[13px] font-semibold text-primary hover:bg-primary/[0.06] transition-colors"
+                        >
+                          <Users size={14} />
+                          <span>New shared list</span>
+                        </button>
                       </>
                     ) : (
                       <>
@@ -6652,7 +6712,14 @@ export const Pantry: React.FC = () => {
           />
         )}
 
-        {currentList ? (
+        {selectedShared ? (
+          <SharedListView
+            list={selectedShared}
+            hidePhoneHeader={showPhoneHeader}
+            onBack={() => navigate('/pantry')}
+            onGone={() => navigate('/pantry')}
+          />
+        ) : currentList ? (
           <ListDetailView
             list={currentList}
             viewMode={effectiveViewMode}
@@ -7174,6 +7241,12 @@ export const Pantry: React.FC = () => {
           newListLabel={isRecipeSection ? 'New recipe list' : 'New restaurant list'}
         />
       )}
+
+      <CreateSharedListSheet
+        open={createSharedOpen}
+        onClose={() => setCreateSharedOpen(false)}
+        onCreated={(l) => switchToSharedList(l)}
+      />
 
       {/* Create list bottom sheet */}
       <CreateListSheet

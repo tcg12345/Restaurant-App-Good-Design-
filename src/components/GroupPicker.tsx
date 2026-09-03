@@ -28,7 +28,13 @@ export const GroupPicker: React.FC<{
   /** Currently chosen friends (you are never in this list). */
   selected: UserProfile[];
   onDone: (people: UserProfile[]) => void;
-}> = ({ open, onClose, userId, selected, onDone }) => {
+  /** Copy for other homes of this picker (a shared list's members, say).
+   *  Defaults are the "who's eating" wording of group recommendations. */
+  title?: string;
+  subtitle?: string;
+  /** CTA label given the number picked. */
+  ctaLabel?: (count: number) => string;
+}> = ({ open, onClose, userId, selected, onDone, title = 'Who’s eating?', subtitle = 'Pick the friends you’re going with', ctaLabel }) => {
   const [friends, setFriends] = useState<UserProfile[]>([]);
   const [loading, setLoading] = useState(false);
   const [picked, setPicked] = useState<Record<string, UserProfile>>({});
@@ -106,9 +112,9 @@ export const GroupPicker: React.FC<{
         </div>
         <div className="flex items-center gap-3 px-5 pb-3">
           <div className="min-w-0 flex-1">
-            <h3 className="font-serif text-[19px] font-bold tracking-[-0.02em] text-on-surface">Who&rsquo;s eating?</h3>
+            <h3 className="font-serif text-[19px] font-bold tracking-[-0.02em] text-on-surface">{title}</h3>
             <p className="mt-0.5 text-[12.5px] text-on-surface/50">
-              {count > 0 ? `You + ${count}` : 'Pick the friends you’re going with'}
+              {count > 0 ? `You + ${count}` : subtitle}
               {full && ' · that’s the max'}
             </p>
           </div>
@@ -190,7 +196,7 @@ export const GroupPicker: React.FC<{
             className="ml-auto h-11 flex-1 rounded-full bg-primary px-5 text-[14px] font-bold text-on-primary active:opacity-90 disabled:opacity-50"
             disabled={count === 0}
           >
-            {count === 0 ? 'Pick someone' : `Find a place for ${count + 1}`}
+            {ctaLabel ? ctaLabel(count) : count === 0 ? 'Pick someone' : `Find a place for ${count + 1}`}
           </button>
         </div>
       </motion.div>
