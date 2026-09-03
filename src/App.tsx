@@ -82,6 +82,9 @@ import { FeatureTour } from './components/FeatureTour';
 import { Logo } from './components/Logo';
 import { AppErrorBoundary } from './components/AppErrorBoundary';
 import { SignInModalProvider } from './contexts/SignInModalContext';
+import { PlanProvider } from './contexts/PlanContext';
+import { PaywallProvider } from './contexts/PaywallContext';
+import { ProPage } from './pages/ProPage';
 import { RequireAuthRoute } from './components/RequireAuthRoute';
 import { wakeGlassButtons } from './lib/glass-buttons';
 
@@ -573,6 +576,10 @@ const AppContent: React.FC = () => {
           <Route path="/" element={<Discover mode="home" />} />
           <Route path="/map" element={<Discover mode="map" />} />
           <Route path="/auth" element={<Navigate to="/" replace />} />
+          {/* Public on purpose: guests can read what Pro is; buying asks
+              for sign-in. /pro/welcome is where Stripe sends people back. */}
+          <Route path="/pro" element={<ProPage />} />
+          <Route path="/pro/welcome" element={<ProPage />} />
           <Route path="/circle" element={<RequireAuthRoute reason="Sign in to see your circle"><Circle /></RequireAuthRoute>} />
           <Route path="/create" element={<RequireAuthRoute reason="Sign in to create"><Create /></RequireAuthRoute>} />
           <Route path="/search" element={<Search />} />
@@ -756,6 +763,11 @@ export default function App() {
                 requireSignIn for guests, and below Auth/Settings/Toast so
                 the overlay's <Auth> screen has what it needs. */}
             <SignInModalProvider>
+            {/* Plan + paywall sit just inside the sign-in gate and above the
+                action contexts, so any of them can ask requirePro() the way
+                they ask requireSignIn(). */}
+            <PlanProvider>
+            <PaywallProvider>
             <ListsProvider>
               <RecipesProvider>
                 <ChatProvider>
@@ -781,6 +793,8 @@ export default function App() {
                 </ChatProvider>
               </RecipesProvider>
             </ListsProvider>
+            </PaywallProvider>
+            </PlanProvider>
             </SignInModalProvider>
           </ToastProvider>
         </SettingsProvider>

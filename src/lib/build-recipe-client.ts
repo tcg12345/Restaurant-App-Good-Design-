@@ -6,7 +6,7 @@
 
 import type { HomeMeal, CombinedFromRef } from '../contexts/ListsContext';
 import { buildRecipeInputToHomeMeal, mergeRecipeEdit, type BuildRecipeInput } from './recipe-from-ai';
-import { apiUrl, apiHeaders } from './api-base';
+import { apiUrl, apiHeaders, readApiError, type ApiErrorCode } from './api-base';
 
 const FUNCTION_URL = apiUrl('build-recipe');
 
@@ -19,6 +19,9 @@ export interface GenerateRecipeResult {
   recipe?: BuildRecipeInput;
   /** Present when !ok — a user-facing error message. */
   error?: string;
+  /** Why the server refused, when it did (paywall routing). */
+  code?: ApiErrorCode;
+  resetsAt?: string | null;
 }
 
 /** Optional structured guidelines for `generateRecipe`. Sent as explicit
@@ -71,7 +74,7 @@ export interface IngredientEditResult extends GenerateRecipeResult {
 export async function readRecipeStream(
   res: Response,
   onProgress?: ProgressCallback,
-): Promise<{ recipe?: BuildRecipeInput; declineReason?: string; error?: string }> {
+): Promise<{ recipe?: BuildRecipeInput; declineReason?: string; error?: string; code?: ApiErrorCode; resetsAt?: string | null }> {
   const assembled = await readToolStreams(res, onProgress);
   if (assembled.error) return { error: assembled.error };
   const { toolJson, toolJsonOpen, stopReason } = assembled;
@@ -114,6 +117,9 @@ async function readToolStreams(res: Response, onProgress?: ProgressCallback): Pr
   toolJsonOpen: Record<string, string>;
   stopReason?: string;
   error?: string;
+  /** Why the server refused, when it did (paywall routing). */
+  code?: ApiErrorCode;
+  resetsAt?: string | null;
 }> {
   const empty = { toolJson: {}, toolJsonOpen: {} };
   if (!res.body) return { ...empty, error: 'No response body.' };
@@ -200,7 +206,7 @@ async function postRecipe(
   payload: Record<string, unknown>,
   signal?: AbortSignal,
   onProgress?: ProgressCallback,
-): Promise<{ recipe?: BuildRecipeInput; declineReason?: string; error?: string }> {
+): Promise<{ recipe?: BuildRecipeInput; declineReason?: string; error?: string; code?: ApiErrorCode; resetsAt?: string | null }> {
   let res: Response;
   try {
     res = await fetch(FUNCTION_URL, {
@@ -214,12 +220,8 @@ async function postRecipe(
     return { error: 'Network error — check your connection and try again.' };
   }
   if (!res.ok || !res.body) {
-    let message = `Something went wrong (HTTP ${res.status}).`;
-    try {
-      const body = await res.json();
-      if (body?.error) message = body.error;
-    } catch { /* keep default */ }
-    return { error: message };
+    const e = await readApiError(res);
+    return { error: e.message, code: e.code, resetsAt: e.resetsAt };
   }
   return readRecipeStream(res, onProgress);
 }
@@ -350,6 +352,9 @@ export interface RecipeIdeasResult {
   ok: boolean;
   ideas?: RecipeIdea[];
   error?: string;
+  /** Why the server refused, when it did (paywall routing). */
+  code?: ApiErrorCode;
+  resetsAt?: string | null;
 }
 
 /** Normalize one raw idea from the model; null drops the row. A batch
@@ -404,7 +409,7 @@ async function postIdeas(
   payload: Record<string, unknown>,
   signal?: AbortSignal,
   onProgress?: ProgressCallback,
-): Promise<{ ideas?: RecipeIdea[]; error?: string }> {
+): Promise<{ ideas?: RecipeIdea[]; error?: string; code?: ApiErrorCode; resetsAt?: string | null }> {
   let res: Response;
   try {
     res = await fetch(FUNCTION_URL, {
@@ -418,12 +423,8 @@ async function postIdeas(
     return { error: 'Network error — check your connection and try again.' };
   }
   if (!res.ok || !res.body) {
-    let message = `Something went wrong (HTTP ${res.status}).`;
-    try {
-      const body = await res.json();
-      if (body?.error) message = body.error;
-    } catch { /* keep default */ }
-    return { error: message };
+    const e = await readApiError(res);
+    return { error: e.message, code: e.code, resetsAt: e.resetsAt };
   }
   return readIdeasStream(res, onProgress);
 }
@@ -433,7 +434,7 @@ async function postIdeas(
 export async function readIdeasStream(
   res: Response,
   onProgress?: ProgressCallback,
-): Promise<{ ideas?: RecipeIdea[]; error?: string }> {
+): Promise<{ ideas?: RecipeIdea[]; error?: string; code?: ApiErrorCode; resetsAt?: string | null }> {
   const assembled = await readToolStreams(res, onProgress);
   if (assembled.error) return { error: assembled.error };
   const json = assembled.toolJson['suggest_recipe_ideas'] || assembled.toolJsonOpen['suggest_recipe_ideas'] || '';

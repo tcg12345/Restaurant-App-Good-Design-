@@ -52,6 +52,9 @@ import { cuisineLabel as placeCuisineLabel, labelForCuisineType } from '../lib/c
 import { useSettings } from '../contexts/SettingsContext';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../contexts/ToastContext';
+import { usePlan } from '../contexts/PlanContext';
+import { usePaywall } from '../contexts/PaywallContext';
+import { ProTag } from './pro/ProMark';
 import {
   formatLocationLabel,
   priceLevelToString,
@@ -1200,6 +1203,12 @@ export const LocationChat: React.FC<LocationChatProps> = ({
   // Model preference. Persisted in localStorage so the choice survives
   // reloads. 'auto' lets the server's heuristic pick per turn.
   const [model, setModel] = useState<ChatModelPref>(() => loadModelPref());
+  // Opus in the picker is a Pro feature (plan decision A2): a free caller
+  // sees it locked and a tap opens the paywall. The server downgrades a
+  // free Opus request anyway; this keeps the picker honest.
+  const planCtx = usePlan();
+  const { openPaywall, handleAiError } = usePaywall();
+  const opusLocked = planCtx.checked && !planCtx.isPro;
   const [modelMenuOpen, setModelMenuOpen] = useState(false);
   const modelMenuRef = useRef<HTMLDivElement>(null);
   useEffect(() => { saveModelPref(model); }, [model]);
@@ -2156,7 +2165,7 @@ export const LocationChat: React.FC<LocationChatProps> = ({
             modelCalledTools = toolUsesInThisTurn.length > 0;
             break;
           } else if (ev.type === 'error') {
-            setError(ev.message);
+            if (!handleAiError('assistant', ev)) setError(ev.message);
             setMessages((prev) => {
               const last = prev[prev.length - 1];
               if (last?.role === 'assistant' && last.blocks.length === 0) {
@@ -3043,12 +3052,17 @@ export const LocationChat: React.FC<LocationChatProps> = ({
                               role="option"
                               aria-selected={model === opt}
                               className={cn('lp-chat-model-opt', model === opt && 'is-selected')}
-                              onClick={() => { setModel(opt); setModelMenuOpen(false); }}
+                              onClick={() => {
+                                setModelMenuOpen(false);
+                                if (opt === 'claude-opus-4-8' && opusLocked) { openPaywall('gate:assistant-opus', 'assistant-opus'); return; }
+                                setModel(opt);
+                              }}
                             >
                               <div className="lp-chat-model-opt-text">
                                 <div className="lp-chat-model-opt-label">
                                   {opt === 'auto' && <Zap size={11} strokeWidth={2.4} />}
                                   <span>{MODEL_LABELS[opt]}</span>
+                                  {opt === 'claude-opus-4-8' && opusLocked && <ProTag locked />}
                                 </div>
                                 <div className="lp-chat-model-opt-sub">{MODEL_SUBLABELS[opt]}</div>
                               </div>

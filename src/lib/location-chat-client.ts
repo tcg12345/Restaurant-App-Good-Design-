@@ -5,7 +5,7 @@
 // Anthropic's standard Server-Sent Events into a more ergonomic local
 // event union.
 
-import { apiUrl, apiHeaders } from './api-base';
+import { apiUrl, apiHeaders, readApiError, type ApiErrorCode } from './api-base';
 
 /* ── Wire types (sent to the Edge Function) ───────────────────── */
 
@@ -140,7 +140,7 @@ export type StreamEvent =
   | { type: 'text_delta'; delta: string }
   | { type: 'tool_use'; id: string; name: string; input: unknown }
   | { type: 'done'; stopReason?: string }
-  | { type: 'error'; message: string };
+  | { type: 'error'; message: string; code?: ApiErrorCode; resetsAt?: string | null };
 
 /* ── Streaming consumer ───────────────────────────────────────── */
 
@@ -175,14 +175,8 @@ export async function* streamLocationChat(
   }
 
   if (!res.ok) {
-    let msg = `HTTP ${res.status}`;
-    try {
-      const errBody = await res.json();
-      msg = errBody?.error || msg;
-    } catch {
-      try { msg = (await res.text()).slice(0, 300) || msg; } catch { /* ignore */ }
-    }
-    yield { type: 'error', message: msg };
+    const e = await readApiError(res, `HTTP ${res.status}`);
+    yield { type: 'error', message: e.message, code: e.code, resetsAt: e.resetsAt };
     return;
   }
   if (!res.body) {

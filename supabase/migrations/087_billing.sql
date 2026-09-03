@@ -390,6 +390,19 @@ GRANT EXECUTE ON FUNCTION public.admin_grant_pro(UUID, TEXT, TIMESTAMPTZ) TO aut
 --   SELECT id, 'launch_30d', now() + INTERVAL '30 days' FROM auth.users
 --   ON CONFLICT DO NOTHING;
 
+-- ── Realtime ───────────────────────────────────────────────────────
+-- The client watches its own profile row so a purchase made on the web
+-- (or a webhook landing) shows up on the phone without a reload. RLS on
+-- user_profiles is world-readable anyway; the client filters to its row.
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_publication_tables WHERE pubname = 'supabase_realtime' AND schemaname = 'public' AND tablename = 'user_profiles') THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE public.user_profiles;
+  END IF;
+EXCEPTION WHEN undefined_object THEN
+  NULL;
+END $$;
+
 NOTIFY pgrst, 'reload schema';
 
 -- ── Verify ─────────────────────────────────────────────────────────

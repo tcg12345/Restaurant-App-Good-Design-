@@ -10,7 +10,7 @@
 import type { HomeMeal } from '../contexts/ListsContext';
 import { buildRecipeInputToHomeMeal } from './recipe-from-ai';
 import { readRecipeStream } from './build-recipe-client';
-import { apiUrl, apiHeaders } from './api-base';
+import { apiUrl, apiHeaders, readApiError, type ApiErrorCode } from './api-base';
 
 const FUNCTION_URL = apiUrl('import-recipe');
 
@@ -23,6 +23,9 @@ export interface ImportRecipeResult {
   ok: boolean;
   /** Present when ok — a HomeMeal seeded with the imported recipe. */
   meal?: HomeMeal;
+  /** Why the server refused, when it did (paywall routing). */
+  code?: ApiErrorCode;
+  resetsAt?: string | null;
   /** Present when !ok — a user-facing message. */
   error?: string;
 }
@@ -57,12 +60,8 @@ export async function importRecipe(
     return { ok: false, error: 'Network error — check your connection and try again.' };
   }
   if (!res.ok || !res.body) {
-    let message = `Something went wrong (HTTP ${res.status}).`;
-    try {
-      const body = await res.json();
-      if (body?.error) message = body.error;
-    } catch { /* keep default */ }
-    return { ok: false, error: message };
+    const e = await readApiError(res);
+    return { ok: false, error: e.message, code: e.code, resetsAt: e.resetsAt };
   }
 
   const { recipe, declineReason, error } = await readRecipeStream(res);

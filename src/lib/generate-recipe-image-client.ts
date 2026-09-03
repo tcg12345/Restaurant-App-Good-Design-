@@ -4,7 +4,7 @@
 // cover-photo plumbing (onCoverPhotoChange) — exactly like an upload.
 
 import type { HomeMeal } from '../contexts/ListsContext';
-import { apiUrl, apiHeaders } from './api-base';
+import { apiUrl, apiHeaders, readApiError, type ApiErrorCode } from './api-base';
 
 const FUNCTION_URL = apiUrl('generate-recipe-image');
 
@@ -14,6 +14,9 @@ export interface GenerateImageResult {
   dataUrl?: string;
   /** Present when !ok — a user-facing error message. */
   error?: string;
+  /** Why the server refused, when it did (paywall routing). */
+  code?: ApiErrorCode;
+  resetsAt?: string | null;
 }
 
 /** Compact recipe view handed to the image function — just enough for it to
@@ -117,12 +120,8 @@ export async function generateRecipeImage(
     return { ok: false, error: 'Network error — check your connection and try again.' };
   }
   if (!res.ok || !res.body) {
-    let message = `Something went wrong (HTTP ${res.status}).`;
-    try {
-      const body = await res.json();
-      if (body?.error) message = body.error;
-    } catch { /* keep default */ }
-    return { ok: false, error: message };
+    const e = await readApiError(res);
+    return { ok: false, error: e.message, code: e.code, resetsAt: e.resetsAt };
   }
 
   const { b64_json, error } = await readImageStream(res);

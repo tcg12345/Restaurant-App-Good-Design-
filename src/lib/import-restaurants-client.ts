@@ -9,7 +9,7 @@
 // block. When the screenshots contain no restaurant list the model
 // declines (decline_change) — surfaced here as a friendly error.
 
-import { apiUrl, apiHeaders } from './api-base';
+import { apiUrl, apiHeaders, readApiError, type ApiErrorCode } from './api-base';
 
 const FUNCTION_URL = apiUrl('import-restaurants');
 
@@ -25,6 +25,9 @@ export interface ExtractedRestaurant {
 }
 
 export interface ImportRestaurantsResult {
+  /** Why the server refused, when it did (paywall routing). */
+  code?: ApiErrorCode;
+  resetsAt?: string | null;
   ok: boolean;
   /** Present when ok — the transcribed list entries, in screenshot order. */
   restaurants?: ExtractedRestaurant[];
@@ -180,14 +183,10 @@ export async function extractRestaurantsFromScreenshots(
     return { ok: false, error: 'Network error — check your connection and try again.', retryable: true };
   }
   if (!res.ok || !res.body) {
-    let message = `Something went wrong (HTTP ${res.status}).`;
-    try {
-      const body = await res.json();
-      if (body?.error) message = body.error;
-    } catch { /* keep default */ }
-    // 5xx is transient; 4xx (auth, rate limit, bad request) won't improve
+    const e = await readApiError(res);
+    // 5xx is transient; 4xx (auth, allowance, bad request) won't improve
     // on an immediate retry.
-    return { ok: false, error: message, retryable: res.status >= 500 };
+    return { ok: false, error: e.message, code: e.code, resetsAt: e.resetsAt, retryable: res.status >= 500 };
   }
 
   // ── SSE tool-call accumulator (mirrors readRecipeStream) ──

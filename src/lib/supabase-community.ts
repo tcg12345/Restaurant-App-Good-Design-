@@ -529,6 +529,16 @@ export interface UserProfile {
    *  same `photos` bucket as every other user image. Null/absent means the
    *  generated monogram is the avatar — see components/Avatar.tsx. */
   avatar_url?: string | null;
+  /** GoodEats Pro (migration 087). Readable here like any column; never
+   *  written by the client — the guard trigger reverts it. The client
+   *  reads plan state through get_plan_context() (PlanContext), which
+   *  also knows about grants and whether the gates are on. */
+  plan?: 'free' | 'pro';
+  pro_until?: string | null;
+  pro_source?: string | null;
+  pro_will_renew?: boolean | null;
+  /** The profile row's updated_at, so a refresh can be noticed cheaply. */
+  updated_at?: string | null;
 }
 
 /** Optional home-base extras for {@link saveProfile}. Pass any subset; only

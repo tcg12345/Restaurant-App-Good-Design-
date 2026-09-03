@@ -24,6 +24,7 @@ import {
   Lightbulb,
 } from 'lucide-react';
 import { cn } from '../lib/utils';
+import { usePaywall } from '../contexts/PaywallContext';
 import {
   generateRecipe, generateRecipeIdeas, combineRecipes,
   type RecipeConstraints, type RecipeIdea,
@@ -255,6 +256,7 @@ export const AiRecipeGenerator: React.FC<AiRecipeGeneratorProps> = ({
   const [combineNotes, setCombineNotes] = useState('');
   const [combining, setCombining] = useState(false);
   const navigate = useNavigate();
+  const { handleAiError } = usePaywall();
 
   useEffect(() => {
     // Desktop only — auto-focusing on phone pops the keyboard the instant
@@ -356,7 +358,7 @@ export const AiRecipeGenerator: React.FC<AiRecipeGeneratorProps> = ({
       if (result.ok && result.meal) {
         finishProgress('recipe');
         onGenerated(result.meal, { prompt: describeRequest() || finalPrompt, rawInput: result.recipe });
-      } else {
+      } else if (!handleAiError('recipe-generate', result)) {
         setError(result.error || 'Something went wrong. Try again.');
       }
     } catch (err) {
@@ -404,7 +406,7 @@ export const AiRecipeGenerator: React.FC<AiRecipeGeneratorProps> = ({
     abortRef.current = null;
     setIdeasLoading(false);
     if (!res.ok || !res.ideas) {
-      setError(res.error || 'Something went wrong. Try again.');
+      if (!handleAiError('recipe-ideas', res)) setError(res.error || 'Something went wrong. Try again.');
       return;
     }
     finishProgress('ideas');
@@ -454,7 +456,7 @@ export const AiRecipeGenerator: React.FC<AiRecipeGeneratorProps> = ({
       if (result.ok && result.meal) {
         finishProgress('recipe');
         onGenerated(result.meal, { prompt: idea.title, rawInput: result.recipe });
-      } else {
+      } else if (!handleAiError('recipe-generate', result)) {
         setError(result.error || 'Something went wrong. Try again.');
       }
     } catch (err) {
@@ -498,7 +500,7 @@ export const AiRecipeGenerator: React.FC<AiRecipeGeneratorProps> = ({
           prompt: `Combined: ${chosen.map((c) => c.title).join(' + ')}`,
           rawInput: result.recipe,
         });
-      } else {
+      } else if (!handleAiError('recipe-combine', result)) {
         setError(result.error || 'Something went wrong. Try again.');
       }
     } catch (err) {
