@@ -6,6 +6,7 @@
 
 import type { HomeMeal, CombinedFromRef } from '../contexts/ListsContext';
 import { buildRecipeInputToHomeMeal, mergeRecipeEdit, type BuildRecipeInput } from './recipe-from-ai';
+import { normalizeNutrition, nutritionForModel, type RecipeNutrition } from './nutrition';
 import { apiUrl, apiHeaders, readApiError, type ApiErrorCode } from './api-base';
 
 const FUNCTION_URL = apiUrl('build-recipe');
@@ -74,7 +75,7 @@ export interface IngredientEditResult extends GenerateRecipeResult {
 export async function readRecipeStream(
   res: Response,
   onProgress?: ProgressCallback,
-): Promise<{ recipe?: BuildRecipeInput; declineReason?: string; error?: string; code?: ApiErrorCode; resetsAt?: string | null }> {
+): Promise<{ recipe?: BuildRecipeInput; declineReason?: string; nutrition?: unknown; error?: string; code?: ApiErrorCode; resetsAt?: string | null }> {
   const assembled = await readToolStreams(res, onProgress);
   if (assembled.error) return { error: assembled.error };
   const { toolJson, toolJsonOpen, stopReason } = assembled;
@@ -89,6 +90,12 @@ export async function readRecipeStream(
     } catch {
       return { declineReason: "That change would compromise the recipe, so I left it as is." };
     }
+  }
+
+  // The nutrition-estimate mode answers with its own small tool.
+  const nutritionJson = toolJson['estimate_nutrition'] || toolJsonOpen['estimate_nutrition'];
+  if (nutritionJson) {
+    try { return { nutrition: JSON.parse(nutritionJson) as unknown }; } catch { return { error: "I couldn't work out the nutrition for this one. Try again." }; }
   }
 
   const recipeJson = toolJson['build_recipe'] || toolJsonOpen['build_recipe'] || '';
@@ -206,7 +213,7 @@ async function postRecipe(
   payload: Record<string, unknown>,
   signal?: AbortSignal,
   onProgress?: ProgressCallback,
-): Promise<{ recipe?: BuildRecipeInput; declineReason?: string; error?: string; code?: ApiErrorCode; resetsAt?: string | null }> {
+): Promise<{ recipe?: BuildRecipeInput; declineReason?: string; nutrition?: unknown; error?: string; code?: ApiErrorCode; resetsAt?: string | null }> {
   let res: Response;
   try {
     res = await fetch(FUNCTION_URL, {
@@ -281,7 +288,29 @@ export function homeMealToBuildInput(meal: HomeMeal): BuildRecipeInput {
     equipment: meal.equipment,
     tags: meal.tags,
     notes: meal.notes,
+    nutrition: nutritionForModel(meal.nutrition),
   };
+}
+
+export interface NutritionEstimateResult {
+  ok: boolean;
+  nutrition?: RecipeNutrition;
+  error?: string;
+  code?: ApiErrorCode;
+  resetsAt?: string | null;
+}
+
+/**
+ * Estimate per-serving nutrition for a recipe that has none — hand-written
+ * ones, older imports. Pro only (the server refuses otherwise). Never
+ * throws.
+ */
+export async function estimateNutrition(meal: HomeMeal, signal?: AbortSignal): Promise<NutritionEstimateResult> {
+  const { nutrition, error, code, resetsAt } = await postRecipe({ nutritionFor: homeMealToBuildInput(meal) }, signal);
+  if (error) return { ok: false, error, code, resetsAt };
+  const clean = normalizeNutrition(nutrition, 'ai');
+  if (!clean) return { ok: false, error: "I couldn't work out the nutrition for this one. Try again." };
+  return { ok: true, nutrition: clean };
 }
 
 /**

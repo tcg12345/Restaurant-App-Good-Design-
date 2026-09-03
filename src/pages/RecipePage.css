@@ -3508,3 +3508,56 @@
 }
 .rd-combine-progress p { font-size: 13px; font-weight: 600; opacity: 0.7; }
 .rd-combine-progress span { font-size: 11px; opacity: 0.5; font-variant-numeric: tabular-nums; }
+
+/* ============ NUTRITION (Pro) ============ */
+.recipe-detail-page .rd-nutrition {
+  max-width: 1320px;
+  margin: 48px auto 0;
+  padding: 0 32px;
+}
+.recipe-detail-page .rd-nutrition .rd-section-head { margin-bottom: 14px; align-items: center; }
+.recipe-detail-page .rd-nutri-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 20px 22px;
+  max-width: 560px;
+}
+.recipe-detail-page .rd-nutri-main { display: flex; align-items: center; gap: 28px; }
+.recipe-detail-page .rd-nutri-cal { display: flex; align-items: baseline; gap: 5px; flex: none; }
+.recipe-detail-page .rd-nutri-cal-n {
+  font-family: var(--serif);
+  font-size: 44px;
+  font-weight: 600;
+  letter-spacing: -0.03em;
+  line-height: 1;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+.recipe-detail-page .rd-nutri-cal-u { font-size: 12px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-3, var(--ink-2)); }
+.recipe-detail-page .rd-nutri-macros { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; flex: 1; min-width: 0; }
+.recipe-detail-page .rd-nutri-cell { display: flex; flex-direction: column; gap: 3px; padding-left: 12px; border-left: 1px solid var(--border); }
+.recipe-detail-page .rd-nutri-cell-n { font-size: 20px; font-weight: 700; letter-spacing: -0.02em; color: var(--ink); font-variant-numeric: tabular-nums; }
+.recipe-detail-page .rd-nutri-cell-n em { font-style: normal; font-size: 12px; font-weight: 600; color: var(--ink-3, var(--ink-2)); margin-left: 1px; }
+.recipe-detail-page .rd-nutri-cell-l { font-size: 11px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-3, var(--ink-2)); }
+.recipe-detail-page .rd-nutri-extras { display: flex; flex-wrap: wrap; gap: 6px 18px; margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--border); font-size: 13px; color: var(--ink-2); }
+.recipe-detail-page .rd-nutri-extras b { font-weight: 700; color: var(--ink); font-variant-numeric: tabular-nums; }
+.recipe-detail-page .rd-nutri-source { margin: 12px 0 0; font-size: 12px; color: var(--ink-3, var(--ink-2)); }
+.recipe-detail-page .rd-nutri-empty { max-width: 560px; }
+.recipe-detail-page .rd-nutri-empty p { margin: 0 0 12px; font-family: var(--serif); font-size: 14.5px; line-height: 1.55; color: var(--ink-2); }
+.recipe-detail-page .rd-nutri-cta {
+  display: inline-flex; align-items: center; gap: 8px;
+  height: 40px; padding: 0 16px; border-radius: 999px;
+  border: 1px solid var(--border); background: var(--surface); color: var(--ink);
+  font-size: 13px; font-weight: 700; cursor: pointer;
+}
+.recipe-detail-page .rd-nutri-cta:disabled { opacity: 0.6; cursor: default; }
+.recipe-detail-page .rd-nutri-error { margin: 10px 0 0 !important; color: #b4231b !important; font-family: inherit !important; font-size: 12.5px !important; }
+@keyframes rd-nutri-spin { to { transform: rotate(360deg); } }
+.recipe-detail-page .rd-nutri-spin { animation: rd-nutri-spin 0.9s linear infinite; }
+@media (max-width: 768px) {
+  .recipe-detail-page .rd-nutrition { padding: 0 16px; margin-top: 32px; }
+  .recipe-detail-page .rd-nutri-main { gap: 18px; }
+  .recipe-detail-page .rd-nutri-cal-n { font-size: 38px; }
+  .recipe-detail-page .rd-nutri-cell-n { font-size: 17px; }
+}

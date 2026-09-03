@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useCallback, useEffect, useMemo, useRef, type ReactNode } from 'react';
 import { supabaseConfigured } from '../lib/supabase';
+import type { RecipeNutrition } from '../lib/nutrition';
 import { getRestaurantCuisineBatch, getRestaurantCuisine, publishRestaurantCuisine, PERSIST_CONFIDENCE_FLOOR } from '../lib/restaurant-cuisine';
 import { lookupCuisines } from '../lib/cuisine-lookup';
 import { isUnknownCuisine } from '../lib/cuisine';
@@ -378,6 +379,10 @@ export interface HomeMeal {
   /** Which builder produced this meal. Used to force-route edits back
    *  to the Advanced tab so rich fields can round-trip safely. */
   builderVersion?: 'basic' | 'advanced';
+  /** Per-serving nutrition (Pro feature): an estimate from the AI
+   *  builder, the source page of an import, or an estimate asked for on
+   *  the recipe page. Absent when nobody has worked it out yet. */
+  nutrition?: RecipeNutrition;
   /** True when this recipe was drafted by the "Create with AI" generator
    *  (chat or Add Recipe modal). Drives the "Created with AI" note on the
    *  recipe page. Stays set after the user edits + publishes the draft. */

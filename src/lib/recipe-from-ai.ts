@@ -7,6 +7,7 @@
 // hydrate from and that `createHomeMeal` can persist directly.
 
 import { localISODate } from './utils';
+import { normalizeNutrition } from './nutrition';
 import type {
   HomeMeal,
   RecipeIngredient,
@@ -42,6 +43,9 @@ export interface BuildRecipeInput {
   equipment?: string[];
   tags?: string[];
   notes?: RecipeNote[];
+  /** Per-serving estimate: calories (kcal), protein / carbs / fat (g),
+   *  optional fiber / sugar (g) and sodium (mg). */
+  nutrition?: { calories?: number; protein?: number; carbs?: number; fat?: number; fiber?: number; sugar?: number; sodium?: number };
 }
 
 /** Coerce any AI-emitted scalar to a trimmed string. Models sometimes emit
@@ -168,6 +172,7 @@ export function buildRecipeInputToHomeMeal(input: BuildRecipeInput): HomeMeal | 
     notes: Array.isArray(input.notes)
       ? input.notes.filter((n) => n && typeof n.text === 'string' && n.text.trim() && ['tip', 'makeAhead', 'substitution', 'general'].includes(n.type))
       : [],
+    nutrition: normalizeNutrition(input.nutrition, 'ai') ?? undefined,
     builderVersion: 'advanced',
     createdWithAi: true,
     coverPhoto: undefined,
@@ -209,6 +214,9 @@ export function mergeRecipeEdit(current: HomeMeal, input: BuildRecipeInput): Hom
       : undefined;
   }
   if (has('difficulty')) out.difficulty = input.difficulty;
+  // A revised recipe carries revised numbers; a reply without them keeps
+  // what the recipe already had.
+  if (has('nutrition')) out.nutrition = normalizeNutrition(input.nutrition, current.nutrition?.source ?? 'ai') ?? current.nutrition;
   if (has('prepTime')) {
     out.prepTime = typeof input.prepTime === 'number' && input.prepTime >= 0
       ? input.prepTime
