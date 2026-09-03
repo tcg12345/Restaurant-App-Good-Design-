@@ -9,6 +9,7 @@ import { cn } from '../../lib/utils';
 import { useAuth } from '../../contexts/AuthContext';
 import { useToast } from '../../contexts/ToastContext';
 import { useSharedLists } from '../../contexts/SharedListsContext';
+import { usePaywall } from '../../contexts/PaywallContext';
 import { GroupPicker } from '../GroupPicker';
 import { Avatar } from '../Avatar';
 import type { UserProfile } from '../../lib/supabase-community';
@@ -28,6 +29,7 @@ export const SharedListMembersSheet: React.FC<{
   const { showToast } = useToast();
   const { update, remove, leave } = useSharedLists();
   const isOwner = user?.id === list.ownerId;
+  const { requirePro } = usePaywall();
   const [name, setName] = useState(list.name);
   const [emoji, setEmoji] = useState(list.emoji);
   const [mode, setMode] = useState<SharedRatingMode>(list.ratingMode);
@@ -95,7 +97,7 @@ export const SharedListMembersSheet: React.FC<{
           <div className="flex items-center justify-between mb-2">
             <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-on-surface/35">Members</p>
             {isOwner && (
-              <button type="button" onClick={() => setPickerOpen(true)} className="inline-flex items-center gap-1.5 rounded-full bg-on-surface/[0.06] text-on-surface px-3 py-2 active:opacity-70 transition-opacity" style={{ fontSize: '11.5px', fontWeight: 700 }}>
+              <button type="button" onClick={() => { if (requirePro('shared-lists', { onUnlocked: () => setPickerOpen(true) })) setPickerOpen(true); }} className="inline-flex items-center gap-1.5 rounded-full bg-on-surface/[0.06] text-on-surface px-3 py-2 active:opacity-70 transition-opacity" style={{ fontSize: '11.5px', fontWeight: 700 }}>
                 <UserPlus size={12} /> Add friends
               </button>
             )}

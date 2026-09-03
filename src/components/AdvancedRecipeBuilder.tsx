@@ -20,6 +20,7 @@ import { ArrowRight, ArrowLeft, Check, X, Sparkles, Loader2, AlertCircle } from 
 import { useAuth } from '../contexts/AuthContext';
 import { useSettings } from '../contexts/SettingsContext';
 import { useToast } from '../contexts/ToastContext';
+import { usePaywall } from '../contexts/PaywallContext';
 import {
   useLists,
   type HomeMeal,
@@ -676,6 +677,7 @@ export const AdvancedRecipeBuilder: React.FC<AdvancedRecipeBuilderProps> = ({ ex
   const aiEditInputRef = useRef<HTMLTextAreaElement>(null);
   const aiEditAbortRef = useRef<AbortController | null>(null);
   const toast = useToast();
+  const { handleAiError } = usePaywall();
 
   const key = useMemo(() => resumeSlotKey(userId, existing?.id || null, !!seed), [userId, existing?.id, seed]);
   const saveTimerRef = useRef<number | null>(null);
@@ -849,10 +851,10 @@ export const AdvancedRecipeBuilder: React.FC<AdvancedRecipeBuilderProps> = ({ ex
         subtitle: 'Review the changes, then publish when you’re happy.',
         variant: 'success',
       });
-    } else {
+    } else if (!handleAiError('recipe-generate', res)) {
       setAiEditError(res.error || 'Couldn’t apply that. Try rephrasing.');
     }
-  }, [aiEditText, aiEditBusy, state, existing, seed, toast]);
+  }, [aiEditText, aiEditBusy, state, existing, seed, toast, handleAiError]);
 
   // Focus the composer when it opens; abort any in-flight refine on unmount.
   useEffect(() => {

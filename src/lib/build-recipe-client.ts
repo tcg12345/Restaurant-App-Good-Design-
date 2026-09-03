@@ -243,8 +243,8 @@ export async function generateRecipe(
   if (options?.constraints && Object.keys(options.constraints).length > 0) {
     payload.constraints = options.constraints;
   }
-  const { recipe, error } = await postRecipe(payload, signal, options?.onProgress);
-  if (error) return { ok: false, error };
+  const { recipe, error, code, resetsAt } = await postRecipe(payload, signal, options?.onProgress);
+  if (error) return { ok: false, error, code, resetsAt };
   const meal = recipe ? buildRecipeInputToHomeMeal(recipe) : null;
   if (!meal) return { ok: false, error: "I couldn't generate that recipe. Try rephrasing your request." };
   return { ok: true, meal, recipe };
@@ -295,11 +295,11 @@ export async function refineRecipe(
   instruction: string,
   signal?: AbortSignal,
 ): Promise<GenerateRecipeResult> {
-  const { recipe, error } = await postRecipe(
+  const { recipe, error, code, resetsAt } = await postRecipe(
     { instruction, current: homeMealToBuildInput(current) },
     signal,
   );
-  if (error) return { ok: false, error };
+  if (error) return { ok: false, error, code, resetsAt };
   if (!recipe) return { ok: false, error: "I couldn't update that recipe. Try rephrasing." };
   // The model returns the full revised recipe — merge over the current
   // meal so identity-bearing fields (id, coverPhoto, photos) survive.
@@ -319,7 +319,7 @@ export async function editRecipeIngredient(
   edit: IngredientEdit,
   signal?: AbortSignal,
 ): Promise<IngredientEditResult> {
-  const { recipe, declineReason, error } = await postRecipe(
+  const { recipe, declineReason, error, code, resetsAt } = await postRecipe(
     {
       ingredientEdit: {
         action: edit.action,
@@ -330,7 +330,7 @@ export async function editRecipeIngredient(
     },
     signal,
   );
-  if (error) return { ok: false, error };
+  if (error) return { ok: false, error, code, resetsAt };
   if (declineReason) return { ok: false, declined: true, declineReason };
   if (!recipe) return { ok: false, error: "I couldn't update that recipe. Try again." };
   const meal = mergeRecipeEdit(current, recipe);
@@ -399,7 +399,7 @@ export async function generateRecipeIdeas(
   if (opts?.constraints && Object.keys(opts.constraints).length > 0) payload.constraints = opts.constraints;
   if (opts?.avoidTitles && opts.avoidTitles.length > 0) payload.avoidTitles = opts.avoidTitles.slice(-40);
   const parsed = await postIdeas(payload, opts?.signal, opts?.onProgress);
-  if (parsed.error) return { ok: false, error: parsed.error };
+  if (parsed.error) return { ok: false, error: parsed.error, code: parsed.code, resetsAt: parsed.resetsAt };
   return { ok: true, ideas: parsed.ideas };
 }
 
@@ -485,8 +485,8 @@ export async function combineRecipes(
   };
   if (opts?.difficulty) payload.difficulty = opts.difficulty;
   if (opts?.constraints && Object.keys(opts.constraints).length > 0) payload.constraints = opts.constraints;
-  const { recipe, error } = await postRecipe(payload, opts?.signal, opts?.onProgress);
-  if (error) return { ok: false, error };
+  const { recipe, error, code, resetsAt } = await postRecipe(payload, opts?.signal, opts?.onProgress);
+  if (error) return { ok: false, error, code, resetsAt };
   const meal = recipe ? buildRecipeInputToHomeMeal(recipe) : null;
   if (!meal) return { ok: false, error: "I couldn't combine those. Try rephrasing what you want from each." };
   const refs = sources

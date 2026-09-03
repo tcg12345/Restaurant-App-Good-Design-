@@ -2686,3 +2686,7 @@
    white in dark mode leaves the (now light) ink color unreadable on it. */
 .dark .rcxa-combine-notes:focus { background: #2d2d30; }
 .dark .rcxa-cancel:hover { background: transparent; }
+
+/* ── Pro allowance meters (QuotaMeter) — quiet until the last two ── */
+.rcxa-meter { align-self: flex-start; }
+.rcx-foot-meter { flex: none; }

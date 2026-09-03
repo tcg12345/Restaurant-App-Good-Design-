@@ -55,6 +55,7 @@ import { useToast } from '../contexts/ToastContext';
 import { usePlan } from '../contexts/PlanContext';
 import { usePaywall } from '../contexts/PaywallContext';
 import { ProTag } from './pro/ProMark';
+import { QuotaMeter } from './pro/QuotaMeter';
 import {
   formatLocationLabel,
   priceLevelToString,
@@ -1207,7 +1208,7 @@ export const LocationChat: React.FC<LocationChatProps> = ({
   // sees it locked and a tap opens the paywall. The server downgrades a
   // free Opus request anyway; this keeps the picker honest.
   const planCtx = usePlan();
-  const { openPaywall, handleAiError } = usePaywall();
+  const { openPaywall, handleAiError, requirePro } = usePaywall();
   const opusLocked = planCtx.checked && !planCtx.isPro;
   const [modelMenuOpen, setModelMenuOpen] = useState(false);
   const modelMenuRef = useRef<HTMLDivElement>(null);
@@ -1881,11 +1882,12 @@ export const LocationChat: React.FC<LocationChatProps> = ({
   // patches the block in place — both the draft (so the sheet + card
   // refresh) and the rawInput (so the chat conversation round-trips
   // the latest version back to the model).
-  const handleRefineDraft = useCallback(async (instruction: string): Promise<{ ok: boolean; error?: string }> => {
+  const handleRefineDraft = useCallback(async (instruction: string): Promise<{ ok: boolean; error?: string; handled?: boolean }> => {
     if (!openDraftToolUseId) return { ok: false, error: 'No recipe to refine.' };
     const current = openDraftBlock?.draft;
     if (!current) return { ok: false, error: 'No recipe to refine.' };
     const res = await refineRecipe(current, instruction);
+    if (!res.ok && handleAiError('recipe-generate', res)) return { ok: false, handled: true };
     if (res.ok && res.meal) {
       patchDraftBlock(openDraftToolUseId, (b) => ({
         ...b,
@@ -1895,7 +1897,7 @@ export const LocationChat: React.FC<LocationChatProps> = ({
       return { ok: true };
     }
     return { ok: false, error: res.error };
-  }, [openDraftToolUseId, openDraftBlock, patchDraftBlock]);
+  }, [openDraftToolUseId, openDraftBlock, patchDraftBlock, handleAiError]);
 
   // Remove or substitute one ingredient in the open draft. Patches both the
   // draft and the rawInput (like a refine) so the conversation round-trips
@@ -1906,6 +1908,7 @@ export const LocationChat: React.FC<LocationChatProps> = ({
     const current = openDraftBlock?.draft;
     if (!current) return { ok: false, error: 'No recipe to update.' };
     const res = await editRecipeIngredient(current, edit);
+    if (!res.ok && !res.declined) handleAiError('recipe-generate', res);
     if (res.ok && res.meal) {
       patchDraftBlock(openDraftToolUseId, (b) => ({
         ...b,
@@ -1914,16 +1917,19 @@ export const LocationChat: React.FC<LocationChatProps> = ({
       }));
     }
     return res;
-  }, [openDraftToolUseId, openDraftBlock, patchDraftBlock]);
+  }, [openDraftToolUseId, openDraftBlock, patchDraftBlock, handleAiError]);
 
   // Generate an AI hero photo of the finished dish for the open draft. The
   // preview sheet compresses the result and applies it through
   // handleCoverPhotoChange (same path as an uploaded cover photo).
-  const handleGenerateDraftImage = useCallback(async (): Promise<{ ok: boolean; dataUrl?: string; error?: string }> => {
+  const handleGenerateDraftImage = useCallback(async (): Promise<{ ok: boolean; dataUrl?: string; error?: string; handled?: boolean }> => {
     const current = openDraftBlock?.draft;
     if (!current) return { ok: false, error: 'No recipe to picture yet.' };
-    return generateRecipeImage(current);
-  }, [openDraftBlock]);
+    if (!requirePro('recipe-image')) return { ok: false, handled: true };
+    const res = await generateRecipeImage(current);
+    if (!res.ok && handleAiError('recipe-image', res)) return { ok: false, handled: true };
+    return res;
+  }, [openDraftBlock, requirePro, handleAiError]);
 
   const handleDeleteDraft = useCallback(() => {
     if (!openDraftToolUseId) return;
@@ -2162,6 +2168,8 @@ export const LocationChat: React.FC<LocationChatProps> = ({
             }
           } else if (ev.type === 'done') {
             streamReachedDone = true;
+            // The allowance moved; let the meter catch up.
+            if (planCtx.checked && !planCtx.isPro) void planCtx.refreshQuota();
             modelCalledTools = toolUsesInThisTurn.length > 0;
             break;
           } else if (ev.type === 'error') {
@@ -3344,6 +3352,9 @@ export const LocationChat: React.FC<LocationChatProps> = ({
                   </button>
                 </div>
               )}
+              {/* 10 messages an hour on the free plan; the meter only
+                  appears for the last two. */}
+              <QuotaMeter feature="assistant" className="lp-chat-meter" />
               <div className="lp-chat-composer">
                 {/* The shortcut. People come to this chat to ask where to
                     eat; this is that ask without the conversation, and the

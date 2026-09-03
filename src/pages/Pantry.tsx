@@ -6,6 +6,7 @@ import { ShareIcon } from '../components/icons/ShareIcon';
 import { ShareDialog } from '../components/ShareDialog';
 import type { SharedRecipe } from '../contexts/ChatContext';
 import { cn, localISODate } from '../lib/utils';
+import { usePaywall } from '../contexts/PaywallContext';
 import { moveWithinCustomOrder } from '../lib/customOrder';
 import { MAPBOX_TOKEN } from '../lib/keys';
 import { processPhoto } from '../lib/images';
@@ -5729,6 +5730,12 @@ export const Pantry: React.FC = () => {
   const { sharedLists, entriesFor: sharedEntriesFor } = useSharedLists();
   const [selectedSharedId, setSelectedSharedId] = useState<string | null>(null);
   const [createSharedOpen, setCreateSharedOpen] = useState(false);
+  const { requirePro } = usePaywall();
+  // Shared lists: the owner needs Pro, the people they invite don't.
+  const openCreateShared = () => {
+    if (!requirePro('shared-lists', { onUnlocked: () => setCreateSharedOpen(true) })) return;
+    setCreateSharedOpen(true);
+  };
   const selectedShared = selectedSharedId ? (sharedLists.find((l) => l.id === selectedSharedId) ?? null) : null;
   // Lifted out of HomeCookingTab / ListDetailView so the page header's
   // cuisine rows and ⋯ menu can drive them.
@@ -6442,7 +6449,7 @@ export const Pantry: React.FC = () => {
             icon: <span className="text-base leading-none">{l.emoji}</span>,
             onSelect: () => switchToSharedList(l),
           })),
-          { id: 'shared:new', name: 'New shared list', meta: 'Keep a list with friends', icon: <Users size={17} />, onSelect: () => { setListDrawerOpen(false); setCreateSharedOpen(true); } },
+          { id: 'shared:new', name: 'New shared list', meta: 'Keep a list with friends', icon: <Users size={17} />, onSelect: () => { setListDrawerOpen(false); openCreateShared(); } },
         ] },
         { label: 'By cuisine', items: restaurantCuisineStats.map((c) => ({
           id: cuisineViewId(c.name), name: c.name,
@@ -6598,7 +6605,7 @@ export const Pantry: React.FC = () => {
                         ))}
                         <button
                           type="button"
-                          onClick={() => { setListSwitcherOpen(false); setCreateSharedOpen(true); }}
+                          onClick={() => { setListSwitcherOpen(false); openCreateShared(); }}
                           className="w-full flex items-center gap-2.5 px-4 py-2 text-[13px] font-semibold text-primary hover:bg-primary/[0.06] transition-colors"
                         >
                           <Users size={14} />

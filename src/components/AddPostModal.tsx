@@ -25,6 +25,9 @@ import { useNavigate } from 'react-router-dom';
 import { AnimatePresence, motion } from 'motion/react';
 import { X, ChefHat, MapPin, Check, Music2, Trash2, AlertCircle, Loader2, Globe, Users as UsersIcon, Plus, Image as ImageIcon, Video as VideoIcon, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, Link2 } from 'lucide-react';
 import { cn } from '../lib/utils';
+import { POST_FREE_MAX_ITEMS } from '../lib/supabase-posts';
+import { usePlan } from '../contexts/PlanContext';
+import { usePaywall } from '../contexts/PaywallContext';
 import {
   usePosts,
   readVideoDuration,
@@ -181,6 +184,16 @@ export const AddPostModal: React.FC = () => {
   const goToStep = (next: Step) => setStep(next);
 
   const [items, setItems] = useState<WorkingItem[]>([]);
+  // 10 items on the free plan, 15 on Pro. Hitting the free cap is an
+  // invitation, not an error.
+  const planCtx = usePlan();
+  const { openPaywall } = usePaywall();
+  const maxItems = planCtx.checked && !planCtx.isPro ? POST_FREE_MAX_ITEMS : POST_MAX_ITEMS;
+  const nudgeBiggerPosts = (): boolean => {
+    if (maxItems >= POST_MAX_ITEMS) return false;
+    openPaywall('cap:post-items', 'post-items', { reason: `Posts hold ${POST_FREE_MAX_ITEMS} items on the free plan, ${POST_MAX_ITEMS} with Pro.` });
+    return true;
+  };
   // Latest items for the cleanup paths that can't read state directly: the
   // unmount effect's [] closure, and the open-reset effect, which must
   // revoke the PREVIOUS session's previews before replacing them.
@@ -486,14 +499,14 @@ export const AddPostModal: React.FC = () => {
     setValidationMsg(null);
     setErrorMsg(null);
 
-    const room = POST_MAX_ITEMS - items.length;
+    const room = maxItems - items.length;
     if (room <= 0) {
-      setValidationMsg(`A post can have at most ${POST_MAX_ITEMS} items.`);
+      if (!nudgeBiggerPosts()) setValidationMsg(`A post can have at most ${maxItems} items.`);
       return 0;
     }
     const trimmed = incoming.slice(0, room);
     if (incoming.length > room) {
-      setValidationMsg(`Only added the first ${room} — posts cap at ${POST_MAX_ITEMS} items.`);
+      if (!nudgeBiggerPosts()) setValidationMsg(`Only added the first ${room} — posts cap at ${maxItems} items.`);
     }
 
     const accepted: WorkingItem[] = [];
@@ -549,8 +562,8 @@ export const AddPostModal: React.FC = () => {
         next.splice(idx, 1);
         return next;
       }
-      if (prev.length >= POST_MAX_ITEMS) {
-        setValidationMsg(`A post can have at most ${POST_MAX_ITEMS} items.`);
+      if (prev.length >= maxItems) {
+        if (!nudgeBiggerPosts()) setValidationMsg(`A post can have at most ${maxItems} items.`);
         return prev;
       }
       setValidationMsg(null);

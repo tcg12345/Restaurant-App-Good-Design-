@@ -3311,3 +3311,6 @@ html.kb-open .lp-chat-island.is-phone .lp-chat-foot {
   color: var(--accent);
   opacity: 1;
 }
+
+/* The assistant's allowance meter (QuotaMeter), above the composer. */
+.lp-chat-meter { align-self: flex-start; margin: 0 16px 8px; }

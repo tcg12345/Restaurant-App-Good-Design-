@@ -27,6 +27,9 @@ import { useToast } from '../contexts/ToastContext';
 import { GlassButton, GlassGroup } from '../lib/glass-buttons';
 import { useAskAssistantAbout } from '../contexts/AssistantContext';
 import { useSettings } from '../contexts/SettingsContext';
+import { usePaywall } from '../contexts/PaywallContext';
+import { usePlan } from '../contexts/PlanContext';
+import { ProTag } from '../components/pro/ProMark';
 import { useLists, recipeToHomeMeal, DEFAULT_COOKED_ID, type HomeMeal, type LinkedRecipeRef, type PhotoItem, type CombinedFromRef} from '../contexts/ListsContext';
 import { compressImage } from '../lib/media-compress';
 import { useRecipes, type Recipe, type RecipeIngredient, type RecipeReview } from '../contexts/RecipesContext';
@@ -716,6 +719,9 @@ export const RecipePage: React.FC = () => {
   const { user } = useAuth();
   const currentUserId = user?.id ?? null;
   const { phoneMode } = useSettings();
+  const { requirePro, handleAiError } = usePaywall();
+  const planCtx = usePlan();
+  const combineLocked = planCtx.checked && !planCtx.isPro;
   const { restaurantMeta, stashMetaKey, homeMeals: myHomeMeals, openHomeMealModal, getListsForRecipe, addRecipeToCookedList, removeRecipeFromCookedList, getRecipes } = useLists();
   const { myRecipes, openRecipeModal } = useRecipes();
 
@@ -1097,10 +1103,11 @@ export const RecipePage: React.FC = () => {
 
   const handleOpenCombine = useCallback(() => {
     if (!data || !currentUserId) return; // the button is signed-in only
+    if (!requirePro('recipe-combine', { onUnlocked: () => setCombinePickerOpen(true) })) return;
     setCombineError(null);
     setCombineNotes('');
     setCombinePickerOpen(true);
-  }, [data, currentUserId]);
+  }, [data, currentUserId, requirePro]);
 
   const handleRunCombine = useCallback(async () => {
     if (!data || !saveMeal || !combineTarget || combining) return;
@@ -1145,10 +1152,10 @@ export const RecipePage: React.FC = () => {
       // The modal's external-seed path: a NEW draft to review, never an
       // edit of either parent.
       openHomeMealModal(undefined, { seed: result.meal, seedKind: 'combine' });
-    } else {
+    } else if (!handleAiError('recipe-combine', result)) {
       setCombineError(result.error || 'Something went wrong. Try again.');
     }
-  }, [data, saveMeal, combineTarget, combining, combineNotes, openHomeMealModal]);
+  }, [data, saveMeal, combineTarget, combining, combineNotes, openHomeMealModal, handleAiError]);
 
   /* ── "Ask about this recipe" ───────────────────────────────────────
      The recipe's own text IS the answer to most questions about it —
@@ -1694,7 +1701,7 @@ export const RecipePage: React.FC = () => {
         </button>
         <button type="button" className="rd-action-btn" onClick={handleShare}><ShareIcon /> Share</button>
         {currentUserId && (
-          <button type="button" className="rd-action-btn" onClick={handleOpenCombine}><GitMerge /> Combine</button>
+          <button type="button" className="rd-action-btn" onClick={handleOpenCombine}><GitMerge /> Combine{combineLocked && <ProTag />}</button>
         )}
         <button type="button" className="rd-action-btn" onClick={handlePrint}><Printer /> Print</button>
         {isOwner && (

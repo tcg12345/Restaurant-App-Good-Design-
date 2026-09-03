@@ -19,6 +19,8 @@ import { requestMuxUpload, uploadToMux, muxPosterUrl, fetchMuxTokens, type MuxPl
 
 const BUCKET = 'post-media';
 export const POST_MAX_ITEMS = 15;
+/** The free plan's cap; Pro gets POST_MAX_ITEMS (entitlements 'post-items'). */
+export const POST_FREE_MAX_ITEMS = 10;
 export const POST_VIDEO_MAX_DURATION_SECONDS = 60; // matches reels
 const SIGNED_URL_TTL_SECONDS = 60 * 60 * 24; // 24h
 

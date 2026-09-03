@@ -33,6 +33,10 @@ import { useToast } from '../contexts/ToastContext';
 import { ShareIcon } from '../components/icons/ShareIcon';
 import { shareExternally, canonicalShareUrl } from '../lib/native-share';
 import { cn } from '../lib/utils';
+import { usePlan } from '../contexts/PlanContext';
+import { usePaywall } from '../contexts/PaywallContext';
+import { ProGate } from '../components/pro/ProGate';
+import { ProTag } from '../components/pro/ProMark';
 import { formatScore, scoreColor, scoreSolid, scoreTier } from '../lib/score';
 import { useTasteProfile } from '../lib/useTasteProfile';
 import { PRICE_SYMBOLS, pct as pctText, fmt1 as f1, type CuisineRow, type Petal, type TasteBenchmarks, type TasteInsights } from '../lib/taste-insights';
@@ -77,13 +81,25 @@ export const TasteProfilePage: React.FC = () => {
   const { insights, points, standing, benchmarks, benchmarksLoading, ratingCount } = useTasteProfile({ refresh: true });
   const bench = benchmarks?.benchmarks ?? null;
   const n = ratingCount;
+  // Free: tier, points, rank, the sentences, grading and spending — about
+  // you alone. Pro: the platform comparisons, the deeper sections, twins.
+  const planCtx = usePlan();
+  const { requirePro } = usePaywall();
+  const locked = planCtx.checked && !planCtx.isPro;
   // Two tabs under the masthead: the reading, and the board. `?tab=leaderboard`
   // deep-links straight to the board (the card can send people there later).
   const location = useLocation();
   const [tab, setTab] = useState<PageTab>(() =>
     new URLSearchParams(location.search).get('tab') === 'leaderboard' ? 'board' : 'taste');
   const [boardSort, setBoardSort] = useState<BoardKey>('points');
-  const goToTwins = () => { setBoardSort('twins'); setTab('board'); window.scrollTo({ top: 0 }); };
+  const goToTwins = () => {
+    if (!requirePro('taste-twins', { onUnlocked: goToTwins })) return;
+    setBoardSort('twins'); setTab('board'); window.scrollTo({ top: 0 });
+  };
+  const pickBoard = (k: BoardKey) => {
+    if (k === 'twins' && !requirePro('taste-twins', { onUnlocked: () => setBoardSort('twins') })) return;
+    setBoardSort(k);
+  };
 
   const rankLine = bench && bench.myRank != null && bench.rankedUsers > 0
     ? `#${bench.myRank} of ${bench.rankedUsers} on GoodEats`
@@ -140,7 +156,8 @@ export const TasteProfilePage: React.FC = () => {
           <BoardTab
             key="board"
             sort={boardSort}
-            onSort={setBoardSort}
+            onSort={pickBoard}
+            twinsLocked={locked}
             myId={user?.id ?? null}
             bench={bench}
             loading={benchmarksLoading}
@@ -153,10 +170,12 @@ export const TasteProfilePage: React.FC = () => {
             v={SELF_VOICE}
             insights={insights}
             points={points}
-            bench={bench}
+            bench={locked ? null : bench}
             ratingCount={n}
             twoDecimals={twoDecimalScores}
             onFindTwins={goToTwins}
+            twinsLocked={locked}
+            locked={locked}
             showQuiz
           />
         )}
@@ -279,8 +298,12 @@ export const TasteBody: React.FC<{
   ratingCount: number;
   twoDecimals: boolean;
   onFindTwins?: () => void;
+  /** The twins CTA carries the Pro tag (the tap still runs; it opens the paywall). */
+  twinsLocked?: boolean;
+  /** Free plan: the sections past the spending one fold into one teaser. */
+  locked?: boolean;
   showQuiz?: boolean;
-}> = ({ v, insights, points, bench, ratingCount: n, twoDecimals, onFindTwins, showQuiz }) => {
+}> = ({ v, insights, points, bench, ratingCount: n, twoDecimals, onFindTwins, twinsLocked, locked, showQuiz }) => {
   if (n === 0) {
     return (
       <Reveal className="mt-8">
@@ -330,7 +353,7 @@ export const TasteBody: React.FC<{
       <Section title={`${v.Your} palate`} sub={v.self ? 'What you actually like, apart from any points.' : `What ${v.name} actually likes, apart from any points.`}>
         {insights.palate.petals.length < 3 || insights.scored < 5
           ? <Locked need={5} have={insights.scored} what={`${v.your} palate`} note="Needs five ratings across a few cuisines." />
-          : <PalateCard v={v} insights={insights} twoDecimals={twoDecimals} onFindTwins={onFindTwins} />}
+          : <PalateCard v={v} insights={insights} twoDecimals={twoDecimals} onFindTwins={onFindTwins} twinsLocked={twinsLocked} />}
       </Section>
 
       {/* ── Grading ── */}
@@ -356,6 +379,17 @@ export const TasteBody: React.FC<{
           : <PriceTiers v={v} insights={insights} rankedUsers={bench?.rankedUsers ?? 0} />}
       </Section>
 
+      {locked ? (
+        /* The rest of the reading is Pro: the first of it shows through
+           the blur, real numbers and all, and one tap unlocks the lot. */
+        <ProGate feature="taste-depth" variant="teaser" unlockLine="Unlock love vs eat, trends, habits and the ladder with Pro">
+          <Section title="Love vs eat" sub="How often you eat a cuisine against how you score it. The gap is the story.">
+            {scoredTwice < 3
+              ? <Locked need={3} have={scoredTwice} what="the cuisine map" note="Needs three cuisines rated at least twice." unit="cuisines" />
+              : <CuisineMap v={v} insights={insights} twoDecimals={twoDecimals} />}
+          </Section>
+        </ProGate>
+      ) : (<>
       {/* ── Cuisines ── */}
       <Section title="Love vs eat" sub={v.self ? 'How often you eat a cuisine against how you score it. The gap is the story.' : `How often ${v.name} eats a cuisine against how they score it. The gap is the story.`}>
         {scoredTwice < 3
@@ -386,6 +420,7 @@ export const TasteBody: React.FC<{
       <Section title="The ladder" sub={`Where ${v.your} points come from. No component has a ceiling, and nothing here rewards agreeing with anyone.`}>
         <Ladder components={points.components} total={points.total} />
       </Section>
+      </>)}
 
       {showQuiz && <QuizBlock insights={insights} />}
     </>
@@ -497,7 +532,7 @@ const TIER_LEGEND: Array<{ tier: 'high' | 'mid' | 'low'; label: string; sample: 
   { tier: 'low', label: 'Missed', sample: 3 },
 ];
 
-const PalateCard: React.FC<{ v: Voice; insights: TasteInsights; twoDecimals: boolean; onFindTwins?: () => void }> = ({ v, insights, twoDecimals, onFindTwins }) => {
+const PalateCard: React.FC<{ v: Voice; insights: TasteInsights; twoDecimals: boolean; onFindTwins?: () => void; twinsLocked?: boolean }> = ({ v, insights, twoDecimals, onFindTwins, twinsLocked }) => {
   const { archetype, tagline, petals } = insights.palate;
   const [picked, setPicked] = useState<string | null>(null);
   const sel = petals.find((p) => p.name === picked) ?? null;
@@ -543,7 +578,7 @@ const PalateCard: React.FC<{ v: Voice; insights: TasteInsights; twoDecimals: boo
         >
           <Users size={15} strokeWidth={2.2} />
           Find people who eat like you
-          <ChevronRight size={14} />
+          {twinsLocked ? <ProTag /> : <ChevronRight size={14} />}
         </button>
       )}
     </div>
@@ -684,13 +719,14 @@ const BOARDS: Array<{
 const BoardTab: React.FC<{
   sort: BoardKey;
   onSort: (k: BoardKey) => void;
+  twinsLocked?: boolean;
   myId: string | null;
   bench: TasteBenchmarks | null;
   loading: boolean;
   ratingCount: number;
   points: number;
   tierName: string;
-}> = ({ sort, onSort: setSort, myId, bench, loading, ratingCount, points, tierName }) => {
+}> = ({ sort, onSort: setSort, twinsLocked, myId, bench, loading, ratingCount, points, tierName }) => {
   const board = BOARDS.find((b) => b.key === sort) ?? BOARDS[0];
   // Rank per board. Falls back to the benchmarks' points rank when 084
   // isn't applied, so the points board still says where you stand.
@@ -735,6 +771,7 @@ const BoardTab: React.FC<{
             >
               <Icon size={13} strokeWidth={2.3} />
               {b.label}
+              {b.key === 'twins' && twinsLocked && <ProTag />}
             </button>
           );
         })}
