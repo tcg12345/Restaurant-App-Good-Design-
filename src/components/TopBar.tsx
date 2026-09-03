@@ -33,9 +33,14 @@ interface TopBarProps {
    *  the way down the page, and the label says whose page you're on.
    *  Tapping it returns to the top. */
   condensedTitle?: string;
+  /** No fill behind the expanded header, so a page's own wash (the
+   *  profile's accent gradient) runs up behind the controls instead of
+   *  stopping at a hard edge beneath them. The condensed glass bar is
+   *  unaffected. */
+  transparent?: boolean;
 }
 
-export const TopBar: React.FC<TopBarProps> = ({ title = "GoodEats", rightAction, leftAction, centerLogo = false, showBackButton = false, onBack, fadeOnScroll = false, condensedTitle }) => {
+export const TopBar: React.FC<TopBarProps> = ({ title = "GoodEats", rightAction, leftAction, centerLogo = false, showBackButton = false, onBack, fadeOnScroll = false, condensedTitle, transparent = false }) => {
   const { pendingRequestCount } = useAuth();
   const { unreadCount } = useChat();
   // The Circle button is the only way into the notification centre on a
@@ -161,7 +166,8 @@ export const TopBar: React.FC<TopBarProps> = ({ title = "GoodEats", rightAction,
     <motion.header
       {...fadeProps}
       className={cn(
-        'w-full px-4 pt-safe-4 pb-4 grid grid-cols-[1fr_auto_1fr] items-center bg-surface/70 backdrop-blur-md',
+        'w-full px-4 pt-safe-4 pb-4 grid grid-cols-[1fr_auto_1fr] items-center',
+        transparent ? 'bg-transparent' : 'bg-surface/70 backdrop-blur-md',
         showCondensed ? '' : 'sticky top-0 z-40',
       )}
     >
@@ -175,7 +181,8 @@ export const TopBar: React.FC<TopBarProps> = ({ title = "GoodEats", rightAction,
     <motion.header
       {...fadeProps}
       className={cn(
-        'w-full px-6 pt-safe-4 pb-4 flex items-center justify-between bg-surface/70 backdrop-blur-md',
+        'w-full px-6 pt-safe-4 pb-4 flex items-center justify-between',
+        transparent ? 'bg-transparent' : 'bg-surface/70 backdrop-blur-md',
         showCondensed ? '' : 'sticky top-0 z-40',
       )}
     >

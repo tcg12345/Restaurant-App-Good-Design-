@@ -871,12 +871,13 @@ export const Profile: React.FC = () => {
     <div className="relative pb-32 min-h-screen bg-surface type-archivo">
       {/* The wash: the accent, faint, fading out under the header. The one
           place the page is allowed to be a colour rather than a surface. */}
-      <div aria-hidden className="pointer-events-none absolute inset-x-0 top-0 h-[280px] bg-gradient-to-b from-primary/20 to-transparent" />
+      <div aria-hidden className="pointer-events-none absolute inset-x-0 top-0 h-[360px] bg-gradient-to-b from-primary/30 via-primary/[0.12] via-55% to-transparent" />
       {/* Mirror the mobile Discover header — Create shortcut on the
           left, centered logo, messages/Circle cluster on the right.
           Hidden on desktop where the sidebar layout owns the chrome. */}
       {!isDesktop && (
         <TopBar
+          transparent
           centerLogo={phoneMode}
           fadeOnScroll={phoneMode}
           // Scrolling swaps the header for a compact glass bar carrying
