@@ -30,6 +30,8 @@ import { useSettings } from '../contexts/SettingsContext';
 import { usePaywall } from '../contexts/PaywallContext';
 import { usePlan } from '../contexts/PlanContext';
 import { ProTag } from '../components/pro/ProMark';
+import { NutritionPanel } from '../components/recipe/NutritionPanel';
+import type { RecipeNutrition } from '../lib/nutrition';
 import { useLists, recipeToHomeMeal, DEFAULT_COOKED_ID, type HomeMeal, type LinkedRecipeRef, type PhotoItem, type CombinedFromRef} from '../contexts/ListsContext';
 import { compressImage } from '../lib/media-compress';
 import { useRecipes, type Recipe, type RecipeIngredient, type RecipeReview } from '../contexts/RecipesContext';
@@ -55,7 +57,8 @@ import { SaveRecipeToListSheet } from '../components/SaveRecipeToListSheet';
 import { ShareDialog } from '../components/ShareDialog';
 import { RecipeLinkPicker, type PickedRecipe, type PickedRecipeFull } from '../components/RecipeLinkPicker';
 import {
-  combineRecipes, homeMealToBuildInput, formalRecipeToBuildInput,
+  combineRecipes,
+  estimateNutrition, homeMealToBuildInput, formalRecipeToBuildInput,
 } from '../lib/build-recipe-client';
 import type { SharedRecipe } from '../contexts/ChatContext';
 import './RecipePage.css';
@@ -351,6 +354,8 @@ type UnifiedRecipe = {
   /** Combine provenance — the parents this recipe was AI-merged from.
    *  Outranks both the Imported and AI notes. */
   combinedFrom?: CombinedFromRef[];
+  /** Per-serving nutrition (Pro), when anyone has worked it out. */
+  nutrition?: RecipeNutrition;
   raw: Recipe | FriendHomeMeal;
 };
 
@@ -436,6 +441,7 @@ function adaptRecipe(r: Recipe): UnifiedRecipe {
     source: 'recipe',
     id: r.id,
     ownerId: r.userId,
+    nutrition: r.nutrition ?? undefined,
     title: r.title || '',
     description: r.description || '',
     intro: splitIntro(r.description || ''),
@@ -490,6 +496,7 @@ function adaptHomeMeal(m: FriendHomeMeal): UnifiedRecipe {
     source: 'homeMeal',
     id: m.id,
     ownerId: sourceAuthorId || m.userId,
+    nutrition: m.nutrition,
     title: m.name || '',
     description: m.description || '',
     // Body intro prefers the dedicated intro paragraph; falls back to the
@@ -722,8 +729,8 @@ export const RecipePage: React.FC = () => {
   const { requirePro, handleAiError } = usePaywall();
   const planCtx = usePlan();
   const combineLocked = planCtx.checked && !planCtx.isPro;
-  const { restaurantMeta, stashMetaKey, homeMeals: myHomeMeals, openHomeMealModal, getListsForRecipe, addRecipeToCookedList, removeRecipeFromCookedList, getRecipes } = useLists();
-  const { myRecipes, openRecipeModal } = useRecipes();
+  const { restaurantMeta, stashMetaKey, homeMeals: myHomeMeals, openHomeMealModal, getListsForRecipe, addRecipeToCookedList, removeRecipeFromCookedList, getRecipes, updateHomeMeal } = useLists();
+  const { myRecipes, openRecipeModal, updateRecipe } = useRecipes();
 
   // ── Data ──
   const [data, setData] = useState<UnifiedRecipe | null>(null);
@@ -1320,6 +1327,25 @@ export const RecipePage: React.FC = () => {
   const scale = servings > 0 ? servings / baseServings : 1;
 
   const isOwner = !!data && !!currentUserId && data.ownerId === currentUserId;
+
+  // Nutrition (Pro): the owner of a recipe without numbers can ask for an
+  // estimate; it saves onto the recipe so it's there for every reader.
+  const [nutriBusy, setNutriBusy] = useState(false);
+  const [nutriError, setNutriError] = useState<string | null>(null);
+  const handleEstimateNutrition = useCallback(async () => {
+    if (!data || !saveMeal || nutriBusy) return;
+    if (!requirePro('nutrition', { onUnlocked: () => { void handleEstimateNutrition(); } })) return;
+    setNutriBusy(true);
+    setNutriError(null);
+    const res = await estimateNutrition(saveMeal);
+    setNutriBusy(false);
+    if (!res.ok || !res.nutrition) {
+      if (!handleAiError('nutrition', res)) setNutriError(res.error || 'Something went wrong. Try again.');
+      return;
+    }
+    if (data.source === 'homeMeal') updateHomeMeal(data.id, { nutrition: res.nutrition });
+    else void updateRecipe(data.id, { nutrition: res.nutrition });
+  }, [data, saveMeal, nutriBusy, requirePro, handleAiError, updateHomeMeal, updateRecipe]);
 
   const toggleCheck = useCallback((key: string) => {
     setChecked((prev) => { const next = new Set(prev); next.has(key) ? next.delete(key) : next.add(key); return next; });
@@ -1927,6 +1953,15 @@ export const RecipePage: React.FC = () => {
           </div>
         </section>
       )}
+
+      {/* ── Nutrition (Pro) ─────────────────────────────────────── */}
+      <NutritionPanel
+        nutrition={data.nutrition}
+        canEstimate={isOwner}
+        estimating={nutriBusy}
+        error={nutriError}
+        onEstimate={() => { void handleEstimateNutrition(); }}
+      />
 
       {/* ── Author bio ────────────────────────────────────────────── */}
       {authorProfile && (

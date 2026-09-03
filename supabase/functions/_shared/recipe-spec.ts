@@ -69,10 +69,28 @@ const STEP_ITEM_SCHEMA = {
 // The build_recipe tool INPUT SCHEMA (the recipe object shape + field
 // guidance). Shared verbatim so both paths emit identical, richly-described
 // recipe JSON. Each caller wraps it with its own tool name/description.
+/** Per-serving nutrition, as the build_recipe tool and the
+ *  estimate_nutrition tool both emit it. Estimates from the ingredient
+ *  list; a source page's stated values win when importing. */
+export const NUTRITION_SCHEMA = {
+  type: 'object',
+  required: ['calories', 'protein', 'carbs', 'fat'],
+  properties: {
+    calories: { type: 'integer', minimum: 0, description: 'kcal per serving.' },
+    protein: { type: 'integer', minimum: 0, description: 'grams per serving.' },
+    carbs: { type: 'integer', minimum: 0, description: 'grams per serving (total carbohydrate).' },
+    fat: { type: 'integer', minimum: 0, description: 'grams per serving (total fat).' },
+    fiber: { type: 'integer', minimum: 0, description: 'grams per serving.' },
+    sugar: { type: 'integer', minimum: 0, description: 'grams per serving.' },
+    sodium: { type: 'integer', minimum: 0, description: 'milligrams per serving.' },
+  },
+};
+
 export const RECIPE_INPUT_SCHEMA = {
   type: 'object',
   required: ['name'],
   properties: {
+    nutrition: { ...NUTRITION_SCHEMA, description: 'Per-serving nutrition estimated from the ingredients and `servings`. Always include it; when transcribing a source that states nutrition, use the source\'s numbers.' },
     name: { type: 'string', description: 'Recipe title.' },
     summary: { type: 'string', description: 'One punchy line shown as the byline under the title.' },
     introParagraph: { type: 'string', description: 'A longer intro (2–4 sentences) shown at the top of the recipe page body. Describe what the dish is — its flavor/texture, origin or occasion, and why it is worth making. Must be distinct prose, NOT a repeat of `summary`. Always include it.' },

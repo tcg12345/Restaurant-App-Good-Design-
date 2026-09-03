@@ -312,6 +312,8 @@ function stateToHomeMeal(state: AdvancedRecipeState, base?: HomeMeal | null): Ho
     createdWithAi: state.createdWithAi || undefined,
     combinedFrom: state.combinedFrom.length > 0 ? state.combinedFrom : undefined,
     importedFrom: state.importedFrom || undefined,
+    // The builder has no nutrition fields; an edit keeps what was there.
+    nutrition: base?.nutrition,
     // Preserve source attribution if somehow present (defensive — saved
     // copies aren't editable, so this is normally undefined).
     sourceAuthorId: base?.sourceAuthorId,

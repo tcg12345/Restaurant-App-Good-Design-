@@ -15,6 +15,7 @@
 //   { ideasPrompt, constraints?, avoidTitles? } — brainstorm: ~8 short
 //     recipe IDEAS (title + blurb) via the suggest_recipe_ideas tool
 //   { combine: { sources, notes? }, constraints? } — merge 2-3 sources
+//   { nutritionFor: recipe }                 — per-serving nutrition estimate (Pro)
 //     (ideas and/or full recipes) into ONE new recipe
 // Response: Anthropic SSE stream (success) or { error } JSON (failure)
 //
@@ -24,7 +25,7 @@
 // Recipe quality bar + tool input schema are shared with the chat's
 // build_recipe tool (location-chat) so both paths author equally
 // calibrated recipes.
-import { RECIPE_QUALITY_BAR, RECIPE_INPUT_SCHEMA } from '../_shared/recipe-spec.ts';
+import { RECIPE_QUALITY_BAR, RECIPE_INPUT_SCHEMA, NUTRITION_SCHEMA } from '../_shared/recipe-spec.ts';
 import { requireUser } from '../_shared/auth.ts';
 import { readJsonBody } from '../_shared/limits.ts';
 import { enforceQuota } from '../_shared/quota.ts';
@@ -42,6 +43,7 @@ const MODEL = 'claude-opus-4-8';
 // suggestions varied and appealing at a fraction of the wait.
 const IDEAS_MODEL = 'claude-sonnet-5';
 const IDEAS_MAX_TOKENS = 2500;
+const NUTRITION_MAX_TOKENS = 400;
 // Headroom so a fully detailed complex recipe (a laminated dough with
 // 15–20 richly-written steps, grouped ingredients, equipment, and a
 // make-ahead timeline note) isn't truncated. Because the tool is forced,
@@ -167,6 +169,19 @@ const TOOL_BUILD_RECIPE = {
   description: 'Return one complete recipe. Call this exactly once with every relevant field filled.',
   input_schema: RECIPE_INPUT_SCHEMA,
 };
+
+// The nutrition-estimate mode: a recipe in, per-serving numbers out.
+const TOOL_ESTIMATE_NUTRITION = {
+  name: 'estimate_nutrition',
+  description: 'Return the per-serving nutrition estimate for the given recipe. Call exactly once.',
+  input_schema: NUTRITION_SCHEMA,
+};
+const NUTRITION_SYSTEM_PROMPT = [
+  'You are a careful nutrition estimator. You will be given a recipe as JSON (ingredients with amounts, and servings). Estimate the nutrition PER SERVING and return it by calling the `estimate_nutrition` tool exactly once.',
+  '- Work from the ingredient amounts and standard nutrition data; divide totals by `servings` (assume 4 when missing).',
+  '- Count only what ends up on the plate: discard marinade or frying oil that is not absorbed, water, and garnish that is clearly optional.',
+  '- Round to whole numbers. Never return all zeros.',
+].join('\n');
 
 // Escape hatch for the ingredient-edit mode: lets the model refuse a
 // change that would compromise the dish instead of forcing a bad edit.
@@ -299,6 +314,7 @@ async function handler(req: Request): Promise<Response> {
     ideasPrompt?: string;
     avoidTitles?: string[];
     combine?: { sources?: Array<{ kind?: string; idea?: unknown; recipe?: unknown }>; notes?: string };
+    nutritionFor?: unknown;
   }>(req, MAX_BODY_BYTES);
   if ('response' in parsed) return parsed.response;
   const body = parsed.body;
@@ -308,10 +324,11 @@ async function handler(req: Request): Promise<Response> {
   // header, so running it after the body parse (to know which mode this
   // is) costs nothing.
   const isIdeas = typeof body.ideasPrompt === 'string';
+  const isNutrition = !isIdeas && !!body.nutritionFor && typeof body.nutritionFor === 'object';
   const quota = await enforceQuota(
     req,
-    isIdeas ? 'build-recipe-ideas' : 'build-recipe',
-    isIdeas ? "You've used your recipe ideas for now. %reset%" : "You've used your AI recipe generations for now. %reset%",
+    isNutrition ? 'nutrition-estimate' : isIdeas ? 'build-recipe-ideas' : 'build-recipe',
+    isNutrition ? 'Nutrition estimates are part of GoodEats Pro.' : isIdeas ? "You've used your recipe ideas for now. %reset%" : "You've used your AI recipe generations for now. %reset%",
   );
   if ('response' in quota) return quota.response;
 
@@ -329,7 +346,7 @@ async function handler(req: Request): Promise<Response> {
   const ingredientName = (body.ingredientEdit?.ingredient || '').trim().slice(0, 200);
   const isIngredientEdit = !!ingredientName && !!body.current;
   const isRefine = !isIngredientEdit && !!instruction && !!body.current;
-  const isCombine = !isIngredientEdit && !isRefine && !isIdeas && !!body.combine;
+  const isCombine = !isIngredientEdit && !isRefine && !isIdeas && !isNutrition && !!body.combine;
 
   const readCurrentJson = (): string | null => {
     try {
@@ -340,7 +357,12 @@ async function handler(req: Request): Promise<Response> {
   };
 
   let messages: Array<{ role: 'user'; content: string }>;
-  if (isIngredientEdit) {
+  if (isNutrition) {
+    let recipeJson: string | null = null;
+    try { recipeJson = JSON.stringify(body.nutritionFor).slice(0, 12000); } catch { recipeJson = null; }
+    if (!recipeJson) return jsonError(400, 'Could not read the recipe.');
+    messages = [{ role: 'user', content: `Recipe (JSON):\n${recipeJson}\n\nEstimate the per-serving nutrition and return it with estimate_nutrition.` }];
+  } else if (isIngredientEdit) {
     const currentJson = readCurrentJson();
     if (!currentJson) return jsonError(400, 'Could not read the current recipe.');
     const action = body.ingredientEdit?.action === 'substitute' ? 'substitute' : 'remove';
@@ -419,15 +441,17 @@ async function handler(req: Request): Promise<Response> {
   }
 
   const anthropicBody = {
-    model: isIdeas ? IDEAS_MODEL : MODEL,
-    max_tokens: isIdeas ? IDEAS_MAX_TOKENS : MAX_TOKENS,
+    model: isIdeas || isNutrition ? IDEAS_MODEL : MODEL,
+    max_tokens: isNutrition ? NUTRITION_MAX_TOKENS : isIdeas ? IDEAS_MAX_TOKENS : MAX_TOKENS,
     // Stream the response. A long Opus recipe can take 30s+ to finish;
     // a non-streaming call would block until then and
     // trip the platform's time-to-first-byte limit (gateway 504).
     // Streaming sends bytes immediately, so we just proxy Anthropic's
     // SSE straight through and let the client assemble the tool input.
     stream: true,
-    system: isIngredientEdit
+    system: isNutrition
+      ? NUTRITION_SYSTEM_PROMPT
+      : isIngredientEdit
       ? INGREDIENT_EDIT_SYSTEM_PROMPT
       : isRefine ? EDIT_SYSTEM_PROMPT
       : isIdeas ? IDEAS_SYSTEM_PROMPT
@@ -436,13 +460,15 @@ async function handler(req: Request): Promise<Response> {
     // The ingredient-edit mode carries the decline escape hatch; every
     // other mode forces its single tool so the only possible output is
     // the structured payload.
-    tools: isIngredientEdit
+    tools: isNutrition
+      ? [TOOL_ESTIMATE_NUTRITION]
+      : isIngredientEdit
       ? [TOOL_BUILD_RECIPE, TOOL_DECLINE_CHANGE]
       : isIdeas ? [TOOL_SUGGEST_IDEAS]
       : [TOOL_BUILD_RECIPE],
     tool_choice: isIngredientEdit
       ? { type: 'any' }
-      : { type: 'tool', name: isIdeas ? 'suggest_recipe_ideas' : 'build_recipe' },
+      : { type: 'tool', name: isNutrition ? 'estimate_nutrition' : isIdeas ? 'suggest_recipe_ideas' : 'build_recipe' },
     messages,
   };
 

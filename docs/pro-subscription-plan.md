@@ -633,3 +633,13 @@ Not in this phase: the nutrition panel (R9) — a new feature with its own PR.
 makes a development build treat you as free (ignored in production builds).
 For the simulator: `VITE_PLAN_PREVIEW=free npx vite build --mode development`,
 then sync `dist/` into `ios/App/App/public/`.
+
+### Nutrition panel (R9) as built (2026-09-03)
+
+One field, three sources, one panel.
+
+- **Field**: `HomeMeal.nutrition` / `recipes.nutrition` (migration 090) — per serving: kcal, protein / carbs / fat in grams, optional fiber / sugar / sodium, plus `source` ('ai' | 'import' | 'manual'). `lib/nutrition.ts` normalizes whatever arrives.
+- **AI builds**: `nutrition` is now part of the shared `build_recipe` schema (`_shared/recipe-spec.ts`), so every generation, refine, combine and import carries an estimate. The importer marks page-stated numbers as `source: 'import'`.
+- **Hand-written recipes**: the recipe page offers the owner "Estimate with AI" — a new `{ nutritionFor }` mode on `build-recipe` (Sonnet, its own `estimate_nutrition` tool, endpoint `nutrition-estimate`: free 0 = Pro-only, Pro 60/hour). The result saves onto the meal (`updateHomeMeal`) or the formal recipe (`updateRecipe`).
+- **Panel**: `components/recipe/NutritionPanel.tsx` after Notes from the kitchen. Pro sees the numbers with a provenance line; free sees them through a blur (a placeholder when the recipe has none) and one tap opens the sheet. The Advanced builder keeps the numbers through an edit but has no fields for them.
+- **Deploy**: `build-recipe` and `import-recipe` (both bundle the shared schema).

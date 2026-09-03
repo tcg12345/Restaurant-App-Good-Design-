@@ -2,6 +2,7 @@
  * Recipe CRUD and query functions — Supabase data layer.
  */
 import { supabase, supabaseConfigured } from './supabase';
+import { normalizeNutrition, type RecipeNutrition } from './nutrition';
 
 /* ── Types ── */
 
@@ -34,6 +35,8 @@ export interface Recipe {
   sourceType: 'user' | 'expert';
   linkedRestaurantId: string | null;
   linkedMealId: string | null;
+  /** Per-serving nutrition (migration 090); absent or null until estimated. */
+  nutrition?: RecipeNutrition | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -71,6 +74,7 @@ function rowToRecipe(row: Record<string, unknown>): Recipe {
     sourceType: (row.source_type as Recipe['sourceType']) || 'user',
     linkedRestaurantId: (row.linked_restaurant_id as string) || null,
     linkedMealId: (row.linked_meal_id as string) || null,
+    nutrition: normalizeNutrition(row.nutrition),
     createdAt: row.created_at as string,
     updatedAt: row.updated_at as string,
   };
@@ -140,6 +144,7 @@ function recipeToPayload(recipe: Omit<Recipe, 'id' | 'createdAt' | 'updatedAt'> 
     source_type: recipe.sourceType,
     linked_restaurant_id: recipe.linkedRestaurantId,
     linked_meal_id: recipe.linkedMealId,
+    nutrition: recipe.nutrition ?? null,
     updated_at: new Date().toISOString(),
   };
 }
@@ -178,6 +183,7 @@ export async function updateRecipe(
     if (updates.servings !== undefined) payload.servings = updates.servings;
     if (updates.difficulty !== undefined) payload.difficulty = updates.difficulty;
     if (updates.cuisine !== undefined) payload.cuisine = updates.cuisine;
+    if (updates.nutrition !== undefined) payload.nutrition = updates.nutrition;
     if (updates.tags !== undefined) payload.tags = updates.tags;
     if (updates.photos !== undefined) payload.photos = updates.photos;
     if (updates.isPublic !== undefined) payload.is_public = updates.isPublic;

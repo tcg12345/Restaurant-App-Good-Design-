@@ -75,6 +75,8 @@ export async function importRecipe(
   // rather than "Created with AI".
   meal.createdWithAi = false;
   meal.importedFrom = importedFromValue(source);
+  // Numbers that came off the page are the page's, not our estimate.
+  if (meal.nutrition) meal.nutrition = { ...meal.nutrition, source: 'import' };
   return { ok: true, meal };
 }
 
