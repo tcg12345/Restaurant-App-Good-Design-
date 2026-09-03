@@ -86,6 +86,13 @@ import { SignInModalProvider } from './contexts/SignInModalContext';
 import { PlanProvider } from './contexts/PlanContext';
 import { PaywallProvider } from './contexts/PaywallContext';
 import { ProPage } from './pages/ProPage';
+import { ProIntroStep } from './components/onboarding/ProIntroStep';
+
+/** /pro/intro — the onboarding Pro intro as a page; every exit goes back. */
+const ProIntroRoute: React.FC = () => {
+  const navigate = useNavigate();
+  return <ProIntroStep onDone={() => navigate(-1)} />;
+};
 import { RequireAuthRoute } from './components/RequireAuthRoute';
 import { wakeGlassButtons } from './lib/glass-buttons';
 
@@ -581,6 +588,9 @@ const AppContent: React.FC = () => {
               for sign-in. /pro/welcome is where Stripe sends people back. */}
           <Route path="/pro" element={<ProPage />} />
           <Route path="/pro/welcome" element={<ProPage />} />
+          {/* The onboarding intro, on its own: for anyone who wants the tour
+              again, and the way to see it without a fresh account. */}
+          <Route path="/pro/intro" element={<ProIntroRoute />} />
           <Route path="/circle" element={<RequireAuthRoute reason="Sign in to see your circle"><Circle /></RequireAuthRoute>} />
           <Route path="/create" element={<RequireAuthRoute reason="Sign in to create"><Create /></RequireAuthRoute>} />
           <Route path="/search" element={<Search />} />

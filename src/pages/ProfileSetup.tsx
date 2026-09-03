@@ -25,6 +25,9 @@ import { saveTasteQuiz, getTasteQuiz } from '../lib/taste-quiz';
 import { getPreauthCity } from '../lib/preauth';
 import { logOnboardingEvent, markOnboardingStep } from '../lib/onboarding-events';
 import { armFeatureTour } from '../lib/feature-tour';
+import { usePlan } from '../contexts/PlanContext';
+import { billingAvailable } from '../lib/billing';
+import { ProIntroStep } from '../components/onboarding/ProIntroStep';
 import { ContactsSync } from '../components/ContactsSync';
 import { SuggestedPeople } from '../components/SuggestedPeople';
 import { canUseNativeContacts } from '../lib/native-contacts';
@@ -39,7 +42,11 @@ type StepKey =
   // The payoff: the taste profile the gate promised, shown back before
   // the app opens. 'summary', not 'done' — the completion EVENT is named
   // wizard_done, and an abandon on this screen must not read as one.
-  | 'summary';
+  | 'summary'
+  // The Pro intro (components/onboarding/ProIntroStep): four stories and
+  // the plan, only for accounts the billing gates apply to. Every exit
+  // finishes the wizard the same way 'summary' does.
+  | 'pro';
 
 /**
  * Save failures are shown verbatim to someone in the middle of creating an
@@ -166,6 +173,13 @@ export const ProfileSetup: React.FC = () => {
    * 'rate', leaving steps[pStep] undefined and a blank screen.
    */
   const [skipRate, setSkipRate] = useState(false);
+  // The Pro intro is the last step for anyone the gates apply to. Latched
+  // the first time the plan answers, never released: a purchase on the
+  // step itself flips isPro, and a live derivation would drop the step
+  // out from under the person standing on it (the skipRate note above).
+  const plan = usePlan();
+  const proOffered = useRef(false);
+  if (plan.checked && plan.gatesEnabled && !plan.isPro && billingAvailable()) proOffered.current = true;
   const importState = useOnboardingImport((() => {
     if (homeGeo) return { lat: homeGeo.lat, lng: homeGeo.lng };
     if (typeof profile?.home_lat === 'number' && typeof profile?.home_lng === 'number') {
@@ -404,6 +418,7 @@ export const ProfileSetup: React.FC = () => {
     'follow' as const,
     ...(skipRate ? [] : ['rate' as const]),
     'summary' as const,
+    ...(proOffered.current ? ['pro' as const] : []),
   ];
   const provider = (user?.app_metadata?.provider as string) || 'email';
   // Create-account was "step 1" for signups that went through it. Phone
@@ -458,6 +473,23 @@ export const ProfileSetup: React.FC = () => {
     } else setError(friendlyError(res.error));
   };
 
+  // The wizard's end: arm the tour, refresh the profile, and App swaps
+  // this screen out. Reached from the last step's button and from the Pro
+  // intro's every exit (Maybe later, the ×, a purchase).
+  const finishWizard = () => {
+    persistTaste();
+    logOnboardingEvent('wizard_done', user?.id);
+    setFinishing(true);
+    setSubmitting(true);
+    // Queue the coachmark tour for the tab root they're about to land on
+    // (components/FeatureTour.tsx). It has to be armed BEFORE the refresh:
+    // profileComplete flips synchronously with it and App swaps the wizard
+    // out on the spot, so anything after this call runs on an unmounted
+    // component.
+    armFeatureTour();
+    void refreshProfile();
+  };
+
   const next = () => {
     setError('');
     setDir(1);
@@ -502,22 +534,7 @@ export const ProfileSetup: React.FC = () => {
       return;
     }
     if (stepKey === 'prices' || stepKey === 'dietary') persistTaste();
-    if (isLast) {
-      persistTaste();
-      logOnboardingEvent('wizard_done', user?.id);
-      setFinishing(true);
-      setSubmitting(true);
-      // Queue the coachmark tour for the tab root they're about to land on
-      // (components/FeatureTour.tsx). It has to be armed BEFORE the refresh:
-      // profileComplete flips synchronously with it and App swaps the wizard
-      // out on the spot, so anything after this call runs on an unmounted
-      // component.
-      armFeatureTour();
-      // No "you're done" screen to land on — refreshProfile flips
-      // profileComplete, and App swaps this wizard straight for the app.
-      void refreshProfile();
-      return;
-    }
+    if (isLast) { finishWizard(); return; }
     setPStep((p) => p + 1);
   };
 
@@ -571,6 +588,10 @@ export const ProfileSetup: React.FC = () => {
       })()}
     </>
   );
+
+  // The Pro intro draws its own chrome (dots, close, dark ground), so it
+  // replaces the wizard's shell rather than sitting inside it.
+  if (stepKey === 'pro') return <ProIntroStep onDone={finishWizard} />;
 
   return (
     <OB.OnboardingScreen

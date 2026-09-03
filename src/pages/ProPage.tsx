@@ -1,29 +1,31 @@
 /**
- * /pro — GoodEats Pro at page scale, for people who read before they buy,
- * and the web's landing and return route. On a Pro account the same route
- * shows the plan's status and where to manage it.
+ * /pro — GoodEats Pro at page scale, in glass night: a swipeable card
+ * per story at the top, the plans beneath, one page, no sheet. On a Pro
+ * account the same page shows the plan's status and where to manage it.
  *
  * /pro/welcome — where Stripe Checkout sends people back. It asks the
  * server to sync the plan and watches the row for up to ten seconds so the
  * page can say "Welcome to Pro" without a reload.
+ *
+ * Always dark, whatever the theme (components/pro/night.ts). The bottom
+ * nav steps aside while the page is up; the status bar goes light.
  */
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
+import { motion } from 'motion/react';
 import { ChevronLeft, Check, Loader2, ExternalLink } from 'lucide-react';
-import { cn } from '../lib/utils';
 import { useSettings } from '../contexts/SettingsContext';
 import { useAuth } from '../contexts/AuthContext';
-import { useToast } from '../contexts/ToastContext';
 import { usePlan } from '../contexts/PlanContext';
 import { useSignInModal } from '../contexts/SignInModalContext';
 import { usePaywall } from '../contexts/PaywallContext';
-import { isNativeRuntime } from '../lib/native-oauth';
-import { openExternalUrl, TERMS_URL, PRIVACY_URL } from '../lib/external-links';
-import { billingAvailable, getNativeOffers, purchaseNative, restoreNative, syncPlanWithServer, startWebCheckout, webOffers, openManage, type NativeOffer } from '../lib/billing';
+import { syncPlanWithServer, openManage } from '../lib/billing';
 import { logBillingEvent } from '../lib/billing-events';
-import { BENEFITS, FEATURES, ctaFor, finePrintFor, DEFAULT_PLAN, type PlanOffer, type PlanKey } from '../lib/entitlements';
-import { PlanPicker } from '../components/pro/ProSheet';
-import { ProTag } from '../components/pro/ProMark';
+import { useNightStatusBar } from '../lib/night-status-bar';
+import { PRO_STORIES } from '../components/pro/ProStories';
+import { usePurchase } from '../components/pro/usePurchase';
+import { NightPlanCards, NightPurchaseFooter, NightLegal, NightOutcome } from '../components/pro/NightPlan';
+import { NIGHT_BG, NIGHT_INK, NIGHT_INK_SOFT, NIGHT_INK_FAINT, PALE, glass, eyebrow, headline, EASE } from '../components/pro/night';
 
 const FAQ: Array<{ q: string; a: string }> = [
   { q: 'Can I cancel?', a: 'Any time. On iPhone, from Settings → Manage subscription, which opens the App Store. On the web, from the same place, which opens your billing portal. Pro stays on until the paid period ends.' },
@@ -34,30 +36,81 @@ const FAQ: Array<{ q: string; a: string }> = [
 
 const fmtDate = (iso: string | null) => (iso ? new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '');
 
+/** The stories, one glass card each, swiped. Dots follow the scroll. */
+const StoryCarousel: React.FC = () => {
+  const ref = useRef<HTMLDivElement | null>(null);
+  const [index, setIndex] = useState(0);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    let raf = 0;
+    const onScroll = () => {
+      cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(() => {
+        const w = el.clientWidth;
+        if (w > 0) setIndex(Math.round(el.scrollLeft / w));
+      });
+    };
+    el.addEventListener('scroll', onScroll, { passive: true });
+    return () => { el.removeEventListener('scroll', onScroll); cancelAnimationFrame(raf); };
+  }, []);
+  const go = (i: number) => { const el = ref.current; if (el) el.scrollTo({ left: i * el.clientWidth, behavior: 'smooth' }); };
+  return (
+    <div>
+      <div ref={ref} className="flex overflow-x-auto no-scrollbar snap-x snap-mandatory" style={{ scrollbarWidth: 'none', gap: 0, margin: '0 -22px', padding: '0 22px', scrollPaddingLeft: 22, scrollPaddingRight: 22 }}>
+        {PRO_STORIES.map((s, i) => (
+          <div key={s.key} className="snap-center flex-none" style={{ width: '100%', paddingRight: i === PRO_STORIES.length - 1 ? 0 : 10, boxSizing: 'border-box' }}>
+            <div style={{ ...glass, borderRadius: 24, padding: 16, minHeight: 340, display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+              <div style={{ ...glass, borderRadius: 18, padding: 12, background: 'rgba(0,0,0,0.18)', boxShadow: 'none' }}>
+                {index === i ? <s.Visual key={`${s.key}-${index}`} /> : <s.Visual />}
+              </div>
+              <div style={{ marginTop: 16 }}>
+                <span style={eyebrow}>{s.eyebrow}</span>
+                <h2 style={{ ...headline, fontSize: '26px', margin: '10px 0 6px' }}>{s.line1}<br /><em style={{ fontStyle: 'italic' }}>{s.line2}</em></h2>
+                <p style={{ fontSize: '13px', lineHeight: 1.45, color: NIGHT_INK_SOFT, margin: 0 }}>{s.sub}</p>
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+      <div className="flex justify-center gap-[5px]" style={{ marginTop: 12 }} role="tablist" aria-label="Stories">
+        {PRO_STORIES.map((s, i) => (
+          <button key={s.key} type="button" role="tab" aria-selected={index === i} aria-label={s.eyebrow} onClick={() => go(i)} className="hit-44-y" style={{ padding: 4 }}>
+            <motion.i className="block rounded-full" style={{ height: 6, background: NIGHT_INK }} animate={{ width: index === i ? 18 : 6, opacity: index === i ? 1 : 0.3 }} transition={{ duration: 0.3, ease: EASE }} />
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+};
+
 export const ProPage: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
-  const { phoneMode } = useSettings();
-  const { user, isSignedIn } = useAuth();
+  const { phoneMode, setHideBottomNav } = useSettings();
+  const { user } = useAuth();
   const { requireSignIn } = useSignInModal();
   const { openPaywall } = usePaywall();
-  const { showToast } = useToast();
   const plan = usePlan();
-  const native = isNativeRuntime();
   const welcome = location.pathname.endsWith('/welcome');
-  const [nativeOffers, setNativeOffers] = useState<NativeOffer[] | null>(null);
-  const [selected, setSelected] = useState<PlanKey>(DEFAULT_PLAN);
-  const [busy, setBusy] = useState(false);
+  const p = usePurchase(welcome ? 'welcome' : 'pro-page', { requireSignIn: () => requireSignIn('Sign in to subscribe') });
   const [welcomeState, setWelcomeState] = useState<'waiting' | 'done' | 'timeout'>('waiting');
+  useNightStatusBar();
+
+  // A full page: the tab bar steps aside while it's up.
+  useEffect(() => {
+    if (!phoneMode) return;
+    setHideBottomNav(true);
+    return () => setHideBottomNav(false);
+  }, [phoneMode, setHideBottomNav]);
 
   useEffect(() => {
-    if (native) void getNativeOffers().then(setNativeOffers);
     logBillingEvent('paywall_shown', user?.id ?? null, { source: welcome ? 'welcome' : 'pro-page' });
-    // /pro?sheet=1 opens the paywall sheet itself — the way to see it
-    // before the gates are on, when no feature would open it.
+    // /pro?sheet=1 opens the in-context sheet itself — the way to see it
+    // before a feature would.
     if (new URLSearchParams(location.search).get('sheet') === '1') openPaywall('pro-page');
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [native]);
+  }, []);
 
   // Back from Stripe: sync, then watch for the row to flip.
   useEffect(() => {
@@ -81,45 +134,12 @@ export const ProPage: React.FC = () => {
     else { const t = setTimeout(() => setWelcomeState((s) => (s === 'waiting' ? 'timeout' : s)), 11000); return () => clearTimeout(t); }
   }, [welcome, plan.subscribed]);
 
-  const offers: PlanOffer[] = useMemo(() => (native ? (nativeOffers ?? []) : webOffers()), [native, nativeOffers]);
-  const offer = offers.find((o) => o.key === selected) ?? offers[0];
-  const available = billingAvailable() && offers.length > 0;
-
-  const buy = async () => {
-    if (!offer || busy) return;
-    if (!isSignedIn) { requireSignIn('Sign in to subscribe'); return; }
-    setBusy(true);
-    logBillingEvent('purchase_started', user?.id ?? null, { source: 'pro-page', plan: offer.key });
-    if (native) {
-      const res = await purchaseNative((offer as NativeOffer).pkg);
-      setBusy(false);
-      if (!res.ok) { if (!res.cancelled) showToast('The purchase didn’t go through', { subtitle: 'Nothing was charged.' }); return; }
-      await syncPlanWithServer(); await plan.refresh();
-      logBillingEvent('purchased', user?.id ?? null, { source: 'pro-page', plan: offer.key });
-      showToast('Welcome to Pro');
-      return;
-    }
-    const res = await startWebCheckout(offer.key);
-    setBusy(false);
-    if (!res.ok) showToast("Couldn't start checkout", { subtitle: res.message });
-  };
-
-  const restore = async () => {
-    if (busy) return;
-    setBusy(true);
-    const res = await restoreNative();
-    if (res.ok) { await syncPlanWithServer(); await plan.refresh(); }
-    setBusy(false);
-    if (!res.ok) { if (!res.cancelled) showToast("Couldn't restore", { subtitle: res.message }); return; }
-    showToast(res.entitlement.active ? 'Welcome back to Pro' : 'No purchases to restore');
-  };
-
   const Shell: React.FC<{ children: React.ReactNode }> = ({ children }) => (
-    <div className="min-h-screen bg-surface text-on-surface">
-      <div className={cn('mx-auto w-full', phoneMode ? 'px-5 pt-safe-4 pb-[calc(env(safe-area-inset-bottom)+96px)]' : 'max-w-[680px] px-6 py-10')}>
-        <div className="flex items-center gap-2 mb-6">
-          <button type="button" onClick={() => navigate(-1)} aria-label="Back" className="hit-44 w-10 h-10 rounded-full flex items-center justify-center text-on-surface active:scale-95 transition-transform border border-on-surface/[0.12]"><ChevronLeft size={18} /></button>
-          <span className="text-on-surface/45" style={{ fontSize: '10.5px', fontWeight: 700, letterSpacing: '0.16em', textTransform: 'uppercase' }}>GoodEats Pro</span>
+    <div className="min-h-screen" style={{ background: NIGHT_BG, color: NIGHT_INK }}>
+      <div className="mx-auto w-full" style={{ maxWidth: phoneMode ? 430 : 560, padding: phoneMode ? '0 22px' : '0 24px', paddingTop: 'max(54px, calc(env(safe-area-inset-top) + 16px))', paddingBottom: 'max(40px, calc(env(safe-area-inset-bottom) + 28px))' }}>
+        <div className="flex items-center gap-3" style={{ marginBottom: 18 }}>
+          <button type="button" onClick={() => navigate(-1)} aria-label="Back" className="hit-44 w-9 h-9 rounded-full grid place-items-center active:scale-95 transition-transform" style={{ background: 'rgba(255,255,255,0.1)', color: NIGHT_INK }}><ChevronLeft size={17} /></button>
+          <span style={eyebrow}>GoodEats Pro</span>
         </div>
         {children}
       </div>
@@ -132,21 +152,21 @@ export const ProPage: React.FC = () => {
         <div className="py-16 flex flex-col items-center text-center">
           {welcomeState === 'done' ? (
             <>
-              <span className="w-16 h-16 rounded-full flex items-center justify-center" style={{ background: 'color-mix(in srgb, var(--color-accent) 22%, transparent)', color: 'var(--color-accent-ink, #7a6534)' }}><Check size={28} /></span>
-              <h1 className="mt-5 font-serif font-bold" style={{ fontSize: '30px', letterSpacing: '-0.015em' }}>Welcome to Pro</h1>
-              <p className="mt-2 text-on-surface/55" style={{ fontSize: '14px' }}>Your taste, deeper. Everything’s unlocked.</p>
-              <button type="button" onClick={() => navigate('/')} className="mt-8 rounded-full bg-primary text-on-primary px-6 h-12" style={{ fontSize: '14px', fontWeight: 700 }}>Start exploring</button>
+              <span style={{ width: 64, height: 64, borderRadius: 999, background: 'rgba(174,187,211,0.16)', color: PALE, display: 'grid', placeItems: 'center' }}><Check size={28} /></span>
+              <h1 style={{ ...headline, fontSize: '32px', marginTop: 20 }}>Welcome to <em style={{ fontStyle: 'italic' }}>Pro.</em></h1>
+              <p style={{ marginTop: 8, fontSize: '14px', color: NIGHT_INK_SOFT }}>Everything's unlocked.</p>
+              <button type="button" onClick={() => navigate('/')} className="mt-8 rounded-full px-6 h-12" style={{ background: PALE, color: '#161a22', fontSize: '14px', fontWeight: 800 }}>Start exploring</button>
             </>
           ) : welcomeState === 'waiting' ? (
             <>
-              <Loader2 size={22} className="animate-spin text-on-surface/40" />
-              <p className="mt-4 text-on-surface/60" style={{ fontSize: '14px' }}>Finishing up…</p>
+              <Loader2 size={22} className="animate-spin" style={{ color: NIGHT_INK_FAINT }} />
+              <p style={{ marginTop: 16, fontSize: '14px', color: NIGHT_INK_SOFT }}>Finishing up…</p>
             </>
           ) : (
             <>
-              <h1 className="font-serif font-bold" style={{ fontSize: '24px' }}>Almost there</h1>
-              <p className="mt-2 text-on-surface/55 max-w-[34ch]" style={{ fontSize: '14px', lineHeight: 1.5 }}>Your purchase is going through. Pro turns on by itself within a minute or two; you don’t need to do anything.</p>
-              <button type="button" onClick={() => { void plan.refresh(); }} className="mt-6 rounded-full border border-on-surface/15 px-5 h-11" style={{ fontSize: '13.5px', fontWeight: 700 }}>Check again</button>
+              <h1 style={{ ...headline, fontSize: '26px' }}>Almost <em style={{ fontStyle: 'italic' }}>there.</em></h1>
+              <p style={{ marginTop: 8, fontSize: '14px', lineHeight: 1.5, color: NIGHT_INK_SOFT, maxWidth: '34ch' }}>Your purchase is going through. Pro turns on by itself within a minute or two; you don't need to do anything.</p>
+              <button type="button" onClick={() => { void plan.refresh(); }} className="mt-6 rounded-full px-5 h-11" style={{ border: '1px solid rgba(255,255,255,0.2)', fontSize: '13.5px', fontWeight: 700 }}>Check again</button>
             </>
           )}
         </div>
@@ -154,87 +174,64 @@ export const ProPage: React.FC = () => {
     );
   }
 
-  if (plan.checked && plan.subscribed) {
-    return (
-      <Shell>
-        <h1 className="font-serif font-bold" style={{ fontSize: '34px', lineHeight: 1.05, letterSpacing: '-0.015em' }}>You’re on Pro.</h1>
-        <p className="mt-3 text-on-surface/60" style={{ fontSize: '14.5px', lineHeight: 1.5 }}>
-          {plan.source === 'grant'
-            ? (plan.grantUntil ? `On the house until ${fmtDate(plan.grantUntil)}.` : 'On the house.')
-            : plan.proUntil
-              ? `${plan.willRenew === false ? 'Ends' : 'Renews'} ${fmtDate(plan.proUntil)}${plan.source ? ` · ${plan.source.startsWith('app_store') ? 'App Store' : plan.source.startsWith('stripe') ? 'Web' : plan.source}` : ''}.`
-              : 'Yours for good.'}
-        </p>
-        {plan.source !== 'grant' && (
-          <button type="button" onClick={() => { void openManage(plan.source); }} className="mt-6 inline-flex items-center gap-2 rounded-full border border-on-surface/15 px-5 h-11" style={{ fontSize: '13.5px', fontWeight: 700 }}>
-            Manage subscription <ExternalLink size={14} />
-          </button>
-        )}
-        <section className="mt-10">
-          <p className="text-on-surface/45 mb-3" style={{ fontSize: '10.5px', fontWeight: 700, letterSpacing: '0.16em', textTransform: 'uppercase' }}>What’s included</p>
-          <ul className="space-y-3">
-            {BENEFITS.map((b) => (
-              <li key={b.key}><p style={{ fontSize: '15px', fontWeight: 700 }}>{b.title}</p><p className="text-on-surface/50" style={{ fontSize: '13px' }}>{b.sub}</p></li>
-            ))}
-          </ul>
-        </section>
-      </Shell>
-    );
-  }
+  const subscribed = plan.checked && plan.subscribed;
+  const outcome = p.phase === 'success' || p.phase === 'web-sent';
 
   return (
     <Shell>
-      <h1 className="font-serif font-bold" style={{ fontSize: phoneMode ? '38px' : '46px', lineHeight: 1.0, letterSpacing: '-0.02em' }}>Your taste, deeper.</h1>
-      <p className="mt-4 text-on-surface/60 max-w-[44ch]" style={{ fontSize: '15px', lineHeight: 1.55 }}>
-        GoodEats is a complete app for free. Pro is the AI layer and the insight layer: the things that cost real money per use, and the things that read your taste back to you.
-      </p>
+      <StoryCarousel />
 
-      <section className="mt-9 space-y-6">
-        {BENEFITS.map((b) => (
-          <div key={b.key}>
-            <p style={{ fontSize: '17px', fontWeight: 700, letterSpacing: '-0.01em' }}>{b.title}</p>
-            <p className="mt-1 text-on-surface/55" style={{ fontSize: '13.5px', lineHeight: 1.5 }}>{b.sub}</p>
-            <p className="mt-1.5 text-on-surface/40" style={{ fontSize: '12.5px' }}>
-              {Object.values(FEATURES).filter((f) => f.benefit === b.key).map((f) => f.label).join(' · ')}
+      <section style={{ marginTop: 28 }}>
+        {subscribed ? (
+          <div style={{ ...glass, borderRadius: 22, padding: '18px 18px' }}>
+            <span style={eyebrow}>Your plan</span>
+            <h1 style={{ ...headline, fontSize: '28px', margin: '10px 0 6px' }}>You're on <em style={{ fontStyle: 'italic' }}>Pro.</em></h1>
+            <p style={{ fontSize: '13.5px', lineHeight: 1.5, color: NIGHT_INK_SOFT, margin: 0 }}>
+              {plan.source === 'grant'
+                ? (plan.grantUntil ? `On the house until ${fmtDate(plan.grantUntil)}.` : 'On the house.')
+                : plan.proUntil
+                  ? `${plan.willRenew === false ? 'Ends' : 'Renews'} ${fmtDate(plan.proUntil)}${plan.source ? ` · ${plan.source.startsWith('app_store') ? 'App Store' : plan.source.startsWith('stripe') ? 'Web' : plan.source}` : ''}.`
+                  : 'Yours for good.'}
             </p>
+            {plan.source !== 'grant' && (
+              <button type="button" onClick={() => { void openManage(plan.source); }} className="mt-4 inline-flex items-center gap-2 rounded-full px-4 h-10" style={{ border: '1px solid rgba(255,255,255,0.2)', fontSize: '13px', fontWeight: 700, color: NIGHT_INK }}>
+                Manage subscription <ExternalLink size={13} />
+              </button>
+            )}
           </div>
-        ))}
-      </section>
-
-      <section className="mt-10">
-        <p className="text-on-surface/45 mb-3" style={{ fontSize: '10.5px', fontWeight: 700, letterSpacing: '0.16em', textTransform: 'uppercase' }}>Plans</p>
-        {native && nativeOffers === null ? (
-          <div className="flex items-center gap-2 text-on-surface/45 py-3" style={{ fontSize: '13px' }}><Loader2 size={14} className="animate-spin" /> Loading plans…</div>
-        ) : offers.length === 0 ? (
-          <p className="rounded-2xl bg-on-surface/[0.05] px-4 py-3 text-on-surface/60" style={{ fontSize: '13px', lineHeight: 1.45 }}>Purchases aren’t set up in this build yet. Everything stays free until they are.</p>
+        ) : outcome ? (
+          <NightOutcome phase={p.phase as 'success' | 'web-sent'} onDone={p.reset} />
         ) : (
           <>
-            <PlanPicker offers={offers} value={offer?.key ?? DEFAULT_PLAN} onChange={setSelected} disabled={busy} />
-            <button type="button" onClick={() => { void buy(); }} disabled={!available || busy} className="mt-4 w-full h-12 rounded-full bg-primary text-on-primary flex items-center justify-center gap-2 disabled:opacity-40" style={{ fontSize: '14.5px', fontWeight: 700 }}>
-              {busy ? <Loader2 size={16} className="animate-spin" /> : offer ? ctaFor(offer) : 'Continue'}
-            </button>
-            {offer && <p className="mt-2 text-center text-on-surface/45" style={{ fontSize: '11.5px' }}>{finePrintFor(offer)}</p>}
+            <span style={eyebrow}>Plans</span>
+            <h1 style={{ ...headline, fontSize: '28px', margin: '10px 0 6px' }}>One plan.<br /><em style={{ fontStyle: 'italic' }}>Two ways to pay.</em></h1>
+            <p style={{ fontSize: '13.5px', lineHeight: 1.45, color: NIGHT_INK_SOFT, margin: '0 0 18px' }}>Everything free stays free. Pro is optional, and you can leave it any time.</p>
+            {p.loadingOffers ? (
+              <p style={{ fontSize: '13px', color: NIGHT_INK_SOFT }}>Loading plans…</p>
+            ) : p.offers.length === 0 ? (
+              <p style={{ ...glass, borderRadius: 16, padding: '12px 14px', fontSize: '13px', color: NIGHT_INK_SOFT, lineHeight: 1.45 }}>Purchases aren't set up in this build yet. Everything stays free until they are.</p>
+            ) : (
+              <>
+                <NightPlanCards offers={p.offers} value={p.offer?.key ?? p.selected} onChange={p.pick} disabled={p.busy} />
+                <div style={{ marginTop: 16 }}><NightPurchaseFooter p={p} /></div>
+              </>
+            )}
+            <div style={{ marginTop: 12 }}><NightLegal p={p} /></div>
           </>
         )}
-        <p className="mt-3 flex items-center justify-center gap-3 text-on-surface/45" style={{ fontSize: '11.5px', fontWeight: 600 }}>
-          {native && <><button type="button" onClick={() => { void restore(); }} className="underline-offset-2 hover:underline">Restore purchases</button><span aria-hidden>·</span></>}
-          <button type="button" onClick={() => { void openExternalUrl(TERMS_URL); }} className="underline-offset-2 hover:underline">Terms</button>
-          <span aria-hidden>·</span>
-          <button type="button" onClick={() => { void openExternalUrl(PRIVACY_URL); }} className="underline-offset-2 hover:underline">Privacy</button>
-        </p>
       </section>
 
-      <section className="mt-10">
-        <p className="text-on-surface/45 mb-3" style={{ fontSize: '10.5px', fontWeight: 700, letterSpacing: '0.16em', textTransform: 'uppercase' }}>Questions</p>
-        <dl className="divide-y divide-on-surface/[0.08]">
+      <section style={{ marginTop: 36 }}>
+        <span style={eyebrow}>Questions</span>
+        <dl style={{ marginTop: 10 }}>
           {FAQ.map((f) => (
-            <div key={f.q} className="py-3">
-              <dt style={{ fontSize: '14px', fontWeight: 700 }}>{f.q}</dt>
-              <dd className="mt-1 text-on-surface/55" style={{ fontSize: '13px', lineHeight: 1.5 }}>{f.a}</dd>
+            <div key={f.q} style={{ padding: '12px 0', borderTop: '1px solid rgba(255,255,255,0.1)' }}>
+              <dt style={{ fontSize: '14px', fontWeight: 700, color: NIGHT_INK }}>{f.q}</dt>
+              <dd style={{ margin: '4px 0 0', fontSize: '13px', lineHeight: 1.5, color: NIGHT_INK_SOFT }}>{f.a}</dd>
             </div>
           ))}
         </dl>
-        <p className="mt-4 inline-flex items-center gap-2 text-on-surface/45" style={{ fontSize: '12px' }}><ProTag /> One plan, every device.</p>
+        <p style={{ marginTop: 14, fontSize: '12px', color: NIGHT_INK_FAINT }}>One plan, every device.</p>
       </section>
     </Shell>
   );
