@@ -495,7 +495,7 @@ export const SettingsPage: React.FC = () => {
                 : plan.proUntil
                   ? `${plan.willRenew === false ? 'Ends' : 'Renews'} ${new Date(plan.proUntil).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`
                   : 'Yours for good', press: () => navigate('/pro') }
-            : { icon: <Sparkles size={17} strokeWidth={1.9} />, title: 'Upgrade to Pro', sub: 'Deeper taste profile, unlimited AI', press: () => openPaywall('settings') },
+            : { icon: <Sparkles size={17} strokeWidth={1.9} />, title: 'Upgrade to Pro', sub: 'The assistant on Opus, unlimited recipes, your full taste profile', press: () => navigate('/pro') },
           ...(plan.subscribed && plan.source !== 'grant'
             ? [{ icon: <ExternalLinkIcon size={17} strokeWidth={1.9} />, title: 'Manage subscription', sub: plan.source && plan.source.startsWith('stripe') ? 'Billing portal' : 'App Store', press: () => { void openManage(plan.source); } }]
             : []),
