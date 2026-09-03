@@ -11,7 +11,7 @@
   --gcx-hairline-strong: #e4dfd7;
   --gcx-chip: #f0ede7;
   --gcx-card: #ffffff;
-  --gcx-accent: var(--color-primary, #1c1a19);
+  --gcx-accent: var(--color-primary, #4b5670);
   --gcx-green: #1e7a55;
   --gcx-serif: var(--font-serif, 'Noto Serif', Georgia, serif);
 
@@ -1558,7 +1558,7 @@
    here; the rules after it catch the handful of literals (hovers,
    dashes, disabled states) that carried the warm palette directly. */
 .dark .gcx {
-  --gcx-bg: #1e1e20;
+  --gcx-bg: #1b1c20;
   --gcx-ink: #ededed;
   --gcx-secondary: #a0a0a6;
   --gcx-faint: #6a6a70;

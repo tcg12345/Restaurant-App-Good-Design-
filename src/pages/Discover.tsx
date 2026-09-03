@@ -2903,7 +2903,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, sear
       // Selected → brand primary; otherwise restore the marker's own score
       // colour. Content (white score / pin glyph) stays white in both states.
       pin.style.background = isSelected
-        ? 'var(--color-primary, #1c1a19)'
+        ? 'var(--color-primary, #4b5670)'
         : (pin.dataset.baseColor || '#94a3b8');
       el.style.zIndex = isSelected ? '5' : '';
     });
