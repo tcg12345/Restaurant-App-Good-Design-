@@ -41,7 +41,7 @@ builds stay on Opus) and reports the model on `X-GoodEats-Model` /
 |----------|---------|--------------|
 | `billing-webhook` | RevenueCat → us: every subscription event, logged by id and applied to `user_profiles.plan` | `REVENUECAT_WEBHOOK_SECRET` (the Authorization header value set in RevenueCat) |
 | `billing-sync` | The app calls this after a native purchase / restore to write the plan without waiting on the webhook | `REVENUECAT_SECRET_KEY` |
-| `billing-checkout` | Web only: mint a Stripe Checkout session (monthly / annual / lifetime) | `STRIPE_SECRET_KEY`, `STRIPE_PRICE_MONTHLY`, `STRIPE_PRICE_ANNUAL`, `STRIPE_PRICE_LIFETIME` (optional), `PUBLIC_WEB_ORIGIN`, `STRIPE_TRIAL_DAYS_ANNUAL` (optional) |
+| `billing-checkout` | Web only: mint a Stripe Checkout session (monthly / annual / lifetime) | `STRIPE_SECRET_KEY`, `STRIPE_PRICE_MONTHLY`, `STRIPE_PRICE_ANNUAL`, `STRIPE_PRICE_LIFETIME` (optional), `PUBLIC_WEB_ORIGIN` (one or more origins, comma-separated; the first is the default return address), `STRIPE_TRIAL_DAYS_ANNUAL` (optional) |
 | `billing-portal` | Web only: a Stripe Customer Portal session for manage / cancel | `STRIPE_SECRET_KEY`, `PUBLIC_WEB_ORIGIN` |
 
 The plan is written ONLY by these functions (service role); the profile

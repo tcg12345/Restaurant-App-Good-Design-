@@ -17,7 +17,8 @@
 // Secrets: STRIPE_SECRET_KEY=sk_live_...
 //          STRIPE_PRICE_MONTHLY=price_...   STRIPE_PRICE_ANNUAL=price_...
 //          STRIPE_PRICE_LIFETIME=price_...  (optional)
-//          PUBLIC_WEB_ORIGIN=https://goodeats.app  (return URLs must be here)
+//          PUBLIC_WEB_ORIGIN=https://goodeats.app[,https://other.domain]
+//            (return URLs must be on one of these; the first is the default)
 //          STRIPE_TRIAL_DAYS_ANNUAL=7  (optional; default 7, 0 disables)
 
 import { requireUser, CORS_HEADERS } from '../_shared/auth.ts';
@@ -29,7 +30,10 @@ const PRICES: Record<string, string | undefined> = {
   annual: Deno.env.get('STRIPE_PRICE_ANNUAL'),
   lifetime: Deno.env.get('STRIPE_PRICE_LIFETIME'),
 };
-const WEB_ORIGIN = (Deno.env.get('PUBLIC_WEB_ORIGIN') ?? '').replace(/\/$/, '');
+// One or more origins, comma-separated; the first is the default return
+// address, any of them may be a return address ("https://a.com,https://b.com").
+const WEB_ORIGINS = (Deno.env.get('PUBLIC_WEB_ORIGIN') ?? '').split(',').map((o) => o.trim().replace(/\/$/, '')).filter(Boolean);
+const WEB_ORIGIN = WEB_ORIGINS[0] ?? '';
 const TRIAL_DAYS_ANNUAL = Number(Deno.env.get('STRIPE_TRIAL_DAYS_ANNUAL') ?? '7');
 const MAX_BODY_BYTES = 8 * 1024;
 
@@ -51,13 +55,13 @@ async function stripe(path: string, params: Record<string, string>): Promise<Rec
   return data;
 }
 
-/** Only paths on our own web origin may be return URLs. */
+/** Only paths on one of our own web origins may be return URLs. */
 function safeReturnUrl(raw: unknown, fallbackPath: string): string {
   const fallback = `${WEB_ORIGIN}${fallbackPath}`;
   if (typeof raw !== 'string' || !WEB_ORIGIN) return fallback;
   try {
     const u = new URL(raw);
-    if (`${u.protocol}//${u.host}` !== WEB_ORIGIN) return fallback;
+    if (!WEB_ORIGINS.includes(`${u.protocol}//${u.host}`)) return fallback;
     return u.toString();
   } catch {
     return fallback;
