@@ -52,10 +52,12 @@ export interface PlanValue {
 
 const Ctx = createContext<PlanValue | null>(null);
 
-/** Development only: `VITE_PLAN_PREVIEW=free` in .env.local shows every
- *  gate as a free user would see it, whatever the server says. Ignored in
- *  production builds. */
-const PREVIEW_FREE = import.meta.env.DEV && import.meta.env.VITE_PLAN_PREVIEW === 'free';
+/** Development only: `VITE_PLAN_PREVIEW=free` shows every gate as a free
+ *  user would see it, whatever the server says. Keyed on the build MODE,
+ *  not DEV: `vite build --mode development` still sets DEV=false (Vite
+ *  ties DEV to NODE_ENV), while `npm run build` and Vercel are always
+ *  mode 'production', where this is ignored. */
+const PREVIEW_FREE = import.meta.env.MODE !== 'production' && import.meta.env.VITE_PLAN_PREVIEW === 'free';
 
 const FREE: Omit<PlanValue, 'refresh' | 'refreshQuota' | 'checked' | 'earlyAccess'> = {
   subscribed: false, isPro: true, gatesEnabled: false, proUntil: null, willRenew: null, source: null, grantUntil: null, quota: null,
