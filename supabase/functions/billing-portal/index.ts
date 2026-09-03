@@ -12,7 +12,9 @@ import { requireUser, CORS_HEADERS } from '../_shared/auth.ts';
 import { serviceClient } from '../_shared/billing.ts';
 
 const STRIPE_KEY = Deno.env.get('STRIPE_SECRET_KEY');
-const WEB_ORIGIN = (Deno.env.get('PUBLIC_WEB_ORIGIN') ?? '').replace(/\/$/, '');
+// Comma-separated list allowed (see billing-checkout); the portal returns
+// people to the first one.
+const WEB_ORIGIN = ((Deno.env.get('PUBLIC_WEB_ORIGIN') ?? '').split(',')[0] ?? '').trim().replace(/\/$/, '');
 
 function json(status: number, body: Record<string, unknown>): Response {
   return new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json', ...CORS_HEADERS } });
