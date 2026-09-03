@@ -59,10 +59,10 @@ const StoryCarousel: React.FC = () => {
     <div>
       <div ref={ref} className="flex overflow-x-auto no-scrollbar snap-x snap-mandatory" style={{ scrollbarWidth: 'none', gap: 0, margin: '0 -22px', padding: '0 22px', scrollPaddingLeft: 22, scrollPaddingRight: 22 }}>
         {PRO_STORIES.map((s, i) => (
-          <div key={s.key} className="snap-center flex-none" style={{ width: '100%', paddingRight: i === PRO_STORIES.length - 1 ? 0 : 10, boxSizing: 'border-box' }}>
+          <div key={s.id} className="snap-center flex-none" style={{ width: '100%', paddingRight: i === PRO_STORIES.length - 1 ? 0 : 10, boxSizing: 'border-box' }}>
             <div style={{ ...glass, borderRadius: 24, padding: 16, minHeight: 340, display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
               <div style={{ ...glass, borderRadius: 18, padding: 12, background: 'rgba(0,0,0,0.18)', boxShadow: 'none' }}>
-                {index === i ? <s.Visual key={`${s.key}-${index}`} /> : <s.Visual />}
+                {index === i ? <s.Visual key={`${s.id}-${index}`} /> : <s.Visual />}
               </div>
               <div style={{ marginTop: 16 }}>
                 <span style={eyebrow}>{s.eyebrow}</span>
@@ -75,7 +75,7 @@ const StoryCarousel: React.FC = () => {
       </div>
       <div className="flex justify-center gap-[5px]" style={{ marginTop: 12 }} role="tablist" aria-label="Stories">
         {PRO_STORIES.map((s, i) => (
-          <button key={s.key} type="button" role="tab" aria-selected={index === i} aria-label={s.eyebrow} onClick={() => go(i)} className="hit-44-y" style={{ padding: 4 }}>
+          <button key={s.id} type="button" role="tab" aria-selected={index === i} aria-label={s.eyebrow} onClick={() => go(i)} className="hit-44-y" style={{ padding: 4 }}>
             <motion.i className="block rounded-full" style={{ height: 6, background: NIGHT_INK }} animate={{ width: index === i ? 18 : 6, opacity: index === i ? 1 : 0.3 }} transition={{ duration: 0.3, ease: EASE }} />
           </button>
         ))}
