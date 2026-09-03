@@ -26,7 +26,8 @@
 
 import { createClient } from 'jsr:@supabase/supabase-js@2';
 import { CORS_HEADERS, requireUser } from '../_shared/auth.ts';
-import { enforceRateLimit, readJsonBody } from '../_shared/limits.ts';
+import { readJsonBody } from '../_shared/limits.ts';
+import { enforceQuota } from '../_shared/quota.ts';
 import {
   CUISINE_ATTRIBUTION, SEARCH_RADIUS_M,
   buildOverpassQuery, matchPlace,
@@ -58,7 +59,6 @@ const PROVIDER = 'osm';
 const MAX_BODY_BYTES = 16 * 1024;
 /** Generous per user: a browse session legitimately fires several of these,
  *  and each one is capped at 25 places and deduplicated against the cache. */
-const MAX_PER_HOUR = 120;
 
 const JSON_HEADERS = { 'Content-Type': 'application/json', ...CORS_HEADERS };
 
@@ -115,11 +115,8 @@ Deno.serve(async (req: Request) => {
   const auth = await requireUser(req);
   if ('response' in auth) return auth.response;
 
-  const limited = await enforceRateLimit(
-    req, 'cuisine-lookup', MAX_PER_HOUR,
-    'Too many cuisine lookups for now — try again shortly.',
-  );
-  if (limited) return limited;
+  const quota = await enforceQuota(req, 'cuisine-lookup', 'Too many cuisine lookups for now. %reset%');
+  if ('response' in quota) return quota.response;
 
   const parsed = await readJsonBody<{ places?: RequestPlace[] }>(req, MAX_BODY_BYTES);
   if ('response' in parsed) return parsed.response;

@@ -23,6 +23,7 @@ import { useLists, type HomeMeal } from '../contexts/ListsContext';
 import { useSettings } from '../contexts/SettingsContext';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../contexts/ToastContext';
+import { usePaywall } from '../contexts/PaywallContext';
 import { useBottomSheet, acquireHardScrollLock } from '../lib/useBottomSheet';
 import { pushOverlay } from '../lib/overlay-registry';
 import { wakeGlassButtons } from '../lib/glass-buttons';
@@ -119,6 +120,7 @@ export const AddHomeMealModal: React.FC = () => {
   //             on the Review step. Two origins: tapping Edit on an AI
   //             draft ('ai'), or a completed import ('import').
   const [aiDraft, setAiDraft] = useState<HomeMeal | null>(null);
+  const { handleAiError } = usePaywall();
   const [seed, setSeed] = useState<HomeMeal | null>(null);
   const [seedKind, setSeedKind] = useState<'ai' | 'import'>('ai');
   /* Consume-once copy of the caller's preselected AI view (the Pantry
@@ -273,6 +275,7 @@ export const AddHomeMealModal: React.FC = () => {
   const handleAiRefine = async (instruction: string): Promise<{ ok: boolean; error?: string }> => {
     if (!aiDraft) return { ok: false, error: 'No recipe to refine.' };
     const res = await refineRecipe(aiDraft, instruction);
+    if (!res.ok) handleAiError('recipe-generate', res);
     if (res.ok && res.meal) {
       setAiDraft(res.meal);
       return { ok: true };
@@ -331,7 +334,11 @@ export const AddHomeMealModal: React.FC = () => {
   // the result and applies it via handleAiCoverChange.
   const handleAiGenerateImage = async (): Promise<{ ok: boolean; dataUrl?: string; error?: string }> => {
     if (!aiDraft) return { ok: false, error: 'No recipe to picture yet.' };
-    return generateRecipeImage(aiDraft);
+    const res = await generateRecipeImage(aiDraft);
+    // A Pro-only refusal opens the paywall; the caller's own error line
+    // stays quiet in that case.
+    if (!res.ok && handleAiError('recipe-image', res)) return { ok: false, error: '' };
+    return res;
   };
 
   // Header-left slot inside each flow: a chip back to the chooser.

@@ -17,15 +17,37 @@ Each requires a signed-in Supabase user — `_shared/auth.ts` verifies the
 bearer token (the functions deploy with `verify_jwt = false` so the CORS
 preflight gets through; see `supabase/config.toml`).
 
-## Abuse guards
+## Abuse guards and plan allowances
 
-On top of the auth check, every function counts requests against a per-user
-hourly quota (the `consume_ai_rate_limit` RPC — apply migration
-`047_ai_rate_limits.sql` before deploying) and rejects oversized request
-bodies; `location-chat` also caps the `messages[]` length. The mechanics live
-in `_shared/limits.ts` (inlined into `import-recipe`, which is deliberately
-self-contained); each function's limits are constants at the top of its
-`index.ts`.
+On top of the auth check, every AI function counts requests against the
+caller's plan allowance (the `consume_ai_quota` RPC — migration
+`087_billing.sql`, which replaces 047's hourly limiter) and rejects
+oversized request bodies; `location-chat` also caps the `messages[]` length.
+The allowances live in the `plan_limits` table per plan × endpoint × window
+(hour/day/week/month); a max of 0 means Pro only. While
+`billing_settings.gates_enabled` is false (the state this ships in) every
+caller is treated as Pro, so the free-plan rows have no effect until launch.
+A refused request answers 429 `{code:'quota', resetsAt}` or 402
+`{code:'pro_required'}`. The mechanics live in `_shared/quota.ts`, inlined
+into `location-chat`, `import-recipe` and `import-restaurants` (which are
+deliberately self-contained — keep the copies in sync). `location-chat`
+also runs a free caller's turns on Sonnet whatever the picker says (recipe
+builds stay on Opus) and reports the model on `X-GoodEats-Model` /
+`X-GoodEats-Model-Downgraded`.
+
+## Billing functions
+
+| Function | Purpose | Secrets used |
+|----------|---------|--------------|
+| `billing-webhook` | RevenueCat → us: every subscription event, logged by id and applied to `user_profiles.plan` | `REVENUECAT_WEBHOOK_SECRET` (the Authorization header value set in RevenueCat) |
+| `billing-sync` | The app calls this after a native purchase / restore to write the plan without waiting on the webhook | `REVENUECAT_SECRET_KEY` |
+| `billing-checkout` | Web only: mint a Stripe Checkout session (monthly / annual / lifetime) | `STRIPE_SECRET_KEY`, `STRIPE_PRICE_MONTHLY`, `STRIPE_PRICE_ANNUAL`, `STRIPE_PRICE_LIFETIME` (optional), `PUBLIC_WEB_ORIGIN`, `STRIPE_TRIAL_DAYS_ANNUAL` (optional) |
+| `billing-portal` | Web only: a Stripe Customer Portal session for manage / cancel | `STRIPE_SECRET_KEY`, `PUBLIC_WEB_ORIGIN` |
+
+The plan is written ONLY by these functions (service role); the profile
+guard trigger reverts any client write. Launch day: an admin runs
+`select public.set_billing_gates(true)` and the grandfathering insert in
+migration 087.
 
 These Supabase functions are the ONLY deployment of the AI endpoints. A
 parallel copy once lived in `/api` (Vercel serverless); it drifted, shipped
@@ -40,8 +62,8 @@ supabase link --project-ref YOUR_PROJECT_REF
 # Set the server-side keys (stored as Supabase secrets, never in the bundle)
 supabase secrets set ANTHROPIC_API_KEY=sk-ant-... OPENAI_API_KEY=sk-...
 
-# Apply the rate-limit migration first (SQL Editor or `supabase db push`):
-#   supabase/migrations/047_ai_rate_limits.sql
+# Apply the billing migration first (SQL Editor or `supabase db push`):
+#   supabase/migrations/087_billing.sql
 
 # Deploy all five
 supabase functions deploy location-chat
@@ -49,6 +71,12 @@ supabase functions deploy build-recipe
 supabase functions deploy import-recipe
 supabase functions deploy import-restaurants
 supabase functions deploy generate-recipe-image
+
+# Billing (set the secrets in the table above first)
+supabase functions deploy billing-webhook
+supabase functions deploy billing-sync
+supabase functions deploy billing-checkout
+supabase functions deploy billing-portal
 ```
 
 ## Video (Mux) functions

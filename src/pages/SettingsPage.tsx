@@ -9,6 +9,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { useAuth } from '../contexts/AuthContext';
 import { useLists } from '../contexts/ListsContext';
 import { useSettings } from '../contexts/SettingsContext';
+import { useToast } from '../contexts/ToastContext';
 import { saveProfile } from '../lib/supabase-community';
 import { processPhoto } from '../lib/images';
 import { Avatar } from '../components/Avatar';
@@ -22,6 +23,11 @@ import { getMyLatestVerificationRequest, type VerificationRequest } from '../lib
 import { VerifiedBadge } from '../components/VerifiedBadge';
 import { VerifiedStatusPicker } from '../components/VerifiedStatusPicker';
 import { openExternalUrl, SUPPORT_URL, PRIVACY_URL } from '../lib/external-links';
+import { usePlan } from '../contexts/PlanContext';
+import { usePaywall } from '../contexts/PaywallContext';
+import { openManage, restoreNative, syncPlanWithServer } from '../lib/billing';
+import { isNativeRuntime } from '../lib/native-oauth';
+import { RotateCcw, ExternalLink as ExternalLinkIcon } from 'lucide-react';
 import { formatPhoneForDisplay, toE164 } from '../lib/phone';
 import pkg from '../../package.json';
 
@@ -115,6 +121,15 @@ export const SettingsPage: React.FC = () => {
   const { profile, user, signOut, refreshProfile, isAdmin } = useAuth();
   const listsCtx = useLists();
   const { darkMode, toggleDarkMode, twoDecimalScores, toggleTwoDecimalScores } = useSettings();
+  const plan = usePlan();
+  const { showToast } = useToast();
+  const { openPaywall } = usePaywall();
+  const restorePurchases = async () => {
+    const res = await restoreNative();
+    if (res.ok) { await syncPlanWithServer(); await plan.refresh(); }
+    if (!res.ok) { if (!res.cancelled) showToast("Couldn't restore", { subtitle: res.message }); return; }
+    showToast(res.entitlement.active ? 'Welcome back to Pro' : 'No purchases to restore');
+  };
 
   // ── Push-in sub-page ─────────────────────────────────────────────
   // `subPage` keeps the content mounted through the slide-out; `subOpen`
@@ -438,6 +453,29 @@ export const SettingsPage: React.FC = () => {
           },
         ],
       } : null,
+      // ── GoodEats Pro ── one section; the rows say what state you're in
+      // before what you can do about it. Hidden until the plan answer is
+      // in (so nobody sees "Upgrade" flash before "You're on Pro"), and
+      // hidden entirely until launch flips the gates on — nothing to sell
+      // before then, unless the person already holds Pro.
+      plan.checked && (plan.gatesEnabled || plan.subscribed) ? {
+        label: 'GoodEats Pro',
+        rows: [
+          plan.subscribed
+            ? { icon: <Sparkles size={17} strokeWidth={1.9} />, title: 'GoodEats Pro', sub: plan.source === 'grant'
+                ? (plan.grantUntil ? `On the house until ${new Date(plan.grantUntil).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}` : 'On the house')
+                : plan.proUntil
+                  ? `${plan.willRenew === false ? 'Ends' : 'Renews'} ${new Date(plan.proUntil).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`
+                  : 'Yours for good', press: () => navigate('/pro') }
+            : { icon: <Sparkles size={17} strokeWidth={1.9} />, title: 'Upgrade to Pro', sub: 'Deeper taste profile, unlimited AI', press: () => openPaywall('settings') },
+          ...(plan.subscribed && plan.source !== 'grant'
+            ? [{ icon: <ExternalLinkIcon size={17} strokeWidth={1.9} />, title: 'Manage subscription', sub: plan.source && plan.source.startsWith('stripe') ? 'Billing portal' : 'App Store', press: () => { void openManage(plan.source); } }]
+            : []),
+          ...(isNativeRuntime()
+            ? [{ icon: <RotateCcw size={17} strokeWidth={1.9} />, title: 'Restore purchases', sub: 'Bought Pro on another device?', press: () => { void restorePurchases(); } }]
+            : []),
+        ],
+      } : null,
       {
         label: 'Data',
         rows: [
@@ -458,7 +496,7 @@ export const SettingsPage: React.FC = () => {
       .map((s) => ({ ...s, rows: q ? s.rows.filter((r) => `${r.title} ${r.sub}`.toLowerCase().includes(q)) : s.rows }))
       .filter((s) => s.rows.length > 0);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [query, profile?.is_public, profile?.is_verified, darkMode, twoDecimalScores, isAdmin, pendingUploads]);
+  }, [query, profile?.is_public, profile?.is_verified, darkMode, twoDecimalScores, isAdmin, pendingUploads, plan.checked, plan.gatesEnabled, plan.subscribed, plan.source, plan.proUntil, plan.willRenew, plan.grantUntil]);
 
   const subTitle = subPage === 'edit' ? 'Edit profile' : 'Account';
 

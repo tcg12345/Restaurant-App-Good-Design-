@@ -48,3 +48,19 @@ verify_jwt = false
 # JWT; it authenticates via the Mux-Signature HMAC instead.
 [functions.mux-webhook]
 verify_jwt = false
+
+# Billing (migration 087). billing-webhook is called server-to-server by
+# RevenueCat, which can't present a Supabase JWT; it authenticates with a
+# shared secret instead. The other three verify the caller themselves and
+# must answer the CORS preflight.
+[functions.billing-webhook]
+verify_jwt = false
+
+[functions.billing-sync]
+verify_jwt = false
+
+[functions.billing-checkout]
+verify_jwt = false
+
+[functions.billing-portal]
+verify_jwt = false

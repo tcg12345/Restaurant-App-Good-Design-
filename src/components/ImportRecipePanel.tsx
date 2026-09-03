@@ -15,6 +15,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { GlassButton } from '../lib/glass-buttons';
 import { X, Link2, Camera, ClipboardType, ClipboardPaste, Plus, Loader2, Download, AlertCircle, FileText } from 'lucide-react';
 import { cn } from '../lib/utils';
+import { usePaywall } from '../contexts/PaywallContext';
 import type { HomeMeal } from '../contexts/ListsContext';
 import { importRecipe, compressImportPhoto, type ImportSource } from '../lib/import-recipe-client';
 import './AdvancedRecipeBuilder.css';
@@ -74,6 +75,7 @@ export const ImportRecipePanel: React.FC<ImportRecipePanelProps> = ({
   const [elapsed, setElapsed] = useState(0);
   const fileRef = useRef<HTMLInputElement | null>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const { handleAiError } = usePaywall();
 
   // Elapsed-seconds ticker during the import so the user sees progress.
   useEffect(() => {
@@ -153,7 +155,8 @@ export const ImportRecipePanel: React.FC<ImportRecipePanelProps> = ({
     if (res.ok && res.meal) {
       onImported(res.meal);
     } else {
-      setError(res.error || 'Something went wrong. Try again.');
+      const feature = 'url' in source && source.url ? 'recipe-import-link' : 'images' in source && source.images?.length ? 'recipe-import-photo' : 'recipe-import-text';
+      if (!handleAiError(feature, res)) setError(res.error || 'Something went wrong. Try again.');
     }
   };
 

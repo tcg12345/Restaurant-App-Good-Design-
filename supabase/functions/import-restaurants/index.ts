@@ -61,14 +61,34 @@ async function requireUser(
 
 /* ── Abuse guards (inlined from _shared/limits.ts) ────────────── */
 
-// Body cap must fit MAX_IMAGES base64 screenshots plus JSON overhead.
-const MAX_REQUESTS_PER_HOUR = 20;
+// Body cap must fit MAX_IMAGES base64 screenshots plus JSON overhead. The
+// per-plan allowance lives in plan_limits (migration 087).
 const MAX_BODY_BYTES = 30 * 1024 * 1024;
 
-/** Count this request against the caller's hourly quota (migration
- *  047_ai_rate_limits.sql). 429 once over; null while under. Fails open on
- *  infrastructure errors — the caller has already passed auth. */
-async function enforceRateLimit(req: Request): Promise<Response | null> {
+/** "Resets in 3 hours" / "Resets Monday" / "Resets 1 Oct". */
+function resetPhrase(resetsAt: string | null): string {
+  if (!resetsAt) return '';
+  const at = new Date(resetsAt);
+  const ms = at.getTime() - Date.now();
+  if (!Number.isFinite(ms)) return '';
+  if (ms <= 60 * 60 * 1000) return `Resets in ${Math.max(1, Math.round(ms / 60000))} min.`;
+  if (ms <= 36 * 60 * 60 * 1000) return `Resets in ${Math.round(ms / 3600000)} hours.`;
+  if (ms <= 8 * 24 * 60 * 60 * 1000) return `Resets ${at.toLocaleDateString('en-US', { weekday: 'long', timeZone: 'UTC' })}.`;
+  return `Resets ${at.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' })}.`;
+}
+
+/** Count this request against the caller's plan allowance for `endpoint`
+ *  (the consume_ai_quota RPC — migration 087_billing.sql; inlined from
+ *  _shared/quota.ts, keep the two in sync). Returns { response } to send
+ *  straight back (402 for a Pro-only feature, 429 when the allowance is
+ *  used up), else the caller's plan and headroom. Allows on infrastructure
+ *  errors: the caller already passed auth, and while the billing gates are
+ *  off nothing is gated anyway. */
+async function enforceQuota(
+  req: Request,
+  endpoint: string,
+  message: string,
+): Promise<{ response: Response } | { plan: 'free' | 'pro'; remaining: number | null; resetsAt: string | null }> {
   const supabase = createClient(
     Deno.env.get('SUPABASE_URL') ?? '',
     Deno.env.get('SUPABASE_ANON_KEY') ?? '',
@@ -77,21 +97,33 @@ async function enforceRateLimit(req: Request): Promise<Response | null> {
       global: { headers: { Authorization: req.headers.get('Authorization') ?? '' } },
     },
   );
-  const { data, error } = await supabase.rpc('consume_ai_rate_limit', {
-    p_endpoint: 'import-restaurants',
-    p_max_per_hour: MAX_REQUESTS_PER_HOUR,
-  });
+  const { data, error } = await supabase.rpc('consume_ai_quota', { p_endpoint: endpoint });
   if (error) {
-    console.error('[import-restaurants] rate-limit check failed (allowing request):', error.message);
-    return null;
+    console.error(`[${endpoint}] quota check failed (allowing request):`, error.message);
+    return { plan: 'pro', remaining: null, resetsAt: null };
   }
-  if (data === false) {
-    return new Response(
-      JSON.stringify({ error: "You've reached the hourly limit for AI requests. Please try again in a little while." }),
-      { status: 429, headers: { 'Content-Type': 'application/json', ...CORS_HEADERS } },
-    );
+  const row = (data ?? {}) as { allowed?: boolean; plan?: string; pro_only?: boolean; remaining?: number | null; resets_at?: string | null };
+  const json = (status: number, payload: Record<string, unknown>) =>
+    new Response(JSON.stringify(payload), { status, headers: { 'Content-Type': 'application/json', ...CORS_HEADERS } });
+  if (row.allowed === false) {
+    if (row.pro_only) {
+      return { response: json(402, { error: 'This is a GoodEats Pro feature.', code: 'pro_required', plan: row.plan ?? 'free' }) };
+    }
+    return {
+      response: json(429, {
+        error: message.replace('%reset%', resetPhrase(row.resets_at ?? null)).trim(),
+        code: 'quota',
+        plan: row.plan ?? 'free',
+        remaining: 0,
+        resetsAt: row.resets_at ?? null,
+      }),
+    };
   }
-  return null;
+  return {
+    plan: row.plan === 'free' ? 'free' : 'pro',
+    remaining: typeof row.remaining === 'number' ? row.remaining : null,
+    resetsAt: row.resets_at ?? null,
+  };
 }
 
 /** Read + JSON-parse the body without ever buffering more than
@@ -237,8 +269,8 @@ async function handler(req: Request): Promise<Response> {
   }
   const auth = await requireUser(req);
   if ('response' in auth) return auth.response;
-  const limited = await enforceRateLimit(req);
-  if (limited) return limited;
+  const quota = await enforceQuota(req, 'import-restaurants', "You've used your restaurant imports for now. %reset%");
+  if ('response' in quota) return quota.response;
   if (!ANTHROPIC_API_KEY) {
     return jsonError(500, 'ANTHROPIC_API_KEY is not configured on the function');
   }

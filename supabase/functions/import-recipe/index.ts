@@ -28,7 +28,8 @@
 // (instead of imported from ../_shared) so this file can be pasted as-is
 // into the Supabase Dashboard's function editor, which can't reach files
 // outside the function's own folder. Keep the inlined blocks in sync
-// with _shared/auth.ts, _shared/limits.ts, and _shared/recipe-spec.ts.
+// with _shared/auth.ts, _shared/quota.ts, _shared/limits.ts, and
+// _shared/recipe-spec.ts.
 
 import { createClient } from 'jsr:@supabase/supabase-js@2';
 
@@ -64,14 +65,35 @@ async function requireUser(
 
 /* ── Abuse guards (inlined from _shared/limits.ts) ────────────── */
 
-// Body cap must fit MAX_IMAGES base64 photos plus JSON overhead.
-const MAX_REQUESTS_PER_HOUR = 30;
+// Body cap must fit MAX_IMAGES base64 photos plus JSON overhead. The
+// per-plan allowance lives in plan_limits (migration 087), split by mode:
+// 'import-recipe' (link), 'import-recipe-text', 'import-recipe-photo'.
 const MAX_BODY_BYTES = 22 * 1024 * 1024;
 
-/** Count this request against the caller's hourly quota (migration
- *  047_ai_rate_limits.sql). 429 once over; null while under. Fails open on
- *  infrastructure errors — the caller has already passed auth. */
-async function enforceRateLimit(req: Request): Promise<Response | null> {
+/** "Resets in 3 hours" / "Resets Monday" / "Resets 1 Oct". */
+function resetPhrase(resetsAt: string | null): string {
+  if (!resetsAt) return '';
+  const at = new Date(resetsAt);
+  const ms = at.getTime() - Date.now();
+  if (!Number.isFinite(ms)) return '';
+  if (ms <= 60 * 60 * 1000) return `Resets in ${Math.max(1, Math.round(ms / 60000))} min.`;
+  if (ms <= 36 * 60 * 60 * 1000) return `Resets in ${Math.round(ms / 3600000)} hours.`;
+  if (ms <= 8 * 24 * 60 * 60 * 1000) return `Resets ${at.toLocaleDateString('en-US', { weekday: 'long', timeZone: 'UTC' })}.`;
+  return `Resets ${at.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' })}.`;
+}
+
+/** Count this request against the caller's plan allowance for `endpoint`
+ *  (the consume_ai_quota RPC — migration 087_billing.sql; inlined from
+ *  _shared/quota.ts, keep the two in sync). Returns { response } to send
+ *  straight back (402 for a Pro-only feature, 429 when the allowance is
+ *  used up), else the caller's plan and headroom. Allows on infrastructure
+ *  errors: the caller already passed auth, and while the billing gates are
+ *  off nothing is gated anyway. */
+async function enforceQuota(
+  req: Request,
+  endpoint: string,
+  message: string,
+): Promise<{ response: Response } | { plan: 'free' | 'pro'; remaining: number | null; resetsAt: string | null }> {
   const supabase = createClient(
     Deno.env.get('SUPABASE_URL') ?? '',
     Deno.env.get('SUPABASE_ANON_KEY') ?? '',
@@ -80,21 +102,33 @@ async function enforceRateLimit(req: Request): Promise<Response | null> {
       global: { headers: { Authorization: req.headers.get('Authorization') ?? '' } },
     },
   );
-  const { data, error } = await supabase.rpc('consume_ai_rate_limit', {
-    p_endpoint: 'import-recipe',
-    p_max_per_hour: MAX_REQUESTS_PER_HOUR,
-  });
+  const { data, error } = await supabase.rpc('consume_ai_quota', { p_endpoint: endpoint });
   if (error) {
-    console.error('[import-recipe] rate-limit check failed (allowing request):', error.message);
-    return null;
+    console.error(`[${endpoint}] quota check failed (allowing request):`, error.message);
+    return { plan: 'pro', remaining: null, resetsAt: null };
   }
-  if (data === false) {
-    return new Response(
-      JSON.stringify({ error: "You've reached the hourly limit for AI requests. Please try again in a little while." }),
-      { status: 429, headers: { 'Content-Type': 'application/json', ...CORS_HEADERS } },
-    );
+  const row = (data ?? {}) as { allowed?: boolean; plan?: string; pro_only?: boolean; remaining?: number | null; resets_at?: string | null };
+  const json = (status: number, payload: Record<string, unknown>) =>
+    new Response(JSON.stringify(payload), { status, headers: { 'Content-Type': 'application/json', ...CORS_HEADERS } });
+  if (row.allowed === false) {
+    if (row.pro_only) {
+      return { response: json(402, { error: 'This is a GoodEats Pro feature.', code: 'pro_required', plan: row.plan ?? 'free' }) };
+    }
+    return {
+      response: json(429, {
+        error: message.replace('%reset%', resetPhrase(row.resets_at ?? null)).trim(),
+        code: 'quota',
+        plan: row.plan ?? 'free',
+        remaining: 0,
+        resetsAt: row.resets_at ?? null,
+      }),
+    };
   }
-  return null;
+  return {
+    plan: row.plan === 'free' ? 'free' : 'pro',
+    remaining: typeof row.remaining === 'number' ? row.remaining : null,
+    resetsAt: row.resets_at ?? null,
+  };
 }
 
 /** Read + JSON-parse the body without ever buffering more than
@@ -434,8 +468,6 @@ async function handler(req: Request): Promise<Response> {
   }
   const auth = await requireUser(req);
   if ('response' in auth) return auth.response;
-  const limited = await enforceRateLimit(req);
-  if (limited) return limited;
   if (!ANTHROPIC_API_KEY) {
     return jsonError(500, 'ANTHROPIC_API_KEY is not configured on the function');
   }
@@ -443,6 +475,15 @@ async function handler(req: Request): Promise<Response> {
   const parsed = await readJsonBody<{ url?: string; text?: string; images?: string[] }>(req);
   if ('response' in parsed) return parsed.response;
   const body = parsed.body;
+
+  // A link, photos and pasted text draw from different allowances, so the
+  // quota check waits for the body (it only reads the Authorization header
+  // otherwise). Same precedence as the mode dispatch below.
+  const hasUrl = typeof body.url === 'string' && body.url.trim().length > 0;
+  const hasImages = Array.isArray(body.images) && body.images.length > 0;
+  const quotaEndpoint = hasUrl ? 'import-recipe' : hasImages ? 'import-recipe-photo' : 'import-recipe-text';
+  const quota = await enforceQuota(req, quotaEndpoint, "You've used your recipe imports for now. %reset%");
+  if ('response' in quota) return quota.response;
 
   // Build the user message for whichever source was provided.
   let content: Array<Record<string, unknown>>;

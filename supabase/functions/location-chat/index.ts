@@ -31,11 +31,11 @@ const MODEL_OPUS_LEGACY = 'claude-opus-4-7';
 const DEFAULT_MODEL = MODEL_SONNET;
 const MAX_RESTAURANTS_IN_PROMPT = 50;
 
-// Abuse guards (per signed-in user; see _shared/limits.ts). One chat turn can
-// be several POSTs (tool round-trips), so this cap is the most generous of the
-// AI functions. The messages cap is far above what the agentic loop produces
-// in normal use — it exists to stop deliberately padded histories.
-const MAX_REQUESTS_PER_HOUR = 120;
+// Abuse guards (per signed-in user). The per-plan allowance lives in
+// plan_limits (migration 087): one chat turn can be several POSTs (tool
+// round-trips), so the chat's cap is the most generous of the AI functions.
+// The messages cap is far above what the agentic loop produces in normal
+// use — it exists to stop deliberately padded histories.
 const MAX_BODY_BYTES = 512 * 1024;
 const MAX_MESSAGES = 200;
 
@@ -169,18 +169,24 @@ function looksLikeRecipeBuild(messages: ChatRequest['messages']): boolean {
  *  when the client passes something unrecognised.
  *
  *  Recipe-building turns ALWAYS run on Opus 4.8 regardless of the
- *  client's pick — the structured JSON output is sensitive to quality
- *  and the user explicitly opted in to this trade-off. The override is
- *  silent and per-turn; the picker is unchanged. */
-function resolveModel(body: ChatRequest): string {
-  if (looksLikeRecipeBuild(body.messages)) return MODEL_OPUS;
+ *  client's pick or plan — the structured JSON output is sensitive to
+ *  quality. The override is silent and per-turn; the picker is unchanged. */
+function resolveModel(body: ChatRequest, plan: 'free' | 'pro'): { model: string; downgraded: boolean } {
+  if (looksLikeRecipeBuild(body.messages)) return { model: MODEL_OPUS, downgraded: false };
   const requested = (body.model || 'auto').trim();
-  if (requested === MODEL_SONNET || requested === MODEL_OPUS) return requested;
+  const wantsOpus = requested === MODEL_OPUS || requested === MODEL_OPUS_LEGACY;
+  // Opus in the picker is a Pro feature (plan decision A2). A free caller
+  // runs Sonnet whatever the picker says — the app shows Opus locked, so a
+  // request that asks anyway is reported back as downgraded — and Auto
+  // never escalates for them. Recipe-build turns above are the one
+  // exception: those stay on Opus for everyone (A3).
+  if (plan === 'free') return { model: MODEL_SONNET, downgraded: wantsOpus };
+  if (requested === MODEL_SONNET || requested === MODEL_OPUS) return { model: requested, downgraded: false };
   // Older clients may still send the retired Opus 4.7 id — honor the
   // intent by running on the current Opus.
-  if (requested === MODEL_OPUS_LEGACY) return MODEL_OPUS;
-  if (requested === 'auto' || !requested) return pickAutoModel(body.messages);
-  return DEFAULT_MODEL;
+  if (requested === MODEL_OPUS_LEGACY) return { model: MODEL_OPUS, downgraded: false };
+  if (requested === 'auto' || !requested) return { model: pickAutoModel(body.messages), downgraded: false };
+  return { model: DEFAULT_MODEL, downgraded: false };
 }
 
 // Tools Claude can use.
@@ -1331,17 +1337,30 @@ function jsonError(status: number, message: string): Response {
 /* ── Abuse guards (inlined from _shared/limits.ts — see the import-block
    comment above for why) ──────────────────────────────────────────── */
 
-/** Count this request against the caller's hourly quota for `endpoint`
- *  (the consume_ai_rate_limit RPC — migration 047_ai_rate_limits.sql).
- *  Returns a ready-to-send 429 once the quota is exhausted, null while
- *  under it. Fails open on infrastructure errors: the caller has already
- *  passed auth by the time this runs, and a DB hiccup shouldn't take the
- *  whole feature down. */
-async function enforceRateLimit(
+/** "Resets in 3 hours" / "Resets Monday" / "Resets 1 Oct". */
+function resetPhrase(resetsAt: string | null): string {
+  if (!resetsAt) return '';
+  const at = new Date(resetsAt);
+  const ms = at.getTime() - Date.now();
+  if (!Number.isFinite(ms)) return '';
+  if (ms <= 60 * 60 * 1000) return `Resets in ${Math.max(1, Math.round(ms / 60000))} min.`;
+  if (ms <= 36 * 60 * 60 * 1000) return `Resets in ${Math.round(ms / 3600000)} hours.`;
+  if (ms <= 8 * 24 * 60 * 60 * 1000) return `Resets ${at.toLocaleDateString('en-US', { weekday: 'long', timeZone: 'UTC' })}.`;
+  return `Resets ${at.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' })}.`;
+}
+
+/** Count this request against the caller's plan allowance for `endpoint`
+ *  (the consume_ai_quota RPC — migration 087_billing.sql; inlined from
+ *  _shared/quota.ts, keep the two in sync). Returns { response } to send
+ *  straight back (402 for a Pro-only feature, 429 when the allowance is
+ *  used up), else the caller's plan and headroom. Allows on infrastructure
+ *  errors: the caller already passed auth, and while the billing gates are
+ *  off nothing is gated anyway. */
+async function enforceQuota(
   req: Request,
   endpoint: string,
-  maxPerHour: number,
-): Promise<Response | null> {
+  message: string,
+): Promise<{ response: Response } | { plan: 'free' | 'pro'; remaining: number | null; resetsAt: string | null }> {
   const supabase = createClient(
     Deno.env.get('SUPABASE_URL') ?? '',
     Deno.env.get('SUPABASE_ANON_KEY') ?? '',
@@ -1350,18 +1369,33 @@ async function enforceRateLimit(
       global: { headers: { Authorization: req.headers.get('Authorization') ?? '' } },
     },
   );
-  const { data, error } = await supabase.rpc('consume_ai_rate_limit', {
-    p_endpoint: endpoint,
-    p_max_per_hour: maxPerHour,
-  });
+  const { data, error } = await supabase.rpc('consume_ai_quota', { p_endpoint: endpoint });
   if (error) {
-    console.error(`[${endpoint}] rate-limit check failed (allowing request):`, error.message);
-    return null;
+    console.error(`[${endpoint}] quota check failed (allowing request):`, error.message);
+    return { plan: 'pro', remaining: null, resetsAt: null };
   }
-  if (data === false) {
-    return jsonError(429, "You've reached the hourly limit for AI requests. Please try again in a little while.");
+  const row = (data ?? {}) as { allowed?: boolean; plan?: string; pro_only?: boolean; remaining?: number | null; resets_at?: string | null };
+  const json = (status: number, payload: Record<string, unknown>) =>
+    new Response(JSON.stringify(payload), { status, headers: { 'Content-Type': 'application/json', ...CORS_HEADERS } });
+  if (row.allowed === false) {
+    if (row.pro_only) {
+      return { response: json(402, { error: 'This is a GoodEats Pro feature.', code: 'pro_required', plan: row.plan ?? 'free' }) };
+    }
+    return {
+      response: json(429, {
+        error: message.replace('%reset%', resetPhrase(row.resets_at ?? null)).trim(),
+        code: 'quota',
+        plan: row.plan ?? 'free',
+        remaining: 0,
+        resetsAt: row.resets_at ?? null,
+      }),
+    };
   }
-  return null;
+  return {
+    plan: row.plan === 'free' ? 'free' : 'pro',
+    remaining: typeof row.remaining === 'number' ? row.remaining : null,
+    resetsAt: row.resets_at ?? null,
+  };
 }
 
 /** Read + JSON-parse a request body without ever buffering more than
@@ -1412,11 +1446,13 @@ async function handler(req: Request): Promise<Response> {
   }
   // Require a signed-in Supabase user. verify_jwt is off (so the OPTIONS
   // preflight gets through); we enforce auth here instead.
+  let callerPlan: 'free' | 'pro' = 'pro';
   if (req.method === 'POST') {
     const auth = await requireUser(req);
     if ('response' in auth) return auth.response;
-    const limited = await enforceRateLimit(req, 'location-chat', MAX_REQUESTS_PER_HOUR);
-    if (limited) return limited;
+    const quota = await enforceQuota(req, 'location-chat', "You've used your assistant messages for now. %reset%");
+    if ('response' in quota) return quota.response;
+    callerPlan = quota.plan;
   }
   if (req.method !== 'POST') {
     return jsonError(405, 'Method not allowed');
@@ -1459,8 +1495,9 @@ async function handler(req: Request): Promise<Response> {
     && lastMsg.content.some((b) => b && typeof b === 'object' && (b as { type?: string }).type === 'tool_result');
   const forceRecipeTool = !lastIsToolResult && lastUserCreateRequest(body.messages);
 
+  const resolved = resolveModel(body, callerPlan);
   const anthropicBody = {
-    model: resolveModel(body),
+    model: resolved.model,
     max_tokens: maxTokens,
     stream: true,
     // System is shipped as a single text block with ephemeral cache_control
@@ -1533,11 +1570,16 @@ async function handler(req: Request): Promise<Response> {
 
   // Proxy the Anthropic SSE stream byte-for-byte. The frontend client
   // parses Anthropic's standard streaming event format.
+  // The model that actually ran, and whether a Pro pick was downgraded for
+  // a free caller, ride on headers the client may read (exposed for CORS).
   return new Response(anthropicRes.body, {
     headers: {
       'Content-Type': 'text/event-stream',
       'Cache-Control': 'no-cache',
       'Connection': 'keep-alive',
+      'X-GoodEats-Model': resolved.model,
+      ...(resolved.downgraded ? { 'X-GoodEats-Model-Downgraded': '1' } : {}),
+      'Access-Control-Expose-Headers': 'X-GoodEats-Model, X-GoodEats-Model-Downgraded',
       ...CORS_HEADERS,
     },
   });
