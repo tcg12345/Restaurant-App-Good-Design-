@@ -15,6 +15,7 @@
  */
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { useAuth } from './AuthContext';
+import { useSettings } from './SettingsContext';
 import { supabase, supabaseConfigured } from '../lib/supabase';
 import { configureBilling, onCustomerInfo, entitlementOf, syncPlanWithServer } from '../lib/billing';
 
@@ -40,6 +41,9 @@ export interface PlanValue {
   /** 'app_store' | 'stripe' | 'grant' | 'app_store:sandbox' … */
   source: string | null;
   grantUntil: string | null;
+  /** New features land for Pro first (entitlements 'early-access'). One
+   *  flag; a surface that ships early checks this and nothing else. */
+  earlyAccess: boolean;
   /** Per-endpoint headroom for the effective plan, loaded on demand. */
   quota: Record<string, QuotaEntry> | null;
   refresh: () => Promise<void>;
@@ -48,14 +52,19 @@ export interface PlanValue {
 
 const Ctx = createContext<PlanValue | null>(null);
 
-const FREE: Omit<PlanValue, 'refresh' | 'refreshQuota' | 'checked'> = {
+/** Development only: `VITE_PLAN_PREVIEW=free` in .env.local shows every
+ *  gate as a free user would see it, whatever the server says. Ignored in
+ *  production builds. */
+const PREVIEW_FREE = import.meta.env.DEV && import.meta.env.VITE_PLAN_PREVIEW === 'free';
+
+const FREE: Omit<PlanValue, 'refresh' | 'refreshQuota' | 'checked' | 'earlyAccess'> = {
   subscribed: false, isPro: true, gatesEnabled: false, proUntil: null, willRenew: null, source: null, grantUntil: null, quota: null,
 };
 
 export const PlanProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user, profile } = useAuth();
   const userId = user?.id ?? null;
-  const [state, setState] = useState<Omit<PlanValue, 'refresh' | 'refreshQuota'>>({ ...FREE, checked: false });
+  const [state, setState] = useState<Omit<PlanValue, 'refresh' | 'refreshQuota' | 'earlyAccess'>>({ ...FREE, checked: false });
   const userRef = useRef(userId);
   userRef.current = userId;
 
@@ -63,7 +72,7 @@ export const PlanProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const uid = userRef.current;
     if (!uid || !supabaseConfigured) {
       // A guest: nothing to gate on, and nothing to wait for.
-      setState({ ...FREE, checked: true });
+      setState({ ...FREE, isPro: !PREVIEW_FREE, gatesEnabled: PREVIEW_FREE, checked: true });
       return;
     }
     try {
@@ -83,8 +92,8 @@ export const PlanProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setState((prev) => ({
         checked: true,
         subscribed: !!c.is_pro,
-        isPro: c.effective_plan !== 'free',
-        gatesEnabled: !!c.gates_enabled,
+        isPro: PREVIEW_FREE ? false : c.effective_plan !== 'free',
+        gatesEnabled: PREVIEW_FREE || !!c.gates_enabled,
         proUntil: row?.pro_until ?? null,
         willRenew: row?.pro_will_renew ?? null,
         source: row?.plan === 'pro' ? (row?.pro_source ?? null) : grantActive ? 'grant' : null,
@@ -147,7 +156,14 @@ export const PlanProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return off;
   }, [userId, refresh]);
 
-  const value = useMemo<PlanValue>(() => ({ ...state, refresh, refreshQuota }), [state, refresh, refreshQuota]);
+  // Precise scores are a Pro display setting; a lapsed plan turns the
+  // stored preference back off so every score reads at one decimal again.
+  const { twoDecimalScores, toggleTwoDecimalScores } = useSettings();
+  useEffect(() => {
+    if (state.checked && !state.isPro && twoDecimalScores) toggleTwoDecimalScores();
+  }, [state.checked, state.isPro, twoDecimalScores, toggleTwoDecimalScores]);
+
+  const value = useMemo<PlanValue>(() => ({ ...state, earlyAccess: state.checked && state.isPro, refresh, refreshQuota }), [state, refresh, refreshQuota]);
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 };
 

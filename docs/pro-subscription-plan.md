@@ -598,3 +598,38 @@ Pro mark (I1), app icons (I2), re-imports (I8).
 - R1: **5 AI recipe generations a week** on the free plan.
 - Hotels: **drop** the `hotel_dining` table and `dining_type` enum from the live database.
 - First PR scope: remove the rec-card reason line, hotel cleanup (code + table drop), score-history fix + section redesign. Pinned items and collaborative lists follow as their own PRs.
+
+### Phase 3 as built (2026-09-03)
+
+Every gate reads `usePlan().isPro` (the *effective* plan, Pro for everyone
+while `billing_settings.gates_enabled` is false) and asks through
+`usePaywall()`. Nothing here changes behaviour until launch flips the gates.
+
+| Feature | Where the gate lives | Free sees |
+|---|---|---|
+| Assistant messages (A1) | `LocationChat`: `handleAiError` on the stream's 429; `QuotaMeter` above the composer; quota refreshed after each turn | the meter once two messages are left |
+| Opus (A2) | `LocationChat` model menu: lock tag, tap opens the sheet | Sonnet / Auto |
+| Recipe build, ideas (R1, R2) | `AiRecipeGenerator`: `handleAiError` (now reachable — `build-recipe-client` forwards `code`/`resetsAt` on every error path); `QuotaMeter` in the dock | meter at two left |
+| Refine / ingredient edit | `AddHomeMealModal`, `LocationChat` draft handlers, `AdvancedRecipeBuilder`: refusals route to the sheet; `RecipeDraftSheet` honours a `handled` flag so no second error line | — |
+| Hero image (R3) | `requirePro('recipe-image')` before the call in both hosts; `RecipeDraftSheet` tags the button | tagged button |
+| Combine (R4) | `AiRecipeGenerator` "Combine these N" and `RecipePage` Combine: `requirePro`, tag | tagged button |
+| Import link / text (R5, R6) | `ImportRecipePanel`: existing `handleAiError` + `QuotaMeter` in the footer | meter at two left |
+| Import photo (R6) | `AddHomeMealModal` method chooser: tagged row, `requirePro` on pick | tagged row |
+| Taste depth (T1) | `TasteProfilePage` → `TasteBody locked`: Love vs eat renders as a blurred teaser; Over time, Habits, tags, ladder omitted | sentences, palate, grading, spending |
+| Comparisons (T2) | `bench={null}` for free, so every platform line falls back to its self-referential copy | own numbers only |
+| Taste twins (T3) | palate CTA + "Like you" chip: `requirePro`; **migration 089** wraps `get_taste_twins` with an `effective_plan()` check (`get_taste_twins_core` is private) | tagged chip |
+| Precise scores (T6) | Settings row: tag, tap opens the sheet; `PlanProvider` turns the stored preference off when a plan lapses | one decimal |
+| Score history (T7) | `ScoreHistory`: chart as a teaser, list shows the current visit, "N earlier visits" opens the sheet | last visit |
+| Mood text (A6) | `ChatRecsSheet`: the field renders as a tagged prompt | chips only |
+| Group picks (D5) | `GroupPicker max` / `onFull`; `ChatRecsSheet` passes 1 for free and opens the sheet past it | you + 1 |
+| Shared lists (L5) | `Pantry` new-list entries and the members sheet's Add friends: `requirePro('shared-lists')` | collaborators unaffected |
+| Items per post (S2) | `AddPostModal`: `POST_FREE_MAX_ITEMS` = 10, the cap opens the sheet | 10 |
+| Export (L7) | Settings → Data: "Export everything" (JSON) and "Export ratings" (CSV) via `lib/export-data.ts`; the native shell opens the web app's Settings (no file writer on iOS yet) | tagged rows |
+| Early access (I3) | `usePlan().earlyAccess`; a Settings row under GoodEats Pro | — |
+
+Not in this phase: the nutrition panel (R9) — a new feature with its own PR.
+
+**Seeing the gates before launch:** `VITE_PLAN_PREVIEW=free` in `.env.local`
+makes a development build treat you as free (ignored in production builds).
+For the simulator: `VITE_PLAN_PREVIEW=free npx vite build --mode development`,
+then sync `dist/` into `ios/App/App/public/`.

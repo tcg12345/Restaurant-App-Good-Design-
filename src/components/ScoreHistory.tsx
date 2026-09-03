@@ -18,6 +18,10 @@ import { cn } from '../lib/utils';
 import { formatScore, scoreHex, scoreTier } from '../lib/score';
 import { useSettings } from '../contexts/SettingsContext';
 import { Collapse } from './Collapse';
+import { usePlan } from '../contexts/PlanContext';
+import { usePaywall } from '../contexts/PaywallContext';
+import { ProGate } from './pro/ProGate';
+import { ProTag } from './pro/ProMark';
 
 export interface ScoreHistoryEntry {
   id: string;
@@ -111,6 +115,11 @@ export const ScoreHistory: React.FC<{
   const [expanded, setExpanded] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const { twoDecimalScores } = useSettings();
+  const planCtx = usePlan();
+  const { openPaywall } = usePaywall();
+  // Free: the current rating and how many visits sit behind it. Pro: the
+  // chart and every visit.
+  const locked = planCtx.checked && !planCtx.isPro;
   if (entries.length < 2) return null;
 
   const byDateAsc = [...entries].sort((a, b) => (a.date?.getTime() ?? 0) - (b.date?.getTime() ?? 0));
@@ -118,8 +127,12 @@ export const ScoreHistory: React.FC<{
   const firstScore = byDateAsc[0].score;
   const lastScore = byDateAsc[byDateAsc.length - 1].score;
   const delta = lastScore - firstScore;
-  const deltaLabel = Math.abs(delta) < 0.05 ? 'Steady since your first visit'
+  const earlier = entries.length - 1;
+  const deltaLabel = locked
+    ? `${earlier} earlier visit${earlier === 1 ? '' : 's'} on your record`
+    : Math.abs(delta) < 0.05 ? 'Steady since your first visit'
     : `${delta > 0 ? 'Up' : 'Down'} ${Math.abs(delta).toFixed(1)} since your first visit`;
+  const shown = locked ? newestFirst.filter((e) => e.isCurrent) : newestFirst;
   const desktop = variant === 'desktop';
 
   return (
@@ -132,12 +145,14 @@ export const ScoreHistory: React.FC<{
       </div>
       <p className="mt-1 text-on-surface/55" style={{ fontSize: desktop ? '13.5px' : '13px' }}>{deltaLabel}</p>
 
-      <div className={cn('mt-3', desktop && 'rounded-2xl border border-on-surface/[0.07] bg-white px-2 pt-1')}>
-        <Chart points={byDateAsc} height={desktop ? 132 : 108} twoDecimals={twoDecimalScores} />
-      </div>
+      <ProGate feature="score-history" variant="teaser" unlockLine="Unlock the full timeline with Pro" className="mt-3">
+        <div className={cn(desktop && 'rounded-2xl border border-on-surface/[0.07] bg-white px-2 pt-1')}>
+          <Chart points={byDateAsc} height={desktop ? 132 : 108} twoDecimals={twoDecimalScores} />
+        </div>
+      </ProGate>
 
       <ul className={cn('mt-2', desktop && 'rounded-2xl border border-on-surface/[0.07] bg-white px-[22px] overflow-hidden')}>
-        {newestFirst.map((e, idx) => {
+        {shown.map((e, idx) => {
           const open = expanded === e.id;
           const month = e.date ? MONTHS[e.date.getMonth()].toUpperCase() : '—';
           const day = e.date ? e.date.getDate() : '';
@@ -211,6 +226,18 @@ export const ScoreHistory: React.FC<{
             </li>
           );
         })}
+        {locked && (
+          <li className="border-t border-on-surface/[0.08]">
+            <button
+              type="button"
+              onClick={() => openPaywall('gate:score-history', 'score-history')}
+              className="flex w-full items-center gap-3 py-3 text-left text-on-surface/60"
+              style={{ fontSize: desktop ? '13.5px' : '13px', fontWeight: 600 }}
+            >
+              <ProTag /> {earlier} earlier visit{earlier === 1 ? '' : 's'}
+            </button>
+          </li>
+        )}
       </ul>
     </section>
   );

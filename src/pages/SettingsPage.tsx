@@ -23,11 +23,14 @@ import { getMyLatestVerificationRequest, type VerificationRequest } from '../lib
 import { VerifiedBadge } from '../components/VerifiedBadge';
 import { VerifiedStatusPicker } from '../components/VerifiedStatusPicker';
 import { openExternalUrl, SUPPORT_URL, PRIVACY_URL } from '../lib/external-links';
+import { canonicalShareUrl } from '../lib/native-share';
 import { usePlan } from '../contexts/PlanContext';
 import { usePaywall } from '../contexts/PaywallContext';
 import { openManage, restoreNative, syncPlanWithServer } from '../lib/billing';
 import { isNativeRuntime } from '../lib/native-oauth';
-import { RotateCcw, ExternalLink as ExternalLinkIcon } from 'lucide-react';
+import { RotateCcw, Download, ExternalLink as ExternalLinkIcon } from 'lucide-react';
+import { ProTag } from '../components/pro/ProMark';
+import { buildExportJson, buildRatingsCsv, downloadTextFile, exportStamp } from '../lib/export-data';
 import { formatPhoneForDisplay, toE164 } from '../lib/phone';
 import pkg from '../../package.json';
 
@@ -63,7 +66,9 @@ const Row: React.FC<{
   toggle?: boolean;
   on?: boolean;
   first?: boolean;
-}> = ({ icon, title, sub, onPress, toggle, on, first }) => (
+  /** A Pro tag beside the title, when the row belongs to Pro. */
+  tag?: React.ReactNode;
+}> = ({ icon, title, sub, onPress, toggle, on, first, tag }) => (
   <div className={cn(!first && 'border-t border-on-surface/[0.08]')}>
     <button
       type="button"
@@ -81,7 +86,7 @@ const Row: React.FC<{
         {icon}
       </span>
       <span className="flex-1 min-w-0 block">
-        <span className="block font-serif font-bold text-[14.5px] leading-tight tracking-[-0.015em] text-on-surface">{title}</span>
+        <span className="block font-serif font-bold text-[14.5px] leading-tight tracking-[-0.015em] text-on-surface">{title}{tag && <span className="ml-2 inline-flex align-middle">{tag}</span>}</span>
         <span className="block mt-1 text-[12px] leading-snug text-on-surface/50">{sub}</span>
       </span>
       {toggle ? (
@@ -123,7 +128,25 @@ export const SettingsPage: React.FC = () => {
   const { darkMode, toggleDarkMode, twoDecimalScores, toggleTwoDecimalScores } = useSettings();
   const plan = usePlan();
   const { showToast } = useToast();
-  const { openPaywall } = usePaywall();
+  const { openPaywall, requirePro } = usePaywall();
+  const proLocked = plan.checked && !plan.isPro;
+
+  // Export (Pro): the web build downloads a file; the native shell has no
+  // file writer, so it opens the web app's Settings instead.
+  const exportData = (kind: 'json' | 'csv') => {
+    const run = () => {
+      if (isNativeRuntime()) {
+        openExternalUrl(canonicalShareUrl('/settings'));
+        return;
+      }
+      const ok = kind === 'json'
+        ? downloadTextFile(`goodeats-export-${exportStamp()}.json`, buildExportJson(listsCtx), 'application/json')
+        : downloadTextFile(`goodeats-ratings-${exportStamp()}.csv`, buildRatingsCsv(listsCtx.ratings), 'text/csv');
+      showToast(ok ? 'Export ready' : 'Couldn’t start the download', ok ? { subtitle: kind === 'json' ? 'Everything, as JSON.' : 'Your ratings, as a spreadsheet.', variant: 'success' } : { subtitle: 'Try again from a desktop browser.' });
+    };
+    if (!requirePro('export', { onUnlocked: run })) return;
+    run();
+  };
   const restorePurchases = async () => {
     const res = await restoreNative();
     if (res.ok) { await syncPlanWithServer(); await plan.refresh(); }
@@ -391,7 +414,7 @@ export const SettingsPage: React.FC = () => {
   }, [user?.created_at]);
 
   // ── Main-page sections, filterable by the search field ───────────
-  type RowSpec = { icon: React.ReactNode; title: string; sub: string; press: () => void; toggle?: boolean; on?: boolean };
+  type RowSpec = { icon: React.ReactNode; title: string; sub: string; press: () => void; toggle?: boolean; on?: boolean; tag?: React.ReactNode };
   const sections = useMemo<{ label: string; rows: RowSpec[] }[]>(() => {
     const raw: ({ label: string; rows: RowSpec[] } | null)[] = [
       {
@@ -426,12 +449,17 @@ export const SettingsPage: React.FC = () => {
           {
             icon: <Star size={17} strokeWidth={1.9} />,
             title: 'Precise scores',
-            sub: twoDecimalScores
-              ? 'Showing two decimals — 8.37, not 8.4'
-              : 'Scores round to one decimal — rankings stay exact underneath',
+            sub: proLocked
+              ? 'Two decimals on every score — 8.37, not 8.4'
+              : twoDecimalScores
+                ? 'Showing two decimals — 8.37, not 8.4'
+                : 'Scores round to one decimal — rankings stay exact underneath',
             toggle: true,
-            on: twoDecimalScores,
-            press: toggleTwoDecimalScores,
+            on: !proLocked && twoDecimalScores,
+            press: proLocked
+              ? () => openPaywall('gate:precise-scores', 'precise-scores', { onUnlocked: () => { if (!twoDecimalScores) toggleTwoDecimalScores(); } })
+              : toggleTwoDecimalScores,
+            tag: proLocked ? <ProTag /> : undefined,
           },
         ],
       },
@@ -474,12 +502,17 @@ export const SettingsPage: React.FC = () => {
           ...(isNativeRuntime()
             ? [{ icon: <RotateCcw size={17} strokeWidth={1.9} />, title: 'Restore purchases', sub: 'Bought Pro on another device?', press: () => { void restorePurchases(); } }]
             : []),
+          ...(plan.earlyAccess
+            ? [{ icon: <Sparkles size={17} strokeWidth={1.9} />, title: 'Early access', sub: 'New features reach you first', press: () => navigate('/pro') }]
+            : []),
         ],
       } : null,
       {
         label: 'Data',
         rows: [
           { icon: <Upload size={17} strokeWidth={1.9} />, title: 'Import restaurants', sub: 'Bring lists over — screenshots or a file', press: () => navigate('/import') },
+          { icon: <Download size={17} strokeWidth={1.9} />, title: 'Export everything', sub: isNativeRuntime() ? 'Ratings, lists, trips and recipes as a file — from the web app' : 'Ratings, lists, trips and recipes as JSON', press: () => exportData('json'), tag: proLocked ? <ProTag /> : undefined },
+          { icon: <Download size={17} strokeWidth={1.9} />, title: 'Export ratings', sub: isNativeRuntime() ? 'A spreadsheet of every rating — from the web app' : 'A spreadsheet (CSV) of every rating', press: () => exportData('csv'), tag: proLocked ? <ProTag /> : undefined },
         ],
       },
       {
@@ -496,7 +529,7 @@ export const SettingsPage: React.FC = () => {
       .map((s) => ({ ...s, rows: q ? s.rows.filter((r) => `${r.title} ${r.sub}`.toLowerCase().includes(q)) : s.rows }))
       .filter((s) => s.rows.length > 0);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [query, profile?.is_public, profile?.is_verified, darkMode, twoDecimalScores, isAdmin, pendingUploads, plan.checked, plan.gatesEnabled, plan.subscribed, plan.source, plan.proUntil, plan.willRenew, plan.grantUntil]);
+  }, [query, profile?.is_public, profile?.is_verified, darkMode, twoDecimalScores, isAdmin, pendingUploads, plan.checked, plan.gatesEnabled, plan.subscribed, plan.source, plan.proUntil, plan.willRenew, plan.grantUntil, plan.isPro, plan.earlyAccess, proLocked]);
 
   const subTitle = subPage === 'edit' ? 'Edit profile' : 'Account';
 
@@ -545,7 +578,7 @@ export const SettingsPage: React.FC = () => {
                 <h2 className="text-[10.5px] font-bold uppercase tracking-[0.16em] text-on-surface/40">{sec.label}</h2>
                 <div className="mt-1">
                   {sec.rows.map((r, i) => (
-                    <Row key={r.title} first={i === 0} icon={r.icon} title={r.title} sub={r.sub} onPress={r.press} toggle={r.toggle} on={r.on} />
+                    <Row key={r.title} first={i === 0} icon={r.icon} title={r.title} sub={r.sub} onPress={r.press} toggle={r.toggle} on={r.on} tag={r.tag} />
                   ))}
                 </div>
               </section>

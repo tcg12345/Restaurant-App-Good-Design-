@@ -24,6 +24,8 @@ import { useSettings } from '../contexts/SettingsContext';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../contexts/ToastContext';
 import { usePaywall } from '../contexts/PaywallContext';
+import { usePlan } from '../contexts/PlanContext';
+import { ProTag } from './pro/ProMark';
 import { useBottomSheet, acquireHardScrollLock } from '../lib/useBottomSheet';
 import { pushOverlay } from '../lib/overlay-registry';
 import { wakeGlassButtons } from '../lib/glass-buttons';
@@ -51,11 +53,17 @@ const METHODS: Array<{ key: Method; icon: React.ReactNode; title: string; sub: s
   { key: 'ai', icon: <Sparkles size={17} strokeWidth={2} />, title: 'Create with AI', sub: 'Describe it, get a complete draft' },
 ];
 
+/** Which chooser rows are Pro-only (they stay in the list, tagged). */
+const PRO_METHODS: ReadonlySet<Method> = new Set<Method>(['photo']);
+
 const MethodChooser: React.FC<{
   phoneMode: boolean;
   onPick: (m: Method) => void;
   onClose: () => void;
-}> = ({ phoneMode, onPick, onClose }) => (
+}> = ({ phoneMode, onPick, onClose }) => {
+  const planCtx = usePlan();
+  const locked = planCtx.checked && !planCtx.isPro ? PRO_METHODS : new Set<Method>();
+  return (
   <div className="rcx-choose">
     {phoneMode ? (
       <div className="rcx-choose-handle" aria-hidden />
@@ -72,7 +80,7 @@ const MethodChooser: React.FC<{
           <button key={m.key} type="button" className="rcx-choose-row" onClick={() => onPick(m.key)}>
             <span className="rcx-choose-icon">{m.icon}</span>
             <span className="rcx-choose-text">
-              <span className="rcx-choose-name">{m.title}</span>
+              <span className="rcx-choose-name">{m.title}{locked.has(m.key) && <ProTag className="ml-2" />}</span>
               <span className="rcx-choose-hint">{m.sub}</span>
             </span>
             <ChevronRight size={15} className="rcx-choose-chev" />
@@ -84,14 +92,15 @@ const MethodChooser: React.FC<{
         {METHODS.map((m) => (
           <button key={m.key} type="button" className="rcx-choose-card" onClick={() => onPick(m.key)}>
             <span className="rcx-choose-icon">{m.icon}</span>
-            <span className="rcx-choose-name">{m.title}</span>
+            <span className="rcx-choose-name">{m.title}{locked.has(m.key) && <ProTag className="ml-2" />}</span>
             <span className="rcx-choose-hint">{m.sub}</span>
           </button>
         ))}
       </div>
     )}
   </div>
-);
+  );
+};
 
 /* ── Modal ────────────────────────────────────────────────────── */
 
@@ -120,7 +129,7 @@ export const AddHomeMealModal: React.FC = () => {
   //             on the Review step. Two origins: tapping Edit on an AI
   //             draft ('ai'), or a completed import ('import').
   const [aiDraft, setAiDraft] = useState<HomeMeal | null>(null);
-  const { handleAiError } = usePaywall();
+  const { handleAiError, requirePro } = usePaywall();
   const [seed, setSeed] = useState<HomeMeal | null>(null);
   const [seedKind, setSeedKind] = useState<'ai' | 'import'>('ai');
   /* Consume-once copy of the caller's preselected AI view (the Pantry
@@ -223,6 +232,9 @@ export const AddHomeMealModal: React.FC = () => {
   }, [homeMealModalOpen]);
 
   const handlePickMethod = (m: Method) => {
+    // A Pro-only method opens the paywall instead; a purchase lands the
+    // person where they were headed.
+    if (PRO_METHODS.has(m) && !requirePro('recipe-import-photo', { onUnlocked: () => handlePickMethod(m) })) return;
     // A manual pick is a fresh decision — the preselected AI view must
     // not leak into it (see aiView above).
     setAiView(null);
@@ -272,10 +284,10 @@ export const AddHomeMealModal: React.FC = () => {
   };
 
   // Refine the in-preview AI draft with a free-text instruction.
-  const handleAiRefine = async (instruction: string): Promise<{ ok: boolean; error?: string }> => {
+  const handleAiRefine = async (instruction: string): Promise<{ ok: boolean; error?: string; handled?: boolean }> => {
     if (!aiDraft) return { ok: false, error: 'No recipe to refine.' };
     const res = await refineRecipe(aiDraft, instruction);
-    if (!res.ok) handleAiError('recipe-generate', res);
+    if (!res.ok && handleAiError('recipe-generate', res)) return { ok: false, handled: true };
     if (res.ok && res.meal) {
       setAiDraft(res.meal);
       return { ok: true };
@@ -288,6 +300,7 @@ export const AddHomeMealModal: React.FC = () => {
   const handleAiIngredientEdit = async (edit: IngredientEdit): Promise<IngredientEditResult> => {
     if (!aiDraft) return { ok: false, error: 'No recipe to update.' };
     const res = await editRecipeIngredient(aiDraft, edit);
+    if (!res.ok && !res.declined) handleAiError('recipe-generate', res);
     if (res.ok && res.meal) setAiDraft(res.meal);
     return res;
   };
@@ -332,12 +345,13 @@ export const AddHomeMealModal: React.FC = () => {
 
   // Generate an AI hero photo of the finished dish. The sheet compresses
   // the result and applies it via handleAiCoverChange.
-  const handleAiGenerateImage = async (): Promise<{ ok: boolean; dataUrl?: string; error?: string }> => {
+  const handleAiGenerateImage = async (): Promise<{ ok: boolean; dataUrl?: string; error?: string; handled?: boolean }> => {
     if (!aiDraft) return { ok: false, error: 'No recipe to picture yet.' };
+    // Pro-only: ask before spending the request. The server refuses a
+    // forged call anyway, and that refusal takes the same road.
+    if (!requirePro('recipe-image')) return { ok: false, handled: true };
     const res = await generateRecipeImage(aiDraft);
-    // A Pro-only refusal opens the paywall; the caller's own error line
-    // stays quiet in that case.
-    if (!res.ok && handleAiError('recipe-image', res)) return { ok: false, error: '' };
+    if (!res.ok && handleAiError('recipe-image', res)) return { ok: false, handled: true };
     return res;
   };
 

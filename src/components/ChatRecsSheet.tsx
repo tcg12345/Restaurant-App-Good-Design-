@@ -25,7 +25,10 @@ import { cn } from '../lib/utils';
 import { Avatar } from './Avatar';
 import { avatarHue } from '../lib/avatar';
 import { useBottomSheet } from '../lib/useBottomSheet';
-import { GroupPicker } from './GroupPicker';
+import { GroupPicker, MAX_MEMBERS } from './GroupPicker';
+import { usePlan } from '../contexts/PlanContext';
+import { usePaywall } from '../contexts/PaywallContext';
+import { ProTag } from './pro/ProMark';
 import { HomeLocationBar, type HomeLocation } from './HomeLocationBar';
 import { useHomeLocation } from '../contexts/HomeLocationContext';
 import { parseMoodText, moodHasSignal } from '../lib/mood-text';
@@ -64,6 +67,10 @@ export const ChatRecsSheet: React.FC<{
   const navigate = useNavigate();
   const homeCtx = useHomeLocation();
   const [people, setPeople] = useState<UserProfile[]>([]);
+  const planCtx = usePlan();
+  const { openPaywall } = usePaywall();
+  // Free: you + one friend, chips only. Pro: up to five, and the text field.
+  const locked = planCtx.checked && !planCtx.isPro;
   const [mood, setMood] = useState<string>('anything');
   /* Free text on top of the chips. Parsed deterministically onto the
      engine's own levers (lib/mood-text) — tags re-rank, cuisines/price/
@@ -241,14 +248,25 @@ export const ChatRecsSheet: React.FC<{
                     )}
                   >
                     <Sparkles size={15} className="mt-[3px] flex-none text-primary" />
-                    <textarea
-                      value={moodText}
-                      onChange={(e) => setMoodText(e.target.value)}
-                      rows={2}
-                      maxLength={140}
-                      placeholder={'Or say it in your own words — "quiet date-night spot with great cocktails"'}
-                      className="w-full resize-none bg-transparent text-[14px] leading-snug text-on-surface placeholder:text-on-surface/35 focus:outline-none"
-                    />
+                    {locked ? (
+                      <button
+                        type="button"
+                        onClick={() => openPaywall('gate:mood-search', 'mood-search')}
+                        className="w-full text-left text-[14px] leading-snug text-on-surface/35"
+                      >
+                        Or say it in your own words — &ldquo;quiet date-night spot with great cocktails&rdquo;
+                        <span className="ml-2 inline-flex align-middle"><ProTag /></span>
+                      </button>
+                    ) : (
+                      <textarea
+                        value={moodText}
+                        onChange={(e) => setMoodText(e.target.value)}
+                        rows={2}
+                        maxLength={140}
+                        placeholder={'Or say it in your own words — "quiet date-night spot with great cocktails"'}
+                        className="w-full resize-none bg-transparent text-[14px] leading-snug text-on-surface placeholder:text-on-surface/35 focus:outline-none"
+                      />
+                    )}
                   </div>
 
                   {/* The receipt: exactly what was understood, nothing more. */}
@@ -303,6 +321,8 @@ export const ChatRecsSheet: React.FC<{
         userId={userId}
         selected={people}
         onDone={setPeople}
+        max={locked ? 1 : MAX_MEMBERS}
+        onFull={locked ? () => openPaywall('cap:group-recs', 'group-recs', { reason: `Free picks for you and one friend; Pro picks for up to ${MAX_MEMBERS + 1}.` }) : undefined}
       />
       {/* Headless: the picker portals its own sheet, so this renders nothing
           until it is opened. */}

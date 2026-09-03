@@ -2,6 +2,8 @@ import React, { useEffect, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { X, ChefHat, Clock, Users, Flame, Sparkles, Lightbulb, CalendarClock, Repeat, BookOpenCheck, CheckCircle2, Trash2, ImagePlus, Camera, ArrowUp, Loader2, AlertCircle } from 'lucide-react';
 import { cn } from '../../lib/utils';
+import { usePlan } from '../../contexts/PlanContext';
+import { ProTag } from '../pro/ProMark';
 import { processPhoto, processDataUrl, uploadPhoto } from '../../lib/images';
 import { useSettings } from '../../contexts/SettingsContext';
 import type { HomeMeal, RecipeIngredient } from '../../contexts/ListsContext';
@@ -28,13 +30,13 @@ interface RecipeDraftSheetProps {
    *  the sheet shows a "Refine with AI" composer. The parent runs the
    *  edit and updates its draft; resolve `{ ok }` (with an optional
    *  user-facing `error`). Omit to hide the composer entirely. */
-  onRefine?: (instruction: string) => Promise<{ ok: boolean; error?: string }>;
+  onRefine?: (instruction: string) => Promise<{ ok: boolean; error?: string; handled?: boolean }>;
   /** Generate an AI hero photo of the finished dish. When provided, the
    *  cover-photo area offers a "Generate with AI" action. The parent runs
    *  the network call and resolves the raw image `dataUrl`; the sheet then
    *  compresses it and applies it via `onCoverPhotoChange` (same path as an
    *  upload). Omit to hide the AI generation option. */
-  onGenerateImage?: () => Promise<{ ok: boolean; dataUrl?: string; error?: string }>;
+  onGenerateImage?: () => Promise<{ ok: boolean; dataUrl?: string; error?: string; handled?: boolean }>;
   /** Remove or substitute ONE ingredient. When provided (and the draft is
    *  unpublished), every ingredient row becomes tappable and opens a small
    *  remove/swap panel — separate from the free-text "Refine with AI"
@@ -94,6 +96,10 @@ export const RecipeDraftSheet: React.FC<RecipeDraftSheetProps> = ({
   const [refineText, setRefineText] = useState('');
   const [refining, setRefining] = useState(false);
   const [refineError, setRefineError] = useState<string | null>(null);
+  const planCtx = usePlan();
+  // Hero images are Pro-only: the button stays, tagged, and the parent
+  // opens the paywall instead of the request.
+  const imageLocked = planCtx.checked && !planCtx.isPro;
   const refineInputRef = useRef<HTMLTextAreaElement>(null);
 
   // Ingredient remove/swap: tapping an ingredient row selects it and opens
@@ -152,7 +158,9 @@ export const RecipeDraftSheet: React.FC<RecipeDraftSheetProps> = ({
     if (res.ok) {
       setRefineText('');
       setRefineOpen(false);
-    } else {
+    } else if (!res.handled) {
+      // `handled`: the parent already routed a Pro/quota refusal to the
+      // paywall, so no second message under it.
       setRefineError(res.error || "Couldn't apply that. Try rephrasing.");
     }
   };
@@ -221,7 +229,7 @@ export const RecipeDraftSheet: React.FC<RecipeDraftSheetProps> = ({
             onCoverPhotoChange(res.dataUrl);
           }
         }
-      } else {
+      } else if (!res.handled) {
         setImageError(res.error || "Couldn't generate a photo. Try again.");
       }
     } finally {
@@ -439,6 +447,7 @@ export const RecipeDraftSheet: React.FC<RecipeDraftSheetProps> = ({
                           >
                             <Sparkles size={14} />
                             Generate with AI
+                            {imageLocked && <ProTag />}
                           </button>
                         )}
                       </div>

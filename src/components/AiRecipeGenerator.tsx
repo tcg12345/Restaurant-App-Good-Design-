@@ -25,6 +25,9 @@ import {
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { usePaywall } from '../contexts/PaywallContext';
+import { usePlan } from '../contexts/PlanContext';
+import { ProTag } from './pro/ProMark';
+import { QuotaMeter } from './pro/QuotaMeter';
 import {
   generateRecipe, generateRecipeIdeas, combineRecipes,
   type RecipeConstraints, type RecipeIdea,
@@ -256,7 +259,9 @@ export const AiRecipeGenerator: React.FC<AiRecipeGeneratorProps> = ({
   const [combineNotes, setCombineNotes] = useState('');
   const [combining, setCombining] = useState(false);
   const navigate = useNavigate();
-  const { handleAiError } = usePaywall();
+  const { handleAiError, requirePro } = usePaywall();
+  const planCtx = usePlan();
+  const combineLocked = planCtx.checked && !planCtx.isPro;
 
   useEffect(() => {
     // Desktop only — auto-focusing on phone pops the keyboard the instant
@@ -698,10 +703,11 @@ export const AiRecipeGenerator: React.FC<AiRecipeGeneratorProps> = ({
                       <button
                         type="button"
                         className="rcxa-cta"
-                        onClick={() => { setError(null); setCombineOpen(true); }}
+                        onClick={() => { if (!requirePro('recipe-combine')) return; setError(null); setCombineOpen(true); }}
                       >
                         <Sparkles size={14} />
                         <span key={capPulse} className="rcxa-cta-count">Combine these {selectedTitles.length}</span>
+                        {combineLocked && <ProTag />}
                       </button>
                     )}
                   </div>
@@ -774,6 +780,9 @@ export const AiRecipeGenerator: React.FC<AiRecipeGeneratorProps> = ({
             exit={{ opacity: 0, y: 14 }}
             transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
           >
+            {/* The allowance, once it's nearly spent: 5 builds a week, 5
+                ideas a day on the free plan. Quiet until then. */}
+            <QuotaMeter feature={view === 'ideas' ? 'recipe-ideas' : 'recipe-generate'} className="rcxa-meter" />
             <AnimatePresence>
               {error && (
                 <motion.p

@@ -34,7 +34,12 @@ export const GroupPicker: React.FC<{
   subtitle?: string;
   /** CTA label given the number picked. */
   ctaLabel?: (count: number) => string;
-}> = ({ open, onClose, userId, selected, onDone, title = 'Who’s eating?', subtitle = 'Pick the friends you’re going with', ctaLabel }) => {
+  /** How many friends may be picked; MAX_MEMBERS unless the plan says less. */
+  max?: number;
+  /** Called when a tap would exceed `max`. When set, rows past the cap stay
+   *  tappable (the host opens the paywall); when not, they're disabled. */
+  onFull?: () => void;
+}> = ({ open, onClose, userId, selected, onDone, title = 'Who’s eating?', subtitle = 'Pick the friends you’re going with', ctaLabel, max = MAX_MEMBERS, onFull }) => {
   const [friends, setFriends] = useState<UserProfile[]>([]);
   const [loading, setLoading] = useState(false);
   const [picked, setPicked] = useState<Record<string, UserProfile>>({});
@@ -66,17 +71,18 @@ export const GroupPicker: React.FC<{
   }, [open, userId]);
 
   const count = Object.keys(picked).length;
-  const full = count >= MAX_MEMBERS;
+  const full = count >= max;
   const sorted = useMemo(
     () => [...friends].sort((a, b) => (a.display_name || a.username).localeCompare(b.display_name || b.username)),
     [friends],
   );
 
   const toggle = (p: UserProfile) => {
+    if (!picked[p.user_id] && full) { onFull?.(); return; }
     setPicked((prev) => {
       const next = { ...prev };
       if (next[p.user_id]) delete next[p.user_id];
-      else if (!full) next[p.user_id] = p;
+      else next[p.user_id] = p;
       return next;
     });
   };
@@ -115,7 +121,7 @@ export const GroupPicker: React.FC<{
             <h3 className="font-serif text-[19px] font-bold tracking-[-0.02em] text-on-surface">{title}</h3>
             <p className="mt-0.5 text-[12.5px] text-on-surface/50">
               {count > 0 ? `You + ${count}` : subtitle}
-              {full && ' · that’s the max'}
+              {full && (onFull ? ` · up to ${MAX_MEMBERS} with Pro` : ' · that’s the max')}
             </p>
           </div>
           <button
@@ -150,7 +156,7 @@ export const GroupPicker: React.FC<{
                     <button
                       type="button"
                       onClick={() => toggle(p)}
-                      disabled={!on && full}
+                      disabled={!on && full && !onFull}
                       className={cn(
                         'flex w-full items-center gap-3 py-2.5 text-left transition-opacity',
                         !on && full && 'opacity-40',

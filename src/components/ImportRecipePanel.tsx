@@ -16,6 +16,7 @@ import { GlassButton } from '../lib/glass-buttons';
 import { X, Link2, Camera, ClipboardType, ClipboardPaste, Plus, Loader2, Download, AlertCircle, FileText } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { usePaywall } from '../contexts/PaywallContext';
+import { QuotaMeter } from './pro/QuotaMeter';
 import type { HomeMeal } from '../contexts/ListsContext';
 import { importRecipe, compressImportPhoto, type ImportSource } from '../lib/import-recipe-client';
 import './AdvancedRecipeBuilder.css';
@@ -330,6 +331,7 @@ export const ImportRecipePanel: React.FC<ImportRecipePanelProps> = ({
 
       {/* ── Footer ── */}
       <div className="rcx-foot">
+        {tab !== 'photo' && <QuotaMeter feature={tab === 'link' ? 'recipe-import-link' : 'recipe-import-text'} className="rcx-foot-meter" />}
         <button
           type="button"
           className={cn('rcx-foot-cta', !canSubmit && !busy && 'is-disabled', (canSubmit || busy) && 'is-publish', busy && 'is-busy')}
