@@ -1,8 +1,9 @@
 // Shared abuse guards for the AI Edge Functions, layered on top of the auth
-// check in auth.ts: a per-user hourly rate limit (backed by the
-// consume_ai_rate_limit RPC — migration 047_ai_rate_limits.sql) and a hard
-// cap on request-body size. Each function picks its own numbers; the
-// mechanics live here so the four functions can't drift.
+// check in auth.ts: a hard cap on request-body size, and the ORIGINAL
+// per-user hourly rate limit (consume_ai_rate_limit — migration 047).
+// Since migration 087 every AI function counts requests through
+// quota.ts (plan-aware, multi-window) instead; enforceRateLimit stays for
+// any function that hasn't moved, and is otherwise unused.
 
 import { createClient } from 'jsr:@supabase/supabase-js@2';
 import { CORS_HEADERS } from './auth.ts';

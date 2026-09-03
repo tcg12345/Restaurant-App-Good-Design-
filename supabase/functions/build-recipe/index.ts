@@ -26,7 +26,8 @@
 // calibrated recipes.
 import { RECIPE_QUALITY_BAR, RECIPE_INPUT_SCHEMA } from '../_shared/recipe-spec.ts';
 import { requireUser } from '../_shared/auth.ts';
-import { enforceRateLimit, readJsonBody } from '../_shared/limits.ts';
+import { readJsonBody } from '../_shared/limits.ts';
+import { enforceQuota } from '../_shared/quota.ts';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -50,16 +51,11 @@ const IDEAS_MAX_TOKENS = 2500;
 const MAX_TOKENS = 12000;
 const MAX_PROMPT_CHARS = 2000;
 
-// Abuse guards (per signed-in user; see _shared/limits.ts). Every call here
-// is a full Opus generation, so the hourly cap is tighter than the chat's —
-// but still roomy for an interactive create → refine → edit session. The body
-// cap fits the largest legit payload (a full recipe JSON + instruction) many
-// times over.
-const MAX_REQUESTS_PER_HOUR = 40;
-// Ideas draw from their OWN bucket: they're the cheap exploratory mode,
-// and a brainstorm session ("more ideas" × several) must not starve the
-// user's actual recipe builds out of the shared 40/hr.
-const MAX_IDEAS_PER_HOUR = 80;
+// Abuse guards (per signed-in user). The allowance per plan lives in
+// plan_limits (migration 087): full builds and ideas draw from separate
+// buckets ('build-recipe' / 'build-recipe-ideas') so a brainstorm session
+// can't starve someone's actual recipe builds. The body cap fits the
+// largest legit payload (a full recipe JSON + instruction) many times over.
 const MAX_BODY_BYTES = 256 * 1024;
 
 const SYSTEM_PROMPT = [
@@ -307,15 +303,17 @@ async function handler(req: Request): Promise<Response> {
   if ('response' in parsed) return parsed.response;
   const body = parsed.body;
 
-  // Ideas draw from their own, roomier bucket (see MAX_IDEAS_PER_HOUR);
-  // everything that produces a full recipe shares the original one. The
-  // limiter only reads the Authorization header, so running it after the
-  // body parse (to know which mode this is) costs nothing.
+  // Ideas draw from their own bucket; everything that produces a full
+  // recipe shares the other. The quota call only reads the Authorization
+  // header, so running it after the body parse (to know which mode this
+  // is) costs nothing.
   const isIdeas = typeof body.ideasPrompt === 'string';
-  const limited = isIdeas
-    ? await enforceRateLimit(req, 'build-recipe-ideas', MAX_IDEAS_PER_HOUR)
-    : await enforceRateLimit(req, 'build-recipe', MAX_REQUESTS_PER_HOUR);
-  if (limited) return limited;
+  const quota = await enforceQuota(
+    req,
+    isIdeas ? 'build-recipe-ideas' : 'build-recipe',
+    isIdeas ? "You've used your recipe ideas for now. %reset%" : "You've used your AI recipe generations for now. %reset%",
+  );
+  if ('response' in quota) return quota.response;
 
   // Five modes:
   //  • create          — { prompt, difficulty?, constraints? }

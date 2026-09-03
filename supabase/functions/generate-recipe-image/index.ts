@@ -22,7 +22,8 @@
 // never reaches the browser bundle.
 
 import { requireUser } from '../_shared/auth.ts';
-import { enforceRateLimit, readJsonBody } from '../_shared/limits.ts';
+import { readJsonBody } from '../_shared/limits.ts';
+import { enforceQuota } from '../_shared/quota.ts';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -41,7 +42,6 @@ const MAX_PROMPT_CHARS = 2000;
 // Abuse guards (per signed-in user; see _shared/limits.ts). Image mints are
 // the priciest per-request call, so this is the tightest hourly cap. The
 // request is just a handful of recipe text fields, so the body cap is small.
-const MAX_REQUESTS_PER_HOUR = 20;
 const MAX_BODY_BYTES = 128 * 1024;
 // Cap heartbeats so a hung upstream can't keep the function alive forever.
 const HEARTBEAT_MS = 5000;
@@ -114,8 +114,8 @@ async function handler(req: Request): Promise<Response> {
   if (req.method === 'POST') {
     const auth = await requireUser(req);
     if ('response' in auth) return auth.response;
-    const limited = await enforceRateLimit(req, 'generate-recipe-image', MAX_REQUESTS_PER_HOUR);
-    if (limited) return limited;
+    const quota = await enforceQuota(req, 'generate-recipe-image', "You've used your recipe images for now. %reset%");
+    if ('response' in quota) return quota.response;
   }
   if (req.method !== 'POST') {
     return jsonError(405, 'Method not allowed');
