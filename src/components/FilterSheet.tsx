@@ -102,6 +102,9 @@ export const FilterSheet: React.FC<FilterSheetProps> = ({
   const sheetScrollRef = useRef<HTMLDivElement | null>(null);
   const { dragProps, sheetRef } = useBottomSheet(open, onClose, sheetScrollRef);
   const handleApply = onApply ?? onClose;
+  // The map page's glass chrome floats above the phone sheet; on desktop
+  // (an anchored card, no strip above it) it stays in the header.
+  const chromeAbove = phoneMode && glassChrome;
 
   // ── Drill sub-page state ──
   const [page, setPage] = useState<({ id: string; title: string } & FilterPageMeta) | null>(null);
@@ -155,8 +158,41 @@ export const FilterSheet: React.FC<FilterSheetProps> = ({
                   transition: { duration: 0.22, ease: [0.16, 1, 0.3, 1] as const },
                 })}
             onClick={(e: React.MouseEvent) => e.stopPropagation()}
-            className={cn('fs-sheet', phoneMode ? 'is-phone' : 'is-desktop')}
+            className={cn('fs-sheet', phoneMode ? 'is-phone' : 'is-desktop', chromeAbove && 'has-chrome-above')}
           >
+            {/* The map page's glass pair rides ABOVE the sheet, in the
+                dimmed strip over the page: a native glass control on a
+                draggable sheet trails the finger, and the sheet is short
+                enough now that there is a strip to put them in. */}
+            {chromeAbove && (
+              <div className="fs-chrome-above">
+                <GlassButton
+                  id="filters-close"
+                  symbol="xmark"
+                  label="Close filters"
+                  onClick={onClose}
+                  className="w-11 h-11 rounded-full flex items-center justify-center bg-black/55 text-white ring-1 ring-white/[0.16]"
+                >
+                  <X size={17} />
+                </GlassButton>
+                <GlassButton
+                  id="filters-clear-all"
+                  symbol=""
+                  title="Clear all"
+                  titleStyle="chip"
+                  label="Clear all filters"
+                  onClick={onReset}
+                  className="h-11 px-4 rounded-full flex items-center text-[13px] font-bold bg-black/55 text-white ring-1 ring-white/[0.16]"
+                >
+                  Clear all
+                </GlassButton>
+              </div>
+            )}
+            {phoneMode && (
+              <div className="fs-drag-handle" aria-hidden>
+                <span />
+              </div>
+            )}
             <div className="fs-head">
               {page ? (
                 <div className="fs-head-main">
@@ -175,7 +211,7 @@ export const FilterSheet: React.FC<FilterSheetProps> = ({
                     {page.subtitle && <p className="fs-subtitle">{page.subtitle}</p>}
                   </div>
                 </div>
-              ) : glassChrome ? (
+              ) : glassChrome && !chromeAbove ? (
                 <GlassButton
                   id="filters-close"
                   symbol="xmark"
@@ -198,7 +234,7 @@ export const FilterSheet: React.FC<FilterSheetProps> = ({
                 page.onClear ? (
                   <button type="button" onClick={page.onClear} className="fs-clear">Clear</button>
                 ) : null
-              ) : glassChrome ? (
+              ) : glassChrome && !chromeAbove ? (
                 <GlassButton
                   id="filters-clear-all"
                   symbol=""
@@ -210,6 +246,9 @@ export const FilterSheet: React.FC<FilterSheetProps> = ({
                 >
                   Clear all
                 </GlassButton>
+              ) : chromeAbove ? (
+                // The ✕ is floating above the sheet — one close, not two.
+                null
               ) : (
                 <button type="button" onClick={onClose} className="fs-close" aria-label="Close filters">
                   <X size={16} />
