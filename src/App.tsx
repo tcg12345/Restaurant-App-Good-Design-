@@ -27,6 +27,8 @@ import { Create } from './pages/Create';
 import { BottomNav } from './components/BottomNav';
 import { PullToRefresh } from './components/PullToRefresh';
 import { SwipeBackContainer } from './components/SwipeBackContainer';
+import { subscribeOverlay } from './lib/overlay-registry';
+import { topLayerAvailable } from './lib/useBottomSheet';
 import { ScrollRestoration } from './components/ScrollRestoration';
 import { KEEP_ALIVE_PATHS } from './lib/keep-alive';
 import { useHomeLocation } from './contexts/HomeLocationContext';
@@ -312,6 +314,22 @@ const AppContent: React.FC = () => {
   // Keep-alive: once a tab-root page is visited it stays mounted. Mounted
   // lazily (on first visit) so we don't eagerly mount every tab at startup.
   const [keptAlive, setKeptAlive] = React.useState<string[]>([]);
+  // Any bottom sheet open → the page zooms back (see the presenter below).
+  // Only when sheets can be lifted to the top layer; otherwise a transform
+  // here would shrink the sheets too.
+  const [sheetUp, setSheetUp] = React.useState(false);
+  // The safe-area top, measured once: the zoomed page's top edge sits just
+  // under the status bar, where iOS puts a presenting screen.
+  const [safeTop, setSafeTop] = React.useState(0);
+  React.useEffect(() => {
+    if (!topLayerAvailable()) return;
+    const probe = document.createElement('div');
+    probe.style.cssText = 'position:fixed;top:0;left:0;width:1px;height:env(safe-area-inset-top);pointer-events:none;visibility:hidden';
+    document.body.appendChild(probe);
+    setSafeTop(probe.offsetHeight);
+    probe.remove();
+    return subscribeOverlay((open) => { setSheetUp(open); wakeGlassButtons(); });
+  }, []);
   React.useEffect(() => {
     if (KEEP_ALIVE_PATHS.includes(location.pathname)) {
       setKeptAlive((k) => (k.includes(location.pathname) ? k : [...k, location.pathname]));
@@ -708,9 +726,23 @@ const AppContent: React.FC = () => {
     backTarget !== null && !isReelsPage && !isFocusedReel && !isMapPage && !isTabRoot && !isSheetRoute &&
     !['/create', '/location/map'].includes(location.pathname);
   return (
-    <div className="min-h-screen bg-surface selection:bg-primary/20 selection:text-primary">
+    <div className="min-h-screen selection:bg-primary/20 selection:text-primary" style={{ background: sheetUp ? '#000' : 'var(--color-surface)' }}>
       <ScrollRestoration />
       <PullToRefresh enabled={allowPullToRefresh} onRefresh={handleRefresh} />
+      {/* The presenter: while any bottom sheet is up the whole page zooms
+          back and dims, the way iOS shrinks the screen a card is presented
+          over, and comes forward again as the sheet goes down. Sheets
+          themselves ride the top layer (useBottomSheet), so they don't
+          shrink with it. Clipped with clip-path rather than overflow:
+          hidden, which would turn this into a scroll container and break
+          every sticky header inside. */}
+      <motion.div
+        animate={sheetUp
+          ? { scale: 0.92, y: safeTop + 8, filter: 'brightness(0.78)', clipPath: 'inset(0 round 26px)' }
+          : { scale: 1, y: 0, filter: 'brightness(1)', clipPath: 'inset(0 round 0px)', transitionEnd: { filter: 'none', clipPath: 'none' } }}
+        transition={{ duration: 0.42, ease: [0.32, 0.72, 0, 1] }}
+        style={{ transformOrigin: '50% 0%' }}
+      >
       <SwipeBackContainer
         enabled={allowSwipeBack}
         navKey={historyIdx ?? 0}
@@ -733,6 +765,7 @@ const AppContent: React.FC = () => {
       >
         {routesBlock}
       </SwipeBackContainer>
+      </motion.div>
       <AnimatePresence>
         {showBottomNav && (
           <motion.div

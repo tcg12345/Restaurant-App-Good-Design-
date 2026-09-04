@@ -57,6 +57,41 @@ let bodyLockCount = 0;
 let savedOverflow = '';
 let savedOverscroll = '';
 
+/* ── Presentation ──────────────────────────────────────────────────────
+ * When a sheet is up the page behind it zooms back (App scales the route
+ * container, the way iOS shrinks a presenting screen). A transform on an
+ * ancestor turns `position: fixed` into "fixed inside the ancestor", so a
+ * sheet rendered inline on a page would shrink with it. The fix is the
+ * browser's top layer: the sheet's fixed backdrop layer is given
+ * `popover="manual"` and shown, which renders it against the viewport
+ * regardless of any ancestor transform. It stays there until React
+ * unmounts it (after its exit animation), so nothing is hidden early. */
+const TOP_LAYER_CLASS = 'sheet-top-layer';
+
+function fixedLayerOf(panel: HTMLElement): HTMLElement | null {
+  let node: HTMLElement | null = panel;
+  while (node && node !== document.body) {
+    if (window.getComputedStyle(node).position === 'fixed') return node;
+    node = node.parentElement;
+  }
+  return null;
+}
+
+function liftToTopLayer(panel: HTMLElement): void {
+  const layer = fixedLayerOf(panel);
+  if (!layer) return;
+  const el = layer as HTMLElement & { showPopover?: () => void; matches: (s: string) => boolean };
+  if (typeof el.showPopover !== 'function') return; // older WebKit: no top layer, no zoom (App checks the same)
+  if (el.matches(':popover-open')) return;
+  el.setAttribute('popover', 'manual');
+  el.classList.add(TOP_LAYER_CLASS);
+  try { el.showPopover(); } catch { /* already shown, or detached mid-frame */ }
+}
+
+/** True when the top layer is available — App only zooms the page back
+ *  when sheets can be lifted out of it. */
+export const topLayerAvailable = (): boolean => typeof document !== 'undefined' && typeof (document.createElement('div') as HTMLElement & { showPopover?: unknown }).showPopover === 'function';
+
 /**
  * A HARD scroll lock for full-screen overlays that contain text fields.
  *
@@ -167,7 +202,31 @@ export function useBottomSheet(
     const releaseLock = acquireBodyScrollLock();
     // Stand the page swipe-back down while this sheet owns the screen.
     const releaseOverlay = pushOverlay();
+    // Lift this sheet's fixed layer to the top layer (see above). The panel
+    // carries `data-sheet-panel` from dragProps; the one that is ours is the
+    // newest unclaimed one — this effect runs in the commit that mounted
+    // it. A sheet whose markup mounts a frame later (`open && data && …`)
+    // is caught by the short retry.
+    let raf = 0;
+    let tries = 0;
+    const claim = () => {
+      const panels = document.querySelectorAll<HTMLElement>('[data-sheet-panel]:not([data-sheet-claimed])');
+      const panel = panels[panels.length - 1];
+      if (panel) {
+        panel.setAttribute('data-sheet-claimed', '');
+        // The shared height cap (index.css) is for partial sheets only: a
+        // full-screen composer or viewer anchored top and bottom would be
+        // left with a gap beneath it. Height is layout, unaffected by the
+        // entrance transform, so it's readable on the mount frame.
+        if (panel.getBoundingClientRect().height < window.innerHeight * 0.97) panel.setAttribute('data-sheet-capped', '');
+        liftToTopLayer(panel);
+        return;
+      }
+      if (tries++ < 20) raf = requestAnimationFrame(claim);
+    };
+    claim();
     return () => {
+      cancelAnimationFrame(raf);
       releaseLock();
       releaseOverlay();
     };
@@ -189,6 +248,8 @@ export function useBottomSheet(
       // broken — a little rubber band says "this is as far as it goes" while
       // staying obviously alive under the finger.
       dragElastic: { top: 0.06, bottom: 1 },
+      // Marks the panel for the top-layer lift and the shared height cap.
+      'data-sheet-panel': '',
       onDragStart: () => onDragStateChange?.(true),
       onDragEnd: (_event, info) => {
         onDragStateChange?.(false);
@@ -298,6 +359,7 @@ type BottomSheetDragProps = {
   dragListener: false;
   dragConstraints: { top: number; bottom: number };
   dragElastic: { top: number; bottom: number };
+  'data-sheet-panel': '';
   onDragStart: () => void;
   onDragEnd: (event: unknown, info: { offset: { y: number }; velocity: { y: number } }) => void;
 };
