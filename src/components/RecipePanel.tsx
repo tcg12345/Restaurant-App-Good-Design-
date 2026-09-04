@@ -972,7 +972,13 @@ export const RecipePanel: React.FC<RecipePanelProps> = ({ snapshot, onClose, cur
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="absolute inset-0 z-40 bg-black/55 backdrop-blur-sm flex items-end"
+            // FIXED, not absolute: useBottomSheet lifts a sheet's fixed
+            // backdrop layer into the top layer so an ancestor transform
+            // can't shrink it. Absolute, this one had no layer to lift, so
+            // it scaled with the page zooming back behind it (opened from
+            // a reel, the sheet shrank along with the feed). It covers the
+            // page either way — the host renders it at the page root.
+            className="fixed inset-0 z-40 bg-black/55 backdrop-blur-sm flex items-end"
             onClick={onClose}
           >
             <motion.div

@@ -16,8 +16,9 @@
  */
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Pencil, Pin, BookOpen, ChefHat, Film, Image as ImageIcon, Utensils } from 'lucide-react';
+import { Pencil, Pin, X, BookOpen, ChefHat, Film, Image as ImageIcon, Utensils } from 'lucide-react';
 import { cn } from '../../lib/utils';
+import { useAuth } from '../../contexts/AuthContext';
 import { formatScore, scoreHex } from '../../lib/score';
 import { useSettings } from '../../contexts/SettingsContext';
 import type { PinnedItem, PinnedType } from '../../lib/pins';
@@ -233,6 +234,20 @@ export const PinTile: React.FC<{ card: PinCard }> = ({ card }) => {
   );
 };
 
+/* ── The empty-state hint ─────────────────────────────────────────── */
+/* Dismissing it is per account and per device: a hint you have read once
+ * is noise on every visit after, and it has nothing to restore since
+ * pinning something replaces it anyway. Keyed by user so a second account
+ * on the same phone still gets told. */
+const HINT_KEY = 'goodeats-pins-hint-dismissed';
+const hintKeyFor = (uid: string | null) => (uid ? `${HINT_KEY}:${uid}` : HINT_KEY);
+const hintDismissed = (uid: string | null): boolean => {
+  try { return localStorage.getItem(hintKeyFor(uid)) === '1'; } catch { return false; }
+};
+const dismissHint = (uid: string | null): void => {
+  try { localStorage.setItem(hintKeyFor(uid), '1'); } catch { /* storage off */ }
+};
+
 /* ── The shelf ────────────────────────────────────────────────────── */
 
 export const PinnedShelf: React.FC<{
@@ -244,23 +259,38 @@ export const PinnedShelf: React.FC<{
   gutter?: number;
   className?: string;
 }> = ({ cards, isOwn, onEdit, gutter = 22, className }) => {
+  const { user } = useAuth();
+  const uid = user?.id ?? null;
+  // Above the early returns below — hooks run on every render or none.
+  const [hintGone, setHintGone] = useState(() => hintDismissed(uid));
+  useEffect(() => { setHintGone(hintDismissed(uid)); }, [uid]);
   if (cards === null) return null;
   if (cards.length === 0) {
-    if (!isOwn || !onEdit) return null;
+    if (!isOwn || !onEdit || hintGone) return null;
     // The owner's empty state: one quiet line that says what this is and
     // where to start. Never shown to anyone else.
     return (
-      <div className={className}>
+      <div className={cn('relative', className)}>
         <button
           type="button"
           onClick={onEdit}
-          className="w-full flex items-center gap-3 rounded-2xl border border-dashed border-tint/40 bg-tint/[0.07] px-4 py-3 text-left active:opacity-70 transition-opacity"
+          className="w-full flex items-center gap-3 rounded-2xl border border-dashed border-tint/40 bg-tint/[0.07] pl-4 pr-11 py-3 text-left active:opacity-70 transition-opacity"
         >
           <span className="flex-none w-8 h-8 rounded-full bg-tint/20 text-tint-ink flex items-center justify-center"><Pin size={14} /></span>
           <span className="flex-1 min-w-0">
             <span className="block text-on-surface" style={{ fontSize: '13.5px', fontWeight: 700 }}>Pin up to three things</span>
             <span className="block text-on-surface/50" style={{ fontSize: '12px' }}>A place, a recipe, a guide, a post — at the top of your profile.</span>
           </span>
+        </button>
+        {/* A sibling, not a child: a button inside a button is invalid and
+            the inner one's taps reach both. */}
+        <button
+          type="button"
+          onClick={() => { dismissHint(uid); setHintGone(true); }}
+          aria-label="Dismiss"
+          className="hit-44 absolute top-1.5 right-1.5 w-8 h-8 rounded-full flex items-center justify-center text-on-surface/35 active:text-on-surface/70 active:scale-90 transition-all"
+        >
+          <X size={14} strokeWidth={2.4} />
         </button>
       </div>
     );

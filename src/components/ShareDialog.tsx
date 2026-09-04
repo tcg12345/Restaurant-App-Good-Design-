@@ -340,7 +340,11 @@ export const ShareDialog: React.FC<ShareDialogProps> = ({ open, onClose, payload
             className={cn(
               'bg-surface w-full overflow-hidden flex flex-col kb-pad',
               phoneMode
-                ? 'h-[88%] rounded-t-3xl'
+                // A share sheet is a short errand — pick someone, or tap a
+                // way to send it. At 88% it stood nearly full-screen with a
+                // long empty stretch between the search field and the row
+                // of actions, which read as a page rather than a prompt.
+                ? 'h-[62%] rounded-t-3xl'
                 : 'h-[88%] sm:max-w-md sm:max-h-[80vh] sm:h-auto rounded-t-3xl sm:rounded-3xl',
             )}
           >
