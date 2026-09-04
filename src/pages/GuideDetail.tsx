@@ -240,7 +240,7 @@ export const GuideDetail: React.FC = () => {
         onClick={() => navigate(-1)}
         className={cn(
           'hit-44 inline-flex items-center gap-1.5 rounded-full text-on-surface text-[13px] font-semibold active:scale-95 transition-transform',
-          phoneMode ? 'w-10 h-10 justify-center' : 'h-10 pl-3 pr-4',
+          phoneMode ? 'w-11 h-11 justify-center' : 'h-11 pl-3 pr-4',
         )}
       >
         <ArrowLeft size={17} />
@@ -258,7 +258,7 @@ export const GuideDetail: React.FC = () => {
               onClick={() => navigate(`/guides/${guide.id}/edit`)}
               className={cn(
                 'hit-44 inline-flex items-center gap-1.5 rounded-full text-on-surface text-[13px] font-semibold active:scale-95 transition-transform',
-                phoneMode ? 'w-10 h-10 justify-center' : 'h-10 px-4',
+                phoneMode ? 'w-11 h-11 justify-center' : 'h-11 px-4',
               )}
             >
               <Edit3 size={16} />
@@ -274,7 +274,7 @@ export const GuideDetail: React.FC = () => {
                 onClick={onUnpublish}
                 className={cn(
                   'hit-44 inline-flex items-center gap-1.5 rounded-full text-on-surface text-[13px] font-semibold active:scale-95 transition-transform',
-                  phoneMode ? 'w-10 h-10 justify-center' : 'h-10 px-4',
+                  phoneMode ? 'w-11 h-11 justify-center' : 'h-11 px-4',
                 )}
               >
                 <EyeOff size={16} />
@@ -288,7 +288,7 @@ export const GuideDetail: React.FC = () => {
           symbol="app.paperplane"
           label="Share guide"
           onClick={() => setShareOpen(true)}
-          className="hit-44 w-10 h-10 rounded-full flex items-center justify-center text-on-surface active:scale-95 transition-transform"
+          className="hit-44 w-11 h-11 rounded-full flex items-center justify-center text-on-surface active:scale-95 transition-transform"
         >
           <ShareIcon size={16} />
         </GlassButton>

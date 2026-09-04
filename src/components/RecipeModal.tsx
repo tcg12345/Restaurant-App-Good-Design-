@@ -9,6 +9,7 @@ import { useSettings } from '../contexts/SettingsContext';
 import { useAuth } from '../contexts/AuthContext';
 import { useDeferredFocus } from '../lib/useDeferredFocus';
 import type { PhotoItem } from '../contexts/ListsContext';
+import { GlassButton } from '../lib/glass-buttons';
 
 const RECIPE_TAGS = [
   'Quick & Easy', 'Weeknight', 'Comfort Food', 'Vegetarian', 'Vegan',
@@ -286,7 +287,7 @@ export const RecipeModal: React.FC = () => {
                       <h2 className="font-serif font-bold text-lg truncate">{existing ? 'Edit Recipe' : 'New Recipe'}</h2>
                       {existing && <p className="text-xs text-on-surface/40 truncate">{existing.title}</p>}
                     </div>
-                    <button onClick={closeRecipeModal} className="p-2 -mr-2 text-on-surface/40 hover:text-on-surface transition-colors"><X size={20} /></button>
+                    <GlassButton id="recipe-modal-close" symbol="xmark" label="Close" onClick={closeRecipeModal} className="hit-44 flex-none w-11 h-11 rounded-full flex items-center justify-center text-on-surface/80 transition-transform active:scale-95 -mr-1"><X size={18} /></GlassButton>
                   </div>
 
                   <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-5 pb-4">

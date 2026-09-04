@@ -3,8 +3,8 @@
  *
  * Shared by the onboarding intro (one story per page) and the Pro page
  * (one story per card in the carousel). Each object is a faithful piece
- * of the real screen it stands for — the recipe page's nutrition panel,
- * the profile's taste card, the restaurant page's score history, the
+ * of the real screen it stands for — a generated recipe as the recipe
+ * page opens it, the profile's taste card, the restaurant page's score history, the
  * Find-a-place sheet — with real copy and the real anatomy, so nothing
  * here promises a screen the app doesn't have. The assistant is a Pro
  * benefit too, but it isn't headlined: it lives as a line on the plan.
@@ -13,7 +13,7 @@ import React from 'react';
 import { motion, useReducedMotion } from 'motion/react';
 import { ChevronRight, Sparkles, Users, MapPin } from 'lucide-react';
 import type { BenefitKey } from '../../lib/entitlements';
-import { EASE, NIGHT_INK, NIGHT_INK_SOFT, NIGHT_INK_FAINT, PALE, ON_PALE, GOLD } from './night';
+import { EASE, NIGHT_INK, NIGHT_INK_SOFT, NIGHT_INK_FAINT, PALE, GOLD } from './night';
 import { ProCompare } from './ProCompare';
 
 export interface ProStory {
@@ -60,36 +60,27 @@ const Chip: React.FC<{ children: React.ReactNode }> = ({ children }) => (
   <span style={{ display: 'inline-block', padding: '5px 10px', borderRadius: 999, background: 'rgba(174,187,211,0.12)', color: PALE, fontSize: '11.5px', fontWeight: 600 }}>{children}</span>
 );
 
-/* ── Recipes: the nutrition panel, as the recipe page draws it ─────── */
+/* ── Recipes: a generated recipe, as the recipe page opens it ─────── */
 const RecipesVisual: React.FC<{ delay?: number }> = ({ delay }) => (
-  <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+  <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
     <Piece i={0} delay={delay}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-        <span style={{ width: 44, height: 44, borderRadius: 12, flex: 'none', background: 'linear-gradient(135deg, #8a6f57 0%, #4b3a30 60%, #2a211d 100%)', display: 'grid', placeItems: 'center', color: '#f5f4f0' }}><Sparkles size={14} /></span>
-        <span style={{ minWidth: 0 }}>
-          <Serif size={16}>Miso-butter salmon</Serif>
-          <span style={{ display: 'block', fontSize: '11.5px', color: NIGHT_INK_SOFT, marginTop: 2 }}>Serves 4 · 35 min · pictured by AI</span>
-        </span>
+      <div style={{ position: 'relative', height: 118, borderRadius: 16, overflow: 'hidden', background: 'radial-gradient(120% 90% at 20% 15%, #b08a63 0%, #6e4f3a 40%, #2c221c 100%)' }}>
+        <span aria-hidden style={{ position: 'absolute', inset: 0, background: 'linear-gradient(180deg, rgba(0,0,0,0) 40%, rgba(0,0,0,0.45) 100%)' }} />
+        <span style={{ position: 'absolute', left: 12, bottom: 10, display: 'inline-flex', alignItems: 'center', gap: 6, padding: '4px 9px', borderRadius: 999, background: 'rgba(0,0,0,0.42)', color: '#f5f4f0', fontSize: '10.5px', fontWeight: 700, letterSpacing: '0.04em' }}><Sparkles size={11} /> Pictured by AI</span>
       </div>
     </Piece>
     <Piece i={1} delay={delay}>
-      <div style={{ borderRadius: 14, padding: '12px 14px', background: 'rgba(0,0,0,0.22)', border: '1px solid rgba(255,255,255,0.08)' }}>
-        <Eyebrow>Nutrition</Eyebrow>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 18, marginTop: 10 }}>
-          <span style={{ display: 'flex', alignItems: 'baseline', gap: 4, flex: 'none' }}>
-            <span style={{ fontFamily: 'var(--font-serif)', fontSize: 34, fontWeight: 600, letterSpacing: '-0.03em', lineHeight: 1, color: NIGHT_INK, fontVariantNumeric: 'tabular-nums' }}>420</span>
-            <span style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: NIGHT_INK_FAINT }}>kcal</span>
-          </span>
-          <span style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 10, flex: 1 }}>
-            {[['18', 'Protein'], ['52', 'Carbs'], ['14', 'Fat']].map(([n, l]) => (
-              <span key={l} style={{ paddingLeft: 10, borderLeft: '1px solid rgba(255,255,255,0.12)' }}>
-                <span style={{ display: 'block', fontSize: '16px', fontWeight: 700, letterSpacing: '-0.02em', color: NIGHT_INK }}>{n}<em style={{ fontStyle: 'normal', fontSize: '10px', fontWeight: 600, color: NIGHT_INK_FAINT, marginLeft: 1 }}>g</em></span>
-                <span style={{ display: 'block', fontSize: '9.5px', fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: NIGHT_INK_FAINT, marginTop: 2 }}>{l}</span>
-              </span>
-            ))}
-          </span>
-        </div>
-        <div style={{ marginTop: 10, fontSize: '11px', color: NIGHT_INK_FAINT }}>Estimated by AI, per serving</div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 10 }}>
+        <Serif size={18}>Miso-butter salmon</Serif>
+        <span style={{ fontSize: '11.5px', fontWeight: 600, color: NIGHT_INK_FAINT, whiteSpace: 'nowrap' }}>Serves 4 · 35 min</span>
+      </div>
+    </Piece>
+    <Piece i={2} delay={delay}>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+        <Chip>Generated</Chip>
+        <Chip>Combined from two</Chip>
+        <Chip>From a photo</Chip>
+        <Chip>No weekly cap</Chip>
       </div>
     </Piece>
   </div>
@@ -177,8 +168,8 @@ const Avatars: React.FC<{ colors: string[]; size?: number }> = ({ colors, size =
   </span>
 );
 
-const Row: React.FC<{ icon: React.ReactNode; title: string; sub: React.ReactNode; last?: boolean }> = ({ icon, title, sub, last }) => (
-  <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 12px', borderBottom: last ? 'none' : '1px solid rgba(255,255,255,0.08)' }}>
+const Row: React.FC<{ icon: React.ReactNode; title: string; sub: React.ReactNode }> = ({ icon, title, sub }) => (
+  <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '9px 0', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
     <span style={{ width: 36, height: 36, borderRadius: 12, flex: 'none', background: 'rgba(255,255,255,0.08)', display: 'grid', placeItems: 'center', color: NIGHT_INK_SOFT }}>{icon}</span>
     <span style={{ minWidth: 0, flex: 1 }}>
       <span style={{ display: 'block', fontSize: '13.5px', fontWeight: 700, color: NIGHT_INK }}>{title}</span>
@@ -189,31 +180,29 @@ const Row: React.FC<{ icon: React.ReactNode; title: string; sub: React.ReactNode
 );
 
 const TogetherVisual: React.FC<{ delay?: number }> = ({ delay }) => (
-  <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+  <div style={{ display: 'flex', flexDirection: 'column' }}>
     <Piece i={0} delay={delay}>
-      <div style={{ borderRadius: 16, overflow: 'hidden', background: 'rgba(0,0,0,0.2)', border: '1px solid rgba(255,255,255,0.08)' }}>
-        <Row icon={<Users size={16} />} title="Who's eating" sub={<span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>You + 4 <Avatars colors={['#7f93b8', GOLD, '#6fa08a', '#b07a6a']} size={18} /></span>} />
-        <Row icon={<MapPin size={16} />} title="Where" sub="West Village · walking distance" last />
-      </div>
+      <Row icon={<Users size={16} />} title="Who's eating" sub={<span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>You + 4 <Avatars colors={['#7f93b8', GOLD, '#6fa08a', '#b07a6a']} size={18} /></span>} />
+      <Row icon={<MapPin size={16} />} title="Where" sub="West Village · walking distance" />
     </Piece>
     <Piece i={1} delay={delay}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 12px', borderRadius: 14, background: 'rgba(174,187,211,0.1)', border: '1px solid rgba(174,187,211,0.3)' }}>
-        <span style={{ width: 40, height: 40, borderRadius: 999, flex: 'none', display: 'grid', placeItems: 'center', background: 'rgba(111,196,155,0.16)', color: '#6fc49b', fontWeight: 800, fontSize: 13, fontVariantNumeric: 'tabular-nums' }}>8.1</span>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 0 2px' }}>
+        <span style={{ width: 42, height: 42, borderRadius: 999, flex: 'none', display: 'grid', placeItems: 'center', background: 'rgba(111,196,155,0.16)', color: '#6fc49b', fontWeight: 800, fontSize: 13.5, fontVariantNumeric: 'tabular-nums' }}>8.1</span>
         <span style={{ minWidth: 0, flex: 1 }}>
           <span style={{ display: 'block', fontSize: '10.5px', letterSpacing: '0.14em', textTransform: 'uppercase', color: PALE, fontWeight: 700 }}>For all five of you</span>
-          <Serif size={15}>Kawa Ni</Serif>
+          <Serif size={16}>Kawa Ni</Serif>
           <span style={{ display: 'block', fontSize: '11.5px', color: NIGHT_INK_FAINT, marginTop: 1 }}>Japanese · $$$ · everyone's above their bar</span>
         </span>
       </div>
     </Piece>
     <Piece i={2} delay={delay}>
-      <div style={{ fontSize: '11.5px', color: NIGHT_INK_FAINT }}>Shared list · Friday dinner club · rated as a group</div>
+      <div style={{ fontSize: '11.5px', color: NIGHT_INK_FAINT, marginTop: 8 }}>Shared list · Friday dinner club · rated as a group</div>
     </Piece>
   </div>
 );
 
 export const PRO_STORIES: ProStory[] = [
-  { id: 'recipes', benefit: 'recipes', eyebrow: 'Recipes', line1: 'Every recipe,', line2: 'with its numbers.', sub: 'No weekly cap on AI recipes, a photo for every dish, and calories and macros on all of them.', Visual: RecipesVisual },
+  { id: 'recipes', benefit: 'recipes', eyebrow: 'Recipes', line1: 'Cook without', line2: 'a cap.', sub: 'Unlimited AI recipes — generated, combined from two, or pulled from a photo — each with a picture of the dish.', Visual: RecipesVisual },
   { id: 'taste', benefit: 'taste', eyebrow: 'Taste profile', line1: 'Your taste,', line2: 'in full.', sub: 'Trends, comparisons against everyone else, and the people whose palate overlaps yours.', Visual: TasteVisual },
   { id: 'history', benefit: 'taste', eyebrow: 'Score history', line1: 'Every visit,', line2: 'charted.', sub: 'How your score for a place moved over time, with every visit beneath it.', Visual: HistoryVisual },
   { id: 'together', benefit: 'together', eyebrow: 'Plan together', line1: 'Five palates,', line2: 'one table.', sub: 'Group picks for up to five, shared lists, and search by mood.', Visual: TogetherVisual },

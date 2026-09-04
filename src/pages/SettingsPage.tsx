@@ -555,7 +555,7 @@ export const SettingsPage: React.FC = () => {
               symbol="xmark"
               label="Close settings"
               onClick={() => navigate(-1)}
-              className="hit-44 flex-none w-10 h-10 -mr-1 rounded-full flex items-center justify-center text-on-surface bg-on-surface/[0.05] active:scale-95 transition-transform"
+              className="hit-44 flex-none w-11 h-11 -mr-1 rounded-full flex items-center justify-center text-on-surface bg-on-surface/[0.05] active:scale-95 transition-transform"
             >
               <X size={17} />
             </GlassButton>
@@ -620,7 +620,7 @@ export const SettingsPage: React.FC = () => {
               symbol="chevron.left"
               label="Back to settings"
               onClick={back}
-              className="hit-44 flex-none w-10 h-10 -ml-1 rounded-full flex items-center justify-center text-on-surface bg-on-surface/[0.05] active:scale-95 transition-transform"
+              className="hit-44 flex-none w-11 h-11 -ml-1 rounded-full flex items-center justify-center text-on-surface bg-on-surface/[0.05] active:scale-95 transition-transform"
             >
               <ArrowLeft size={18} />
             </GlassButton>
@@ -630,7 +630,7 @@ export const SettingsPage: React.FC = () => {
               symbol="xmark"
               label="Close settings"
               onClick={() => navigate(-1)}
-              className="hit-44 flex-none w-10 h-10 -mr-1 rounded-full flex items-center justify-center text-on-surface bg-on-surface/[0.05] active:scale-95 transition-transform"
+              className="hit-44 flex-none w-11 h-11 -mr-1 rounded-full flex items-center justify-center text-on-surface bg-on-surface/[0.05] active:scale-95 transition-transform"
             >
               <X size={16} />
             </GlassButton>

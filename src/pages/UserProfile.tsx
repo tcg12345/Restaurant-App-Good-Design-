@@ -805,7 +805,7 @@ export const UserProfile: React.FC = () => {
               symbol="chevron.left"
               label="Close map"
               onClick={() => setShowMapPage(false)}
-              className="hit-44 flex-none w-9 h-9 -ml-1 rounded-full flex items-center justify-center text-on-surface bg-on-surface/[0.05] active:scale-95 transition-transform"
+              className="hit-44 flex-none w-11 h-11 -ml-1 rounded-full flex items-center justify-center text-on-surface bg-on-surface/[0.05] active:scale-95 transition-transform"
             >
               <ArrowLeft size={18} />
             </GlassButton>
@@ -1299,7 +1299,7 @@ export const UserProfile: React.FC = () => {
             symbol="chevron.left"
             label="Back"
             onClick={() => navigate(-1)}
-            className="hit-44 flex-none w-9 h-9 -ml-1 rounded-full flex items-center justify-center text-on-surface bg-on-surface/[0.05] active:scale-95 transition-transform"
+            className="hit-44 flex-none w-11 h-11 -ml-1 rounded-full flex items-center justify-center text-on-surface bg-on-surface/[0.05] active:scale-95 transition-transform"
           >
             <ArrowLeft size={18} />
           </GlassButton>
@@ -1333,7 +1333,7 @@ export const UserProfile: React.FC = () => {
             symbol="app.paperplane"
             label={copied ? 'Link copied' : 'Share profile'}
             onClick={handleShare}
-            className="hit-44 flex-none w-9 h-9 -mr-0.5 rounded-full flex items-center justify-center text-on-surface bg-on-surface/[0.05] active:scale-95 transition-transform"
+            className="hit-44 flex-none w-11 h-11 -mr-0.5 rounded-full flex items-center justify-center text-on-surface bg-on-surface/[0.05] active:scale-95 transition-transform"
           >
             {copied ? <Check size={16} className="text-primary" /> : <ShareIcon size={16} />}
           </GlassButton>

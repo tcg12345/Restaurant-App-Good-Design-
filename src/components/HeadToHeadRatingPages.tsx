@@ -370,7 +370,7 @@ const InlineCompare: React.FC<{
           symbol="chevron.left"
           label="Back"
           onClick={onBack}
-          className="absolute -top-1.5 left-0 w-9 h-9 -ml-2 rounded-full grid place-items-center text-on-surface/40 transition-colors"
+          className="absolute -top-1.5 left-0 w-11 h-11 -ml-2 rounded-full grid place-items-center text-on-surface/40 transition-colors"
         >
           <ChevronLeft size={18} />
         </GlassButton>

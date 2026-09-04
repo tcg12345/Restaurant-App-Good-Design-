@@ -355,7 +355,7 @@ const ActivityHeader: React.FC<{ title: string; onBack: () => void }> = ({ title
         symbol="chevron.left"
         label="Back"
         onClick={onBack}
-        className="hit-44 flex-none w-10 h-10 -ml-1 rounded-full flex items-center justify-center text-on-surface bg-on-surface/[0.05] active:scale-95 transition-transform"
+        className="hit-44 flex-none w-11 h-11 -ml-1 rounded-full flex items-center justify-center text-on-surface bg-on-surface/[0.05] active:scale-95 transition-transform"
       >
         <ArrowLeft size={18} />
       </GlassButton>

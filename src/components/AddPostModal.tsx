@@ -1283,7 +1283,7 @@ export const AddPostModal: React.FC = () => {
                   if (step > (isEditing ? 3 : 1) && !sharedPost) goToStep((step - 1) as Step);
                   else closeAddPostModal();
                 }}
-                className="w-9 h-9 rounded-full flex items-center justify-center text-white disabled:opacity-40 flex-shrink-0 transition-colors"
+                className="w-11 h-11 rounded-full flex items-center justify-center text-white disabled:opacity-40 flex-shrink-0 transition-colors"
               >
                 {step > (isEditing ? 3 : 1) && !sharedPost ? <ChevronLeft size={17} strokeWidth={2.4} /> : <X size={16} strokeWidth={2.4} />}
               </GlassButton>

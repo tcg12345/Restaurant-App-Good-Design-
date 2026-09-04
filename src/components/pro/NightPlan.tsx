@@ -13,50 +13,90 @@ import { glass, NIGHT_INK, NIGHT_INK_SOFT, NIGHT_INK_FAINT, PALE, ON_PALE, EASE 
 
 type Purchase = ReturnType<typeof usePurchase>;
 
-export const NightPlanCards: React.FC<{ offers: PlanOffer[]; value: PlanKey; onChange: (k: PlanKey) => void; disabled?: boolean }> = ({ offers, value, onChange, disabled }) => (
-  <div role="radiogroup" aria-label="Plan" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-    {offers.map((o) => {
-      const on = o.key === value;
-      return (
-        <button
-          key={o.key}
-          type="button"
-          role="radio"
-          aria-checked={on}
-          disabled={disabled}
-          onClick={() => onChange(o.key)}
-          className="text-left active:scale-[0.99] transition-transform disabled:opacity-60"
-          style={{
-            ...glass,
-            borderRadius: 18, padding: '13px 14px', position: 'relative', color: NIGHT_INK,
-            border: `1px solid ${on ? PALE : 'rgba(255,255,255,0.12)'}`,
-            background: on ? 'rgba(174, 187, 211, 0.12)' : 'rgba(255,255,255,0.06)',
-          }}
-        >
-          {o.tag && (
-            <span style={{ position: 'absolute', top: -10, left: 14, padding: '4px 9px', borderRadius: 999, background: PALE, color: ON_PALE, fontFamily: 'var(--font-mono)', fontSize: '8.5px', letterSpacing: '0.14em', textTransform: 'uppercase', fontWeight: 600 }}>{o.tag}</span>
-          )}
-          <span style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10 }}>
-            <span style={{ minWidth: 0 }}>
-              <span style={{ display: 'block', fontSize: '15px', fontWeight: 800 }}>{o.title}</span>
-              <span style={{ display: 'block', fontSize: '11px', color: NIGHT_INK_SOFT, marginTop: 2, lineHeight: 1.3 }}>
-                {o.priceLine}{o.trialDays > 0 ? ` · ${o.trialDays} days free first` : ''}
+/** Where the two plans stand: stacked (the onboarding intro's last page)
+ *  or side by side (the Pro page, where they share the screen with a
+ *  story card and must not push the CTA off it). */
+export const NightPlanCards: React.FC<{ offers: PlanOffer[]; value: PlanKey; onChange: (k: PlanKey) => void; disabled?: boolean; layout?: 'stack' | 'row' }> = ({ offers, value, onChange, disabled, layout = 'stack' }) => {
+  const row = layout === 'row';
+  return (
+    <div role="radiogroup" aria-label="Plan" style={{ display: 'flex', flexDirection: row ? 'row' : 'column', gap: 8 }}>
+      {offers.map((o) => {
+        const on = o.key === value;
+        const big = o.perMonthLine ? o.perMonthLine.replace(/ a month$/, '') : o.priceLine.split(' /')[0].replace(/ once$/, '');
+        const unit = o.key === 'lifetime' ? 'once' : 'a month';
+        const trial = o.trialDays > 0 ? ` · ${o.trialDays} days free` : '';
+        const sub = o.key === 'lifetime' ? 'One payment, yours for good' : o.perMonthLine ? `${o.priceLine}${trial}` : `Billed monthly${trial}`;
+        const frame: React.CSSProperties = {
+          ...glass,
+          position: 'relative', color: NIGHT_INK,
+          border: `1px solid ${on ? PALE : 'rgba(255,255,255,0.12)'}`,
+          background: on ? 'rgba(174, 187, 211, 0.12)' : 'rgba(255,255,255,0.06)',
+        };
+        const check = (
+          <span style={{ width: 18, height: 18, borderRadius: 999, flex: 'none', border: `1.6px solid ${on ? PALE : 'rgba(255,255,255,0.35)'}`, background: on ? PALE : 'transparent', color: ON_PALE, display: 'inline-grid', placeItems: 'center' }}>{on && <Check size={11} strokeWidth={3} />}</span>
+        );
+        const tag = o.tag && (
+          <span style={{ position: 'absolute', top: -10, left: 12, padding: '4px 9px', borderRadius: 999, background: PALE, color: ON_PALE, fontFamily: 'var(--font-mono)', fontSize: '8.5px', letterSpacing: '0.14em', textTransform: 'uppercase', fontWeight: 600, whiteSpace: 'nowrap' }}>{o.tag}</span>
+        );
+        if (row) {
+          return (
+            <button
+              key={o.key}
+              type="button"
+              role="radio"
+              aria-checked={on}
+              disabled={disabled}
+              onClick={() => onChange(o.key)}
+              className="text-left active:scale-[0.99] transition-transform disabled:opacity-60"
+              style={{ ...frame, flex: 1, minWidth: 0, borderRadius: 18, padding: '15px 13px 13px' }}
+            >
+              {tag}
+              <span style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+                <span style={{ fontSize: '14px', fontWeight: 800 }}>{o.title}</span>
+                {check}
+              </span>
+              <span style={{ display: 'flex', alignItems: 'baseline', gap: 4, marginTop: 10 }}>
+                <span style={{ fontSize: '24px', fontWeight: 800, letterSpacing: '-0.02em', lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>{big}</span>
+                <span style={{ fontSize: '11px', color: NIGHT_INK_SOFT }}>{unit}</span>
+              </span>
+              <span style={{ display: 'block', fontSize: '10.5px', color: on ? NIGHT_INK_SOFT : NIGHT_INK_FAINT, marginTop: 6, lineHeight: 1.3 }}>{sub}</span>
+            </button>
+          );
+        }
+        return (
+          <button
+            key={o.key}
+            type="button"
+            role="radio"
+            aria-checked={on}
+            disabled={disabled}
+            onClick={() => onChange(o.key)}
+            className="text-left active:scale-[0.99] transition-transform disabled:opacity-60"
+            style={{ ...frame, borderRadius: 18, padding: '13px 14px' }}
+          >
+            {tag}
+            <span style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10 }}>
+              <span style={{ minWidth: 0 }}>
+                <span style={{ display: 'block', fontSize: '15px', fontWeight: 800 }}>{o.title}</span>
+                <span style={{ display: 'block', fontSize: '11px', color: NIGHT_INK_SOFT, marginTop: 2, lineHeight: 1.3 }}>
+                  {o.priceLine}{o.trialDays > 0 ? ` · ${o.trialDays} days free first` : ''}
+                </span>
+              </span>
+              <span style={{ textAlign: 'right', flex: 'none' }}>
+                <span style={{ display: 'block', fontSize: '20px', fontWeight: 800, letterSpacing: '-0.02em', lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>{big}</span>
+                <span style={{ display: 'block', fontSize: '10px', color: NIGHT_INK_SOFT, marginTop: 3 }}>{unit}</span>
               </span>
             </span>
-            <span style={{ textAlign: 'right', flex: 'none' }}>
-              <span style={{ display: 'block', fontSize: '20px', fontWeight: 800, letterSpacing: '-0.02em', lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>{o.perMonthLine ? o.perMonthLine.replace(/ a month$/, '') : o.priceLine.split(' /')[0]}</span>
-              <span style={{ display: 'block', fontSize: '10px', color: NIGHT_INK_SOFT, marginTop: 3 }}>a month</span>
+            <span style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 10, paddingTop: 10, borderTop: '1px solid rgba(255,255,255,0.1)', fontSize: '12px', fontWeight: 700, color: on ? NIGHT_INK : NIGHT_INK_FAINT }}>
+              {check}
+              {on ? 'Selected' : 'Select'}
             </span>
-          </span>
-          <span style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 10, paddingTop: 10, borderTop: '1px solid rgba(255,255,255,0.1)', fontSize: '12px', fontWeight: 700, color: on ? NIGHT_INK : NIGHT_INK_FAINT }}>
-            <span style={{ width: 18, height: 18, borderRadius: 999, border: `1.6px solid ${on ? PALE : 'rgba(255,255,255,0.35)'}`, background: on ? PALE : 'transparent', color: ON_PALE, display: 'inline-grid', placeItems: 'center' }}>{on && <Check size={11} strokeWidth={3} />}</span>
-            {on ? 'Selected' : 'Select'}
-          </span>
-        </button>
-      );
-    })}
-  </div>
-);
+          </button>
+        );
+      })}
+    </div>
+  );
+};
 
 /** The CTA + fine print + legal row. `p` is the purchase hook's value. */
 export const NightPurchaseFooter: React.FC<{ p: Purchase; ctaLabel?: string }> = ({ p, ctaLabel }) => (
@@ -72,7 +112,9 @@ export const NightPurchaseFooter: React.FC<{ p: Purchase; ctaLabel?: string }> =
     >
       {p.busy ? <Loader2 size={17} className="animate-spin" /> : (
         <>
-          {p.native && <span style={{ display: 'inline-flex', filter: 'brightness(0)' }}><AppleGlyph /></span>}
+          {/* Apple's own mark, from the system font — the purchase goes
+              through the App Store, and the owner wants that said. */}
+          {p.native && <AppleGlyph color={ON_PALE} size={20} />}
           <span>{p.phase === 'error' ? 'Try again' : (ctaLabel ?? (p.offer ? ctaFor(p.offer) : 'Continue'))}</span>
         </>
       )}

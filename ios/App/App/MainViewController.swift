@@ -2209,77 +2209,97 @@ private enum AppGlyph {
     }
 }
 
-final class GlassButtonView: UIButton {
+final class GlassButtonView: UIView {
+    /// The material. One `UIGlassEffect`, interactive, with the button and
+    /// its glyph laid INSIDE its `contentView` — the same construction as
+    /// the action group beside it, and the reason the glyph now rides the
+    /// lens. The previous build was a `UIButton` wearing the glass
+    /// *configuration* with the glyph as a sibling image view: the system
+    /// swelled and leaned the glass under the finger and the glyph stayed
+    /// put, so a dragged back button was a lens sliding out from under its
+    /// arrow. Content inside the effect view's content view is part of what
+    /// the system moves.
+    private let glass: UIVisualEffectView
+    /// `.custom`, not `.system`, and inside `contentView` — where hit-testing
+    /// resolves to it because it is genuinely above the material. (A button
+    /// *around* an effect view was tried once and swallowed every tap.) A
+    /// system button would wash its glyph out for the whole press; the
+    /// system's own glass controls keep theirs at full strength while the
+    /// glass moves around it.
+    private let control = UIButton(type: .custom)
     private let icon = UIImageView()
     private let badge = BadgeLabel()
     /// A pill's content — glyph + word in a stack pinned to the centre.
-    /// The same lesson the lone glyph taught, learned a second time: content
-    /// handed to the configuration kept resolving against margins of the
-    /// system's choosing and sat high in the capsule (the Search chip, the
-    /// filter sheet's Clear all, the location chip — all top-heavy). The
-    /// configuration draws only the glass now; the content is ours, and a
-    /// centre constraint cannot drift.
     private let pillStack = UIStackView()
     private let pillIcon = UIImageView()
     private let pillLabel = UILabel()
-    /// Which base configuration is currently installed. Swapping between
-    /// plain and prominent glass means rebuilding it, and rebuilding one
-    /// every frame would throw away the press animation mid-gesture.
+    /// Which material is installed. Swapping between plain and prominent
+    /// glass means a new effect, and installing one every frame would
+    /// throw away the press animation mid-gesture.
     private var appliedProminent: Bool?
+    private var appliedTintName: String?
 
     var onTap: (() -> Void)?
 
-    /// A `UIButton` wearing the system's glass configuration, not a hand-built
-    /// control with a `UIGlassEffect` view inside it. The hand-built version
-    /// looked identical and swallowed every tap: hit-testing resolved to the
-    /// effect view's content view, so `UIControl` tracking never saw the touch
-    /// (`sendActions` fired fine — only real touches died, the classic
-    /// overlay-eats-the-tap, verified with a hit-test probe). The system
-    /// configuration is the same material drawn *as the button's background*,
-    /// so touches, the press bounce, and accessibility are all UIKit's problem
-    /// — which is the same lesson the tab bar taught: stop replicating the
-    /// control, be the control.
-    init() {
-        super.init(frame: .zero)
-        var config: UIButton.Configuration
-        if #available(iOS 26.0, *) {
-            config = .glass()
-        } else {
-            // Unreachable in practice — the plugin reports unsupported below
-            // iOS 26 and the page keeps its CSS buttons — but the class has to
-            // compile against the iOS 15 deployment target.
-            config = .gray()
-        }
-        config.cornerStyle = .capsule
-        config.contentInsets = .zero
-        configuration = config
-        // Nothing custom on top of this — the configuration's own press IS
-        // the interaction. Two attempts at hand-written press physics died
-        // here: an inflate-and-follow read as ballooning, and a measured
-        // Instagram-style stretch corrupted geometry the moment the layer
-        // pushed a frame under a live transform (a frame write with a
-        // non-identity transform is undefined, and it showed). Traditional
-        // glass is calm; be calm.
-        addTarget(self, action: #selector(handleTap), for: .touchUpInside)
+    /// True while a finger is on the button. A measured frame pushed
+    /// mid-press lands under the live press transform, which is undefined,
+    /// and the settle would return the capsule to the wrong home.
+    var isLiquidActive: Bool { control.isTracking || control.isHighlighted }
 
-        // The configuration draws the glass; the glyph is ours. Handing the
-        // image to the configuration put it visibly off-centre (its layout
-        // resolves against margins the zeroed contentInsets did not remove)
-        // and silently ignored `baseForegroundColor` for the tint. A plain
-        // image view pinned to the centre has neither problem, and with
-        // interaction off it does not shadow the button's own touch handling.
+    private static func makeEffect(prominent: Bool, fill: UIColor) -> UIVisualEffect {
+        if #available(iOS 26.0, *) {
+            // Plain: CLEAR glass wearing the family tint, the same pipeline
+            // as the action group and the chips, so the set reads as one
+            // material. Prominent: the tinted lens — still refracting, with
+            // the selection's fill in it.
+            let effect = UIGlassEffect(style: prominent ? .regular : .clear)
+            effect.isInteractive = true
+            effect.tintColor = prominent ? fill : GlassTabBar.glassTint
+            return effect
+        }
+        return UIBlurEffect(style: .systemChromeMaterial)
+    }
+
+    init() {
+        glass = UIVisualEffectView(effect: GlassButtonView.makeEffect(prominent: false, fill: .clear))
+        super.init(frame: .zero)
+        // The press swells the capsule past its own bounds; clipping would
+        // shear the very animation this exists for.
+        clipsToBounds = false
+        glass.translatesAutoresizingMaskIntoConstraints = false
+        if #available(iOS 26.0, *) {
+            glass.clipsToBounds = false
+            glass.cornerConfiguration = .capsule()
+        } else {
+            glass.clipsToBounds = true
+        }
+        addSubview(glass)
+        NSLayoutConstraint.activate([
+            glass.topAnchor.constraint(equalTo: topAnchor),
+            glass.bottomAnchor.constraint(equalTo: bottomAnchor),
+            glass.leadingAnchor.constraint(equalTo: leadingAnchor),
+            glass.trailingAnchor.constraint(equalTo: trailingAnchor),
+        ])
+
+        control.translatesAutoresizingMaskIntoConstraints = false
+        control.addTarget(self, action: #selector(handleTap), for: .touchUpInside)
+        glass.contentView.addSubview(control)
+        NSLayoutConstraint.activate([
+            control.topAnchor.constraint(equalTo: glass.contentView.topAnchor),
+            control.bottomAnchor.constraint(equalTo: glass.contentView.bottomAnchor),
+            control.leadingAnchor.constraint(equalTo: glass.contentView.leadingAnchor),
+            control.trailingAnchor.constraint(equalTo: glass.contentView.trailingAnchor),
+        ])
+
         icon.contentMode = .center
         icon.isUserInteractionEnabled = false
         icon.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(icon)
+        control.addSubview(icon)
         NSLayoutConstraint.activate([
-            icon.centerXAnchor.constraint(equalTo: centerXAnchor),
-            icon.centerYAnchor.constraint(equalTo: centerYAnchor),
+            icon.centerXAnchor.constraint(equalTo: control.centerXAnchor),
+            icon.centerYAnchor.constraint(equalTo: control.centerYAnchor),
         ])
 
-        // Outside the configuration system, deliberately: a count badge read
-        // through the material is a washed-out smudge, and it is meant to be
-        // the loudest thing on the control.
         pillStack.axis = .horizontal
         pillStack.alignment = .center
         pillStack.spacing = 6
@@ -2288,12 +2308,15 @@ final class GlassButtonView: UIButton {
         pillStack.translatesAutoresizingMaskIntoConstraints = false
         pillStack.addArrangedSubview(pillIcon)
         pillStack.addArrangedSubview(pillLabel)
-        addSubview(pillStack)
+        control.addSubview(pillStack)
         NSLayoutConstraint.activate([
-            pillStack.centerXAnchor.constraint(equalTo: centerXAnchor),
-            pillStack.centerYAnchor.constraint(equalTo: centerYAnchor),
+            pillStack.centerXAnchor.constraint(equalTo: control.centerXAnchor),
+            pillStack.centerYAnchor.constraint(equalTo: control.centerYAnchor),
         ])
 
+        // Above the glass, not through it: a count read through the
+        // material is a washed-out smudge, and it is meant to be the
+        // loudest thing on the control.
         badge.font = .systemFont(ofSize: 11, weight: .bold)
         badge.textColor = .white
         badge.textAlignment = .center
@@ -2313,13 +2336,29 @@ final class GlassButtonView: UIButton {
 
     @objc private func handleTap() { onTap?() }
 
+    /// The family hairline on the effect view's layer — the rim every
+    /// capsule wears. A prominent capsule has a fill of its own and no rim.
+    private func applyRim() {
+        let rim = appliedProminent == true ? UIColor.clear : GlassTabBar.glassRim.resolvedColor(with: traitCollection)
+        glass.layer.borderColor = rim.cgColor
+        glass.layer.borderWidth = 1
+        glass.layer.cornerRadius = bounds.height / 2
+        glass.layer.cornerCurve = .continuous
+        glass.layer.masksToBounds = false
+    }
+
+    override func traitCollectionDidChange(_ previous: UITraitCollection?) {
+        super.traitCollectionDidChange(previous)
+        applyRim()
+    }
+
     override func layoutSubviews() {
         super.layoutSubviews()
+        applyRim()
+        if #available(iOS 26.0, *) {} else {
+            glass.layer.cornerRadius = min(bounds.width, bounds.height) / 2
+        }
         badge.layer.cornerRadius = badge.bounds.height / 2
-        // The configuration system re-sorts subviews when it rebuilds — keep
-        // the content above the glass and the badge above everything.
-        bringSubviewToFront(icon)
-        bringSubviewToFront(pillStack)
         bringSubviewToFront(badge)
     }
 
@@ -2329,93 +2368,52 @@ final class GlassButtonView: UIButton {
     }
 
     func apply(_ spec: GlassButtonSpec) {
+        let fill: UIColor = spec.tintName == "primary" ? GlassTabBar.primary : .label
         // Selection is a different MATERIAL, not a colour swapped into the
-        // same one: `.prominentGlass()` is the system's tinted lens, so a
-        // chosen chip keeps refracting the map under it instead of going
-        // flat. Rebuilt only on the transition — the configuration system
-        // re-runs its own press animation from scratch each time.
-        if appliedProminent != spec.prominent {
+        // same one. Installed only on the transition — a new effect restarts
+        // the material from scratch, press animation included.
+        if appliedProminent != spec.prominent || appliedTintName != spec.tintName {
             appliedProminent = spec.prominent
-            var base: UIButton.Configuration
-            if #available(iOS 26.0, *) {
-                // Clear, not regular — see the chip row's note.
-                base = spec.prominent ? .prominentGlass() : .clearGlass()
-            } else {
-                base = spec.prominent ? .filled() : .gray()
-            }
-            base.cornerStyle = .capsule
-            base.contentInsets = .zero
-            // Plain glass carries the chrome's slate tint and rim — the same
-            // fill and edge the chips and the field wear, so the set reads as
-            // one material. Prominent capsules set their own fill in apply.
-            if !spec.prominent {
-                base.baseBackgroundColor = GlassTabBar.glassTint
-                base.background.strokeColor = GlassTabBar.glassRim
-                base.background.strokeWidth = 1
-            }
-            configuration = base
+            appliedTintName = spec.tintName
+            glass.effect = GlassButtonView.makeEffect(prominent: spec.prominent, fill: fill)
+            applyRim()
         }
         // Sized off the button rather than fixed, so the same spec works for
-        // the 44pt header buttons and anything smaller. A chip's glyph is
+        // the 44pt chrome buttons and anything smaller. A chip's glyph is
         // fixed instead: it has to agree with the 13px icon the page
         // reserved room for, not with the capsule's height.
         let isChip = spec.role == "chip"
-        // A pill's glyph is sized against its LABEL, not its capsule: scaled
-        // off the height it came out at 17.6pt beside 13pt text and read as
-        // an icon with a caption. Smaller and bolder holds the line's weight
-        // without out-shouting the word.
+        // A pill's glyph is sized against its LABEL, not its capsule.
         let isLabelledPill = !spec.title.isEmpty && spec.titleStyle == "chip"
         let point = isChip ? 13 : isLabelledPill ? 11.5 : max(15, min(22, spec.frame.height * 0.44))
         let symbolConfig = UIImage.SymbolConfiguration(pointSize: point, weight: isLabelledPill ? .bold : .regular)
         // `app.*` names are the app's own drawn glyphs (see `AppGlyph`), for
         // marks SF Symbols simply doesn't have. Anything else is a symbol.
-        let image = AppGlyph.named(spec.symbol, pointSize: point)
-            ?? UIImage(systemName: spec.symbol, withConfiguration: symbolConfig)
+        let image = (AppGlyph.named(spec.symbol, pointSize: point)
+            ?? UIImage(systemName: spec.symbol, withConfiguration: symbolConfig))?
+            .withRenderingMode(.alwaysTemplate)
+        // On a fill, the glyph has to be legible against it; on the lens it
+        // wears the page's ink.
+        let foreground: UIColor = spec.prominent
+            ? (spec.tintName == "primary" ? .white : .systemBackground)
+            : spec.tint
 
         if spec.title.isEmpty {
-            // Icon only. The glyph is ours rather than the configuration's:
-            // handing the image to the configuration put it visibly off-centre
-            // (its layout resolves against margins the zeroed contentInsets did
-            // not remove). A centred image view has neither problem, and with
-            // interaction off it cannot shadow the button's touch handling.
             pillStack.isHidden = true
             icon.image = image
-            icon.tintColor = spec.tint
+            icon.tintColor = foreground
             icon.isHidden = false
-            if var config = configuration {
-                config.title = nil
-                config.image = nil
-                config.contentInsets = .zero
-                if spec.prominent {
-                    config.baseBackgroundColor = spec.tintName == "primary" ? GlassTabBar.primary : .label
-                }
-                configuration = config
-            }
         } else {
-            // A pill. The configuration draws ONLY the glass — see pillStack.
             icon.isHidden = true
             pillStack.isHidden = false
-            if var config = configuration {
-                config.title = nil
-                config.attributedTitle = nil
-                config.image = nil
-                config.contentInsets = .zero
-                config.titleTextAttributesTransformer = nil
-                if spec.prominent {
-                    config.baseBackgroundColor = spec.tintName == "primary" ? GlassTabBar.primary : .label
-                }
-                configuration = config
-            }
-            let foreground: UIColor = spec.prominent
-                ? (spec.tintName == "primary" ? .white : .systemBackground)
-                : spec.tint
-            pillIcon.image = image?.withRenderingMode(.alwaysTemplate)
+            pillIcon.image = image
             pillIcon.tintColor = foreground
             pillIcon.isHidden = spec.symbol.isEmpty || image == nil
             pillLabel.text = spec.title
             pillLabel.font = .systemFont(ofSize: 13, weight: .semibold)
             pillLabel.textColor = foreground
         }
+        control.accessibilityLabel = spec.label
         accessibilityLabel = spec.label
 
         if let text = spec.badge, !text.isEmpty {
@@ -2562,13 +2560,13 @@ final class GlassButtonLayer {
                 // change, so nothing came along afterwards to correct it: a
                 // chip simply stayed at whatever width the stale answer gave
                 // and clipped its own label.
-                button.frame = spec.frame
+                //
+                // And no frame at all while a finger is on it — the same rule
+                // the groups keep. The next push after release trues it up.
+                if !button.isLiquidActive { button.frame = spec.frame }
                 button.apply(spec)
-                // A configuration resolves lazily. Measuring before it has
-                // settled is measuring the last one — the same stale-answer
-                // trap as the ordering above, one step further in.
                 button.layoutIfNeeded()
-                button.frame = Self.fit(spec, in: host, view: button)
+                if !button.isLiquidActive { button.frame = Self.fit(spec, in: host, view: button) }
             case .field(let search):
                 // The web box exactly — a field's width is the page's to
                 // decide, unlike a pill's, whose label can outgrow it.

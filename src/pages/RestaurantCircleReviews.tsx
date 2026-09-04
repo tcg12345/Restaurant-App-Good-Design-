@@ -20,6 +20,7 @@ import {
   type UserProfile,
 } from '../lib/supabase-community';
 
+import { GlassButton } from '../lib/glass-buttons';
 /** Short relative time label — mirrors the helper in RestaurantDetailMobile. */
 function timeAgo(date: string): string {
   if (!date) return '';
@@ -192,14 +193,9 @@ export const RestaurantCircleReviews: React.FC = () => {
       {/* Top bar — fades away with scroll, back near the top */}
       <motion.header ref={headerFade.headerRef} style={headerFade.headerStyle} className="sticky top-0 z-10 backdrop-blur-md bg-cream/90 border-b border-on-surface/[0.12]">
         <div className="flex items-center gap-3 px-3.5 pt-safe-4 pb-3">
-          <button
-            type="button"
-            onClick={() => navigate(-1)}
-            aria-label="Back"
-            className="hit-44 w-9 h-9 rounded-full bg-on-surface/[0.06] flex items-center justify-center text-on-surface active:opacity-70 transition-opacity flex-shrink-0"
-          >
+          <GlassButton id="circle-reviews-back" symbol="arrow.left" label="Back" onClick={() => navigate(-1)} className="hit-44 flex-none w-11 h-11 rounded-full flex items-center justify-center text-on-surface/80 transition-transform active:scale-95">
             <ArrowLeft size={18} />
-          </button>
+          </GlassButton>
           <div className="min-w-0 flex-1">
             <p className="text-on-surface/45" style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.16em', textTransform: 'uppercase' }}>
               Your circle

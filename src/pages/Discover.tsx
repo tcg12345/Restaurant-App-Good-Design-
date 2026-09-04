@@ -4539,7 +4539,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, sear
               symbol="app.mappin"
               label={`Change location — currently ${cityLabel}`}
               onClick={() => setMobileLocationPickerOpen(true)}
-              className="flex-none w-9 h-9 rounded-full flex items-center justify-center text-on-surface/70 active:scale-95 transition-transform"
+              className="flex-none w-11 h-11 rounded-full flex items-center justify-center text-on-surface/70 active:scale-95 transition-transform"
             >
               <MapPin size={17} strokeWidth={2.2} />
             </GlassButton>
@@ -4761,7 +4761,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, sear
                 titleStyle="chip"
                 label="Search this area"
                 onClick={() => { setShowSearchHere(false); setReferenceLocation(null); setSearchLocationBias(null); fetchNearby(); }}
-                className="h-10 px-4 rounded-full flex items-center gap-1.5 text-[13px] font-bold text-on-surface"
+                className="h-11 px-4 rounded-full flex items-center gap-1.5 text-[13px] font-bold text-on-surface"
               >
                 <RotateCw size={13} strokeWidth={2.4} />
                 Search

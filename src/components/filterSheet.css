@@ -102,22 +102,6 @@
    sheet, in the dimmed strip over the page — a native glass control on a
    sheet that can be dragged trails the finger. clip-path rounds the top
    and leaves that strip open; overflow:hidden would clip it away. */
-.fs-sheet.is-phone.has-chrome-above {
-  overflow: visible;
-  clip-path: inset(-72px 0 0 0 round 26px 26px 0 0);
-}
-.fs-chrome-above {
-  position: absolute;
-  left: 14px;
-  right: 14px;
-  top: -56px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  pointer-events: none;
-  z-index: 30;
-}
-.fs-chrome-above > * { pointer-events: auto; }
 .fs-sheet.is-phone .fs-foot {
   padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 14px);
 }
@@ -154,6 +138,14 @@
   min-width: 0;
 }
 .fs-head-text { min-width: 0; }
+/* The actions on the right of the header — Clear all beside the ✕. */
+.fs-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  margin-right: -6px;
+}
 .fs-title {
   font-family: var(--fs-serif);
   font-size: 26px;
@@ -180,8 +172,8 @@
   color: var(--fs-accent);
 }
 .fs-close {
-  width: 34px;
-  height: 34px;
+  width: 44px;
+  height: 44px;
   border-radius: 50%;
   display: grid;
   place-items: center;

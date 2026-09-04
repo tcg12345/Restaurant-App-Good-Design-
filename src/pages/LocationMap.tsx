@@ -38,6 +38,7 @@ import {
 import { haversineDistanceMi, formatDistance } from '../lib/distance';
 import { useMichelinIndexReady } from '../lib/useMichelinMatch';
 import { findMichelinMatchSync, michelinPriceDisplay } from '../lib/michelin';
+import { GlassButton } from '../lib/glass-buttons';
 
 /**
  * Dedicated full-screen map page for the city-explore restaurants
@@ -839,14 +840,9 @@ export const LocationMap: React.FC = () => {
           <>
           <div className="px-5 pt-5 pb-4 border-b border-on-surface/[0.06]">
             <div className="flex items-center gap-3">
-              <button
-                type="button"
-                onClick={() => navigate(-1)}
-                className="flex-shrink-0 w-9 h-9 -ml-1 flex items-center justify-center rounded-full bg-on-surface/[0.05] hover:bg-on-surface/[0.1] text-on-surface/70 hover:text-on-surface transition-colors"
-                aria-label="Back"
-              >
+              <GlassButton id="locmap-back" symbol="arrow.left" label="Back" onClick={() => navigate(-1)} className="hit-44 flex-none w-11 h-11 rounded-full flex items-center justify-center text-on-surface/80 transition-transform active:scale-95 -ml-1">
                 <ArrowLeft size={18} />
-              </button>
+              </GlassButton>
               <div className="min-w-0">
                 <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-primary">Map view</p>
                 <h1 className="font-serif font-semibold text-[22px] leading-tight text-on-surface truncate">
@@ -990,14 +986,9 @@ export const LocationMap: React.FC = () => {
           the arrow, and the Filters trigger pulled up beside them. */}
       <div className="absolute top-0 inset-x-0 z-20 px-3 pt-safe-4 pb-3">
         <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => navigate(-1)}
-            className="flex-shrink-0 w-10 h-10 -ml-1 flex items-center justify-center rounded-full bg-white/95 shadow-sm text-on-surface/70 hover:text-on-surface"
-            aria-label="Back"
-          >
-            <ArrowLeft size={20} />
-          </button>
+          <GlassButton id="locmap-back-compact" symbol="arrow.left" label="Back" onClick={() => navigate(-1)} className="hit-44 flex-none w-11 h-11 rounded-full flex items-center justify-center text-on-surface/80 transition-transform active:scale-95 -ml-1">
+            <ArrowLeft size={18} />
+          </GlassButton>
           {/* Compact location pill — hugs its label (no "Dining in" eyebrow,
               no full-width stretch). Opens the picker via the headless
               HomeLocationBar rendered below. */}

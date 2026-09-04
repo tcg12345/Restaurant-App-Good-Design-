@@ -25,6 +25,7 @@ import {
   type UserProfile, type FriendHomeMeal,
 } from '../lib/supabase-community';
 
+import { GlassButton } from '../lib/glass-buttons';
 const RECENT_SEARCHES_KEY = 'goodeats-recent-searches-v2';
 const MAX_RECENT = 10;
 const DEFAULT_LAT = 40.735;
@@ -1103,14 +1104,9 @@ export const SearchMain: React.FC<{
         className="sticky top-0 w-full bg-surface/80 backdrop-blur-md z-40"
       >
         <div className="px-4 pt-safe-3 pb-3 flex items-center gap-3 md:max-w-2xl md:mx-auto">
-          <button
-            type="button"
-            onClick={() => navigate('/search')}
-            className="w-10 h-10 rounded-full bg-on-surface/[0.05] hover:bg-on-surface/10 flex items-center justify-center text-on-surface/70 transition-colors flex-shrink-0"
-            aria-label="Back"
-          >
-            <ArrowLeft size={20} />
-          </button>
+          <GlassButton id="searchmain-back" symbol="arrow.left" label="Back" onClick={() => navigate('/search')} className="hit-44 flex-none w-11 h-11 rounded-full flex items-center justify-center text-on-surface/80 transition-transform active:scale-95">
+            <ArrowLeft size={18} />
+          </GlassButton>
           <div className="flex-1 min-w-0">
             <SearchField
               glassId="searchmain-field"

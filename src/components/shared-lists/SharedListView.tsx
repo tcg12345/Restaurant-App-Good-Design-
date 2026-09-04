@@ -213,7 +213,7 @@ export const SharedListView: React.FC<{
     <div className={cn(phoneMode ? 'px-4' : '')}>
       {phoneMode && !hidePhoneHeader && (
         <div className="pt-safe-4 flex items-center gap-2.5 mb-3.5">
-          <GlassButton id="shared-list-back" symbol="chevron.left" label="Back" onClick={onBack} className="hit-44 flex-none w-10 h-10 rounded-full flex items-center justify-center text-on-surface active:scale-95 transition-transform">
+          <GlassButton id="shared-list-back" symbol="chevron.left" label="Back" onClick={onBack} className="hit-44 flex-none w-11 h-11 rounded-full flex items-center justify-center text-on-surface active:scale-95 transition-transform">
             <ChevronLeft size={18} strokeWidth={2.1} />
           </GlassButton>
           <div className="flex-1 min-w-0">

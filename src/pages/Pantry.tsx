@@ -1342,7 +1342,7 @@ const ListMoreMenu: React.FC<{
   }, [open]);
   if (items.length === 0) return null;
   const triggerClass = glass
-    ? 'hit-44 w-10 h-10 rounded-full flex items-center justify-center text-on-surface active:scale-95 transition-transform'
+    ? 'hit-44 w-11 h-11 rounded-full flex items-center justify-center text-on-surface active:scale-95 transition-transform'
     : 'w-9 h-9 rounded-full flex items-center justify-center text-on-surface/55 hover:text-on-surface hover:bg-on-surface/[0.06] transition-colors';
   return (
     <div ref={wrapRef} className="relative flex-shrink-0">
@@ -1902,7 +1902,7 @@ const ListDetailView: React.FC<{
             symbol="chevron.left"
             label="Back"
             onClick={onBack}
-            className="hit-44 flex-none w-10 h-10 rounded-full flex items-center justify-center text-on-surface active:scale-95 transition-transform"
+            className="hit-44 flex-none w-11 h-11 rounded-full flex items-center justify-center text-on-surface active:scale-95 transition-transform"
           >
             <ChevronLeft size={18} strokeWidth={2.1} />
           </GlassButton>
@@ -1927,7 +1927,7 @@ const ListDetailView: React.FC<{
               label={isHomeCooking ? 'Add Recipe' : 'Add Rating'}
               onClick={handlePlusClick}
               className={cn(
-                'hit-44 flex-none w-10 h-10 rounded-full text-white flex items-center justify-center active:scale-95 transition-transform',
+                'hit-44 flex-none w-11 h-11 rounded-full text-white flex items-center justify-center active:scale-95 transition-transform',
                 isHomeCooking ? 'bg-emerald-600' : 'bg-primary',
               )}
             >
@@ -4612,7 +4612,7 @@ const HomeCookingTab: React.FC<{
                 symbol="chevron.left"
                 label="Back"
                 onClick={onBack}
-                className="hit-44 flex-none w-9 h-9 -ml-1 rounded-full flex items-center justify-center text-on-surface bg-on-surface/[0.05] active:scale-95 transition-transform"
+                className="hit-44 flex-none w-11 h-11 -ml-1 rounded-full flex items-center justify-center text-on-surface bg-on-surface/[0.05] active:scale-95 transition-transform"
               >
                 <ArrowLeft size={18} />
               </GlassButton>

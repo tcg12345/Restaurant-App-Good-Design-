@@ -1,7 +1,11 @@
 /**
- * /pro — GoodEats Pro at page scale, in glass night: a swipeable card
- * per story at the top, the plans beneath, one page, no sheet. On a Pro
- * account the same page shows the plan's status and where to manage it.
+ * /pro — GoodEats Pro at page scale, in glass night, on ONE screen: a
+ * swipeable story card that takes whatever height the phone has to
+ * spare, the two plans side by side beneath it, the button, the legal
+ * row. Nothing to scroll to; the questions that used to sit below the
+ * fold are answered by the plan cards' own lines ("cancel anytime") and
+ * the App Store. On a Pro account the same page shows the plan's status
+ * and where to manage it.
  *
  * /pro/welcome — where Stripe Checkout sends people back. It asks the
  * server to sync the plan and watches the row for up to ten seconds so the
@@ -26,17 +30,21 @@ import { PRO_STORIES } from '../components/pro/ProStories';
 import { usePurchase } from '../components/pro/usePurchase';
 import { NightPlanCards, NightPurchaseFooter, NightLegal, NightOutcome } from '../components/pro/NightPlan';
 import { NIGHT_BG, NIGHT_INK, NIGHT_INK_SOFT, NIGHT_INK_FAINT, PALE, glass, eyebrow, headline, EASE } from '../components/pro/night';
-
-const FAQ: Array<{ q: string; a: string }> = [
-  { q: 'Can I cancel?', a: 'Any time. On iPhone, from Settings → Manage subscription, which opens the App Store. On the web, from the same place, which opens your billing portal. Pro stays on until the paid period ends.' },
-  { q: 'I bought Pro on the web. Does the app know?', a: 'Yes. Pro is tied to your GoodEats account, not the device, so it’s on wherever you sign in.' },
-  { q: 'What happens to my things if I stop?', a: 'Nothing is deleted or hidden. Allowances apply again going forward; anything you made stays.' },
-  { q: 'Does the free trial charge me?', a: 'Not during the trial. You’re charged when it ends unless you cancel before, and the App Store reminds you.' },
-];
+import { GlassButton } from '../lib/glass-buttons';
 
 const fmtDate = (iso: string | null) => (iso ? new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '');
 
-/** The stories, one glass card each, swiped. Dots follow the scroll. */
+/** The story card never goes below this; on a phone too short for it the
+ *  page scrolls rather than crushing the object inside. */
+const CARD_MIN = 300;
+/** …and never above this, so a tall phone gets air around it instead of
+ *  a card that swallows the screen. */
+const CARD_MAX = 470;
+
+/** The stories, one glass card each, swiped. The card is a single
+ *  object: the screen it stands for sits on the card's own ground, the
+ *  words beneath a hairline — no box inside the box. Dots follow the
+ *  scroll. */
 const StoryCarousel: React.FC = () => {
   const ref = useRef<HTMLDivElement | null>(null);
   const [index, setIndex] = useState(0);
@@ -56,24 +64,28 @@ const StoryCarousel: React.FC = () => {
   }, []);
   const go = (i: number) => { const el = ref.current; if (el) el.scrollTo({ left: i * el.clientWidth, behavior: 'smooth' }); };
   return (
-    <div>
-      <div ref={ref} className="flex overflow-x-auto no-scrollbar snap-x snap-mandatory" style={{ scrollbarWidth: 'none', gap: 0, margin: '0 -22px', padding: '0 22px', scrollPaddingLeft: 22, scrollPaddingRight: 22 }}>
+    <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+      <div
+        ref={ref}
+        className="flex overflow-x-auto no-scrollbar snap-x snap-mandatory"
+        style={{ flex: `1 1 ${CARD_MIN}px`, minHeight: CARD_MIN, maxHeight: CARD_MAX, scrollbarWidth: 'none', gap: 0, margin: '0 -22px', padding: '0 22px', scrollPaddingLeft: 22, scrollPaddingRight: 22 }}
+      >
         {PRO_STORIES.map((s, i) => (
-          <div key={s.id} className="snap-center flex-none" style={{ width: '100%', paddingRight: i === PRO_STORIES.length - 1 ? 0 : 10, boxSizing: 'border-box' }}>
-            <div style={{ ...glass, borderRadius: 24, padding: 16, minHeight: 340, display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
-              <div style={{ ...glass, borderRadius: 18, padding: 12, background: 'rgba(0,0,0,0.18)', boxShadow: 'none' }}>
+          <div key={s.id} className="snap-center flex-none" style={{ width: '100%', paddingRight: i === PRO_STORIES.length - 1 ? 0 : 10, boxSizing: 'border-box', display: 'flex', flexDirection: 'column' }}>
+            <div style={{ ...glass, flex: 1, borderRadius: 26, padding: '20px 18px 18px', display: 'flex', flexDirection: 'column' }}>
+              <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
                 {index === i ? <s.Visual key={`${s.id}-${index}`} /> : <s.Visual />}
               </div>
-              <div style={{ marginTop: 16 }}>
+              <div style={{ marginTop: 14, paddingTop: 14, borderTop: '1px solid rgba(255,255,255,0.09)' }}>
                 <span style={eyebrow}>{s.eyebrow}</span>
-                <h2 style={{ ...headline, fontSize: '26px', margin: '10px 0 6px' }}>{s.line1}<br /><em style={{ fontStyle: 'italic' }}>{s.line2}</em></h2>
-                <p style={{ fontSize: '13px', lineHeight: 1.45, color: NIGHT_INK_SOFT, margin: 0 }}>{s.sub}</p>
+                <h2 style={{ ...headline, fontSize: '25px', margin: '9px 0 5px' }}>{s.line1} <em style={{ fontStyle: 'italic' }}>{s.line2}</em></h2>
+                <p style={{ fontSize: '12.5px', lineHeight: 1.45, color: NIGHT_INK_SOFT, margin: 0 }}>{s.sub}</p>
               </div>
             </div>
           </div>
         ))}
       </div>
-      <div className="flex justify-center gap-[5px]" style={{ marginTop: 12 }} role="tablist" aria-label="Stories">
+      <div className="flex justify-center gap-[5px]" style={{ marginTop: 8, flex: 'none' }} role="tablist" aria-label="Stories">
         {PRO_STORIES.map((s, i) => (
           <button key={s.id} type="button" role="tab" aria-selected={index === i} aria-label={s.eyebrow} onClick={() => go(i)} className="hit-44-y" style={{ padding: 4 }}>
             <motion.i className="block rounded-full" style={{ height: 6, background: NIGHT_INK }} animate={{ width: index === i ? 18 : 6, opacity: index === i ? 1 : 0.3 }} transition={{ duration: 0.3, ease: EASE }} />
@@ -134,11 +146,24 @@ export const ProPage: React.FC = () => {
     else { const t = setTimeout(() => setWelcomeState((s) => (s === 'waiting' ? 'timeout' : s)), 11000); return () => clearTimeout(t); }
   }, [welcome, plan.subscribed]);
 
+  // The screen is a column the exact height of the viewport. The story
+  // card is the one flexible row; everything else takes what it needs.
+  // Only a phone shorter than the card's floor ever scrolls.
   const Shell: React.FC<{ children: React.ReactNode }> = ({ children }) => (
-    <div className="min-h-screen" style={{ background: NIGHT_BG, color: NIGHT_INK }}>
-      <div className="mx-auto w-full" style={{ maxWidth: phoneMode ? 430 : 560, padding: phoneMode ? '0 22px' : '0 24px', paddingTop: 'max(54px, calc(env(safe-area-inset-top) + 16px))', paddingBottom: 'max(40px, calc(env(safe-area-inset-bottom) + 28px))' }}>
-        <div className="flex items-center gap-3" style={{ marginBottom: 18 }}>
-          <button type="button" onClick={() => navigate(-1)} aria-label="Back" className="hit-44 w-9 h-9 rounded-full grid place-items-center active:scale-95 transition-transform" style={{ background: 'rgba(255,255,255,0.1)', color: NIGHT_INK }}><ChevronLeft size={17} /></button>
+    <div style={{ background: NIGHT_BG, color: NIGHT_INK, height: '100dvh', overflowY: 'auto', overscrollBehavior: 'contain' }}>
+      <div
+        className="mx-auto w-full"
+        style={{
+          maxWidth: phoneMode ? 430 : 560,
+          minHeight: '100%',
+          display: 'flex', flexDirection: 'column',
+          padding: phoneMode ? '0 22px' : '0 24px',
+          paddingTop: 'max(54px, calc(env(safe-area-inset-top) + 16px))',
+          paddingBottom: 'max(22px, calc(env(safe-area-inset-bottom) + 10px))',
+        }}
+      >
+        <div className="flex items-center gap-3" style={{ marginBottom: 14, flex: 'none' }}>
+          <GlassButton id="pro-back" symbol="chevron.left" label="Back" tint="white" onClick={() => navigate(-1)} className="hit-44 flex-none w-11 h-11 rounded-full grid place-items-center active:scale-95 transition-transform" style={{ background: 'rgba(255,255,255,0.1)', color: NIGHT_INK }}><ChevronLeft size={18} /></GlassButton>
           <span style={eyebrow}>GoodEats Pro</span>
         </div>
         {children}
@@ -149,7 +174,7 @@ export const ProPage: React.FC = () => {
   if (welcome) {
     return (
       <Shell>
-        <div className="py-16 flex flex-col items-center text-center">
+        <div className="flex-1 flex flex-col items-center justify-center text-center" style={{ paddingBottom: 60 }}>
           {welcomeState === 'done' ? (
             <>
               <span style={{ width: 64, height: 64, borderRadius: 999, background: 'rgba(174,187,211,0.16)', color: PALE, display: 'grid', placeItems: 'center' }}><Check size={28} /></span>
@@ -181,7 +206,7 @@ export const ProPage: React.FC = () => {
     <Shell>
       <StoryCarousel />
 
-      <section style={{ marginTop: 28 }}>
+      <section style={{ marginTop: 16, flex: 'none' }}>
         {subscribed ? (
           <div style={{ ...glass, borderRadius: 22, padding: '18px 18px' }}>
             <span style={eyebrow}>Your plan</span>
@@ -203,35 +228,23 @@ export const ProPage: React.FC = () => {
           <NightOutcome phase={p.phase as 'success' | 'web-sent'} onDone={p.reset} />
         ) : (
           <>
-            <span style={eyebrow}>Plans</span>
-            <h1 style={{ ...headline, fontSize: '28px', margin: '10px 0 6px' }}>One plan.<br /><em style={{ fontStyle: 'italic' }}>Two ways to pay.</em></h1>
-            <p style={{ fontSize: '13.5px', lineHeight: 1.45, color: NIGHT_INK_SOFT, margin: '0 0 18px' }}>Everything free stays free. Pro is optional, and you can leave it any time.</p>
             {p.loadingOffers ? (
-              <p style={{ fontSize: '13px', color: NIGHT_INK_SOFT }}>Loading plans…</p>
+              // Two blanks the size of the cards, so the button doesn't
+              // jump when the store answers.
+              <div aria-busy style={{ display: 'flex', gap: 8 }}>
+                {[0, 1].map((i) => <div key={i} style={{ ...glass, flex: 1, height: 104, borderRadius: 18, opacity: 0.5 }} />)}
+              </div>
             ) : p.offers.length === 0 ? (
               <p style={{ ...glass, borderRadius: 16, padding: '12px 14px', fontSize: '13px', color: NIGHT_INK_SOFT, lineHeight: 1.45 }}>Purchases aren't set up in this build yet. Everything stays free until they are.</p>
             ) : (
               <>
-                <NightPlanCards offers={p.offers} value={p.offer?.key ?? p.selected} onChange={p.pick} disabled={p.busy} />
-                <div style={{ marginTop: 16 }}><NightPurchaseFooter p={p} /></div>
+                <NightPlanCards layout="row" offers={p.offers} value={p.offer?.key ?? p.selected} onChange={p.pick} disabled={p.busy} />
+                <div style={{ marginTop: 12 }}><NightPurchaseFooter p={p} /></div>
               </>
             )}
-            <div style={{ marginTop: 12 }}><NightLegal p={p} /></div>
+            <div style={{ marginTop: 10 }}><NightLegal p={p} /></div>
           </>
         )}
-      </section>
-
-      <section style={{ marginTop: 36 }}>
-        <span style={eyebrow}>Questions</span>
-        <dl style={{ marginTop: 10 }}>
-          {FAQ.map((f) => (
-            <div key={f.q} style={{ padding: '12px 0', borderTop: '1px solid rgba(255,255,255,0.1)' }}>
-              <dt style={{ fontSize: '14px', fontWeight: 700, color: NIGHT_INK }}>{f.q}</dt>
-              <dd style={{ margin: '4px 0 0', fontSize: '13px', lineHeight: 1.5, color: NIGHT_INK_SOFT }}>{f.a}</dd>
-            </div>
-          ))}
-        </dl>
-        <p style={{ marginTop: 14, fontSize: '12px', color: NIGHT_INK_FAINT }}>One plan, every device.</p>
       </section>
     </Shell>
   );

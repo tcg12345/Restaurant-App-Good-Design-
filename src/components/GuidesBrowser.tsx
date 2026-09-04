@@ -5,6 +5,7 @@ import { ArrowLeft, Bookmark, BookOpen, Clock, Search, X } from 'lucide-react';
 import { useSettings } from '../contexts/SettingsContext';
 import { cn } from '../lib/utils';
 import { avatarHue } from '../lib/avatar';
+import { GlassButton } from '../lib/glass-buttons';
 
 /* ── Browse-all guides popup ─────────────────────────────────────────────────
    Opened from the "Browse all" affordance on the Discover and Location
@@ -349,14 +350,9 @@ export const GuidesBrowser: React.FC<GuidesBrowserProps> = ({ open, onClose, cit
             className="fixed inset-0 z-50 bg-surface flex flex-col"
           >
             <div className="pt-safe-4 pl-2 pr-4 pb-2 flex items-center gap-1 flex-shrink-0">
-              <button
-                type="button"
-                onClick={onClose}
-                className="w-10 h-10 grid place-items-center rounded-full text-on-surface/70 hover:bg-on-surface/[0.05] transition-colors flex-shrink-0"
-                aria-label="Back"
-              >
-                <ArrowLeft size={22} />
-              </button>
+              <GlassButton id="guides-back" symbol="arrow.left" label="Back" onClick={onClose} className="hit-44 flex-none w-11 h-11 rounded-full flex items-center justify-center text-on-surface/80 transition-transform active:scale-95">
+                <ArrowLeft size={18} />
+              </GlassButton>
               <h3 className="flex-1 min-w-0 font-serif font-semibold text-[19px] tracking-[-0.015em] text-on-surface truncate">
                 {title}
               </h3>
