@@ -1,19 +1,23 @@
 /**
- * The four Pro stories — one glass object each, animating in.
+ * The Pro stories — one glass object each, animating in.
  *
  * Shared by the onboarding intro (one story per page) and the Pro page
- * (one story per card in the carousel). Each object is a small piece of
- * the real feature: the assistant's reply, a recipe with its numbers, a
- * taste match, a group pick. Real copy, real shapes, no lorem.
+ * (one story per card in the carousel). Each object is a faithful piece
+ * of the real screen it stands for — the recipe page's nutrition panel,
+ * the profile's taste card, the restaurant page's score history, the
+ * Find-a-place sheet — with real copy and the real anatomy, so nothing
+ * here promises a screen the app doesn't have. The assistant is a Pro
+ * benefit too, but it isn't headlined: it lives as a line on the plan.
  */
 import React from 'react';
 import { motion, useReducedMotion } from 'motion/react';
-import { Sparkles } from 'lucide-react';
+import { ChevronRight, Sparkles, Users, MapPin } from 'lucide-react';
 import type { BenefitKey } from '../../lib/entitlements';
-import { EASE, NIGHT_INK, NIGHT_INK_SOFT, PALE, ON_PALE, GOLD } from './night';
+import { EASE, NIGHT_INK, NIGHT_INK_SOFT, NIGHT_INK_FAINT, PALE, ON_PALE, GOLD } from './night';
 
 export interface ProStory {
-  key: BenefitKey;
+  id: string;
+  benefit: BenefitKey;
   eyebrow: string;
   /** The first line, upright. */
   line1: string;
@@ -32,145 +36,184 @@ const Piece: React.FC<{ i: number; delay?: number; className?: string; style?: R
       style={style}
       initial={reduce ? false : { opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.5, delay: delay + 0.12 + i * 0.16, ease: EASE }}
+      transition={{ duration: 0.5, delay: delay + 0.12 + i * 0.14, ease: EASE }}
     >
       {children}
     </motion.div>
   );
 };
 
-const Label: React.FC<{ children: React.ReactNode }> = ({ children }) => (
-  <div style={{ fontSize: '10px', letterSpacing: '0.14em', textTransform: 'uppercase', color: PALE, fontWeight: 700 }}>{children}</div>
-);
-
-const Bubble: React.FC<{ me?: boolean; children: React.ReactNode }> = ({ me, children }) => (
-  <div
-    style={{
-      borderRadius: 16, padding: '9px 12px', fontSize: '12.5px', lineHeight: 1.35, maxWidth: '86%',
-      background: me ? PALE : 'rgba(255,255,255,0.1)', color: me ? ON_PALE : NIGHT_INK,
-      marginLeft: me ? 'auto' : 0, fontWeight: me ? 600 : 500,
-    }}
-  >
-    {children}
+/** The app's section eyebrow, as the real pages set it. */
+const Eyebrow: React.FC<{ children: React.ReactNode; right?: React.ReactNode }> = ({ children, right }) => (
+  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+    <span style={{ fontSize: '10.5px', letterSpacing: '0.16em', textTransform: 'uppercase', color: PALE, fontWeight: 700 }}>{children}</span>
+    {right && <span style={{ fontSize: '11.5px', fontWeight: 600, color: NIGHT_INK_FAINT, fontVariantNumeric: 'tabular-nums' }}>{right}</span>}
   </div>
 );
 
-const Typing: React.FC = () => {
-  const reduce = useReducedMotion();
-  return (
-    <div style={{ display: 'inline-flex', gap: 4, padding: '9px 12px', borderRadius: 16, background: 'rgba(255,255,255,0.1)' }} aria-hidden>
-      {[0, 1, 2].map((i) => (
-        <motion.span
-          key={i}
-          style={{ width: 5, height: 5, borderRadius: 999, background: NIGHT_INK, display: 'block' }}
-          animate={reduce ? { opacity: 0.6 } : { opacity: [0.3, 1, 0.3] }}
-          transition={{ duration: 1.2, repeat: Infinity, delay: i * 0.2 }}
-        />
-      ))}
-    </div>
-  );
-};
-
-const AssistantVisual: React.FC<{ delay?: number }> = ({ delay }) => (
-  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-    <Piece i={0} delay={delay}><Label>Ask a local</Label></Piece>
-    <Piece i={1} delay={delay}><Bubble me>Quiet, walkable, four of us, tonight?</Bubble></Piece>
-    <Piece i={2} delay={delay}><Bubble>Kawa Ni at 8:15. You gave it a 7.8, and Jen was there last month. Want me to hold it?</Bubble></Piece>
-    <Piece i={3} delay={delay}><Typing /></Piece>
-  </div>
+const Serif: React.FC<{ size?: number; children: React.ReactNode }> = ({ size = 17, children }) => (
+  <span style={{ display: 'block', fontFamily: 'var(--font-serif)', fontSize: size, fontWeight: 700, lineHeight: 1.2, letterSpacing: '-0.02em', color: NIGHT_INK }}>{children}</span>
 );
 
-const Shimmer: React.FC = () => {
-  const reduce = useReducedMotion();
-  return (
-    <div style={{ position: 'relative', height: 96, borderRadius: 14, overflow: 'hidden', background: 'linear-gradient(135deg, #8a6f57 0%, #4b3a30 55%, #2a211d 100%)' }}>
-      {!reduce && (
-        <motion.div
-          style={{ position: 'absolute', inset: 0, background: 'linear-gradient(100deg, transparent 30%, rgba(255,255,255,0.22) 50%, transparent 70%)' }}
-          initial={{ x: '-100%' }} animate={{ x: '100%' }} transition={{ duration: 1.4, delay: 0.6, ease: 'easeInOut' }}
-        />
-      )}
-      <span style={{ position: 'absolute', left: 10, bottom: 8, display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: '10px', fontWeight: 700, color: '#f5f4f0', background: 'rgba(0,0,0,0.35)', padding: '4px 8px', borderRadius: 999 }}>
-        <Sparkles size={10} /> Pictured by AI
-      </span>
-    </div>
-  );
-};
+const Chip: React.FC<{ children: React.ReactNode }> = ({ children }) => (
+  <span style={{ display: 'inline-block', padding: '5px 10px', borderRadius: 999, background: 'rgba(174,187,211,0.12)', color: PALE, fontSize: '11.5px', fontWeight: 600 }}>{children}</span>
+);
 
-const RecipeVisual: React.FC<{ delay?: number }> = ({ delay }) => (
+/* ── Recipes: the nutrition panel, as the recipe page draws it ─────── */
+const RecipesVisual: React.FC<{ delay?: number }> = ({ delay }) => (
   <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-    <Piece i={0} delay={delay}><Shimmer /></Piece>
-    <Piece i={1} delay={delay}>
-      <div style={{ fontFamily: 'var(--font-serif)', fontSize: '16px', fontWeight: 700, color: NIGHT_INK, letterSpacing: '-0.01em' }}>Miso-butter salmon</div>
-      <div style={{ fontSize: '11.5px', color: NIGHT_INK_SOFT, marginTop: 2 }}>Serves 4 · 35 min · no weekly cap</div>
+    <Piece i={0} delay={delay}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+        <span style={{ width: 44, height: 44, borderRadius: 12, flex: 'none', background: 'linear-gradient(135deg, #8a6f57 0%, #4b3a30 60%, #2a211d 100%)', display: 'grid', placeItems: 'center', color: '#f5f4f0' }}><Sparkles size={14} /></span>
+        <span style={{ minWidth: 0 }}>
+          <Serif size={16}>Miso-butter salmon</Serif>
+          <span style={{ display: 'block', fontSize: '11.5px', color: NIGHT_INK_SOFT, marginTop: 2 }}>Serves 4 · 35 min · pictured by AI</span>
+        </span>
+      </div>
     </Piece>
-    <Piece i={2} delay={delay}>
-      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-        {[['420', 'kcal'], ['18g', 'protein'], ['52g', 'carbs'], ['14g', 'fat']].map(([n, l]) => (
-          <span key={l} style={{ fontSize: '11.5px', fontWeight: 700, color: NIGHT_INK, background: 'rgba(255,255,255,0.08)', padding: '5px 9px', borderRadius: 999, fontVariantNumeric: 'tabular-nums' }}>
-            {n} <span style={{ fontWeight: 500, color: NIGHT_INK_SOFT }}>{l}</span>
+    <Piece i={1} delay={delay}>
+      <div style={{ borderRadius: 14, padding: '12px 14px', background: 'rgba(0,0,0,0.22)', border: '1px solid rgba(255,255,255,0.08)' }}>
+        <Eyebrow>Nutrition</Eyebrow>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 18, marginTop: 10 }}>
+          <span style={{ display: 'flex', alignItems: 'baseline', gap: 4, flex: 'none' }}>
+            <span style={{ fontFamily: 'var(--font-serif)', fontSize: 34, fontWeight: 600, letterSpacing: '-0.03em', lineHeight: 1, color: NIGHT_INK, fontVariantNumeric: 'tabular-nums' }}>420</span>
+            <span style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: NIGHT_INK_FAINT }}>kcal</span>
           </span>
-        ))}
+          <span style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 10, flex: 1 }}>
+            {[['18', 'Protein'], ['52', 'Carbs'], ['14', 'Fat']].map(([n, l]) => (
+              <span key={l} style={{ paddingLeft: 10, borderLeft: '1px solid rgba(255,255,255,0.12)' }}>
+                <span style={{ display: 'block', fontSize: '16px', fontWeight: 700, letterSpacing: '-0.02em', color: NIGHT_INK }}>{n}<em style={{ fontStyle: 'normal', fontSize: '10px', fontWeight: 600, color: NIGHT_INK_FAINT, marginLeft: 1 }}>g</em></span>
+                <span style={{ display: 'block', fontSize: '9.5px', fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: NIGHT_INK_FAINT, marginTop: 2 }}>{l}</span>
+              </span>
+            ))}
+          </span>
+        </div>
+        <div style={{ marginTop: 10, fontSize: '11px', color: NIGHT_INK_FAINT }}>Estimated by AI, per serving</div>
       </div>
     </Piece>
   </div>
 );
 
-const Avatars: React.FC<{ colors: string[]; size?: number; extra?: string }> = ({ colors, size = 30, extra }) => (
-  <div style={{ display: 'flex' }}>
+/* ── Taste: the profile's taste card, as the profile draws it ──────── */
+const TasteVisual: React.FC<{ delay?: number }> = ({ delay }) => {
+  const reduce = useReducedMotion();
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+      <Piece i={0} delay={delay}><Eyebrow right="#14 of 326">Taste profile</Eyebrow></Piece>
+      <Piece i={1} delay={delay}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <span style={{ width: 44, height: 44, borderRadius: 999, flex: 'none', background: 'rgba(174,187,211,0.14)', border: '1px solid rgba(174,187,211,0.35)', display: 'grid', placeItems: 'center', color: PALE, fontFamily: 'var(--font-serif)', fontWeight: 700, fontSize: 18 }}>ψ</span>
+          <span style={{ minWidth: 0, flex: 1 }}>
+            <Serif size={18}>The Fine-Dining Explorer</Serif>
+            <span style={{ display: 'block', fontSize: '12px', color: NIGHT_INK_FAINT, marginTop: 3, fontWeight: 600 }}>Critic · 431 pts</span>
+          </span>
+          <ChevronRight size={16} style={{ color: NIGHT_INK_FAINT, flex: 'none' }} />
+        </div>
+      </Piece>
+      <Piece i={2} delay={delay}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <span style={{ flex: 1, height: 4, borderRadius: 999, background: 'rgba(255,255,255,0.1)', overflow: 'hidden', display: 'block' }}>
+            <motion.span style={{ display: 'block', height: '100%', borderRadius: 999, background: PALE }} initial={reduce ? false : { width: '4%' }} animate={{ width: '66%' }} transition={{ duration: 1.1, delay: (delay ?? 0) + 0.5, ease: EASE }} />
+          </span>
+          <span style={{ fontSize: '11px', fontWeight: 600, color: NIGHT_INK_FAINT, whiteSpace: 'nowrap' }}>219 pts to Legend</span>
+        </div>
+      </Piece>
+      <Piece i={3} delay={delay}>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+          <Chip>Stricter than 72% of raters</Chip>
+          <Chip>Taste twin · Jen, 92%</Chip>
+          <Chip>Broader than 61%</Chip>
+        </div>
+      </Piece>
+    </div>
+  );
+};
+
+/* ── Score history: the restaurant page's section ──────────────────── */
+const HistoryVisual: React.FC<{ delay?: number }> = ({ delay }) => {
+  const reduce = useReducedMotion();
+  // Four visits, scores 7.6 → 8.2, on a 0..1 y in a 100×40 box.
+  const pts: Array<[number, number, string, string, boolean]> = [[6, 32, 'Jun 21', '7.6', false], [36, 24, 'Nov 2', '7.9', false], [66, 27, 'Jan 9', '7.8', false], [94, 8, 'Mar 14', '8.2', true]];
+  const path = pts.map((p, i) => `${i === 0 ? 'M' : 'L'}${p[0]},${p[1]}`).join(' ');
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+      <Piece i={0} delay={delay}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+          <Serif size={17}>Score history</Serif>
+          <span style={{ fontSize: '12px', fontWeight: 600, color: NIGHT_INK_FAINT }}>4 visits</span>
+        </div>
+        <div style={{ fontSize: '12.5px', color: NIGHT_INK_SOFT, marginTop: 2 }}>Up 0.6 since your first visit</div>
+      </Piece>
+      <Piece i={1} delay={delay}>
+        <svg viewBox="0 0 100 40" width="100%" height="64" preserveAspectRatio="none" aria-hidden style={{ display: 'block', overflow: 'visible' }}>
+          <motion.path d={path} fill="none" stroke={PALE} strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" initial={reduce ? false : { pathLength: 0 }} animate={{ pathLength: 1 }} transition={{ duration: 1.2, delay: (delay ?? 0) + 0.5, ease: EASE }} />
+          {pts.map((p, i) => (
+            <motion.circle key={i} cx={p[0]} cy={p[1]} r={p[4] ? 2.6 : 2} fill={p[4] ? PALE : '#1b1c20'} stroke={PALE} strokeWidth={1.4} vectorEffect="non-scaling-stroke" initial={reduce ? false : { opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.3, delay: (delay ?? 0) + 0.5 + i * 0.28 }} />
+          ))}
+        </svg>
+      </Piece>
+      <Piece i={2} delay={delay}>
+        <div>
+          {[...pts].reverse().slice(0, 3).map((p, i) => (
+            <div key={p[2]} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '7px 0', borderTop: i === 0 ? 'none' : '1px solid rgba(255,255,255,0.08)' }}>
+              <span style={{ width: 34, fontSize: '10px', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: NIGHT_INK_FAINT }}>{p[2].split(' ')[0]}<br /><span style={{ fontSize: '13px', color: NIGHT_INK, letterSpacing: 0 }}>{p[2].split(' ')[1]}</span></span>
+              <span style={{ flex: 1, fontSize: '12.5px', color: NIGHT_INK_SOFT }}>{p[4] ? 'Sat at the counter this time' : i === 1 ? 'Tasting menu, quieter room' : 'First visit, with Jen'}</span>
+              <span style={{ fontSize: '12.5px', fontWeight: 800, padding: '4px 9px', borderRadius: 999, background: 'rgba(111,196,155,0.16)', color: '#6fc49b', fontVariantNumeric: 'tabular-nums' }}>{p[3]}</span>
+            </div>
+          ))}
+        </div>
+      </Piece>
+    </div>
+  );
+};
+
+/* ── Together: the Find-a-place sheet's rows and its answer ────────── */
+const Avatars: React.FC<{ colors: string[]; size?: number }> = ({ colors, size = 26 }) => (
+  <span style={{ display: 'flex' }}>
     {colors.map((c, i) => (
       <span key={i} style={{ width: size, height: size, borderRadius: 999, background: c, border: '2px solid #1b1c20', marginLeft: i === 0 ? 0 : -Math.round(size / 3) }} />
     ))}
-    {extra && (
-      <span style={{ width: size, height: size, borderRadius: 999, background: PALE, color: ON_PALE, border: '2px solid #1b1c20', marginLeft: -Math.round(size / 3), display: 'grid', placeItems: 'center', fontSize: Math.round(size * 0.36), fontWeight: 800 }}>{extra}</span>
-    )}
-  </div>
+  </span>
 );
 
-const Bars: React.FC<{ delay?: number; height?: number }> = ({ delay = 0, height = 64 }) => {
-  const reduce = useReducedMotion();
-  const bars = [[0.4, '#4b5670'], [0.7, '#6a7a9c'], [1, PALE], [0.55, '#6a7a9c'], [0.8, '#8ea0c2'], [0.35, '#4b5670']] as const;
-  return (
-    <div style={{ display: 'flex', alignItems: 'flex-end', gap: 6, height }} aria-hidden>
-      {bars.map(([h, c], i) => (
-        <motion.i
-          key={i}
-          style={{ flex: 1, height: `${h * 100}%`, borderRadius: '4px 4px 2px 2px', background: c, display: 'block', transformOrigin: 'bottom' }}
-          initial={reduce ? false : { scaleY: 0.08 }}
-          animate={{ scaleY: 1 }}
-          transition={{ duration: 0.9, delay: delay + 0.5 + i * 0.06, ease: EASE }}
-        />
-      ))}
-    </div>
-  );
-};
-
-const TasteVisual: React.FC<{ delay?: number }> = ({ delay }) => (
-  <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-    <Piece i={0} delay={delay}><Label>Taste twins</Label></Piece>
-    <Piece i={1} delay={delay}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-        <Avatars colors={['#7f93b8', GOLD, '#6fa08a']} />
-        <span style={{ fontSize: '12.5px', fontWeight: 700, color: NIGHT_INK }}>92% match · Jen</span>
-      </div>
-    </Piece>
-    <Piece i={2} delay={delay}><Bars delay={delay} /></Piece>
-    <Piece i={3} delay={delay}><div style={{ fontSize: '11.5px', color: NIGHT_INK_SOFT }}>Stricter than 72% of raters. Broader than 61%.</div></Piece>
+const Row: React.FC<{ icon: React.ReactNode; title: string; sub: React.ReactNode; last?: boolean }> = ({ icon, title, sub, last }) => (
+  <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 12px', borderBottom: last ? 'none' : '1px solid rgba(255,255,255,0.08)' }}>
+    <span style={{ width: 36, height: 36, borderRadius: 12, flex: 'none', background: 'rgba(255,255,255,0.08)', display: 'grid', placeItems: 'center', color: NIGHT_INK_SOFT }}>{icon}</span>
+    <span style={{ minWidth: 0, flex: 1 }}>
+      <span style={{ display: 'block', fontSize: '13.5px', fontWeight: 700, color: NIGHT_INK }}>{title}</span>
+      <span style={{ display: 'block', fontSize: '12px', color: NIGHT_INK_FAINT, marginTop: 2 }}>{sub}</span>
+    </span>
+    <ChevronRight size={15} style={{ color: NIGHT_INK_FAINT, flex: 'none' }} />
   </div>
 );
 
 const TogetherVisual: React.FC<{ delay?: number }> = ({ delay }) => (
   <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-    <Piece i={0} delay={delay}><Avatars colors={['#7f93b8', GOLD, '#6fa08a', '#b07a6a']} size={34} extra="+1" /></Piece>
-    <Piece i={1} delay={delay}><Bubble>"quiet, date-night, great cocktails, walkable"</Bubble></Piece>
-    <Piece i={2} delay={delay}><Bubble me>For all five of you: Kawa Ni · 8.1</Bubble></Piece>
-    <Piece i={3} delay={delay}><div style={{ fontSize: '11.5px', color: NIGHT_INK_SOFT }}>Shared list · Friday dinner club · rated as a group</div></Piece>
+    <Piece i={0} delay={delay}>
+      <div style={{ borderRadius: 16, overflow: 'hidden', background: 'rgba(0,0,0,0.2)', border: '1px solid rgba(255,255,255,0.08)' }}>
+        <Row icon={<Users size={16} />} title="Who's eating" sub={<span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>You + 4 <Avatars colors={['#7f93b8', GOLD, '#6fa08a', '#b07a6a']} size={18} /></span>} />
+        <Row icon={<MapPin size={16} />} title="Where" sub="West Village · walking distance" last />
+      </div>
+    </Piece>
+    <Piece i={1} delay={delay}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 12px', borderRadius: 14, background: 'rgba(174,187,211,0.1)', border: '1px solid rgba(174,187,211,0.3)' }}>
+        <span style={{ width: 40, height: 40, borderRadius: 999, flex: 'none', display: 'grid', placeItems: 'center', background: 'rgba(111,196,155,0.16)', color: '#6fc49b', fontWeight: 800, fontSize: 13, fontVariantNumeric: 'tabular-nums' }}>8.1</span>
+        <span style={{ minWidth: 0, flex: 1 }}>
+          <span style={{ display: 'block', fontSize: '10.5px', letterSpacing: '0.14em', textTransform: 'uppercase', color: PALE, fontWeight: 700 }}>For all five of you</span>
+          <Serif size={15}>Kawa Ni</Serif>
+          <span style={{ display: 'block', fontSize: '11.5px', color: NIGHT_INK_FAINT, marginTop: 1 }}>Japanese · $$$ · everyone's above their bar</span>
+        </span>
+      </div>
+    </Piece>
+    <Piece i={2} delay={delay}>
+      <div style={{ fontSize: '11.5px', color: NIGHT_INK_FAINT }}>Shared list · Friday dinner club · rated as a group</div>
+    </Piece>
   </div>
 );
 
 export const PRO_STORIES: ProStory[] = [
-  { key: 'assistant', eyebrow: 'Assistant', line1: 'The assistant,', line2: 'unhurried.', sub: 'On Opus, with your ratings in mind. 120 messages an hour instead of 10.', Visual: AssistantVisual },
-  { key: 'recipes', eyebrow: 'Recipes', line1: 'Every recipe,', line2: 'pictured.', sub: 'No weekly cap on AI recipes, a photo for every dish, calories and macros on all of them.', Visual: RecipeVisual },
-  { key: 'taste', eyebrow: 'Taste', line1: 'People who eat', line2: 'like you.', sub: 'Your full taste profile: trends, comparisons, and the people whose palate overlaps yours.', Visual: TasteVisual },
-  { key: 'together', eyebrow: 'Together', line1: 'Five palates,', line2: 'one table.', sub: 'Group picks for up to five, shared lists, and search by mood.', Visual: TogetherVisual },
+  { id: 'recipes', benefit: 'recipes', eyebrow: 'Recipes', line1: 'Every recipe,', line2: 'with its numbers.', sub: 'No weekly cap on AI recipes, a photo for every dish, and calories and macros on all of them.', Visual: RecipesVisual },
+  { id: 'taste', benefit: 'taste', eyebrow: 'Taste profile', line1: 'Your taste,', line2: 'in full.', sub: 'Trends, comparisons against everyone else, and the people whose palate overlaps yours.', Visual: TasteVisual },
+  { id: 'history', benefit: 'taste', eyebrow: 'Score history', line1: 'Every visit,', line2: 'charted.', sub: 'How your score for a place moved over time, with every visit beneath it.', Visual: HistoryVisual },
+  { id: 'together', benefit: 'together', eyebrow: 'Plan together', line1: 'Five palates,', line2: 'one table.', sub: 'Group picks for up to five, shared lists, and search by mood.', Visual: TogetherVisual },
 ];
