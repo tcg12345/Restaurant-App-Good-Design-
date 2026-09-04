@@ -7,6 +7,7 @@ import { motion } from 'motion/react';
 import { Check, Loader2 } from 'lucide-react';
 import { openExternalUrl, TERMS_URL, PRIVACY_URL } from '../../lib/external-links';
 import { ctaFor, finePrintFor, type PlanKey, type PlanOffer } from '../../lib/entitlements';
+import { AppleGlyph } from '../onboarding/OnboardingKit';
 import type { usePurchase } from './usePurchase';
 import { glass, NIGHT_INK, NIGHT_INK_SOFT, NIGHT_INK_FAINT, PALE, ON_PALE, EASE } from './night';
 
@@ -110,10 +111,12 @@ export const NightPurchaseFooter: React.FC<{ p: Purchase; ctaLabel?: string }> =
       style={{ height: 52, background: PALE, color: ON_PALE, fontSize: '15px', fontWeight: 800, boxShadow: '0 12px 28px -12px rgba(174,187,211,0.6)' }}
     >
       {p.busy ? <Loader2 size={17} className="animate-spin" /> : (
-        // No Apple logo here: it belongs to Sign in with Apple and Apple
-        // Pay, not to a subscribe button. The App Store sheet that follows
-        // is Apple's own.
-        <span>{p.phase === 'error' ? 'Try again' : (ctaLabel ?? (p.offer ? ctaFor(p.offer) : 'Continue'))}</span>
+        <>
+          {/* Apple's own mark, from the system font — the purchase goes
+              through the App Store, and the owner wants that said. */}
+          {p.native && <AppleGlyph color={ON_PALE} size={16} />}
+          <span>{p.phase === 'error' ? 'Try again' : (ctaLabel ?? (p.offer ? ctaFor(p.offer) : 'Continue'))}</span>
+        </>
       )}
     </motion.button>
     {p.phase === 'error' && (

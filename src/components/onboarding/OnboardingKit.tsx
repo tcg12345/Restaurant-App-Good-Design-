@@ -468,10 +468,10 @@ export const RadioCard: React.FC<{
  *  in every system font on iOS and macOS. Elsewhere that code point is
  *  private-use and draws nothing, so the traced path stands in. */
 const HAS_APPLE_MARK = typeof navigator !== 'undefined' && /iPhone|iPad|iPod|Macintosh/.test(navigator.userAgent);
-export const AppleGlyph: React.FC = () => HAS_APPLE_MARK ? (
-  <span aria-hidden style={{ fontFamily: '-apple-system, system-ui', fontSize: 17, lineHeight: 1, color: INK, display: 'inline-block', transform: 'translateY(-1px)' }}>{'\uF8FF'}</span>
+export const AppleGlyph: React.FC<{ color?: string; size?: number }> = ({ color = INK, size = 17 }) => HAS_APPLE_MARK ? (
+  <span aria-hidden style={{ fontFamily: '-apple-system, system-ui', fontSize: size, lineHeight: 1, color, display: 'inline-block', transform: 'translateY(-1px)' }}>{'\uF8FF'}</span>
 ) : (
-  <svg width="17" height="17" viewBox="0 0 16 16" fill={INK}><path d="M11 0c.1.9-.27 1.78-.84 2.42-.6.66-1.55 1.17-2.48 1.1-.12-.86.3-1.78.83-2.34C9.16.5 10.15.04 11 0zm2.78 11.6c.45.66.66.96 1.22 1.7-.62 1.18-1.5 2.65-2.6 2.66-.98.01-1.3-.64-2.42-.64-1.12 0-1.47.62-2.4.65-1.06.04-1.86-1.27-2.49-2.45-1.32-2.5-2.33-7.07-.97-9.16.67-1.04 1.87-1.7 3.16-1.72 1.01-.02 1.96.68 2.42.68.46 0 1.62-.84 2.73-.72.46.02 1.77.19 2.6 1.42-2.27 1.48-1.9 4.72.75 5.59z" /></svg>
+  <svg width={size} height={size} viewBox="0 0 16 16" fill={color}><path d="M11 0c.1.9-.27 1.78-.84 2.42-.6.66-1.55 1.17-2.48 1.1-.12-.86.3-1.78.83-2.34C9.16.5 10.15.04 11 0zm2.78 11.6c.45.66.66.96 1.22 1.7-.62 1.18-1.5 2.65-2.6 2.66-.98.01-1.3-.64-2.42-.64-1.12 0-1.47.62-2.4.65-1.06.04-1.86-1.27-2.49-2.45-1.32-2.5-2.33-7.07-.97-9.16.67-1.04 1.87-1.7 3.16-1.72 1.01-.02 1.96.68 2.42.68.46 0 1.62-.84 2.73-.72.46.02 1.77.19 2.6 1.42-2.27 1.48-1.9 4.72.75 5.59z" /></svg>
 );
 export const GoogleGlyph: React.FC = () => (
   <svg width="17" height="17" viewBox="0 0 18 18"><path d="M17.6 9.2c0-.6-.05-1.18-.15-1.74H9v3.3h4.84a4.14 4.14 0 01-1.8 2.72v2.26h2.92c1.7-1.57 2.68-3.88 2.68-6.54z" fill="#4285F4" /><path d="M9 18c2.43 0 4.47-.8 5.96-2.18l-2.92-2.26c-.8.54-1.84.86-3.04.86-2.34 0-4.32-1.58-5.03-3.7H.95v2.33A9 9 0 009 18z" fill="#34A853" /><path d="M3.97 10.72a5.4 5.4 0 010-3.44V4.95H.95a9 9 0 000 8.1l3.02-2.33z" fill="#FBBC05" /><path d="M9 3.58c1.32 0 2.5.46 3.44 1.35l2.58-2.59C13.47.9 11.43 0 9 0A9 9 0 00.95 4.95l3.02 2.33C4.68 5.16 6.66 3.58 9 3.58z" fill="#EA4335" /></svg>
