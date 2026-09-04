@@ -1279,13 +1279,6 @@ export const UserProfile: React.FC = () => {
     );
   };
 
-  const countsLine: { n: number; l: string; tab?: 'followers' | 'following' }[] = [
-    { n: userRatings.length, l: 'rated' },
-    { n: publicHomeMeals.length, l: 'cooked' },
-    { n: followers, l: 'followers', tab: 'followers' },
-    { n: following, l: 'following', tab: 'following' },
-  ];
-
   return (
     <div className="relative min-h-screen bg-surface pb-16">
       {/* The same wash the owner's profile wears: the accent, fading out
@@ -1373,6 +1366,29 @@ export const UserProfile: React.FC = () => {
             @{profile.username}{profile.home_city ? ` · ${profile.home_city}` : ''}
           </p>
         </div>
+        {/* The two counts that lead somewhere, in the space beside the
+            name — the same place the owner's profile keeps them. What was
+            rated and cooked is already counted on the tabs below. */}
+        <div className="flex-none flex items-start gap-5">
+          {([
+            { n: followers, l: 'followers', tab: 'followers' as const },
+            { n: following, l: 'following', tab: 'following' as const },
+          ]).map((it) => {
+            const clickable = canView && !!profile.username;
+            const Tag = (clickable ? 'button' : 'div') as 'button';
+            return (
+              <Tag
+                key={it.l}
+                type={clickable ? 'button' : undefined}
+                onClick={clickable ? () => navigate(`/user/${encodeURIComponent(profile.username)}/${it.tab}`) : undefined}
+                className={cn('flex flex-col items-center gap-1', clickable && 'active:opacity-60 transition-opacity')}
+              >
+                <span className="text-on-surface tabular-nums" style={{ fontSize: '19px', fontWeight: 700, lineHeight: 1, letterSpacing: '-0.03em' }}>{it.n}</span>
+                <span className="text-ink-3" style={{ fontSize: '11.5px', lineHeight: 1 }}>{it.l}</span>
+              </Tag>
+            );
+          })}
+        </div>
       </div>
 
       {profile.is_verified && profile.verified_status && (
@@ -1412,25 +1428,6 @@ export const UserProfile: React.FC = () => {
           </button>
         </div>
       ) : null}
-
-      {/* The numbers — one line, not four columns */}
-      <div className="px-5 pt-5 flex items-center gap-4 overflow-x-auto scrollbar-hide">
-        {countsLine.map((it) => {
-          const clickable = !!it.tab && canView && !!profile.username;
-          const Tag = (clickable ? 'button' : 'div') as 'button';
-          return (
-            <Tag
-              key={it.l}
-              type={clickable ? 'button' : undefined}
-              onClick={clickable ? () => navigate(`/user/${encodeURIComponent(profile.username)}/${it.tab}`) : undefined}
-              className={cn('flex-none flex items-baseline gap-1.5', clickable && 'active:opacity-60 transition-opacity')}
-            >
-              <span className="font-serif text-[15px] font-bold tracking-[-0.03em] text-on-surface tabular-nums">{it.n}</span>
-              <span className="text-[12px] text-ink-3">{it.l}</span>
-            </Tag>
-          );
-        })}
-      </div>
 
       {/* Taste profile — the palate behind the ratings; tap for the reading. */}
       {canView && <PinnedShelf className="mx-5 mt-6" gutter={20} cards={pinnedCards} isOwn={false} />}
