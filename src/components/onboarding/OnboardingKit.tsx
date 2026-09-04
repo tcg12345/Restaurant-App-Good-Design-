@@ -464,7 +464,13 @@ export const RadioCard: React.FC<{
 );
 
 /* ── Social glyphs ──────────────────────────────────────────────────────── */
-export const AppleGlyph: React.FC = () => (
+/** Apple's own logo where the platform has it: U+F8FF is the Apple mark
+ *  in every system font on iOS and macOS. Elsewhere that code point is
+ *  private-use and draws nothing, so the traced path stands in. */
+const HAS_APPLE_MARK = typeof navigator !== 'undefined' && /iPhone|iPad|iPod|Macintosh/.test(navigator.userAgent);
+export const AppleGlyph: React.FC = () => HAS_APPLE_MARK ? (
+  <span aria-hidden style={{ fontFamily: '-apple-system, system-ui', fontSize: 17, lineHeight: 1, color: INK, display: 'inline-block', transform: 'translateY(-1px)' }}>{'\uF8FF'}</span>
+) : (
   <svg width="17" height="17" viewBox="0 0 16 16" fill={INK}><path d="M11 0c.1.9-.27 1.78-.84 2.42-.6.66-1.55 1.17-2.48 1.1-.12-.86.3-1.78.83-2.34C9.16.5 10.15.04 11 0zm2.78 11.6c.45.66.66.96 1.22 1.7-.62 1.18-1.5 2.65-2.6 2.66-.98.01-1.3-.64-2.42-.64-1.12 0-1.47.62-2.4.65-1.06.04-1.86-1.27-2.49-2.45-1.32-2.5-2.33-7.07-.97-9.16.67-1.04 1.87-1.7 3.16-1.72 1.01-.02 1.96.68 2.42.68.46 0 1.62-.84 2.73-.72.46.02 1.77.19 2.6 1.42-2.27 1.48-1.9 4.72.75 5.59z" /></svg>
 );
 export const GoogleGlyph: React.FC = () => (
