@@ -102,6 +102,9 @@ function shouldHideFab(pathname: string): boolean {
   // `/restaurant/<id>` exactly — NOT `/restaurant/<id>/circle`, a sub-page
   // with no capsule of its own, which needs the FAB to have any way in.
   if (/^\/restaurant\/[^/]+$/.test(pathname)) return true;
+  // The Pro page is one screen with the purchase button at the bottom
+  // right — exactly where the FAB sits. Nothing to ask there anyway.
+  if (pathname === '/pro' || pathname.startsWith('/pro/')) return true;
   return pathname.startsWith('/recipe/') || pathname.startsWith('/meal/');
 }
 
