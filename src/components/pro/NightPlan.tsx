@@ -114,7 +114,7 @@ export const NightPurchaseFooter: React.FC<{ p: Purchase; ctaLabel?: string }> =
         <>
           {/* Apple's own mark, from the system font — the purchase goes
               through the App Store, and the owner wants that said. */}
-          {p.native && <AppleGlyph color={ON_PALE} size={16} />}
+          {p.native && <AppleGlyph color={ON_PALE} size={20} />}
           <span>{p.phase === 'error' ? 'Try again' : (ctaLabel ?? (p.offer ? ctaFor(p.offer) : 'Continue'))}</span>
         </>
       )}
