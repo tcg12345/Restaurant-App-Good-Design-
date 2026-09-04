@@ -14,6 +14,7 @@ import { motion, useReducedMotion } from 'motion/react';
 import { ChevronRight, Sparkles, Users, MapPin } from 'lucide-react';
 import type { BenefitKey } from '../../lib/entitlements';
 import { EASE, NIGHT_INK, NIGHT_INK_SOFT, NIGHT_INK_FAINT, PALE, ON_PALE, GOLD } from './night';
+import { ProCompare } from './ProCompare';
 
 export interface ProStory {
   id: string;
@@ -216,4 +217,6 @@ export const PRO_STORIES: ProStory[] = [
   { id: 'taste', benefit: 'taste', eyebrow: 'Taste profile', line1: 'Your taste,', line2: 'in full.', sub: 'Trends, comparisons against everyone else, and the people whose palate overlaps yours.', Visual: TasteVisual },
   { id: 'history', benefit: 'taste', eyebrow: 'Score history', line1: 'Every visit,', line2: 'charted.', sub: 'How your score for a place moved over time, with every visit beneath it.', Visual: HistoryVisual },
   { id: 'together', benefit: 'together', eyebrow: 'Plan together', line1: 'Five palates,', line2: 'one table.', sub: 'Group picks for up to five, shared lists, and search by mood.', Visual: TogetherVisual },
+  // The table, last: everything above, side by side with what free keeps.
+  { id: 'compare', benefit: 'account', eyebrow: 'Side by side', line1: 'Free, or', line2: 'Pro.', sub: 'Everything you use today stays free. Pro lifts the limits and adds the rest.', Visual: ProCompare },
 ];
