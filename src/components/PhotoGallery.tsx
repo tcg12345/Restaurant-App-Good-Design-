@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { X, Search, ChevronLeft, ChevronRight } from 'lucide-react';
 import type { CommunityPhoto } from '../lib/supabase-community';
 import { useBottomSheet } from '../lib/useBottomSheet';
+import { GlassButton } from '../lib/glass-buttons';
 
 interface GalleryPhoto {
   url: string;
@@ -242,13 +243,9 @@ export const PhotoGallery: React.FC<{
               className="absolute inset-0 z-10 bg-black/90 flex flex-col"
               onClick={() => setExpanded(null)}
             >
-              <button
-                onClick={() => setExpanded(null)}
-                aria-label="Close photo"
-                className="absolute top-[max(1.5rem,env(safe-area-inset-top))] right-5 p-2 rounded-full bg-white/10 hover:bg-white/20 transition-colors z-20"
-              >
-                <X size={22} className="text-white" />
-              </button>
+              <GlassButton id="photo-close" symbol="xmark" label="Close photo" tint="white" onClick={() => setExpanded(null)} className="absolute top-[max(1.25rem,env(safe-area-inset-top))] right-4 z-20 hit-44 flex-none w-11 h-11 rounded-full flex items-center justify-center bg-black/55 text-white transition-transform active:scale-95">
+                <X size={18} />
+              </GlassButton>
               {displayPhotos.length > 1 && (
                 <div className="absolute top-[max(1.75rem,calc(env(safe-area-inset-top)+0.25rem))] left-1/2 -translate-x-1/2 px-2.5 py-1 rounded-full bg-white/10 text-white/85 text-[12px] font-semibold tabular-nums z-20 pointer-events-none">
                   {expanded.index + 1} of {displayPhotos.length}

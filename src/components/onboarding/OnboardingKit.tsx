@@ -363,7 +363,7 @@ export const RoundBackButton: React.FC<{ onClick?: () => void }> = ({ onClick })
     label="Back"
     onClick={() => onClick?.()}
     className="flex items-center justify-center rounded-full cursor-pointer flex-shrink-0 p-0 border-none active:scale-90 transition-transform"
-    style={{ width: 42, height: 42 }}
+    style={{ width: 44, height: 44 }}
   >
     <ArrowLeft size={17} strokeWidth={2.2} style={{ color: 'var(--ob-ink-soft)' }} />
   </GlassButton>

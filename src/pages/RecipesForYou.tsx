@@ -31,6 +31,7 @@ import { shareExternally } from '../lib/native-share';
 import './RecipesForYou.css';
 import { avatarHue } from '../lib/avatar';
 import { SearchField } from '../components/SearchField';
+import { GlassButton } from '../lib/glass-buttons';
 
 type SourceFilter = 'all' | 'friend' | 'chef' | 'home';
 type SortKey = 'recent' | 'quick' | 'az';
@@ -748,9 +749,9 @@ export const RecipesForYou: React.FC<RecipesForYouProps> = ({ embedded = false, 
         ) : (
         <motion.header ref={headerFade.headerRef} style={headerFade.headerStyle} className="m-header">
           <div className="m-header-row">
-            <button type="button" className="m-back-btn" onClick={() => navigate(-1)} aria-label="Back">
-              <ChevronLeft />
-            </button>
+            <GlassButton id="recipes-back" symbol="chevron.left" label="Back" onClick={() => navigate(-1)} className="hit-44 flex-none w-11 h-11 rounded-full flex items-center justify-center text-on-surface/80 transition-transform active:scale-95">
+              <ChevronLeft size={20} />
+            </GlassButton>
             <h1 className="m-header-title">Recipes</h1>
             <div className="m-header-actions">
               {savedBtn}

@@ -2281,7 +2281,7 @@ export const LocationPage: React.FC = () => {
             symbol="chevron.left"
             label="Back"
             onClick={() => navigate(-1)}
-            className="hit-44 w-10 h-10 flex items-center justify-center rounded-full transition-transform active:scale-95"
+            className="hit-44 w-11 h-11 flex items-center justify-center rounded-full transition-transform active:scale-95"
             style={{ color: 'var(--ink)', background: 'rgba(var(--overlay-ink), 0.06)' }}
           >
             <ArrowLeft size={19} />
@@ -2309,7 +2309,7 @@ export const LocationPage: React.FC = () => {
             // is capacitor://localhost/… — build the link from the public web
             // origin + the page's path instead.
             onClick={() => { void shareExternally({ title: cityDisplay, url: canonicalShareUrl(window.location.pathname + window.location.search) }); }}
-            className="hit-44 w-10 h-10 flex items-center justify-center rounded-full transition-transform active:scale-95"
+            className="hit-44 w-11 h-11 flex items-center justify-center rounded-full transition-transform active:scale-95"
             style={{ color: 'var(--ink)', background: 'rgba(var(--overlay-ink), 0.06)' }}
           >
             <ShareIcon size={18} />

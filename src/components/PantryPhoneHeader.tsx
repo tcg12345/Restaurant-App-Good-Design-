@@ -99,7 +99,7 @@ export const PantryPhoneHeader: React.FC<Props> = ({
             symbol="line.3.horizontal"
             label="Your lists"
             onClick={onOpenDrawer}
-            className="hit-44 flex-none w-10 h-10 rounded-full flex items-center justify-center text-on-surface active:scale-95 transition-transform"
+            className="hit-44 flex-none w-11 h-11 rounded-full flex items-center justify-center text-on-surface active:scale-95 transition-transform"
           >
             <Menu size={17} strokeWidth={2.1} />
           </GlassButton>
@@ -109,7 +109,7 @@ export const PantryPhoneHeader: React.FC<Props> = ({
             symbol="magnifyingglass"
             label="Search this list"
             onClick={onToggleSearch}
-            className="hit-44 flex-none w-10 h-10 rounded-full flex items-center justify-center text-on-surface active:scale-95 transition-transform"
+            className="hit-44 flex-none w-11 h-11 rounded-full flex items-center justify-center text-on-surface active:scale-95 transition-transform"
           >
             <Search size={17} />
           </GlassButton>
@@ -178,7 +178,7 @@ export const PantryPhoneHeader: React.FC<Props> = ({
             label="Search this list"
             onClick={onToggleSearch}
             className={cn(
-              'hit-44 flex-none w-10 h-10 rounded-full flex items-center justify-center active:scale-95 transition-transform',
+              'hit-44 flex-none w-11 h-11 rounded-full flex items-center justify-center active:scale-95 transition-transform',
               searchOpen ? 'text-primary bg-primary/10' : 'text-on-surface',
             )}
           >

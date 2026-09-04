@@ -1119,7 +1119,7 @@ export const AddReelModal: React.FC = () => {
                 tint="white"
                 disabled={submitting && isEditing}
                 onClick={onBackTap}
-                className="w-9 h-9 rounded-full flex items-center justify-center text-white disabled:opacity-40 flex-shrink-0 transition-colors"
+                className="w-11 h-11 rounded-full flex items-center justify-center text-white disabled:opacity-40 flex-shrink-0 transition-colors"
               >
                 {canGoBack && !submitting ? <ChevronLeft size={17} strokeWidth={2.4} /> : <X size={16} strokeWidth={2.4} />}
               </GlassButton>

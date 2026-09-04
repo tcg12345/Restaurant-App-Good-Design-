@@ -441,7 +441,7 @@ export const ImportRecipesModal: React.FC<Props> = ({ open, onClose }) => {
                 symbol="xmark"
                 label="Close"
                 onClick={handleClose}
-                className="w-9 h-9 rounded-full flex items-center justify-center text-on-surface/40 transition-colors"
+                className="w-11 h-11 rounded-full flex items-center justify-center text-on-surface/40 transition-colors"
               >
                 <X size={18} />
               </GlassButton>

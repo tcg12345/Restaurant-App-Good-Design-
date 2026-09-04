@@ -230,7 +230,7 @@ export const FilterSheet: React.FC<FilterSheetProps> = ({
                   symbol="xmark"
                   label="Close filters"
                   onClick={onClose}
-                  className="hit-44 w-10 h-10 rounded-full flex items-center justify-center text-on-surface active:scale-95 transition-transform"
+                  className="hit-44 w-11 h-11 rounded-full flex items-center justify-center text-on-surface active:scale-95 transition-transform"
                 >
                   <X size={17} />
                 </GlassButton>
@@ -255,7 +255,7 @@ export const FilterSheet: React.FC<FilterSheetProps> = ({
                   titleStyle="chip"
                   label="Clear all filters"
                   onClick={onReset}
-                  className="h-10 px-4 rounded-full flex items-center text-[13px] font-bold text-on-surface"
+                  className="h-11 px-4 rounded-full flex items-center text-[13px] font-bold text-on-surface"
                 >
                   Clear all
                 </GlassButton>

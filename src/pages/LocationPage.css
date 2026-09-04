@@ -2098,8 +2098,8 @@ html.kb-open .lp-chat-island.is-phone .lp-chat-foot {
    `GlassButton` grounds its own fallback with `.glass-control`, and two
    grounds stacked read as a smudge. */
 .lp-chat-glass-btn {
-  width: 34px;
-  height: 34px;
+  width: 44px;
+  height: 44px;
   border-radius: 50%;
   display: grid;
   place-items: center;

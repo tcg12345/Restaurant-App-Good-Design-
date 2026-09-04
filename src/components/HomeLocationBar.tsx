@@ -604,7 +604,7 @@ export const HomeLocationBar: React.FC<Props> = ({ location, onChange, onUseCurr
                     symbol="xmark"
                     label="Close"
                     onClick={() => setOpen(false)}
-                    className="hit-44 flex-none w-9 h-9 rounded-full flex items-center justify-center text-on-surface/70 active:scale-95 transition-transform"
+                    className="hit-44 flex-none w-11 h-11 rounded-full flex items-center justify-center text-on-surface/70 active:scale-95 transition-transform"
                   >
                     <X size={16} />
                   </GlassButton>

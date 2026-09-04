@@ -1189,7 +1189,7 @@ export const CirclePanel: React.FC<CirclePanelProps> = ({ variant, onClose }) =>
           // covered by CSS must still stand its own glass down — the same
           // rule the Add page's back button follows.
           suspended={!requestsPageOpen}
-          className="hit-44 flex-none w-9 h-9 -ml-1.5 rounded-full grid place-items-center text-on-surface/60 active:scale-95 transition-transform"
+          className="hit-44 flex-none w-11 h-11 -ml-1.5 rounded-full grid place-items-center text-on-surface/60 active:scale-95 transition-transform"
         >
           <ArrowLeft size={19} />
         </GlassButton>
@@ -1246,7 +1246,7 @@ export const CirclePanel: React.FC<CirclePanelProps> = ({ variant, onClose }) =>
           // mounted through the push — see PUSH_SPRING above — so only the
           // page actually on top may register native glass at any moment.
           suspended={!addOpen}
-          className="hit-44 flex-none w-9 h-9 -ml-1.5 rounded-full grid place-items-center text-on-surface/60 active:scale-95 transition-transform"
+          className="hit-44 flex-none w-11 h-11 -ml-1.5 rounded-full grid place-items-center text-on-surface/60 active:scale-95 transition-transform"
         >
           <ArrowLeft size={19} />
         </GlassButton>
@@ -1343,7 +1343,7 @@ export const CirclePanel: React.FC<CirclePanelProps> = ({ variant, onClose }) =>
                 // top of it — native glass draws above the WebView, so CSS
                 // covering does nothing to it.
                 suspended={addOpen || requestsPageOpen}
-                className="hit-44 flex-none w-9 h-9 -ml-1 rounded-full flex items-center justify-center text-on-surface active:scale-95 transition-transform"
+                className="hit-44 flex-none w-11 h-11 -ml-1 rounded-full flex items-center justify-center text-on-surface active:scale-95 transition-transform"
               >
                 <ArrowLeft size={18} />
               </GlassButton>
@@ -1359,7 +1359,7 @@ export const CirclePanel: React.FC<CirclePanelProps> = ({ variant, onClose }) =>
               suspended={addOpen || requestsPageOpen}
               onClick={() => { setSearchOpen((v) => { if (v) setSearchQuery(''); return !v; }); }}
               className={cn(
-                'hit-44 flex-none w-9 h-9 rounded-full grid place-items-center transition-colors',
+                'hit-44 flex-none w-11 h-11 rounded-full grid place-items-center transition-colors',
                 searchOpen ? 'bg-on-surface text-surface' : 'text-on-surface/60 active:bg-on-surface/[0.07]',
               )}
             >

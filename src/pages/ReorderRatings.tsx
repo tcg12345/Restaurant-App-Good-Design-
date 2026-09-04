@@ -7,6 +7,7 @@ import { settleScores, normalizeScores, tierOfScore } from '../lib/settleScores'
 
 import { SCORE_TIER_HEX } from '../lib/score';
 import { useSettings } from '../contexts/SettingsContext';
+import { GlassButton } from '../lib/glass-buttons';
 
 interface RatedItem {
   restaurantId: string;
@@ -249,13 +250,9 @@ export const ReorderRatings: React.FC = () => {
       <div className="sticky top-0 z-40 bg-surface/80 backdrop-blur-xl border-b border-on-surface/[0.06]">
         <div className="flex items-center justify-between px-4 pt-safe-3 pb-3">
           <div className="flex items-center gap-3">
-            <button
-              onClick={handleCancel}
-              className="p-1.5 -ml-1.5 rounded-full hover:bg-on-surface/5 transition-colors"
-              aria-label="Cancel"
-            >
-              <ArrowLeft size={22} className="text-on-surface" />
-            </button>
+            <GlassButton id="reorder-back" symbol="arrow.left" label="Cancel" onClick={handleCancel} className="hit-44 flex-none w-11 h-11 rounded-full flex items-center justify-center text-on-surface/80 transition-transform active:scale-95 -ml-1">
+              <ArrowLeft size={18} />
+            </GlassButton>
             <div>
               <h1 className="text-lg font-bold text-on-surface">Reorder Ratings</h1>
               <p className="text-xs text-on-surface/50">Drag to reorder, scores update automatically</p>

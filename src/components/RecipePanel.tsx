@@ -46,6 +46,7 @@ import {
   formatDuration,
 } from '../lib/recipe-display';
 import { useBottomSheet } from '../lib/useBottomSheet';
+import { GlassButton } from '../lib/glass-buttons';
 
 /** Stable per-user avatar color so review rows read as varied without
  *  needing a real avatar URL. Hashes the user id to one of a small
@@ -411,14 +412,9 @@ const SaveToListModal: React.FC<{
             <h2 className="font-serif font-bold text-on-surface text-[18px] leading-tight">Save to a list</h2>
             <p className="text-[11px] text-on-surface/55 mt-0.5">Pick where this recipe should live</p>
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Close"
-            className="w-8 h-8 rounded-full hover:bg-on-surface/[0.07] flex items-center justify-center text-on-surface/65 transition-colors"
-          >
+          <GlassButton id="recipe-panel-save-close" symbol="xmark" label="Close" onClick={onClose} className="hit-44 flex-none w-11 h-11 rounded-full flex items-center justify-center text-on-surface/80 transition-transform active:scale-95">
             <X size={18} />
-          </button>
+          </GlassButton>
         </div>
 
         {/* Body — list of save targets */}
@@ -762,14 +758,9 @@ const RecipePanelBody: React.FC<{
               ].filter(Boolean).join(' · ')}
             </p>
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Close"
-            className="w-8 h-8 rounded-full hover:bg-on-surface/[0.07] flex items-center justify-center text-on-surface/65 transition-colors flex-shrink-0"
-          >
+          <GlassButton id="recipe-panel-close" symbol="xmark" label="Close" onClick={onClose} className="hit-44 flex-none w-11 h-11 rounded-full flex items-center justify-center text-on-surface/80 transition-transform active:scale-95">
             <X size={18} />
-          </button>
+          </GlassButton>
         </div>
       </div>
 

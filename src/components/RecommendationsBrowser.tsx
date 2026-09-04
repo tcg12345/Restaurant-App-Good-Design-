@@ -1295,7 +1295,7 @@ export const RecommendationsBrowser: React.FC<RecommendationsBrowserProps> = ({ 
           symbol="chevron.left"
           label="Back"
           onClick={onClose}
-          className="hit-44 flex-none w-10 h-10 rounded-full flex items-center justify-center text-on-surface active:scale-95 transition-transform"
+          className="hit-44 flex-none w-11 h-11 rounded-full flex items-center justify-center text-on-surface active:scale-95 transition-transform"
         >
           <ChevronLeft size={18} strokeWidth={2.1} />
         </GlassButton>

@@ -703,7 +703,7 @@ const ChatView: React.FC<{
             symbol="chevron.left"
             label="Back"
             onClick={onBack}
-            className="hit-44 flex-none w-9 h-9 -ml-1 rounded-full flex items-center justify-center text-on-surface active:scale-95 transition-transform"
+            className="hit-44 flex-none w-11 h-11 -ml-1 rounded-full flex items-center justify-center text-on-surface active:scale-95 transition-transform"
           >
             <ArrowLeft size={18} />
           </GlassButton>
@@ -1328,7 +1328,7 @@ const MobileMessageList: React.FC<{
               label="Back"
               onClick={onBack}
               suspended={composeOpen}
-              className="hit-44 flex-none w-9 h-9 -ml-1 rounded-full flex items-center justify-center text-on-surface active:scale-95 transition-transform"
+              className="hit-44 flex-none w-11 h-11 -ml-1 rounded-full flex items-center justify-center text-on-surface active:scale-95 transition-transform"
             >
               <ArrowLeft size={18} />
             </GlassButton>

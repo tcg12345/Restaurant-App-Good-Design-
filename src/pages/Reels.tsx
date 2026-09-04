@@ -26,6 +26,7 @@ import { useBottomSheet } from '../lib/useBottomSheet';
 import { keyboardLiftSheetStyle } from '../lib/keyboard-sheet';
 import { addScrollSettleListener } from '../lib/scroll-settle';
 import { Collapse } from '../components/Collapse';
+import { GlassButton } from '../lib/glass-buttons';
 
 /**
  * Reels — full-screen vertical video feed with two tabs, backed by Supabase.
@@ -2812,14 +2813,9 @@ export const Reels: React.FC = () => {
         sidePanelOpen ? "grid-cols-[1fr_auto_1.3fr]" : "grid-cols-[1fr_auto_1fr]",
       )}>
         {focused && (
-          <button
-            type="button"
-            onClick={() => navigate(-1)}
-            aria-label="Go back"
-            className="absolute top-[max(1rem,env(safe-area-inset-top))] left-4 z-50 w-10 h-10 rounded-full bg-on-surface/[0.08] backdrop-blur text-on-surface flex items-center justify-center hover:bg-on-surface/[0.14] active:scale-95 transition-all"
-          >
+          <GlassButton id="reels-back-wide" symbol="arrow.left" label="Go back" onClick={() => navigate(-1)} className="absolute top-[max(1rem,env(safe-area-inset-top))] left-4 z-50 hit-44 flex-none w-11 h-11 rounded-full flex items-center justify-center text-on-surface/80 transition-transform active:scale-95">
             <ArrowLeft size={18} strokeWidth={2.4} />
-          </button>
+          </GlassButton>
         )}
 
         {/* Left column — side details for the active reel or post,
@@ -2951,14 +2947,9 @@ export const Reels: React.FC = () => {
     <div className="relative h-dvh w-full bg-black overflow-hidden">
       <TopBar kind={kind} setKind={setKind} muted={muted} setMuted={setMuted} />
       {focused && (
-        <button
-          type="button"
-          onClick={() => navigate(-1)}
-          aria-label="Go back"
-          className="fixed top-[max(0.75rem,env(safe-area-inset-top))] left-3 z-50 w-10 h-10 rounded-full bg-black/55 backdrop-blur text-white flex items-center justify-center hover:bg-black/70 active:scale-95 transition-all"
-        >
+        <GlassButton id="reels-back" symbol="arrow.left" label="Go back" tint="white" onClick={() => navigate(-1)} className="fixed top-[max(0.75rem,env(safe-area-inset-top))] left-3 z-50 hit-44 flex-none w-11 h-11 rounded-full flex items-center justify-center bg-black/55 text-white transition-transform active:scale-95">
           <ArrowLeft size={18} strokeWidth={2.4} />
-        </button>
+        </GlassButton>
       )}
       {renderFeed({ onActiveVideoChange: setActiveMedia })}
       {/* Restaurant sheet — mobile counterpart of the desktop panel. Slides

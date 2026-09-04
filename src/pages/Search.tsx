@@ -417,7 +417,7 @@ const PhoneSearch: React.FC = () => {
             symbol="xmark"
             label="Close search"
             onClick={closeSearch}
-            className="relative z-20 hit-44 w-10 h-10 rounded-full flex items-center justify-center text-on-surface active:scale-95 transition-transform"
+            className="relative z-20 hit-44 w-11 h-11 rounded-full flex items-center justify-center text-on-surface active:scale-95 transition-transform"
           >
             <X size={18} />
           </GlassButton>
@@ -694,7 +694,7 @@ const ClassicSearch: React.FC = () => {
                   symbol="chevron.left"
                   label="Back"
                   onClick={closeSearch}
-                  className="hit-44 w-10 h-10 rounded-full flex items-center justify-center text-on-surface active:scale-95 transition-transform"
+                  className="hit-44 w-11 h-11 rounded-full flex items-center justify-center text-on-surface active:scale-95 transition-transform"
                 >
                   <ChevronLeft size={20} />
                 </GlassButton>

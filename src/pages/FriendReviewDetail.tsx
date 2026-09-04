@@ -18,6 +18,7 @@ import {
   type CommunityRating, type CommunityPhoto, type UserProfile, type ActivityComment,
 } from '../lib/supabase-community';
 
+import { GlassButton } from '../lib/glass-buttons';
 const AVATAR_PALETTE = [
   { bg: 'bg-rose-100', text: 'text-rose-700' },
   { bg: 'bg-amber-100', text: 'text-amber-700' },
@@ -249,13 +250,9 @@ export const FriendReviewDetail: React.FC = () => {
       <motion.div ref={headerFade.headerRef} style={headerFade.headerStyle} className="sticky top-0 z-30 bg-surface/80 backdrop-blur-md border-b border-on-surface/[0.06]">
         <div className={SHELL}>
           <div className="flex items-center gap-3 pt-safe-3 pb-3">
-            <button
-              onClick={() => navigate(-1)}
-              aria-label="Back"
-              className="w-9 h-9 rounded-full bg-on-surface/5 flex items-center justify-center hover:bg-on-surface/10 transition-colors flex-shrink-0"
-            >
-              <ArrowLeft size={18} className="text-on-surface/70" />
-            </button>
+            <GlassButton id="friend-review-back" symbol="arrow.left" label="Back" onClick={() => navigate(-1)} className="hit-44 flex-none w-11 h-11 rounded-full flex items-center justify-center text-on-surface/80 transition-transform active:scale-95">
+              <ArrowLeft size={18} />
+            </GlassButton>
             <div className="flex-1 min-w-0">
               <p className={EYEBROW}>Review</p>
               <p className="text-sm font-semibold truncate">{authorName}</p>

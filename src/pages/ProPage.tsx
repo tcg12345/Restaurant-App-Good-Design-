@@ -30,6 +30,7 @@ import { PRO_STORIES } from '../components/pro/ProStories';
 import { usePurchase } from '../components/pro/usePurchase';
 import { NightPlanCards, NightPurchaseFooter, NightLegal, NightOutcome } from '../components/pro/NightPlan';
 import { NIGHT_BG, NIGHT_INK, NIGHT_INK_SOFT, NIGHT_INK_FAINT, PALE, glass, eyebrow, headline, EASE } from '../components/pro/night';
+import { GlassButton } from '../lib/glass-buttons';
 
 const fmtDate = (iso: string | null) => (iso ? new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '');
 
@@ -162,7 +163,7 @@ export const ProPage: React.FC = () => {
         }}
       >
         <div className="flex items-center gap-3" style={{ marginBottom: 14, flex: 'none' }}>
-          <button type="button" onClick={() => navigate(-1)} aria-label="Back" className="hit-44 w-9 h-9 rounded-full grid place-items-center active:scale-95 transition-transform" style={{ background: 'rgba(255,255,255,0.1)', color: NIGHT_INK }}><ChevronLeft size={17} /></button>
+          <GlassButton id="pro-back" symbol="chevron.left" label="Back" tint="white" onClick={() => navigate(-1)} className="hit-44 flex-none w-11 h-11 rounded-full grid place-items-center active:scale-95 transition-transform" style={{ background: 'rgba(255,255,255,0.1)', color: NIGHT_INK }}><ChevronLeft size={18} /></GlassButton>
           <span style={eyebrow}>GoodEats Pro</span>
         </div>
         {children}
