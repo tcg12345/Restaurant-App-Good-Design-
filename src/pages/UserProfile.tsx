@@ -1291,7 +1291,7 @@ export const UserProfile: React.FC = () => {
       {/* The same wash the owner's profile wears: the accent, fading out
           under the header, running up behind the bar. The bar only takes
           its glass once the page has scrolled under it. */}
-      <div aria-hidden className="pointer-events-none absolute inset-x-0 top-0 h-[360px] bg-gradient-to-b from-primary/30 via-primary/[0.12] via-55% to-transparent" />
+      <div aria-hidden className="pointer-events-none absolute inset-x-0 top-0 h-[360px] bg-gradient-to-b from-tint/30 via-tint/[0.12] via-55% to-transparent" />
       {/* Top bar — always present; mini identity + follow fade in on scroll */}
       <header
         ref={barRef}
