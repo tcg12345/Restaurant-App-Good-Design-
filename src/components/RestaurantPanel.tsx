@@ -599,7 +599,11 @@ export const RestaurantPanelBody: React.FC<{
           style={{ overscrollBehavior: 'none' }}
         >
           {!noHero && (
-            <div className="relative w-full h-[168px] bg-cream-2 overflow-hidden">
+            // The hero rounds its OWN top corners when the chrome floats
+            // above: the sheet root can't clip it then (its clip rectangle
+            // starts in the strip overhead, so the rounding lands up there
+            // and the map meets a square edge).
+            <div className={cn('relative w-full h-[168px] bg-cream-2 overflow-hidden', chromeAbove && 'rounded-t-3xl')}>
               {hasMap && mediaSettled ? (
                 <div
                   key={`${snapshot.id}-${lat}-${lng}`}
