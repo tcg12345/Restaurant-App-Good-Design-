@@ -141,7 +141,9 @@
    dark-mode value automatically. Hardcoded white / black classes that
    the codebase still uses (bg-white, bg-on-surface/[0.05], …) are
    swept into the new palette below. */
-.dark {
+/* `.ob-night`: onboarding and the Pro flow are always night, whatever the
+   theme — a scope that hands them the dark tokens. */
+.dark, .ob-night {
   /* The ground is a graphite, not a void: near-black surfaces swallowed
      every card and hairline sitting on them. Elevation reads by lightness
      — surface (pages) < muted (wells) ≈ paper (cards) — with lines bumped
@@ -182,7 +184,7 @@
   --color-recipes-ink: #34d399;
 }
 
-.dark {
+.dark, .ob-night {
   color-scheme: dark;
   --michelin-red: #f0655b;
 }
@@ -201,58 +203,35 @@
    one place if it ever needs to. `--ob-field` is the iOS-style recessed
    input fill (same recipe as `.ios-search`). */
 :root {
-  --ob-bg: #f7f7f6;
-  --ob-ink: #1d1c1e;
-  --ob-ink-soft: #3d3835;
-  --ob-secondary: #6b6359;
-  --ob-label: #a19a8e;
-  --ob-border: #e5e6e8;
-  --ob-terra: #4b5670;
-  --ob-terra-hover: #3d475e;
-  --ob-on-terra: #f5f4f0;
-  --ob-card: #fcfcfb;
-  --ob-card-hover: #f6f6f6;
-  --ob-ghost: #6b6359;
-  --ob-divider: #efefee;
-  --ob-field: rgba(118, 118, 128, 0.10);
-  --ob-pill-bg: #f1f1f1;
-  --ob-pill-bg-hover: #e9e9e9;
-  --ob-pill-text: #3d3835;
-  --ob-radio-selected: color-mix(in srgb, #4b5670 8%, #ffffff);
-  --ob-radio-ring: #d6d3d1;
-  --ob-badge-bg: color-mix(in srgb, #4b5670 12%, #ffffff);
-  --ob-error: #c0392b;
-  --ob-success: #1b8a5e;
-  --ob-success-dot: #1fa06d;
-  --ob-focus-ring: rgba(75, 86, 112, 0.2);
-}
-.dark {
-  /* Graphite, exactly the app's dark surfaces — the old warm gradient
-     made the flow look like a different product from the app behind it. */
-  --ob-bg: #1b1c20;
+  /* Glass night — the same by day and by night (the owner's pick for the
+     Pro flow, carried across the whole of onboarding). The ground is a
+     slate glow over graphite (painted by OnboardingScreen), the ink is
+     light, every surface is glass, and the accent is the pale slate of
+     the dark theme's primary. */
+  --ob-bg: #16171b;
   --ob-ink: #e9e9ec;
-  --ob-ink-soft: #c2c2c2;
-  --ob-secondary: #a3a3a3;
-  --ob-label: #7f7f83;
-  --ob-border: #383b42;
+  --ob-ink-soft: #c7c9cf;
+  --ob-secondary: rgba(233, 233, 236, 0.65);
+  --ob-label: rgba(233, 233, 236, 0.45);
+  --ob-border: rgba(255, 255, 255, 0.14);
   --ob-terra: #aebbd3;
   --ob-terra-hover: #c1cce0;
   --ob-on-terra: #161a22;
-  --ob-card: #282a30;
-  --ob-card-hover: #333336;
-  --ob-ghost: #a3a3a3;
-  --ob-divider: #313134;
-  --ob-field: rgba(118, 118, 128, 0.24);
-  --ob-pill-bg: #2d2d30;
-  --ob-pill-bg-hover: #38383b;
-  --ob-pill-text: #c9c9c9;
-  --ob-radio-selected: rgba(242, 239, 233, 0.10);
-  --ob-radio-ring: #55555a;
-  --ob-badge-bg: rgba(242, 239, 233, 0.14);
-  --ob-error: #f2745f;
-  --ob-success: #4fd49b;
-  --ob-success-dot: #38c98e;
-  --ob-focus-ring: rgba(242, 239, 233, 0.24);
+  --ob-card: rgba(255, 255, 255, 0.07);
+  --ob-card-hover: rgba(255, 255, 255, 0.11);
+  --ob-ghost: rgba(233, 233, 236, 0.7);
+  --ob-divider: rgba(255, 255, 255, 0.12);
+  --ob-field: rgba(255, 255, 255, 0.08);
+  --ob-pill-bg: rgba(255, 255, 255, 0.1);
+  --ob-pill-bg-hover: rgba(255, 255, 255, 0.16);
+  --ob-pill-text: #e9e9ec;
+  --ob-radio-selected: rgba(174, 187, 211, 0.12);
+  --ob-radio-ring: rgba(255, 255, 255, 0.35);
+  --ob-badge-bg: rgba(174, 187, 211, 0.14);
+  --ob-error: #e08273;
+  --ob-success: #6fc49b;
+  --ob-success-dot: #5fbe93;
+  --ob-focus-ring: rgba(174, 187, 211, 0.35);
 }
 /* Route literal `bg-white` card surfaces (and its alphas) through the
    `paper` token so every card / pill / dropdown tracks the theme. In
