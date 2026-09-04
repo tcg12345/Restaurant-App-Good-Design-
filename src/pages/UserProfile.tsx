@@ -1463,8 +1463,15 @@ export const UserProfile: React.FC = () => {
           {viewTab === 'restaurants' && (
             <>
               <div className="flex items-center gap-2 px-5 pt-3.5">
+                {/* No `glassId` here on purpose. The native glass layer
+                    samples this element's box on a rAF and pushes it over
+                    the bridge, so a control that RIDES THE SCROLL arrives a
+                    frame late and visibly swims against the list — the same
+                    reason a swipe-back gesture stands every glass button
+                    down. It also drew a capsule that matched nothing else
+                    in this column. On the page's own CSS material it sits
+                    still and reads like the chips beside it. */}
                 <SearchField
-                  glassId="profile-rest-search"
                   className="flex-1 min-w-0"
                   value={searchQuery}
                   onChange={setSearchQuery}
