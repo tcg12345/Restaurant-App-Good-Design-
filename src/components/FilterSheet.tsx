@@ -117,6 +117,19 @@ export const FilterSheet: React.FC<FilterSheetProps> = ({
     setPage(open ? initialPageRef.current : null);
   }, [open]);
 
+  // Open at the top, always. Showing the sheet in the top layer moves focus
+  // into it, and WebKit scrolls whatever lands focused into view — which
+  // opened the sheet a dozen pixels down, with the first section's label
+  // cut in half. It also matters for the gesture: useBottomSheet only reads
+  // a downward drag as a dismissal while this scroller sits at its top.
+  useEffect(() => {
+    if (!open) return;
+    const at0 = () => { if (sheetScrollRef.current) sheetScrollRef.current.scrollTop = 0; };
+    at0();
+    const raf = requestAnimationFrame(at0);
+    return () => cancelAnimationFrame(raf);
+  }, [open]);
+
   const nav: FilterSheetNav = {
     activeId: page?.id ?? null,
     openPage: (id, pageTitle, meta) => setPage({ id, title: pageTitle, ...meta }),
