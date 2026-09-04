@@ -132,8 +132,22 @@ export const RatingDistributionSheet: React.FC<{
             onAnimationComplete={() => setEntered(true)}
             {...dragProps}
             onClick={(e) => e.stopPropagation()}
-            className="bg-surface w-full sm:max-w-[460px] rounded-t-[24px] sm:rounded-b-[24px] sm:mb-6 max-h-[82vh] flex flex-col overflow-hidden"
+            className="bg-surface w-full sm:max-w-[460px] rounded-t-[24px] sm:rounded-b-[24px] sm:mb-6 max-h-[82vh] flex flex-col overflow-visible relative"
+            style={{ clipPath: 'inset(-80px 0 0 0 round 24px 24px 0 0)' }}
           >
+            {/* The close floats above the sheet, in the strip over the page. */}
+            <div className="absolute right-3 top-[-56px] z-30">
+              <GlassButton
+                id="rating-dist-close"
+                symbol="xmark"
+                label="Close"
+                onClick={onClose}
+                suspended={glassSuspended}
+                className="w-11 h-11 rounded-full flex items-center justify-center bg-black/55 text-white ring-1 ring-white/[0.16] transition-colors"
+              >
+                <X size={17} strokeWidth={2.2} />
+              </GlassButton>
+            </div>
             <div className="pt-2.5 pb-1 flex justify-center flex-shrink-0" aria-hidden>
               <span className="w-9 h-1 rounded-full bg-on-surface/15" />
             </div>
@@ -148,16 +162,6 @@ export const RatingDistributionSheet: React.FC<{
                   <p className="mt-1 truncate text-on-surface/45" style={{ fontSize: '12.5px' }}>{restaurantName}</p>
                 )}
               </div>
-              <GlassButton
-                id="rating-dist-close"
-                symbol="xmark"
-                label="Close"
-                onClick={onClose}
-                suspended={glassSuspended}
-                className="flex-none w-11 h-11 rounded-full flex items-center justify-center text-on-surface/70 ring-1 ring-white/[0.16] transition-colors"
-              >
-                <X size={17} strokeWidth={2.2} />
-              </GlassButton>
             </div>
 
             <div ref={scrollRef} className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-5 pb-safe-5">

@@ -283,6 +283,11 @@ export const RestaurantPanelBody: React.FC<{
    *  mirror trails a finger-driven transform) and let the web glass look
    *  carry them. */
   glassSuspended?: boolean;
+  /** Sheet presentation: the close and save buttons float ABOVE the
+   *  sheet's top edge, in the dimmed strip over the page, instead of over
+   *  the hero. The panel root must not clip for this (clip-path, not
+   *  overflow: hidden). */
+  chromeAbove?: boolean;
   /** When true the map hero is omitted entirely so the body can be
    *  embedded inside another panel (e.g. the Map page's results sidebar)
    *  that already has its own header. The scroll container and all the
@@ -298,7 +303,7 @@ export const RestaurantPanelBody: React.FC<{
    *  inject extra sections (e.g. a distance + routing card) without
    *  re-implementing the rest of the body. */
   headSlot?: React.ReactNode;
-}> = ({ snapshot, onClose, currentUserId, scrollElRef, glassSuspended, noHero, topChrome, headSlot }) => {
+}> = ({ snapshot, onClose, currentUserId, scrollElRef, glassSuspended, chromeAbove, noHero, topChrome, headSlot }) => {
   const { twoDecimalScores } = useSettings();
   const {
     getRating,
@@ -552,14 +557,14 @@ export const RestaurantPanelBody: React.FC<{
           sheets behave — and only the save/close buttons stay pinned. */}
       <div className="relative flex-1 min-h-0">
         {!noHero && (
-          <>
+          <div className={cn('z-20', chromeAbove ? 'absolute left-3 right-3 top-[-56px] flex flex-row-reverse justify-between pointer-events-none' : 'contents')}>
             <GlassButton
               id="panel-close"
               symbol="xmark"
               label="Close"
               suspended={glassSuspended}
               onClick={onClose}
-              className="absolute top-3 right-3 w-11 h-11 rounded-full bg-black/55 backdrop-blur text-white ring-1 ring-white/[0.16] hover:bg-black/75 flex items-center justify-center transition-colors z-20"
+              className={cn('w-11 h-11 rounded-full bg-black/55 backdrop-blur text-white ring-1 ring-white/[0.16] hover:bg-black/75 flex items-center justify-center transition-colors z-20', chromeAbove ? 'pointer-events-auto' : 'absolute top-3 right-3')}
             >
               <X size={19} />
             </GlassButton>
@@ -571,7 +576,8 @@ export const RestaurantPanelBody: React.FC<{
               suspended={glassSuspended}
               onClick={onWishlist}
               className={cn(
-                'absolute top-3 left-3 w-11 h-11 rounded-full backdrop-blur ring-1 ring-white/[0.16] flex items-center justify-center transition-colors z-20',
+                'w-11 h-11 rounded-full backdrop-blur ring-1 ring-white/[0.16] flex items-center justify-center transition-colors z-20',
+                chromeAbove ? 'pointer-events-auto' : 'absolute top-3 left-3',
                 wishlisted
                   ? 'bg-primary text-on-primary hover:bg-primary/90 shadow-md shadow-black/20'
                   : 'bg-black/55 text-white hover:bg-black/75',
@@ -579,7 +585,7 @@ export const RestaurantPanelBody: React.FC<{
             >
               <Bookmark size={19} className={cn(wishlisted && 'fill-white')} />
             </GlassButton>
-          </>
+          </div>
         )}
 
         <div
@@ -1149,8 +1155,12 @@ export const RestaurantPanel: React.FC<RestaurantPanelProps> = ({ snapshot, onCl
               ref={sheetRef as React.RefObject<HTMLDivElement>}
               {...dragProps}
               onClick={(e) => e.stopPropagation()}
-              className="bg-surface w-full rounded-t-3xl flex flex-col ring-1 ring-on-surface/[0.16] overflow-hidden relative"
-              style={{ height: '92%', willChange: 'transform' }}
+              // clip-path, not overflow: hidden — the close/save buttons sit
+              // ABOVE the sheet's top edge (RestaurantPanelBody chromeAbove),
+              // and overflow: hidden would clip them; clip-path rounds the top
+              // corners and lets the strip above through.
+              className="bg-surface w-full rounded-t-3xl flex flex-col ring-1 ring-on-surface/[0.16] overflow-visible relative"
+              style={{ height: '92%', willChange: 'transform', clipPath: 'inset(-80px 0 0 0 round 24px 24px 0 0)' }}
             >
               {/* Drag-handle pill — absolute so it overlays the hero map
                   at the top of the sheet rather than sitting on its own
@@ -1160,7 +1170,7 @@ export const RestaurantPanel: React.FC<RestaurantPanelProps> = ({ snapshot, onCl
               <div className="pointer-events-none absolute top-2 left-1/2 -translate-x-1/2 z-30">
                 <span className="block w-10 h-1 rounded-full bg-on-surface/30" />
               </div>
-              <RestaurantPanelBody snapshot={snapshot} onClose={onClose} currentUserId={currentUserId} scrollElRef={sheetScrollRef} glassSuspended={dragging || !entered} />
+              <RestaurantPanelBody snapshot={snapshot} onClose={onClose} currentUserId={currentUserId} scrollElRef={sheetScrollRef} glassSuspended={dragging || !entered} chromeAbove />
             </motion.div>
           </motion.div>
         )}

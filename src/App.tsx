@@ -27,6 +27,9 @@ import { Create } from './pages/Create';
 import { BottomNav } from './components/BottomNav';
 import { PullToRefresh } from './components/PullToRefresh';
 import { SwipeBackContainer } from './components/SwipeBackContainer';
+import { subscribeOverlay } from './lib/overlay-registry';
+import { holdGlass, releaseGlass, resetGlassHolds } from './lib/glass-buttons';
+import { topLayerAvailable } from './lib/useBottomSheet';
 import { ScrollRestoration } from './components/ScrollRestoration';
 import { KEEP_ALIVE_PATHS } from './lib/keep-alive';
 import { useHomeLocation } from './contexts/HomeLocationContext';
@@ -312,6 +315,29 @@ const AppContent: React.FC = () => {
   // Keep-alive: once a tab-root page is visited it stays mounted. Mounted
   // lazily (on first visit) so we don't eagerly mount every tab at startup.
   const [keptAlive, setKeptAlive] = React.useState<string[]>([]);
+  // Any bottom sheet open → the page zooms back (see the presenter below).
+  // Only when sheets can be lifted to the top layer; otherwise a transform
+  // here would shrink the sheets too.
+  // The glass hold's safety net: a page that unmounts mid-exit never fires
+  // onAnimationComplete, and a stuck hold would leave every button on its
+  // CSS fallback. A beat after each navigation settles, clear any strays.
+  React.useEffect(() => {
+    const t = window.setTimeout(resetGlassHolds, 700);
+    return () => window.clearTimeout(t);
+  }, [location.key]);
+  const [sheetUp, setSheetUp] = React.useState(false);
+  // The safe-area top, measured once: the zoomed page's top edge sits just
+  // under the status bar, where iOS puts a presenting screen.
+  const [safeTop, setSafeTop] = React.useState(0);
+  React.useEffect(() => {
+    if (!topLayerAvailable()) return;
+    const probe = document.createElement('div');
+    probe.style.cssText = 'position:fixed;top:0;left:0;width:1px;height:env(safe-area-inset-top);pointer-events:none;visibility:hidden';
+    document.body.appendChild(probe);
+    setSafeTop(probe.offsetHeight);
+    probe.remove();
+    return subscribeOverlay((open) => { setSheetUp(open); wakeGlassButtons(); });
+  }, []);
   React.useEffect(() => {
     if (KEEP_ALIVE_PATHS.includes(location.pathname)) {
       setKeptAlive((k) => (k.includes(location.pathname) ? k : [...k, location.pathname]));
@@ -430,7 +456,7 @@ const AppContent: React.FC = () => {
   const isTabSwitchNav = TAB_SWITCH_PATHS.has(location.pathname) && navType !== 'POP';
   const stackInstant = instantNav || isTabSwitchNav;
   // PUSH and POP slide in opposite directions (iOS). On a push the new page
-  // drives in from the right ABOVE the old one, which parks 30% off to the
+  // drives in from the right ABOVE the old one, which parks 35% off to the
   // left, slightly dimmed (the iOS parallax); on a pop the old page slides
   // off to the RIGHT above the parked page gliding back to center. The exit
   // used to be x:'100%' unconditionally, so pushing detail→detail played the
@@ -471,7 +497,7 @@ const AppContent: React.FC = () => {
       // and dimmed — the mirror of the presenter's exit below.
       if (fromSheet) return { scale: 0.94, filter: 'brightness(0.82)' };
       // Pop: re-emerge from the parked parallax slot, brightening.
-      return pop ? { x: '-30%', filter: 'brightness(0.85)' } : { x: '100%' };
+      return pop ? { x: '-35%', filter: 'brightness(0.85)' } : { x: '100%' };
     },
     center: ({ instant }: StackNav) => ({
       x: 0,
@@ -502,7 +528,7 @@ const AppContent: React.FC = () => {
               ? { x: '100%', zIndex: 10 }
               // Push: park left + dim under the newcomer (which paints above
               // by DOM order), then unmount invisibly behind it.
-              : { x: '-30%', filter: 'brightness(0.8)', zIndex: 0 }),
+              : { x: '-35%', filter: 'brightness(0.8)', zIndex: 0 }),
           }),
       transition: instant ? { duration: 0 } : motionTransition,
     }),
@@ -569,6 +595,12 @@ const AppContent: React.FC = () => {
           initial="enter"
           animate="center"
           exit="exit"
+          // A page in motion: native glass can't track it (the mirror
+          // measures a bridge-hop late and trails), so every glass button
+          // rides the transition as its CSS fallback and native takes over
+          // once the page is at rest. Ref-counted — enter and exit overlap.
+          onAnimationStart={holdGlass}
+          onAnimationComplete={releaseGlass}
           className={
             isCreateRoute ? 'absolute inset-0 z-30'
               // A sheet overlays the page it was opened from instead of
@@ -708,9 +740,23 @@ const AppContent: React.FC = () => {
     backTarget !== null && !isReelsPage && !isFocusedReel && !isMapPage && !isTabRoot && !isSheetRoute &&
     !['/create', '/location/map'].includes(location.pathname);
   return (
-    <div className="min-h-screen bg-surface selection:bg-primary/20 selection:text-primary">
+    <div className="min-h-screen selection:bg-primary/20 selection:text-primary" style={{ background: sheetUp ? '#000' : 'var(--color-surface)' }}>
       <ScrollRestoration />
       <PullToRefresh enabled={allowPullToRefresh} onRefresh={handleRefresh} />
+      {/* The presenter: while any bottom sheet is up the whole page zooms
+          back and dims, the way iOS shrinks the screen a card is presented
+          over, and comes forward again as the sheet goes down. Sheets
+          themselves ride the top layer (useBottomSheet), so they don't
+          shrink with it. Clipped with clip-path rather than overflow:
+          hidden, which would turn this into a scroll container and break
+          every sticky header inside. */}
+      <motion.div
+        animate={sheetUp
+          ? { scale: 0.92, y: safeTop + 8, filter: 'brightness(0.78)', clipPath: 'inset(0 round 26px)' }
+          : { scale: 1, y: 0, filter: 'brightness(1)', clipPath: 'inset(0 round 0px)', transitionEnd: { filter: 'none', clipPath: 'none' } }}
+        transition={{ duration: 0.42, ease: [0.32, 0.72, 0, 1] }}
+        style={{ transformOrigin: '50% 0%' }}
+      >
       <SwipeBackContainer
         enabled={allowSwipeBack}
         navKey={historyIdx ?? 0}
@@ -733,6 +779,7 @@ const AppContent: React.FC = () => {
       >
         {routesBlock}
       </SwipeBackContainer>
+      </motion.div>
       <AnimatePresence>
         {showBottomNav && (
           <motion.div

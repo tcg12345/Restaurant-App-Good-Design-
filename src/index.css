@@ -237,6 +237,40 @@
   --ob-success-dot: #5fbe93;
   --ob-focus-ring: rgba(174, 187, 211, 0.35);
 }
+/* ── Sheets in the top layer ──────────────────────────────────────────
+   useBottomSheet lifts a sheet's fixed backdrop layer into the browser's
+   top layer (popover="manual") so the page behind can zoom back without
+   the sheet shrinking with it. The UA gives popovers a border, padding,
+   auto margins, fit-content size and a canvas background; `:where` keeps
+   this reset at zero specificity so the sheet's own utilities still win. */
+/* In the BASE layer on purpose: an unlayered rule beats every Tailwind
+   utility (they live in @layer utilities) whatever the specificity, and
+   this reset would then strip the panel's own bg-surface / h-[88vh] /
+   bottom-0 the moment it was lifted — which is exactly what happened on
+   WebKit. In `base` it still beats the UA sheet and loses to utilities. */
+@layer base {
+  [popover].sheet-top-layer {
+    position: fixed;
+    /* `auto`, not 0: the UA's inset:0 would pin a sheet whose PANEL is the
+       fixed element (bottom/left/right set, top not) to the top edge too. */
+    inset: auto;
+    width: auto;
+    height: auto;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    overflow: visible;
+    color: inherit;
+    background-color: transparent;
+  }
+}
+/* Bottom sheets stop short of the top: the page behind stays in view,
+   zoomed back, the way iOS presents a card. useBottomSheet marks only the
+   partial sheets (a full-screen one keeps its height). */
+@media (max-width: 767px) {
+  [data-sheet-capped] { max-height: 84dvh; }
+}
+
 /* Route literal `bg-white` card surfaces (and its alphas) through the
    `paper` token so every card / pill / dropdown tracks the theme. In
    light mode paper is pure white (a no-op); the remap exists so the same
