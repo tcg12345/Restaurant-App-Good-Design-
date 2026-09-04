@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, type ReactNode } from 'react';
 import { isOverlayOpen } from '../lib/overlay-registry';
 import { getPageScroll, setPageScroll, getPrimaryScroller } from '../lib/page-scroll';
-import { setGlassSuspended } from '../lib/glass-buttons';
+import { holdGlass, releaseGlass } from '../lib/glass-buttons';
 import { isKeepAlivePath } from '../lib/keep-alive';
 
 const prefersReducedMotion = () =>
@@ -238,6 +238,8 @@ export const SwipeBackContainer: React.FC<Props> = ({
     rebuildTimer: 0,
     // settle
     settleMode: 'none' as 'none' | 'cancel' | 'commit',
+    // One glass hold per gesture (a re-grab mid-cancel must not hold twice).
+    glassHeld: false,
     anims: [] as Animation[],
     disarmSettle: null as (() => void) | null,
     // commit finalize
@@ -429,7 +431,7 @@ export const SwipeBackContainer: React.FC<Props> = ({
       page.style.pointerEvents = '';
       shadow.style.opacity = '0';
       hideReveal();
-      setGlassSuspended(false);
+      if (s.glassHeld) { s.glassHeld = false; releaseGlass(); }
       if (s.finKey != null) snapStore.delete(s.finKey);
       s.x = 0;
       s.settleMode = 'none';
@@ -551,7 +553,7 @@ export const SwipeBackContainer: React.FC<Props> = ({
           page.style.willChange = '';
           shadow.style.opacity = '0';
           hideReveal();
-          setGlassSuspended(false);
+          if (s.glassHeld) { s.glassHeld = false; releaseGlass(); }
           s.x = 0;
           s.settleMode = 'none';
           s.busy = false;
@@ -572,7 +574,7 @@ export const SwipeBackContainer: React.FC<Props> = ({
       page.style.transform = `translateX(${cur}px)`;
       paintReveal(cur);
       s.tracking = true; s.claimed = true;
-      setGlassSuspended(true);
+      if (!s.glassHeld) { s.glassHeld = true; holdGlass(); }
       s.sx = t.clientX; s.sy = t.clientY;
       s.claimDx = -cur; // continue the drag from where we caught it
       s.lx = t.clientX; s.lt = now; s.vx = 0;
@@ -628,7 +630,7 @@ export const SwipeBackContainer: React.FC<Props> = ({
         s.claimed = true;
         // The page is about to ride a finger: glass to the CSS fallback until
         // it is at rest again (finishCommit / cancel settle).
-        setGlassSuspended(true);
+        if (!s.glassHeld) { s.glassHeld = true; holdGlass(); }
         s.claimDx = dx;
         page.style.willChange = 'transform';
         if (!s.reduce) shadow.style.opacity = '1';

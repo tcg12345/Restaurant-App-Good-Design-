@@ -175,8 +175,18 @@ function setSupported(next: boolean): void {
   }
 }
 
+/** Ref-counted hold: anything that moves the page (a drag, a route
+ *  transition) holds glass on the CSS fallback for its duration and
+ *  releases when the page is at rest. `resetGlassHolds` is the safety net
+ *  for a hold whose release never came (an exiting page unmounted
+ *  mid-animation) — the router calls it a beat after every navigation. */
+let holds = 0;
+export function holdGlass(): void { if (holds++ === 0) setGlassSuspended(true); }
+export function releaseGlass(): void { if (holds > 0 && --holds === 0) setGlassSuspended(false); }
+export function resetGlassHolds(): void { holds = 0; setGlassSuspended(false); }
+
 /** Hand every glass button to its CSS fallback (true) or back to native
- *  (false). Idempotent; the swipe-back gesture calls it around its drag. */
+ *  (false). Idempotent; prefer holdGlass/releaseGlass. */
 export function setGlassSuspended(next: boolean): void {
   if (next === suspendedAll) return;
   suspendedAll = next;

@@ -28,6 +28,7 @@ import { BottomNav } from './components/BottomNav';
 import { PullToRefresh } from './components/PullToRefresh';
 import { SwipeBackContainer } from './components/SwipeBackContainer';
 import { subscribeOverlay } from './lib/overlay-registry';
+import { holdGlass, releaseGlass, resetGlassHolds } from './lib/glass-buttons';
 import { topLayerAvailable } from './lib/useBottomSheet';
 import { ScrollRestoration } from './components/ScrollRestoration';
 import { KEEP_ALIVE_PATHS } from './lib/keep-alive';
@@ -317,6 +318,13 @@ const AppContent: React.FC = () => {
   // Any bottom sheet open → the page zooms back (see the presenter below).
   // Only when sheets can be lifted to the top layer; otherwise a transform
   // here would shrink the sheets too.
+  // The glass hold's safety net: a page that unmounts mid-exit never fires
+  // onAnimationComplete, and a stuck hold would leave every button on its
+  // CSS fallback. A beat after each navigation settles, clear any strays.
+  React.useEffect(() => {
+    const t = window.setTimeout(resetGlassHolds, 700);
+    return () => window.clearTimeout(t);
+  }, [location.key]);
   const [sheetUp, setSheetUp] = React.useState(false);
   // The safe-area top, measured once: the zoomed page's top edge sits just
   // under the status bar, where iOS puts a presenting screen.
@@ -587,6 +595,12 @@ const AppContent: React.FC = () => {
           initial="enter"
           animate="center"
           exit="exit"
+          // A page in motion: native glass can't track it (the mirror
+          // measures a bridge-hop late and trails), so every glass button
+          // rides the transition as its CSS fallback and native takes over
+          // once the page is at rest. Ref-counted — enter and exit overlap.
+          onAnimationStart={holdGlass}
+          onAnimationComplete={releaseGlass}
           className={
             isCreateRoute ? 'absolute inset-0 z-30'
               // A sheet overlays the page it was opened from instead of
