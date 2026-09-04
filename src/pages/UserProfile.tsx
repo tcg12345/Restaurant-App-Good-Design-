@@ -1279,19 +1279,12 @@ export const UserProfile: React.FC = () => {
     );
   };
 
-  const countsLine: { n: number; l: string; tab?: 'followers' | 'following' }[] = [
-    { n: userRatings.length, l: 'rated' },
-    { n: publicHomeMeals.length, l: 'cooked' },
-    { n: followers, l: 'followers', tab: 'followers' },
-    { n: following, l: 'following', tab: 'following' },
-  ];
-
   return (
     <div className="relative min-h-screen bg-surface pb-16">
       {/* The same wash the owner's profile wears: the accent, fading out
           under the header, running up behind the bar. The bar only takes
           its glass once the page has scrolled under it. */}
-      <div aria-hidden className="pointer-events-none absolute inset-x-0 top-0 h-[360px] bg-gradient-to-b from-primary/30 via-primary/[0.12] via-55% to-transparent" />
+      <div aria-hidden className="pointer-events-none absolute inset-x-0 top-0 h-[360px] bg-gradient-to-b from-tint/30 via-tint/[0.12] via-55% to-transparent" />
       {/* Top bar — always present; mini identity + follow fade in on scroll */}
       <header
         ref={barRef}
@@ -1373,6 +1366,29 @@ export const UserProfile: React.FC = () => {
             @{profile.username}{profile.home_city ? ` · ${profile.home_city}` : ''}
           </p>
         </div>
+        {/* The two counts that lead somewhere, in the space beside the
+            name — the same place the owner's profile keeps them. What was
+            rated and cooked is already counted on the tabs below. */}
+        <div className="flex-none flex items-start gap-5 mr-3">
+          {([
+            { n: followers, l: 'followers', tab: 'followers' as const },
+            { n: following, l: 'following', tab: 'following' as const },
+          ]).map((it) => {
+            const clickable = canView && !!profile.username;
+            const Tag = (clickable ? 'button' : 'div') as 'button';
+            return (
+              <Tag
+                key={it.l}
+                type={clickable ? 'button' : undefined}
+                onClick={clickable ? () => navigate(`/user/${encodeURIComponent(profile.username)}/${it.tab}`) : undefined}
+                className={cn('flex flex-col items-center gap-1', clickable && 'active:opacity-60 transition-opacity')}
+              >
+                <span className="text-on-surface tabular-nums" style={{ fontSize: '19px', fontWeight: 700, lineHeight: 1, letterSpacing: '-0.03em' }}>{it.n}</span>
+                <span className="text-ink-3" style={{ fontSize: '11.5px', lineHeight: 1 }}>{it.l}</span>
+              </Tag>
+            );
+          })}
+        </div>
       </div>
 
       {profile.is_verified && profile.verified_status && (
@@ -1413,25 +1429,6 @@ export const UserProfile: React.FC = () => {
         </div>
       ) : null}
 
-      {/* The numbers — one line, not four columns */}
-      <div className="px-5 pt-5 flex items-center gap-4 overflow-x-auto scrollbar-hide">
-        {countsLine.map((it) => {
-          const clickable = !!it.tab && canView && !!profile.username;
-          const Tag = (clickable ? 'button' : 'div') as 'button';
-          return (
-            <Tag
-              key={it.l}
-              type={clickable ? 'button' : undefined}
-              onClick={clickable ? () => navigate(`/user/${encodeURIComponent(profile.username)}/${it.tab}`) : undefined}
-              className={cn('flex-none flex items-baseline gap-1.5', clickable && 'active:opacity-60 transition-opacity')}
-            >
-              <span className="font-serif text-[15px] font-bold tracking-[-0.03em] text-on-surface tabular-nums">{it.n}</span>
-              <span className="text-[12px] text-ink-3">{it.l}</span>
-            </Tag>
-          );
-        })}
-      </div>
-
       {/* Taste profile — the palate behind the ratings; tap for the reading. */}
       {canView && <PinnedShelf className="mx-5 mt-6" gutter={20} cards={pinnedCards} isOwn={false} />}
       {tasteCard && <div className="mx-5 mt-5">{tasteCard}</div>}
@@ -1466,8 +1463,15 @@ export const UserProfile: React.FC = () => {
           {viewTab === 'restaurants' && (
             <>
               <div className="flex items-center gap-2 px-5 pt-3.5">
+                {/* No `glassId` here on purpose. The native glass layer
+                    samples this element's box on a rAF and pushes it over
+                    the bridge, so a control that RIDES THE SCROLL arrives a
+                    frame late and visibly swims against the list — the same
+                    reason a swipe-back gesture stands every glass button
+                    down. It also drew a capsule that matched nothing else
+                    in this column. On the page's own CSS material it sits
+                    still and reads like the chips beside it. */}
                 <SearchField
-                  glassId="profile-rest-search"
                   className="flex-1 min-w-0"
                   value={searchQuery}
                   onChange={setSearchQuery}

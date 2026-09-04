@@ -547,8 +547,13 @@ export const HomeLocationBar: React.FC<Props> = ({ location, onChange, onUseCurr
                     transition: { duration: 0.22, ease: [0.16, 1, 0.3, 1] as const },
                   })}
               onClick={(e: React.MouseEvent) => { if (!phoneMode) e.stopPropagation(); }}
+              // On the phone the close floats ABOVE the sheet's top edge, so
+              // the root clips with clip-path (rounded top, open strip above)
+              // rather than overflow: hidden.
+              style={phoneMode ? { clipPath: 'inset(-80px 0 0 0 round 28px 28px 0 0)' } : undefined}
               className={cn(
-                'bg-surface flex flex-col overflow-hidden',
+                'bg-surface flex flex-col',
+                phoneMode ? 'overflow-visible' : 'overflow-hidden',
                 sheetZ,
                 phoneMode
                   // A FIXED height, not max-h. Sizing to content meant the
@@ -567,6 +572,19 @@ export const HomeLocationBar: React.FC<Props> = ({ location, onChange, onUseCurr
               )}
             >
               {phoneMode && (
+                <div className="absolute right-3 top-[-56px] z-30">
+                  <GlassButton
+                    id="location-picker-close"
+                    symbol="xmark"
+                    label="Close"
+                    onClick={() => setOpen(false)}
+                    className="w-11 h-11 rounded-full flex items-center justify-center bg-black/55 text-white ring-1 ring-white/[0.16]"
+                  >
+                    <X size={17} />
+                  </GlassButton>
+                </div>
+              )}
+              {phoneMode && (
                 <div className="flex justify-center pt-2.5 pb-1 flex-shrink-0 cursor-grab active:cursor-grabbing">
                   <div className="h-[5px] w-10 rounded-full bg-on-surface/20" />
                 </div>
@@ -580,15 +598,17 @@ export const HomeLocationBar: React.FC<Props> = ({ location, onChange, onUseCurr
                 <h3 className="font-serif font-bold text-[22px] leading-tight tracking-[-0.02em] text-on-surface">
                   Where to?
                 </h3>
-                <GlassButton
-                  id="location-picker-close"
-                  symbol="xmark"
-                  label="Close"
-                  onClick={() => setOpen(false)}
-                  className="hit-44 flex-none w-9 h-9 rounded-full flex items-center justify-center text-on-surface/70 active:scale-95 transition-transform"
-                >
-                  <X size={16} />
-                </GlassButton>
+                {!phoneMode && (
+                  <GlassButton
+                    id="location-picker-close"
+                    symbol="xmark"
+                    label="Close"
+                    onClick={() => setOpen(false)}
+                    className="hit-44 flex-none w-9 h-9 rounded-full flex items-center justify-center text-on-surface/70 active:scale-95 transition-transform"
+                  >
+                    <X size={16} />
+                  </GlassButton>
+                )}
               </div>
 
               <div className="px-5 pb-4 flex-shrink-0">

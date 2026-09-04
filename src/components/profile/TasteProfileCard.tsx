@@ -9,9 +9,10 @@ import type { TierStanding } from '../../lib/taste-tier';
 /**
  * The taste-profile teaser, presentational.
  *
- * A SECTION of the page, not a box on it: no fill, no ring, no card
- * padding, so it sits in the same rhythm as the profile's other sections
- * and the page's own margin sets its width. Only the chevron and the
+ * A card: a raised surface with its own hairline and padding, so the
+ * palate reads as one object you can tap rather than a run of text in
+ * the page's own margin. (It was a flat section once — the sections
+ * around it have since become cards too, and it was the odd one out.) Only the chevron and the
  * press-scale say it is tappable.
  *
  * Everything below the identity row runs the full width — the palate's
@@ -51,12 +52,16 @@ export const TasteSummaryCard: React.FC<{
       type="button"
       onClick={onPress}
       data-tour="taste-profile"
-      className={cn('card-surface-press block w-full text-left', className)}
+      className={cn(
+        'card-surface-press block w-full text-left rounded-[22px] bg-paper px-[18px] py-4',
+        'ring-1 ring-on-surface/[0.07] shadow-[0_1px_3px_rgba(0,0,0,0.05)]',
+        className,
+      )}
       aria-label={ariaLabel ?? `${eyebrow}: ${standing.tier.name}, ${points} points`}
     >
       <span className="flex items-center justify-between gap-2">
         <span
-          className="truncate text-primary"
+          className="truncate text-tint-ink"
           style={{ fontSize: '10.5px', fontWeight: 700, letterSpacing: '0.16em', textTransform: 'uppercase' }}
         >
           {eyebrow}
@@ -109,7 +114,7 @@ export const TasteSummaryCard: React.FC<{
       <span className="mt-3.5 flex items-center gap-3">
         <span className="block h-1 flex-1 overflow-hidden rounded-full bg-on-surface/[0.09]" aria-hidden>
           <span
-            className="block h-full rounded-full bg-primary"
+            className="block h-full rounded-full bg-tint"
             style={{ width: `${Math.max(2, standing.progress * 100)}%` }}
           />
         </span>
@@ -123,7 +128,7 @@ export const TasteSummaryCard: React.FC<{
           {chips.map((chip) => (
             <span
               key={chip}
-              className="rounded-full bg-primary/[0.12] text-primary"
+              className="rounded-full bg-tint/[0.12] text-tint-ink"
               style={{ padding: '5px 10px', fontSize: '11.5px', fontWeight: 600 }}
             >
               {chip}

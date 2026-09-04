@@ -871,7 +871,7 @@ export const Profile: React.FC = () => {
     <div className="relative pb-32 min-h-screen bg-surface type-archivo">
       {/* The wash: the accent, faint, fading out under the header. The one
           place the page is allowed to be a colour rather than a surface. */}
-      <div aria-hidden className="pointer-events-none absolute inset-x-0 top-0 h-[360px] bg-gradient-to-b from-primary/30 via-primary/[0.12] via-55% to-transparent" />
+      <div aria-hidden className="pointer-events-none absolute inset-x-0 top-0 h-[360px] bg-gradient-to-b from-tint/30 via-tint/[0.12] via-55% to-transparent" />
       {/* Mirror the mobile Discover header — Create shortcut on the
           left, centered logo, messages/Circle cluster on the right.
           Hidden on desktop where the sidebar layout owns the chrome. */}
@@ -947,7 +947,7 @@ export const Profile: React.FC = () => {
         <div data-tour="profile-stats" className="flex items-center gap-[18px]">
           <div className="relative flex-none">
             <Avatar src={profile?.avatar_url} name={displayName} size={84} letterSize={34} />
-            <span aria-hidden className="pointer-events-none absolute inset-0 rounded-full ring-[3px] ring-primary/55" />
+            <span aria-hidden className="pointer-events-none absolute inset-0 rounded-full ring-[3px] ring-tint/55" />
             {profile?.is_verified && (
               <div className="absolute -bottom-0.5 -right-0.5 w-7 h-7 rounded-full bg-surface ring-[3px] ring-surface flex items-center justify-center">
                 <VerifiedBadge size={24} />
@@ -1114,7 +1114,7 @@ export const Profile: React.FC = () => {
                 className={cn(
                   'flex-1 min-w-0 inline-flex items-center justify-center gap-1.5 rounded-full py-2.5 transition-colors',
                   on
-                    ? 'bg-primary/15 text-primary shadow-[0_1px_4px_rgba(0,0,0,0.06)]'
+                    ? 'bg-tint/15 text-tint-ink shadow-[0_1px_4px_rgba(0,0,0,0.06)]'
                     : 'text-on-surface/55 active:text-on-surface',
                 )}
                 style={{ fontSize: '12px', fontWeight: 700 }}

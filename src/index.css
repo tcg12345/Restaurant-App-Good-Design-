@@ -10,49 +10,51 @@
   --font-display: "Fraunces", "Noto Serif", serif;
   --font-mono: "JetBrains Mono", ui-monospace, monospace;
 
-  /* Surface palette — a near-white with the faintest cool cast, so
-     pure #fff never appears next to the accent. Single source of truth
-     for the app background; `cream` aliases it for the editorial tokens
-     below. (The `cream`/`paper` names are historical.) */
-  --color-surface: #f7f7f6;
-  --color-on-surface: #1d1c1e;
-  /* ── Accent: slate, carrying a little stone ──
-     The accent is a slate blue that sits mid-brightness in BOTH themes —
-     a deep slate by day, a pale one by night — so a filled control is
-     never the brightest or darkest thing on the screen (the graphite/bone
-     pair before it flashed: near-white on near-black). It is greyed a
-     touch toward warm stone rather than a clean blue, and `on-primary`
-     is a warm off-white, never pure white. `bg-primary text-on-primary`
-     still inverts with the theme without any component knowing which.
-     The score tiers, the Michelin red and the danger red keep their own
-     hues — they mean something. Blue is absent from food, so the accent
-     frames the photos instead of blending with them. */
-  --color-primary: #4b5670;
-  --color-on-primary: #f5f4f0;
-  /* A cool stone for secondary marks, and the champagne gold for the
-     rare warm note (Pro, verified, featured) — gold on slate. */
-  --color-secondary: #767a85;
-  --color-accent: #c9b48e;
-  --color-muted: #eeeff0;
+  /* Surface palette — warm stone by day: a warm off-white, so pure #fff
+     never appears. Single source of truth for the app background;
+     `cream` aliases it for the editorial tokens below. */
+  --color-surface: #f8f6f2;
+  --color-on-surface: #231f1c;
+  /* ── Accent: warm stone by day, slate by night ──
+     By day the primary is a warm graphite (#2b2622) on a warm off-white,
+     with a warm off-white on it — never pure white, never pure black, so
+     nothing flashes. By night the primary is a pale slate at mid
+     brightness (see .dark). `bg-primary text-on-primary` inverts with
+     the theme without any component knowing which. The score tiers, the
+     Michelin red and the danger red keep their own hues — they mean
+     something. */
+  --color-primary: #2b2622;
+  --color-on-primary: #f3ede3;
+  /* A warm stone for secondary marks, and the champagne gold for the
+     rare warm note (Pro, verified, featured). */
+  --color-secondary: #7a7168;
+  --color-accent: #c4ab7c;
+  /* The tint: the colour the page is allowed to wear at full — the
+     profile wash, the avatar ring, the selected tab, the chips. Champagne
+     by day (warm stone's one note), the pale slate by night. `tint-ink` is
+     the same idea as text, readable on the surface. */
+  --color-tint: #c4ab7c;
+  --color-tint-ink: #83703f;
+  --color-muted: #efece6;
 
   /* Editorial tokens used by the restaurant detail redesign.
      `cream` is the page bg, `paper` is the card fill, `ink-*`
      are text tones, and `olive`/`clay`/`persimmon` map the
      score-coded accents. On white, `cream-2` is the recessed/hover
      tone and `line`/`line-2` are neutral hairline borders. */
-  --color-cream: #f7f7f6;
-  --color-cream-2: #eeeff0;
-  --color-paper: #fcfcfb;
-  --color-line: #e5e6e8;
-  --color-line-2: #d8dade;
-  --color-ink: #1d1c1e;
-  --color-ink-2: #3c3e46;
-  --color-ink-3: #676c78;
-  --color-ink-4: #9ca1ab;
-  /* Historical names, now aliases of the slate pair. */
-  --color-olive: #767a85;
-  --color-clay: #4b5670;
-  --color-persimmon: #868a95;
+  --color-cream: #f8f6f2;
+  --color-cream-2: #efece6;
+  --color-paper: #fdfcfa;
+  --color-line: #e8e4dd;
+  --color-line-2: #dcd7ce;
+  --color-ink: #231f1c;
+  --color-ink-2: #3d3835;
+  --color-ink-3: #6b6359;
+  --color-ink-4: #a19a8e;
+  /* Historical names, now aliases of the stone pair. */
+  --color-olive: #7a7168;
+  --color-clay: #2b2622;
+  --color-persimmon: #8a8178;
 
   /* ── Score tier system ──
      The ONE palette for every score-coded surface — chips, rings, map
@@ -170,6 +172,8 @@
   --color-secondary: #9ea3ae;
   --color-olive: #9ea3ae;
   --color-accent: #d8c39c;
+  --color-tint: #aebbd3;
+  --color-tint-ink: #aebbd3;
   --color-persimmon: #adb2bc;
   /* Score tiers: solids stay put (fills under white text); tints become
      low-alpha washes over the dark card and inks lighten for contrast. */
@@ -233,6 +237,40 @@
   --ob-success-dot: #5fbe93;
   --ob-focus-ring: rgba(174, 187, 211, 0.35);
 }
+/* ── Sheets in the top layer ──────────────────────────────────────────
+   useBottomSheet lifts a sheet's fixed backdrop layer into the browser's
+   top layer (popover="manual") so the page behind can zoom back without
+   the sheet shrinking with it. The UA gives popovers a border, padding,
+   auto margins, fit-content size and a canvas background; `:where` keeps
+   this reset at zero specificity so the sheet's own utilities still win. */
+/* In the BASE layer on purpose: an unlayered rule beats every Tailwind
+   utility (they live in @layer utilities) whatever the specificity, and
+   this reset would then strip the panel's own bg-surface / h-[88vh] /
+   bottom-0 the moment it was lifted — which is exactly what happened on
+   WebKit. In `base` it still beats the UA sheet and loses to utilities. */
+@layer base {
+  [popover].sheet-top-layer {
+    position: fixed;
+    /* `auto`, not 0: the UA's inset:0 would pin a sheet whose PANEL is the
+       fixed element (bottom/left/right set, top not) to the top edge too. */
+    inset: auto;
+    width: auto;
+    height: auto;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    overflow: visible;
+    color: inherit;
+    background-color: transparent;
+  }
+}
+/* Bottom sheets stop short of the top: the page behind stays in view,
+   zoomed back, the way iOS presents a card. useBottomSheet marks only the
+   partial sheets (a full-screen one keeps its height). */
+@media (max-width: 767px) {
+  [data-sheet-capped] { max-height: 84dvh; }
+}
+
 /* Route literal `bg-white` card surfaces (and its alphas) through the
    `paper` token so every card / pill / dropdown tracks the theme. In
    light mode paper is pure white (a no-op); the remap exists so the same

@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, type ReactNode } from 'react';
 import { isOverlayOpen } from '../lib/overlay-registry';
 import { getPageScroll, setPageScroll, getPrimaryScroller } from '../lib/page-scroll';
+import { holdGlass, releaseGlass } from '../lib/glass-buttons';
 import { isKeepAlivePath } from '../lib/keep-alive';
 
 const prefersReducedMotion = () =>
@@ -57,7 +58,7 @@ const MIN_SETTLE_MS = 160;
 const MAX_SETTLE_MS = 320;
 const EASE = 'cubic-bezier(0.32, 0.72, 0, 1)';
 // Reveal
-const PARALLAX = 0.3;   // destination moves at 30% of the page's travel
+const PARALLAX = 0.35;  // destination parks 35% left and moves at 35% of the page's travel (iOS)
 const SCRIM_MAX = 0.28; // darkest scrim over the destination at rest
 // Commit finalize — how long we'll wait for the destination to paint before
 // force-completing (rAF throttling, pathological renders).
@@ -121,6 +122,17 @@ function clonePageNode(node: HTMLElement): HTMLElement {
     v.removeAttribute('autoplay');
     v.autoplay = false;
     v.preload = 'metadata';
+  });
+  // Native glass buttons leave nothing behind in the DOM but an invisible
+  // web element (the UIKit control paints them, above the WebView). In the
+  // preview those spots would be holes; give the clones the CSS glass
+  // fallback instead, so the destination reads whole while it slides in.
+  clone.querySelectorAll<HTMLElement>('[data-glass-native]').forEach((b) => {
+    b.removeAttribute('data-glass-native');
+    b.classList.add('glass-control');
+    b.style.backgroundColor = ''; b.style.backgroundImage = ''; b.style.boxShadow = '';
+    const inner = b.firstElementChild as HTMLElement | null;
+    if (inner) inner.classList.remove('opacity-0');
   });
   clone.style.transform = '';
   clone.style.transition = 'none';
@@ -226,6 +238,8 @@ export const SwipeBackContainer: React.FC<Props> = ({
     rebuildTimer: 0,
     // settle
     settleMode: 'none' as 'none' | 'cancel' | 'commit',
+    // One glass hold per gesture (a re-grab mid-cancel must not hold twice).
+    glassHeld: false,
     anims: [] as Animation[],
     disarmSettle: null as (() => void) | null,
     // commit finalize
@@ -417,6 +431,7 @@ export const SwipeBackContainer: React.FC<Props> = ({
       page.style.pointerEvents = '';
       shadow.style.opacity = '0';
       hideReveal();
+      if (s.glassHeld) { s.glassHeld = false; releaseGlass(); }
       if (s.finKey != null) snapStore.delete(s.finKey);
       s.x = 0;
       s.settleMode = 'none';
@@ -538,6 +553,7 @@ export const SwipeBackContainer: React.FC<Props> = ({
           page.style.willChange = '';
           shadow.style.opacity = '0';
           hideReveal();
+          if (s.glassHeld) { s.glassHeld = false; releaseGlass(); }
           s.x = 0;
           s.settleMode = 'none';
           s.busy = false;
@@ -558,6 +574,7 @@ export const SwipeBackContainer: React.FC<Props> = ({
       page.style.transform = `translateX(${cur}px)`;
       paintReveal(cur);
       s.tracking = true; s.claimed = true;
+      if (!s.glassHeld) { s.glassHeld = true; holdGlass(); }
       s.sx = t.clientX; s.sy = t.clientY;
       s.claimDx = -cur; // continue the drag from where we caught it
       s.lx = t.clientX; s.lt = now; s.vx = 0;
@@ -611,6 +628,9 @@ export const SwipeBackContainer: React.FC<Props> = ({
           return;
         }
         s.claimed = true;
+        // The page is about to ride a finger: glass to the CSS fallback until
+        // it is at rest again (finishCommit / cancel settle).
+        if (!s.glassHeld) { s.glassHeld = true; holdGlass(); }
         s.claimDx = dx;
         page.style.willChange = 'transform';
         if (!s.reduce) shadow.style.opacity = '1';
