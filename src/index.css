@@ -245,7 +245,10 @@
    this reset at zero specificity so the sheet's own utilities still win. */
 :where([popover].sheet-top-layer) {
   position: fixed;
-  inset: 0;
+  /* `auto`, not 0: the UA's inset:0 would pin a sheet whose PANEL is the
+     fixed element (bottom/left/right set, top not) to the top edge too. Every
+     lifted layer sets its own offsets. */
+  inset: auto;
   width: auto;
   height: auto;
   margin: 0;
