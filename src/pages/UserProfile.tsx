@@ -1369,7 +1369,7 @@ export const UserProfile: React.FC = () => {
         {/* The two counts that lead somewhere, in the space beside the
             name — the same place the owner's profile keeps them. What was
             rated and cooked is already counted on the tabs below. */}
-        <div className="flex-none flex items-start gap-5">
+        <div className="flex-none flex items-start gap-5 mr-3">
           {([
             { n: followers, l: 'followers', tab: 'followers' as const },
             { n: following, l: 'following', tab: 'following' as const },
