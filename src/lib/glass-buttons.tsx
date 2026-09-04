@@ -155,12 +155,35 @@ export function useGlassOccluder(): (el: HTMLElement | null) => void {
 }
 
 const activeListeners = new Set<(active: boolean) => void>();
+/** While a finger drives the page (the swipe-back gesture), the native
+ *  mirror cannot keep up — it measures the DOM a bridge-hop late and the
+ *  buttons visibly trail, then jump. So for the length of the gesture every
+ *  button stands down to its CSS fallback, which rides the transform like
+ *  any other pixel, and native takes over again once the page is at rest. */
+let suspendedAll = false;
+const isActive = (): boolean => supported && !suspendedAll;
 
 function setSupported(next: boolean): void {
   if (next === supported) return;
   supported = next;
-  for (const fn of activeListeners) fn(next);
+  for (const fn of activeListeners) fn(isActive());
   if (!next) {
+    lastPayload = '';
+    void LiquidGlass.clearGlassButtons().catch(() => {});
+  } else {
+    wake();
+  }
+}
+
+/** Hand every glass button to its CSS fallback (true) or back to native
+ *  (false). Idempotent; the swipe-back gesture calls it around its drag. */
+export function setGlassSuspended(next: boolean): void {
+  if (next === suspendedAll) return;
+  suspendedAll = next;
+  for (const fn of activeListeners) fn(isActive());
+  if (next) {
+    // Native goes first, in the same frame the fallbacks paint — the
+    // registry empties as each button re-renders, but that is a render away.
     lastPayload = '';
     void LiquidGlass.clearGlassButtons().catch(() => {});
   } else {
@@ -380,11 +403,11 @@ let started = false;
 
 /** Whether the native layer has taken the buttons over. */
 export function useGlassButtonsActive(): boolean {
-  const [active, setActive] = useState(supported);
+  const [active, setActive] = useState(isActive());
   useEffect(() => {
     if (!started) { started = true; ensureStarted(); }
     activeListeners.add(setActive);
-    setActive(supported);
+    setActive(isActive());
     return () => { activeListeners.delete(setActive); };
   }, []);
   return active;
@@ -484,6 +507,10 @@ export const GlassButton: React.FC<{
       aria-hidden={active || undefined}
       tabIndex={active ? -1 : undefined}
       disabled={disabled}
+      // Marks a natively-owned button for the swipe-back snapshot, which
+      // clones the page: the clone gets the CSS fallback in this spot, so
+      // the destination preview isn't a page with holes where its glass was.
+      data-glass-native={active ? '' : undefined}
       // While native owns the button, any background the caller's classes
       // paint must go: the glass samples the page through itself, so a CSS
       // chip left under it reads as a gray disc inside the glass.

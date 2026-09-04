@@ -430,7 +430,7 @@ const AppContent: React.FC = () => {
   const isTabSwitchNav = TAB_SWITCH_PATHS.has(location.pathname) && navType !== 'POP';
   const stackInstant = instantNav || isTabSwitchNav;
   // PUSH and POP slide in opposite directions (iOS). On a push the new page
-  // drives in from the right ABOVE the old one, which parks 30% off to the
+  // drives in from the right ABOVE the old one, which parks 35% off to the
   // left, slightly dimmed (the iOS parallax); on a pop the old page slides
   // off to the RIGHT above the parked page gliding back to center. The exit
   // used to be x:'100%' unconditionally, so pushing detail→detail played the
@@ -471,7 +471,7 @@ const AppContent: React.FC = () => {
       // and dimmed — the mirror of the presenter's exit below.
       if (fromSheet) return { scale: 0.94, filter: 'brightness(0.82)' };
       // Pop: re-emerge from the parked parallax slot, brightening.
-      return pop ? { x: '-30%', filter: 'brightness(0.85)' } : { x: '100%' };
+      return pop ? { x: '-35%', filter: 'brightness(0.85)' } : { x: '100%' };
     },
     center: ({ instant }: StackNav) => ({
       x: 0,
@@ -502,7 +502,7 @@ const AppContent: React.FC = () => {
               ? { x: '100%', zIndex: 10 }
               // Push: park left + dim under the newcomer (which paints above
               // by DOM order), then unmount invisibly behind it.
-              : { x: '-30%', filter: 'brightness(0.8)', zIndex: 0 }),
+              : { x: '-35%', filter: 'brightness(0.8)', zIndex: 0 }),
           }),
       transition: instant ? { duration: 0 } : motionTransition,
     }),
