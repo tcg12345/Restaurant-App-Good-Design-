@@ -13,7 +13,7 @@
   --rcx-hairline-strong: #e4dfd7;
   --rcx-chip: #f0ede7;
   --rcx-card: #ffffff;
-  --rcx-accent: var(--color-primary, #4b5670);
+  --rcx-accent: var(--color-primary, #2b2622);
   --rcx-green: #1e7a55;
   --rcx-amber: #e0a030;
   --rcx-serif: var(--font-serif, 'Noto Serif', Georgia, serif);
@@ -169,7 +169,7 @@
   height: 42px;
   border-radius: 999px;
   background: rgba(159, 48, 18, 0.08);
-  color: var(--color-primary, #4b5670);
+  color: var(--color-primary, #2b2622);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1713,7 +1713,7 @@
   --rcx-hairline-strong: #e4dfd7;
   --rcx-chip: #f0ede7;
   --rcx-card: #ffffff;
-  --rcx-accent: var(--color-primary, #4b5670);
+  --rcx-accent: var(--color-primary, #2b2622);
   position: fixed;
   z-index: 260;
   min-width: 196px;

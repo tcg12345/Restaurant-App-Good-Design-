@@ -56,7 +56,7 @@ export const TasteSummaryCard: React.FC<{
     >
       <span className="flex items-center justify-between gap-2">
         <span
-          className="truncate text-primary"
+          className="truncate text-tint-ink"
           style={{ fontSize: '10.5px', fontWeight: 700, letterSpacing: '0.16em', textTransform: 'uppercase' }}
         >
           {eyebrow}
@@ -109,7 +109,7 @@ export const TasteSummaryCard: React.FC<{
       <span className="mt-3.5 flex items-center gap-3">
         <span className="block h-1 flex-1 overflow-hidden rounded-full bg-on-surface/[0.09]" aria-hidden>
           <span
-            className="block h-full rounded-full bg-primary"
+            className="block h-full rounded-full bg-tint"
             style={{ width: `${Math.max(2, standing.progress * 100)}%` }}
           />
         </span>
@@ -123,7 +123,7 @@ export const TasteSummaryCard: React.FC<{
           {chips.map((chip) => (
             <span
               key={chip}
-              className="rounded-full bg-primary/[0.12] text-primary"
+              className="rounded-full bg-tint/[0.12] text-tint-ink"
               style={{ padding: '5px 10px', fontSize: '11.5px', fontWeight: 600 }}
             >
               {chip}

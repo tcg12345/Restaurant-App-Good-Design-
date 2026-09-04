@@ -6,7 +6,7 @@
  * stylesheet has applied.
  */
 export function primaryHex(): string {
-  if (typeof document === 'undefined') return '#4b5670';
+  if (typeof document === 'undefined') return '#2b2622';
   const v = getComputedStyle(document.documentElement).getPropertyValue('--color-primary').trim();
-  return v || '#4b5670';
+  return v || '#2b2622';
 }
