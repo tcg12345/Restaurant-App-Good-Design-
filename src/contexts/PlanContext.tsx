@@ -53,11 +53,14 @@ export interface PlanValue {
 const Ctx = createContext<PlanValue | null>(null);
 
 /** Development only: `VITE_PLAN_PREVIEW=free` shows every gate as a free
- *  user would see it, whatever the server says. Keyed on the build MODE,
- *  not DEV: `vite build --mode development` still sets DEV=false (Vite
- *  ties DEV to NODE_ENV), while `npm run build` and Vercel are always
- *  mode 'production', where this is ignored. */
+ *  user would see it, whatever the server says; `=pro` the reverse, so a
+ *  Pro-only flow can be walked on a test account (the server still
+ *  refuses a forged call). Keyed on the build MODE, not DEV:
+ *  `vite build --mode development` still sets DEV=false (Vite ties DEV
+ *  to NODE_ENV), while `npm run build` and Vercel are always mode
+ *  'production', where both are ignored. */
 const PREVIEW_FREE = import.meta.env.MODE !== 'production' && import.meta.env.VITE_PLAN_PREVIEW === 'free';
+const PREVIEW_PRO = import.meta.env.MODE !== 'production' && import.meta.env.VITE_PLAN_PREVIEW === 'pro';
 
 const FREE: Omit<PlanValue, 'refresh' | 'refreshQuota' | 'checked' | 'earlyAccess'> = {
   subscribed: false, isPro: true, gatesEnabled: false, proUntil: null, willRenew: null, source: null, grantUntil: null, quota: null,
@@ -94,7 +97,7 @@ export const PlanProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setState((prev) => ({
         checked: true,
         subscribed: !!c.is_pro,
-        isPro: PREVIEW_FREE ? false : c.effective_plan !== 'free',
+        isPro: PREVIEW_FREE ? false : PREVIEW_PRO ? true : c.effective_plan !== 'free',
         gatesEnabled: PREVIEW_FREE || !!c.gates_enabled,
         proUntil: row?.pro_until ?? null,
         willRenew: row?.pro_will_renew ?? null,

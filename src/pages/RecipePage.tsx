@@ -32,7 +32,7 @@ import { usePlan } from '../contexts/PlanContext';
 import { ProTag } from '../components/pro/ProMark';
 import { NutritionPanel } from '../components/recipe/NutritionPanel';
 import type { RecipeNutrition } from '../lib/nutrition';
-import { useLists, recipeToHomeMeal, DEFAULT_COOKED_ID, type HomeMeal, type LinkedRecipeRef, type PhotoItem, type CombinedFromRef} from '../contexts/ListsContext';
+import { useLists, recipeToHomeMeal, DEFAULT_COOKED_ID, type HomeMeal, type LinkedRecipeRef, type PhotoItem, type CombinedFromRef, type RecreatedFromRef} from '../contexts/ListsContext';
 import { compressImage } from '../lib/media-compress';
 import { useRecipes, type Recipe, type RecipeIngredient, type RecipeReview } from '../contexts/RecipesContext';
 import {
@@ -354,12 +354,22 @@ type UnifiedRecipe = {
   /** Combine provenance — the parents this recipe was AI-merged from.
    *  Outranks both the Imported and AI notes. */
   combinedFrom?: CombinedFromRef[];
+  /** "Recreate a dish" provenance — the photo (and restaurant) the AI
+   *  worked from. Shown below Imported, above the plain AI note. */
+  recreatedFrom?: RecreatedFromRef;
   /** Per-serving nutrition (Pro), when anyone has worked it out. */
   nutrition?: RecipeNutrition;
   raw: Recipe | FriendHomeMeal;
 };
 
 /** Human copy for the imported-recipe note. URL sources link out. */
+/** "Recreated from a photo at Kawa Ni" — the provenance note for recipes
+ *  the AI reverse-engineered from a dish photo. Sits between the Imported
+ *  note and the plain AI note (such recipes also carry createdWithAi). */
+function recreatedNote(r: RecreatedFromRef): string {
+  return r.restaurantName ? `Recreated from a photo at ${r.restaurantName}` : 'Recreated from a photo';
+}
+
 function importedNote(raw: string): { label: string; href?: string } {
   if (raw === 'photo') return { label: 'Imported from a photo' };
   if (raw === 'text') return { label: 'Imported' };
@@ -483,6 +493,7 @@ function adaptHomeMeal(m: FriendHomeMeal): UnifiedRecipe {
     linkedRecipes?: LinkedRecipeRef[];
     createdWithAi?: boolean;
     importedFrom?: string;
+    recreatedFrom?: RecreatedFromRef;
   };
   // If this meal was saved from another user, the original author owns
   // the recipe view — not the user who copied it. Attributing ownerId
@@ -528,6 +539,7 @@ function adaptHomeMeal(m: FriendHomeMeal): UnifiedRecipe {
     createdWithAi: adv.createdWithAi,
     importedFrom: adv.importedFrom,
     combinedFrom: adv.combinedFrom,
+    recreatedFrom: adv.recreatedFrom,
     sourceAuthorName: m.sourceAuthorName,
     sourceAuthorUsername: m.sourceAuthorUsername,
     raw: m,
@@ -1047,6 +1059,7 @@ export const RecipePage: React.FC = () => {
       createdWithAi: data.createdWithAi || undefined,
       importedFrom: data.importedFrom || undefined,
       combinedFrom: data.combinedFrom,
+      recreatedFrom: data.recreatedFrom,
       builderVersion: data.ingredientGroups || data.stepDetails ? 'advanced' : 'basic',
       ...(isAnotherUsers ? {
         sourceAuthorId: data.ownerId,
@@ -1648,7 +1661,12 @@ export const RecipePage: React.FC = () => {
                 <span>{note.label}</span>
               </div>
             );
-          })() : data.createdWithAi ? (
+          })() : data.recreatedFrom ? (
+            <div className="rd-ai-note" role="note">
+              <Camera />
+              <span>{recreatedNote(data.recreatedFrom)}</span>
+            </div>
+          ) : data.createdWithAi ? (
             <div className="rd-ai-note" role="note">
               <Sparkles />
               <span>Created with AI</span>
@@ -2931,7 +2949,12 @@ const MobileRecipeView: React.FC<MobileViewProps> = ({
               <span>{note.label}</span>
             </div>
           );
-        })() : data.createdWithAi ? (
+        })() : data.recreatedFrom ? (
+          <div className="rdm-ai-note" role="note">
+            <Camera />
+            <span>{recreatedNote(data.recreatedFrom)}</span>
+          </div>
+        ) : data.createdWithAi ? (
           <div className="rdm-ai-note" role="note">
             <Sparkles />
             <span>Created with AI</span>

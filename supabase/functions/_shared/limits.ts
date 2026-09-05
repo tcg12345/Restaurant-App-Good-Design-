@@ -61,22 +61,23 @@ export async function enforceRateLimit(
  * `maxBytes`. Returns { body } on success, or { response } (413 / 400, CORS
  * attached) to send straight back. The stream is counted as it arrives, so a
  * missing or lying Content-Length header can't sneak an oversized payload
- * through.
+ * through. `bytes` is the size actually read, for callers whose cap
+ * depends on the mode they only learn from the parsed body.
  */
 export async function readJsonBody<T>(
   req: Request,
   maxBytes: number,
-): Promise<{ body: T } | { response: Response }> {
+): Promise<{ body: T; bytes: number } | { response: Response }> {
   const tooLarge = () => ({ response: jsonResponse(413, 'Request body is too large.') });
 
   const declared = Number(req.headers.get('content-length'));
   if (Number.isFinite(declared) && declared > maxBytes) return tooLarge();
 
   let text = '';
+  let total = 0;
   if (req.body) {
     const reader = req.body.getReader();
     const chunks: Uint8Array[] = [];
-    let total = 0;
     for (;;) {
       const { done, value } = await reader.read();
       if (done) break;
@@ -97,7 +98,7 @@ export async function readJsonBody<T>(
   }
 
   try {
-    return { body: JSON.parse(text) as T };
+    return { body: JSON.parse(text) as T, bytes: total };
   } catch {
     return { response: jsonResponse(400, 'Invalid JSON body') };
   }

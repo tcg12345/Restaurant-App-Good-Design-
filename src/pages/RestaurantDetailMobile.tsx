@@ -54,6 +54,7 @@ import { ScoreBadge } from '../components/ScoreBadge';
 import { useRestaurantDetail, formatReviewCount, getTodayHours, getCuisineLabel } from './useRestaurantDetail';
 import { MichelinBadge } from '../components/MichelinBadge';
 import { useLists } from '../contexts/ListsContext';
+import { usePaywall } from '../contexts/PaywallContext';
 import { useToast } from '../contexts/ToastContext';
 import { useChat, type SharedRestaurant } from '../contexts/ChatContext';
 import { ShareDialog } from '../components/ShareDialog';
@@ -143,7 +144,8 @@ export const RestaurantDetailMobile: React.FC = () => {
   const [cuisinePickerOpen, setCuisinePickerOpen] = useState(false);
   const { showToast } = useToast();
 
-  const { toggleWishlist, isWishlisted, getRating, openAddRestaurantModal, deleteVisit, scoresUnlocked } = useLists();
+  const { toggleWishlist, isWishlisted, getRating, openAddRestaurantModal, deleteVisit, scoresUnlocked, openHomeMealModal } = useLists();
+  const { requirePro } = usePaywall();
 
   /* ── "Ask about this place" ────────────────────────────────────────
      Pins the chat to this restaurant and opens it. The digest is built
@@ -1293,6 +1295,19 @@ export const RestaurantDetailMobile: React.FC = () => {
             name={place.name}
             initialIndex={photoIndex}
             onClose={() => setGalleryOpen(false)}
+            onRecreate={(p) => {
+              // Gate first: the modal's deep link skips the chooser's own
+              // Pro check. A purchase lands right back here.
+              const open = () => {
+                setGalleryOpen(false);
+                openHomeMealModal(undefined, {
+                  initialMethod: 'dish',
+                  dishPhoto: { url: p.rawUrl || p.url, caption: p.caption || undefined, restaurantId: place.id, restaurantName: place.name, ownerUserId: p.ownerUserId },
+                });
+              };
+              if (!requirePro('recipe-photo', { onUnlocked: open })) return;
+              open();
+            }}
           />
         )}
       </AnimatePresence>

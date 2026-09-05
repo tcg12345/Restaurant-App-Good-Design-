@@ -13,6 +13,7 @@ import { ScoreHistory } from '../components/ScoreHistory';
 import { useRestaurantDetail, formatReviewCount, getTodayHours, getCuisineLabel } from './useRestaurantDetail';
 import { MichelinBadge } from '../components/MichelinBadge';
 import { useLists } from '../contexts/ListsContext';
+import { usePaywall } from '../contexts/PaywallContext';
 import { useToast } from '../contexts/ToastContext';
 import { type SharedRestaurant } from '../contexts/ChatContext';
 import { ShareDialog } from '../components/ShareDialog';
@@ -103,7 +104,8 @@ export const RestaurantDetailDesktop: React.FC = () => {
   const [hoursOpen, setHoursOpen] = useState(false);
   const [myRatingOpen, setMyRatingOpen] = useState(true);
 
-  const { toggleWishlist, isWishlisted, getRating, openAddRestaurantModal, deleteVisit, scoresUnlocked } = useLists();
+  const { toggleWishlist, isWishlisted, getRating, openAddRestaurantModal, deleteVisit, scoresUnlocked, openHomeMealModal } = useLists();
+  const { requirePro } = usePaywall();
   const friendsDetailScrollRef = useRef<HTMLDivElement | null>(null);
   const { dragProps: friendsDetailDragProps, sheetRef: friendsDetailSheetRef } = useBottomSheet(showFriendsDetail, () => setShowFriendsDetail(false), friendsDetailScrollRef);
   const { user } = useAuth();
@@ -859,7 +861,24 @@ export const RestaurantDetailDesktop: React.FC = () => {
       {/* Photo Gallery Modal */}
       <AnimatePresence>
         {galleryOpen && photos.length > 0 && (
-          <PhotoGallery photos={photos} communityPhotos={communityPhotos} name={place.name} initialIndex={photoIndex} onClose={() => setGalleryOpen(false)} />
+          <PhotoGallery
+            photos={photos}
+            communityPhotos={communityPhotos}
+            name={place.name}
+            initialIndex={photoIndex}
+            onClose={() => setGalleryOpen(false)}
+            onRecreate={(p) => {
+              const open = () => {
+                setGalleryOpen(false);
+                openHomeMealModal(undefined, {
+                  initialMethod: 'dish',
+                  dishPhoto: { url: p.rawUrl || p.url, caption: p.caption || undefined, restaurantId: place.id, restaurantName: place.name, ownerUserId: p.ownerUserId },
+                });
+              };
+              if (!requirePro('recipe-photo', { onUnlocked: open })) return;
+              open();
+            }}
+          />
         )}
       </AnimatePresence>
 

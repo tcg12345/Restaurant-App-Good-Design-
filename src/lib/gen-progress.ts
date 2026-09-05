@@ -15,7 +15,7 @@
  * 96% instead of lying and finishing early.
  */
 
-export type GenKind = 'recipe' | 'ideas' | 'combine';
+export type GenKind = 'recipe' | 'ideas' | 'combine' | 'photo';
 
 export interface GenExpectation {
   /** Characters of tool JSON a typical response carries. */
@@ -28,6 +28,8 @@ const DEFAULTS: Record<GenKind, GenExpectation> = {
   recipe: { chars: 9000, ms: 32000 },
   ideas: { chars: 1800, ms: 7000 },
   combine: { chars: 9000, ms: 34000 },
+  // Opus reading one image runs a few seconds longer than a text create.
+  photo: { chars: 9000, ms: 36000 },
 };
 
 const STORAGE_KEY = 'goodeats-ai-gen-stats';

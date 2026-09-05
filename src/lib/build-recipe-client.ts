@@ -54,6 +54,25 @@ export interface IngredientEdit {
   replacement?: string;
 }
 
+/** Options for `generateRecipeFromPhoto` ("Recreate a dish"). */
+export interface PhotoRecipeOptions {
+  /** What the cook knows about the dish — its name, the restaurant, a
+   *  change they want ("make it vegetarian"). Optional. */
+  hint?: string;
+  difficulty?: 'Easy' | 'Medium' | 'Hard';
+  constraints?: RecipeConstraints;
+  signal?: AbortSignal;
+  onProgress?: ProgressCallback;
+}
+
+export interface PhotoRecipeResult extends GenerateRecipeResult {
+  /** True when the model judged the photo does not show a prepared dish
+   *  (no food, a menu, a printed recipe…). `declineReason` is user-facing
+   *  and is also copied into `error` so generic error rendering works. */
+  declined?: boolean;
+  declineReason?: string;
+}
+
 export interface IngredientEditResult extends GenerateRecipeResult {
   /** True when the AI judged the change would compromise the dish and
    *  left the recipe untouched. `declineReason` says why (user-facing). */
@@ -254,6 +273,31 @@ export async function generateRecipe(
   if (error) return { ok: false, error, code, resetsAt };
   const meal = recipe ? buildRecipeInputToHomeMeal(recipe) : null;
   if (!meal) return { ok: false, error: "I couldn't generate that recipe. Try rephrasing your request." };
+  return { ok: true, meal, recipe };
+}
+
+/**
+ * Recreate the dish in a photo. `dataUrl` is a JPEG/PNG/WebP data URL
+ * (see lib/dish-photo `prepareDishPhoto`). The model may decline when the
+ * photo shows no prepared dish — surfaced as `declined` + `declineReason`
+ * so the caller can keep the photo and ask for a hint. Never throws.
+ */
+export async function generateRecipeFromPhoto(
+  dataUrl: string,
+  opts: PhotoRecipeOptions = {},
+): Promise<PhotoRecipeResult> {
+  const payload: Record<string, unknown> = { dishPhoto: dataUrl };
+  const hint = opts.hint?.trim();
+  if (hint) payload.hint = hint;
+  if (opts.difficulty) payload.difficulty = opts.difficulty;
+  if (opts.constraints && Object.keys(opts.constraints).length > 0) {
+    payload.constraints = opts.constraints;
+  }
+  const { recipe, declineReason, error, code, resetsAt } = await postRecipe(payload, opts.signal, opts.onProgress);
+  if (error) return { ok: false, error, code, resetsAt };
+  if (declineReason) return { ok: false, declined: true, declineReason, error: declineReason };
+  const meal = recipe ? buildRecipeInputToHomeMeal(recipe) : null;
+  if (!meal) return { ok: false, error: "I couldn't work out a recipe from that photo. Try a clearer shot, or add a hint." };
   return { ok: true, meal, recipe };
 }
 

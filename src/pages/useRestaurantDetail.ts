@@ -533,8 +533,10 @@ export function useRestaurantDetail() {
   // Community photos with base64 URLs swapped for their blob equivalents, so
   // the gallery renders reliably on iOS too (same blob URLs the `photos`
   // array uses, so its Google-vs-community split still lines up).
+  // `rawUrl` keeps the stored URL alongside the session blob: anything
+  // that persists a reference to the photo (Recreate a dish) needs it.
   const communityPhotosDisplay = useMemo(
-    () => communityPhotos.map((p) => (photoBlobMap[p.url] ? { ...p, url: photoBlobMap[p.url] } : p)),
+    () => communityPhotos.map((p) => (photoBlobMap[p.url] ? { ...p, url: photoBlobMap[p.url], rawUrl: p.url } : p)),
     [communityPhotos, photoBlobMap],
   );
   const directionsUrl = place
