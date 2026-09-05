@@ -2,11 +2,12 @@
 //
 //   1. CHOOSE — opening the modal for a NEW recipe first shows a compact
 //      method chooser: a short bottom sheet on phone, a centered card on
-//      desktop. Four ways in: web link, photo, from scratch, or AI.
+//      desktop. Six ways in: web link, scan a recipe photo, text, from
+//      scratch, AI, or recreate a dish from a photo of it.
 //   2. FLOW — picking a method transitions into that flow full-size:
-//      the Import panel (link/photo/text), the five-step Builder, or the
-//      AI generator. A "‹ New recipe" chip in each flow's header returns
-//      to the chooser.
+//      the Import panel (link/photo/text), the five-step Builder, the
+//      AI generator, or the dish-photo generator. A "‹ New recipe" chip
+//      in each flow's header returns to the chooser.
 //
 // Editing an existing recipe (or resuming a draft from Activity) skips
 // the chooser and opens the Builder directly — legacy basic recipes
@@ -17,9 +18,9 @@ import React, { useState, useEffect } from 'react';
 import { GlassButton } from '../lib/glass-buttons';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
-import { Sparkles, Link2, Camera, PenLine, ClipboardType, ChevronLeft, ChevronRight, X } from 'lucide-react';
+import { Sparkles, Link2, Camera, ScanLine, PenLine, ClipboardType, ChevronLeft, ChevronRight, X } from 'lucide-react';
 import { cn } from '../lib/utils';
-import { useLists, type HomeMeal } from '../contexts/ListsContext';
+import { useLists, type HomeMeal, type HomeMealMethod, type DishPhotoRef } from '../contexts/ListsContext';
 import { useSettings } from '../contexts/SettingsContext';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../contexts/ToastContext';
@@ -32,29 +33,40 @@ import { wakeGlassButtons } from '../lib/glass-buttons';
 import { ImportRecipePanel } from './ImportRecipePanel';
 import { AdvancedRecipeBuilder } from './AdvancedRecipeBuilder';
 import { AiRecipeGenerator } from './AiRecipeGenerator';
+import { DishPhotoGenerator, type DishPhoto } from './DishPhotoGenerator';
 import { RecipeDraftSheet } from './chat/RecipeDraftSheet';
 import { refineRecipe, editRecipeIngredient, type IngredientEdit, type IngredientEditResult } from '../lib/build-recipe-client';
 import { generateRecipeImage } from '../lib/generate-recipe-image-client';
+import { hostedCoverUrl, mayUseAsCover, recreatedFromOf } from '../lib/dish-photo';
+import { processDataUrl } from '../lib/images';
+import type { FeatureKey } from '../lib/entitlements';
 import { useAiChatHistory } from '../contexts/AiChatHistoryContext';
 import { peekPendingResumeDraftId } from '../lib/recipe-drafts';
 import './RecipeBuilder.css';
 
-type BuilderMode = 'import' | 'advanced' | 'ai';
+type BuilderMode = 'import' | 'advanced' | 'ai' | 'dish';
 type Stage = 'choose' | 'flow';
-type Method = 'link' | 'photo' | 'text' | 'custom' | 'ai';
+type Method = HomeMealMethod;
 
 /* ── Method chooser ───────────────────────────────────────────── */
 
+// Mirrored verbatim on the Create page (RecipeSurface) — keep in sync.
 const METHODS: Array<{ key: Method; icon: React.ReactNode; title: string; sub: string }> = [
   { key: 'link', icon: <Link2 size={17} strokeWidth={2} />, title: 'From a web link', sub: 'Paste a link from any recipe site' },
-  { key: 'photo', icon: <Camera size={17} strokeWidth={2} />, title: 'From a photo', sub: 'A cookbook page, screenshot, or card' },
+  { key: 'photo', icon: <ScanLine size={17} strokeWidth={2} />, title: 'Scan a recipe', sub: 'A cookbook page, screenshot, or card' },
   { key: 'text', icon: <ClipboardType size={17} strokeWidth={2} />, title: 'From text', sub: 'Paste a recipe you already have' },
   { key: 'custom', icon: <PenLine size={17} strokeWidth={2} />, title: 'Start from scratch', sub: 'Build it step by step' },
   { key: 'ai', icon: <Sparkles size={17} strokeWidth={2} />, title: 'Create with AI', sub: 'Describe it, get a complete draft' },
+  { key: 'dish', icon: <Camera size={17} strokeWidth={2} />, title: 'Recreate a dish', sub: 'Photograph a plate, get the recipe' },
 ];
 
-/** Which chooser rows are Pro-only (they stay in the list, tagged). */
-const PRO_METHODS: ReadonlySet<Method> = new Set<Method>(['photo']);
+/** The Pro-only chooser rows and the entitlement each one asks for.
+ *  Rows stay in the list, tagged; a tap opens the paywall instead. */
+const PRO_FEATURE_BY_METHOD: Partial<Record<Method, FeatureKey>> = {
+  photo: 'recipe-import-photo',
+  dish: 'recipe-photo',
+};
+const PRO_METHODS: ReadonlySet<Method> = new Set<Method>(Object.keys(PRO_FEATURE_BY_METHOD) as Method[]);
 
 const MethodChooser: React.FC<{
   phoneMode: boolean;
@@ -106,7 +118,7 @@ const MethodChooser: React.FC<{
 
 export const AddHomeMealModal: React.FC = () => {
   const {
-    homeMealModalOpen, homeMealModalData, homeMealModalBackToDraft, homeMealModalTargetListId, homeMealModalInitialMethod, homeMealModalInitialAiView, homeMealModalSeed, closeHomeMealModal,
+    homeMealModalOpen, homeMealModalData, homeMealModalBackToDraft, homeMealModalTargetListId, homeMealModalInitialMethod, homeMealModalInitialAiView, homeMealModalSeed, homeMealModalDishPhoto, closeHomeMealModal,
     createHomeMeal, addRecipeToList,
   } = useLists();
   const { phoneMode } = useSettings();
@@ -137,6 +149,10 @@ export const AddHomeMealModal: React.FC = () => {
      the chooser and manually picking "Create with AI" in the same open
      must land on the normal prompt hero, not re-read 'ideas'. */
   const [aiView, setAiView] = useState<'recipe' | 'ideas' | null>(null);
+  /* Same consume-once discipline for a dish photo handed in from the
+     restaurant gallery: it seeds the Recreate-a-dish flow on THIS open
+     only, and a manual pick of the row starts with an empty slot. */
+  const [dishSeed, setDishSeed] = useState<DishPhotoRef | null>(null);
 
   // Each open decides the entry point: editing an existing recipe or
   // resuming a draft skips the chooser; a preselected method (from the
@@ -145,6 +161,7 @@ export const AddHomeMealModal: React.FC = () => {
   useEffect(() => {
     if (!homeMealModalOpen) return;
     setAiView(homeMealModalInitialAiView);
+    setDishSeed(homeMealModalDishPhoto);
     // An externally-handed draft (recipe-page Combine) outranks everything:
     // it is a NEW recipe to review, never an edit — `existing` means edit
     // and publishes over the original.
@@ -166,6 +183,7 @@ export const AddHomeMealModal: React.FC = () => {
     } else if (homeMealModalInitialMethod) {
       if (homeMealModalInitialMethod === 'custom') setMode('advanced');
       else if (homeMealModalInitialMethod === 'ai') setMode('ai');
+      else if (homeMealModalInitialMethod === 'dish') setMode('dish');
       else {
         setMode('import');
         setImportTab(homeMealModalInitialMethod);
@@ -174,7 +192,7 @@ export const AddHomeMealModal: React.FC = () => {
     } else {
       setStage('choose');
     }
-  }, [homeMealModalOpen, existing, homeMealModalInitialMethod, homeMealModalInitialAiView, homeMealModalSeed]);
+  }, [homeMealModalOpen, existing, homeMealModalInitialMethod, homeMealModalInitialAiView, homeMealModalSeed, homeMealModalDishPhoto]);
 
   // Reset transient state whenever the modal closes so the next open
   // starts clean.
@@ -184,6 +202,7 @@ export const AddHomeMealModal: React.FC = () => {
       setSeed(null);
       setSeedKind('ai');
       setAiView(null);
+      setDishSeed(null);
       setStage('choose');
       setMode('advanced');
     }
@@ -234,12 +253,15 @@ export const AddHomeMealModal: React.FC = () => {
   const handlePickMethod = (m: Method) => {
     // A Pro-only method opens the paywall instead; a purchase lands the
     // person where they were headed.
-    if (PRO_METHODS.has(m) && !requirePro('recipe-import-photo', { onUnlocked: () => handlePickMethod(m) })) return;
-    // A manual pick is a fresh decision — the preselected AI view must
-    // not leak into it (see aiView above).
+    const feature = PRO_FEATURE_BY_METHOD[m];
+    if (feature && !requirePro(feature, { onUnlocked: () => handlePickMethod(m) })) return;
+    // A manual pick is a fresh decision — the preselected AI view and the
+    // handed-in dish photo must not leak into it (see aiView above).
     setAiView(null);
+    setDishSeed(null);
     if (m === 'custom') setMode('advanced');
     else if (m === 'ai') setMode('ai');
+    else if (m === 'dish') setMode('dish');
     else {
       setMode('import');
       setImportTab(m);
@@ -255,6 +277,45 @@ export const AddHomeMealModal: React.FC = () => {
   const handleAiGenerated = (meal: HomeMeal, meta?: { prompt: string; rawInput: unknown }) => {
     setAiDraft(meal);
     if (meta) addGeneratedRecipeChat({ prompt: meta.prompt, draft: meal, rawInput: meta.rawInput });
+  };
+
+  // The camera in the AI prompt bar: same door as the chooser row, same
+  // gate. Switching mode inside the flow stage swaps the panel in place.
+  const handleOpenDish = () => {
+    if (!requirePro('recipe-photo', { onUnlocked: () => setMode('dish') })) return;
+    setDishSeed(null);
+    setMode('dish');
+  };
+
+  // Hand-off from the dish-photo generator. Provenance always; the photo
+  // as cover only when it is the user's own (another member's community
+  // photo is never copied). An own photo already on Storage is reused as
+  // is; a fresh capture is shown at once and swapped for its uploaded
+  // URL when the upload lands (processDataUrl falls back to inline).
+  const handleDishGenerated = (meal: HomeMeal, meta: { prompt: string; rawInput: unknown }, photo: DishPhoto) => {
+    const draft: HomeMeal = { ...meal, createdWithAi: true, recreatedFrom: recreatedFromOf(photo.origin, userId) };
+    const withCover = (m: HomeMeal, url: string): HomeMeal => ({
+      ...m,
+      coverPhoto: url,
+      photos: [{ url, caption: '', isFavorite: false }, ...(m.photos || []).filter((p) => p.url !== url && p.url !== photo.dataUrl)],
+    });
+    if (mayUseAsCover(photo.origin, userId)) {
+      const hosted = hostedCoverUrl(photo.origin);
+      if (hosted) {
+        setAiDraft(withCover(draft, hosted));
+      } else {
+        setAiDraft(withCover(draft, photo.dataUrl));
+        void processDataUrl(photo.dataUrl)
+          .then((url) => {
+            if (url === photo.dataUrl) return;
+            setAiDraft((prev) => (prev && prev.coverPhoto === photo.dataUrl ? withCover(prev, url) : prev));
+          })
+          .catch(() => { /* inline data URL stays as the cover */ });
+      }
+    } else {
+      setAiDraft(draft);
+    }
+    addGeneratedRecipeChat({ prompt: meta.prompt, draft, rawInput: meta.rawInput });
   };
 
   // Hand-off from the Import tab: the transcription is done — seed the
@@ -441,6 +502,15 @@ export const AddHomeMealModal: React.FC = () => {
                       phoneMode={phoneMode}
                       tabSlot={methodChip}
                       initialView={aiView ?? undefined}
+                      onOpenDish={handleOpenDish}
+                    />
+                  ) : mode === 'dish' ? (
+                    <DishPhotoGenerator
+                      onGenerated={handleDishGenerated}
+                      onClose={closeHomeMealModal}
+                      phoneMode={phoneMode}
+                      tabSlot={methodChip}
+                      initialPhoto={dishSeed ?? undefined}
                     />
                   ) : (
                     <ImportRecipePanel

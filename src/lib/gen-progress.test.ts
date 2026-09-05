@@ -25,6 +25,13 @@ describe('gen-progress', () => {
   it('falls back to defaults with nothing recorded', () => {
     expect(loadExpectation('ideas').chars).toBeGreaterThan(0);
     expect(loadExpectation('recipe').ms).toBeGreaterThan(loadExpectation('ideas').ms);
+    expect(loadExpectation('photo').ms).toBeGreaterThanOrEqual(loadExpectation('recipe').ms);
+  });
+
+  it('calibrates the photo kind independently of recipes', () => {
+    recordGeneration('photo', { chars: 4000, ms: 20000 });
+    expect(loadExpectation('photo').ms).toBeLessThan(36000);
+    expect(loadExpectation('recipe').ms).toBe(32000);
   });
 
   it('creeps on time while nothing has streamed, capped at a quarter', () => {

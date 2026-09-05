@@ -30,7 +30,7 @@ import {
   type RecipeNote,
   type RecipeStepDetail,
   type RecipeStepGroup,
-  type CombinedFromRef,
+  type CombinedFromRef, type RecreatedFromRef,
 } from '../contexts/ListsContext';
 import { flattenIngredientGroups } from '../lib/ingredient-parsing';
 import { refineRecipe } from '../lib/build-recipe-client';
@@ -97,6 +97,8 @@ export interface AdvancedRecipeState {
    *  from an imported seed so the "Imported from …" note survives editing
    *  + publishing. Not user-editable. */
   importedFrom: string;
+  /** "Recreate a dish" provenance — same carry-through rule. */
+  recreatedFrom: RecreatedFromRef | null;
 }
 
 /** Serif step titles for the header. Five steps: the old Basics+Timing
@@ -211,6 +213,7 @@ function emptyState(): AdvancedRecipeState {
     createdWithAi: false,
     combinedFrom: [],
     importedFrom: '',
+    recreatedFrom: null,
   };
 }
 
@@ -261,6 +264,7 @@ function fromHomeMeal(meal: HomeMeal): AdvancedRecipeState {
     createdWithAi: !!meal.createdWithAi,
     combinedFrom: meal.combinedFrom || [],
     importedFrom: meal.importedFrom || '',
+    recreatedFrom: meal.recreatedFrom ?? null,
   };
 }
 
@@ -312,6 +316,7 @@ function stateToHomeMeal(state: AdvancedRecipeState, base?: HomeMeal | null): Ho
     createdWithAi: state.createdWithAi || undefined,
     combinedFrom: state.combinedFrom.length > 0 ? state.combinedFrom : undefined,
     importedFrom: state.importedFrom || undefined,
+    recreatedFrom: state.recreatedFrom ?? undefined,
     // The builder has no nutrition fields; an edit keeps what was there.
     nutrition: base?.nutrition,
     // Preserve source attribution if somehow present (defensive — saved
@@ -923,6 +928,7 @@ export const AdvancedRecipeBuilder: React.FC<AdvancedRecipeBuilderProps> = ({ ex
       createdWithAi: state.createdWithAi || undefined,
       combinedFrom: state.combinedFrom.length > 0 ? state.combinedFrom : undefined,
       importedFrom: state.importedFrom || undefined,
+      recreatedFrom: state.recreatedFrom ?? undefined,
     };
 
     // Clear both the autoresume slot AND the explicit Activity draft

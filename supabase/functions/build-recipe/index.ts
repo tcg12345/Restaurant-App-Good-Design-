@@ -17,6 +17,10 @@
 //   { combine: { sources, notes? }, constraints? } — merge 2-3 sources
 //   { nutritionFor: recipe }                 — per-serving nutrition estimate (Pro)
 //     (ideas and/or full recipes) into ONE new recipe
+//   { dishPhoto: dataUrl, hint?, difficulty?, constraints? } — "Recreate a
+//     dish": ONE photo of a plated dish, read with Opus vision, authored
+//     into a recipe; the model may DECLINE (decline_change) when the
+//     photo shows no prepared dish. Pro-only bucket 'build-recipe-photo'.
 // Response: Anthropic SSE stream (success) or { error } JSON (failure)
 //
 // The Anthropic API key lives as a Supabase secret (`ANTHROPIC_API_KEY`)
@@ -59,6 +63,22 @@ const MAX_PROMPT_CHARS = 2000;
 // can't starve someone's actual recipe builds. The body cap fits the
 // largest legit payload (a full recipe JSON + instruction) many times over.
 const MAX_BODY_BYTES = 256 * 1024;
+// The photo mode carries one base64 JPEG (≤1600px, ~300–900 KB) — the
+// body is read with this cap and every OTHER mode is re-checked against
+// MAX_BODY_BYTES once the mode is known.
+const MAX_DISH_BODY_BYTES = 8 * 1024 * 1024;
+const MAX_DISH_B64_CHARS = 6_500_000; // ≈ 4.8MB binary, as import-recipe
+const MAX_HINT_CHARS = 600;
+const IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif']);
+
+function parseImageDataUrl(raw: string): { media_type: string; data: string } | null {
+  const m = raw.match(/^data:(image\/[a-z+]+);base64,([A-Za-z0-9+/=]+)$/);
+  if (!m) return null;
+  const mediaType = m[1].toLowerCase();
+  if (!IMAGE_TYPES.has(mediaType)) return null;
+  if (m[2].length > MAX_DISH_B64_CHARS) return null;
+  return { media_type: mediaType, data: m[2] };
+}
 
 const SYSTEM_PROMPT = [
   'You are a meticulous recipe developer. Given a short description, you author ONE complete, REAL, testable recipe and return it by calling the `build_recipe` tool. You do not chat, ask questions, or add commentary — you always call the tool exactly once.',
@@ -200,6 +220,41 @@ const TOOL_DECLINE_CHANGE = {
   },
 };
 
+// "Recreate a dish" — an AUTHOR, not import-recipe's transcriber: the
+// photo shows a finished plate, and the job is to reverse-engineer it.
+const DISH_PHOTO_SYSTEM_PROMPT = [
+  'You are a meticulous recipe developer who reverse-engineers restaurant dishes. You are shown ONE photo of a plated dish, sometimes with a short note from the cook. Your job is to author ONE complete, REAL, testable recipe that lets a home cook recreate that dish, and return it by calling the `build_recipe` tool exactly once. You do not chat or add commentary.',
+  '',
+  'How to work:',
+  '- Read the photo closely first: the main components, sauces and garnishes, visible cooking methods (char, sear crust, glaze, crumb, emulsion), textures, portioning and plating. Name the dish as what it actually is.',
+  '- The cook\'s note is authoritative when it names the dish, the restaurant, or a style. When it asks for a change ("make it vegetarian"), write a faithful version that honors the change and say so in the summary.',
+  '- Every ingredient and step must be justified by what is in the photo or what the dish classically requires — do not pad with components you cannot see and the dish does not need.',
+  '- `summary` is one line naming the dish. `introParagraph` (2–3 sentences) says what in the photo informed the recipe. Add one `tip` note on plating it like the photo.',
+  '- Honest timings and quantities for the portion shown, scaled to the requested servings.',
+  '',
+  'When the photo does NOT show a prepared dish — no food at all, a menu, packaging, a printed or handwritten recipe (suggest "Scan a recipe" for those), or an image too unclear to read — call `decline_change` with a short friendly reason instead. Never invent a dish that is not there.',
+  '',
+  'Quality bar:',
+  RECIPE_QUALITY_BAR,
+].join('\n');
+
+// Same tool NAME as the ingredient-edit escape hatch so the client's
+// stream reader surfaces it as a decline either way.
+const TOOL_DECLINE_PHOTO = {
+  name: 'decline_change',
+  description: 'Report that the photo does not show a prepared dish that can be recreated. Explain briefly and helpfully what the photo shows instead.',
+  input_schema: {
+    type: 'object',
+    required: ['reason'],
+    properties: {
+      reason: {
+        type: 'string',
+        description: '1–2 friendly sentences addressed to the cook: what the photo seems to show and what kind of photo would work.',
+      },
+    },
+  },
+};
+
 // CORS so the native (Capacitor) build can call this cross-origin; the
 // web app is same-origin. Every response must carry these, not just the
 // preflight.
@@ -315,20 +370,31 @@ async function handler(req: Request): Promise<Response> {
     avoidTitles?: string[];
     combine?: { sources?: Array<{ kind?: string; idea?: unknown; recipe?: unknown }>; notes?: string };
     nutritionFor?: unknown;
-  }>(req, MAX_BODY_BYTES);
+    dishPhoto?: string;
+    hint?: string;
+  }>(req, MAX_DISH_BODY_BYTES);
   if ('response' in parsed) return parsed.response;
   const body = parsed.body;
+
+  // Only the photo mode may carry a large body; every text mode keeps
+  // the old cap (the mode isn't known until the body is parsed).
+  const isDishPhoto = typeof body.dishPhoto === 'string' && body.dishPhoto.startsWith('data:image/');
+  if (!isDishPhoto && parsed.bytes > MAX_BODY_BYTES) {
+    return jsonError(413, 'Request body is too large.');
+  }
 
   // Ideas draw from their own bucket; everything that produces a full
   // recipe shares the other. The quota call only reads the Authorization
   // header, so running it after the body parse (to know which mode this
   // is) costs nothing.
-  const isIdeas = typeof body.ideasPrompt === 'string';
-  const isNutrition = !isIdeas && !!body.nutritionFor && typeof body.nutritionFor === 'object';
+  const isIdeas = !isDishPhoto && typeof body.ideasPrompt === 'string';
+  const isNutrition = !isDishPhoto && !isIdeas && !!body.nutritionFor && typeof body.nutritionFor === 'object';
   const quota = await enforceQuota(
     req,
-    isNutrition ? 'nutrition-estimate' : isIdeas ? 'build-recipe-ideas' : 'build-recipe',
-    isNutrition ? 'Nutrition estimates are part of GoodEats Pro.' : isIdeas ? "You've used your recipe ideas for now. %reset%" : "You've used your AI recipe generations for now. %reset%",
+    isDishPhoto ? 'build-recipe-photo' : isNutrition ? 'nutrition-estimate' : isIdeas ? 'build-recipe-ideas' : 'build-recipe',
+    isDishPhoto
+      ? "You've used your dish recreations for now. %reset%"
+      : isNutrition ? 'Nutrition estimates are part of GoodEats Pro.' : isIdeas ? "You've used your recipe ideas for now. %reset%" : "You've used your AI recipe generations for now. %reset%",
   );
   if ('response' in quota) return quota.response;
 
@@ -339,14 +405,16 @@ async function handler(req: Request): Promise<Response> {
   //    ingredient; the model may decline via the decline_change tool)
   //  • ideas           — { ideasPrompt, constraints?, avoidTitles? }
   //  • combine         — { combine: { sources, notes? }, constraints? }
+  //  • dish photo      — { dishPhoto, hint?, difficulty?, constraints? }
+  //    (recreate a plated dish from ONE photo; may decline)
   // Sniffing is unambiguous: refine/ingredient-edit require `current`,
-  // ideas requires the `ideasPrompt` string, combine its own key, and
-  // only a bare `prompt` falls through to create.
+  // ideas requires the `ideasPrompt` string, combine and dishPhoto their
+  // own keys, and only a bare `prompt` falls through to create.
   const instruction = (body.instruction || '').trim().slice(0, MAX_PROMPT_CHARS);
   const ingredientName = (body.ingredientEdit?.ingredient || '').trim().slice(0, 200);
-  const isIngredientEdit = !!ingredientName && !!body.current;
-  const isRefine = !isIngredientEdit && !!instruction && !!body.current;
-  const isCombine = !isIngredientEdit && !isRefine && !isIdeas && !isNutrition && !!body.combine;
+  const isIngredientEdit = !isDishPhoto && !!ingredientName && !!body.current;
+  const isRefine = !isDishPhoto && !isIngredientEdit && !!instruction && !!body.current;
+  const isCombine = !isDishPhoto && !isIngredientEdit && !isRefine && !isIdeas && !isNutrition && !!body.combine;
 
   const readCurrentJson = (): string | null => {
     try {
@@ -356,8 +424,33 @@ async function handler(req: Request): Promise<Response> {
     }
   };
 
-  let messages: Array<{ role: 'user'; content: string }>;
-  if (isNutrition) {
+  type ContentBlock =
+    | { type: 'text'; text: string }
+    | { type: 'image'; source: { type: 'base64'; media_type: string; data: string } };
+  let messages: Array<{ role: 'user'; content: string | ContentBlock[] }>;
+  if (isDishPhoto) {
+    const img = parseImageDataUrl(body.dishPhoto!);
+    if (!img) return jsonError(400, 'That photo could not be read. Use a JPG, PNG, or WebP under 5MB.');
+    const hint = (body.hint || '').trim().slice(0, MAX_HINT_CHARS);
+    const reqs = constraintReqs(body.difficulty, body.constraints);
+    const parts = [
+      'Recreate the dish in this photo as a complete recipe.',
+      hint
+        ? `What the cook knows about it: ${hint}`
+        : 'The cook gave no extra context — identify the dish from the photo alone.',
+      reqs.length > 0
+        ? `Hard requirements — every one is mandatory; re-check the finished recipe against each before returning:\n${reqs.map((r) => `- ${r}`).join('\n')}`
+        : 'No difficulty was specified — write the dish at its natural complexity and set the difficulty field to what the recipe honestly is.',
+      'First decide whether the photo shows a prepared dish. If it does, call build_recipe with the full recipe. If it does not, call decline_change.',
+    ];
+    messages = [{
+      role: 'user',
+      content: [
+        { type: 'image', source: { type: 'base64', media_type: img.media_type, data: img.data } },
+        { type: 'text', text: parts.join('\n\n') },
+      ],
+    }];
+  } else if (isNutrition) {
     let recipeJson: string | null = null;
     try { recipeJson = JSON.stringify(body.nutritionFor).slice(0, 12000); } catch { recipeJson = null; }
     if (!recipeJson) return jsonError(400, 'Could not read the recipe.');
@@ -449,7 +542,9 @@ async function handler(req: Request): Promise<Response> {
     // Streaming sends bytes immediately, so we just proxy Anthropic's
     // SSE straight through and let the client assemble the tool input.
     stream: true,
-    system: isNutrition
+    system: isDishPhoto
+      ? DISH_PHOTO_SYSTEM_PROMPT
+      : isNutrition
       ? NUTRITION_SYSTEM_PROMPT
       : isIngredientEdit
       ? INGREDIENT_EDIT_SYSTEM_PROMPT
@@ -457,16 +552,18 @@ async function handler(req: Request): Promise<Response> {
       : isIdeas ? IDEAS_SYSTEM_PROMPT
       : isCombine ? COMBINE_SYSTEM_PROMPT
       : SYSTEM_PROMPT,
-    // The ingredient-edit mode carries the decline escape hatch; every
-    // other mode forces its single tool so the only possible output is
-    // the structured payload.
-    tools: isNutrition
+    // The ingredient-edit and dish-photo modes carry the decline escape
+    // hatch; every other mode forces its single tool so the only possible
+    // output is the structured payload.
+    tools: isDishPhoto
+      ? [TOOL_BUILD_RECIPE, TOOL_DECLINE_PHOTO]
+      : isNutrition
       ? [TOOL_ESTIMATE_NUTRITION]
       : isIngredientEdit
       ? [TOOL_BUILD_RECIPE, TOOL_DECLINE_CHANGE]
       : isIdeas ? [TOOL_SUGGEST_IDEAS]
       : [TOOL_BUILD_RECIPE],
-    tool_choice: isIngredientEdit
+    tool_choice: (isIngredientEdit || isDishPhoto)
       ? { type: 'any' }
       : { type: 'tool', name: isNutrition ? 'estimate_nutrition' : isIdeas ? 'suggest_recipe_ideas' : 'build_recipe' },
     messages,

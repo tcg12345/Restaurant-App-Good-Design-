@@ -1,14 +1,25 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { X, Search, ChevronLeft, ChevronRight } from 'lucide-react';
+import { X, Search, ChevronLeft, ChevronRight, Sparkles } from 'lucide-react';
 import type { CommunityPhoto } from '../lib/supabase-community';
 import { useBottomSheet } from '../lib/useBottomSheet';
 import { GlassButton } from '../lib/glass-buttons';
 
 interface GalleryPhoto {
   url: string;
+  /** The stored URL when `url` is a session blob: (see useRestaurantDetail). */
+  rawUrl: string;
   caption: string;
   isGoogle: boolean;
+  ownerUserId: string;
+}
+
+/** A photo the viewer can hand to "Recreate a dish". */
+export interface GalleryRecreatePhoto {
+  url: string;
+  rawUrl: string;
+  caption: string;
+  ownerUserId: string;
 }
 
 interface DishGroup {
@@ -18,11 +29,14 @@ interface DishGroup {
 
 export const PhotoGallery: React.FC<{
   photos: string[];
-  communityPhotos: CommunityPhoto[];
+  communityPhotos: Array<CommunityPhoto & { rawUrl?: string }>;
   name: string;
   initialIndex: number;
   onClose: () => void;
-}> = ({ photos, communityPhotos, name, initialIndex, onClose }) => {
+  /** When set, a single expanded member photo carries a small corner
+   *  button that hands the photo to the "Recreate a dish" AI flow. */
+  onRecreate?: (photo: GalleryRecreatePhoto) => void;
+}> = ({ photos, communityPhotos, name, initialIndex, onClose, onRecreate }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [activeDish, setActiveDish] = useState<string | null>(null);
   // Full-screen viewer: index into the CURRENT displayPhotos (the grid the
@@ -36,12 +50,12 @@ export const PhotoGallery: React.FC<{
   // Build unified photo list with captions
   const allPhotos: GalleryPhoto[] = React.useMemo(() => {
     const communityUrls = new Set(communityPhotos.map((p) => p.url));
-    const googlePhotos = photos
+    const googlePhotos: GalleryPhoto[] = photos
       .filter((url) => !communityUrls.has(url))
-      .map((url) => ({ url, caption: '', isGoogle: true }));
-    const userPhotos = communityPhotos
+      .map((url) => ({ url, rawUrl: url, caption: '', isGoogle: true, ownerUserId: '' }));
+    const userPhotos: GalleryPhoto[] = communityPhotos
       .filter((p) => !!p.url && (p.url.startsWith('blob:') || p.url.length < 12_000_000))
-      .map((p) => ({ url: p.url, caption: p.caption || '', isGoogle: false }));
+      .map((p) => ({ url: p.url, rawUrl: p.rawUrl || p.url, caption: p.caption || '', isGoogle: false, ownerUserId: p.user_id }));
     return [...googlePhotos, ...userPhotos];
   }, [photos, communityPhotos]);
 
@@ -283,6 +297,24 @@ export const PhotoGallery: React.FC<{
                     onClick={(e) => e.stopPropagation()}
                   />
                 </AnimatePresence>
+
+                {/* Recreate with AI — quiet, in the corner, only on one
+                    member photo at a time. Wrapped so the tap never reaches
+                    the backdrop's close. */}
+                {onRecreate && !expandedPhoto.isGoogle && (
+                  <div className="absolute bottom-4 right-4 z-20" onClick={(e) => e.stopPropagation()}>
+                    <GlassButton
+                      id="photo-recreate"
+                      symbol="sparkles"
+                      label="Recreate this dish with AI"
+                      tint="white"
+                      onClick={() => onRecreate({ url: expandedPhoto.url, rawUrl: expandedPhoto.rawUrl, caption: expandedPhoto.caption, ownerUserId: expandedPhoto.ownerUserId })}
+                      className="hit-44 flex-none w-11 h-11 rounded-full flex items-center justify-center bg-black/55 text-white transition-transform active:scale-95"
+                    >
+                      <Sparkles size={17} />
+                    </GlassButton>
+                  </div>
+                )}
 
                 {/* Desktop chevrons (touch swipes on phones) */}
                 {displayPhotos.length > 1 && (

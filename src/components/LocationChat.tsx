@@ -1090,6 +1090,12 @@ function countUserMessages(messages: UiMessage[]): number {
 /** The highest `openRequest` this chat has acted on — module scope on
  *  purpose, see the `open` state initialiser inside the component. */
 let handledOpenRequest = 0;
+/** The attachment a mount has already opened FOR. Same reasoning, same
+ *  scope: an attachment only clears when the user taps the chip's ×, not
+ *  when they close the panel, so without this every later remount (Reels
+ *  → Home, any bottom sheet closing) found the stale pin and popped the
+ *  chat open by itself. A pin auto-opens exactly once. */
+let handledAttachment: unknown = null;
 
 export const LocationChat: React.FC<LocationChatProps> = ({
   visible,
@@ -1161,7 +1167,10 @@ export const LocationChat: React.FC<LocationChatProps> = ({
   // underneath. Tracking the last HANDLED request at module scope makes
   // the comparison survive the remount.
   const [open, setOpen] = useState(() => {
-    if (attachment) return true;
+    if (attachment && attachment !== handledAttachment) {
+      handledAttachment = attachment;
+      return true;
+    }
     if (openRequest !== undefined && openRequest > handledOpenRequest) {
       handledOpenRequest = openRequest;
       return true;
@@ -1177,6 +1186,13 @@ export const LocationChat: React.FC<LocationChatProps> = ({
     handledOpenRequest = openRequest;
     setOpen(true);
   }, [openRequest]);
+  // Any pin a MOUNTED chat has seen is handled — it either arrived with
+  // the open request above (chat already up on the detail page) or seeded
+  // the initialiser. Only a pin that reached the context while the chat
+  // was unmounted (the share sheet's ask) is left for the next mount.
+  useEffect(() => {
+    if (attachment) handledAttachment = attachment;
+  }, [attachment]);
   const [messages, setMessages] = useState<UiMessage[]>([]);
   const [input, setInput] = useState('');
   const [streaming, setStreaming] = useState(false);

@@ -27,10 +27,10 @@ import { motion } from 'motion/react';
 import {
   X, Film, ChefHat, ArrowRight, Link2, Camera, PenLine, ClipboardType,
   Sparkles, ChevronRight, MapPin, Plus, Loader2, Image as ImageIcon, Video as VideoIcon,
-  Search,
+  Search, ScanLine,
 } from 'lucide-react';
 import { useGuideCreator } from '../contexts/GuideCreatorContext';
-import { useLists } from '../contexts/ListsContext';
+import { useLists, type HomeMealMethod } from '../contexts/ListsContext';
 import { searchPlacesByText, priceLevelToString, extractCityState } from '../lib/places';
 import { RestaurantCard } from '../components/cards';
 import { getCuisineLabel } from './useRestaurantDetail';
@@ -806,12 +806,14 @@ const GuideSurface: React.FC = () => {
 const RecipeSurface: React.FC = () => {
   const { openHomeMealModal } = useLists();
 
-  const methods: Array<{ key: 'link' | 'photo' | 'text' | 'custom' | 'ai'; icon: React.ReactNode; title: string; sub: string }> = [
+  // Mirrors AddHomeMealModal's METHODS — keep the two lists in sync.
+  const methods: Array<{ key: HomeMealMethod; icon: React.ReactNode; title: string; sub: string }> = [
     { key: 'link', icon: <Link2 size={17} strokeWidth={2} />, title: 'From a web link', sub: 'Paste a link from any recipe site' },
-    { key: 'photo', icon: <Camera size={17} strokeWidth={2} />, title: 'From a photo', sub: 'A cookbook page, screenshot, or card' },
+    { key: 'photo', icon: <ScanLine size={17} strokeWidth={2} />, title: 'Scan a recipe', sub: 'A cookbook page, screenshot, or card' },
     { key: 'text', icon: <ClipboardType size={17} strokeWidth={2} />, title: 'From text', sub: 'Paste a recipe you already have' },
     { key: 'custom', icon: <PenLine size={17} strokeWidth={2} />, title: 'Start from scratch', sub: 'Build it step by step' },
     { key: 'ai', icon: <Sparkles size={17} strokeWidth={2} />, title: 'Create with AI', sub: 'Describe it, get a complete draft' },
+    { key: 'dish', icon: <Camera size={17} strokeWidth={2} />, title: 'Recreate a dish', sub: 'Photograph a plate, get the recipe' },
   ];
 
   return (
