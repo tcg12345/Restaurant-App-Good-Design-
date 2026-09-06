@@ -79,6 +79,7 @@ const StepCard: React.FC<StepCardProps> = ({
       </div>
 
       <textarea
+        aria-label={`Step ${number} instructions`}
         className="rcx-step-body"
         value={step.body}
         onChange={(e) => update({ ...step, body: e.target.value })}

@@ -1,3 +1,4 @@
+import { usePageBack } from '../lib/usePageBack';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import mapboxgl from 'mapbox-gl';
@@ -145,6 +146,7 @@ function markerColor(googleRating: number): string {
 export const LocationMap: React.FC = () => {
   const [params] = useSearchParams();
   const navigate = useNavigate();
+  const goBack = usePageBack('/location');
   const { phoneMode, darkMode } = useSettings();
   const { user } = useAuth();
   const { isWishlisted, toggleWishlist, restaurantMeta } = useLists();
@@ -840,7 +842,7 @@ export const LocationMap: React.FC = () => {
           <>
           <div className="px-5 pt-5 pb-4 border-b border-on-surface/[0.06]">
             <div className="flex items-center gap-3">
-              <GlassButton id="locmap-back" symbol="arrow.left" label="Back" onClick={() => navigate(-1)} className="hit-44 flex-none w-11 h-11 rounded-full flex items-center justify-center text-on-surface/80 transition-transform active:scale-95 -ml-1">
+              <GlassButton id="locmap-back" symbol="arrow.left" label="Back" onClick={() => goBack()} className="hit-44 flex-none w-11 h-11 rounded-full flex items-center justify-center text-on-surface/80 transition-transform active:scale-95 -ml-1">
                 <ArrowLeft size={18} />
               </GlassButton>
               <div className="min-w-0">
@@ -986,7 +988,7 @@ export const LocationMap: React.FC = () => {
           the arrow, and the Filters trigger pulled up beside them. */}
       <div className="absolute top-0 inset-x-0 z-20 px-3 pt-safe-4 pb-3">
         <div className="flex items-center gap-2">
-          <GlassButton id="locmap-back-compact" symbol="arrow.left" label="Back" onClick={() => navigate(-1)} className="hit-44 flex-none w-11 h-11 rounded-full flex items-center justify-center text-on-surface/80 transition-transform active:scale-95 -ml-1">
+          <GlassButton id="locmap-back-compact" symbol="arrow.left" label="Back" onClick={() => goBack()} className="hit-44 flex-none w-11 h-11 rounded-full flex items-center justify-center text-on-surface/80 transition-transform active:scale-95 -ml-1">
             <ArrowLeft size={18} />
           </GlassButton>
           {/* Compact location pill — hugs its label (no "Dining in" eyebrow,

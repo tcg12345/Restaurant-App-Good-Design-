@@ -1,6 +1,6 @@
-import React, { useEffect, useRef, type ReactNode } from 'react';
+import React, { useEffect, useLayoutEffect, useRef, type ReactNode } from 'react';
 import { isOverlayOpen } from '../lib/overlay-registry';
-import { getPageScroll, setPageScroll, getPrimaryScroller } from '../lib/page-scroll';
+import { setPageScroll, getPrimaryScroller } from '../lib/page-scroll';
 import { holdGlass, releaseGlass } from '../lib/glass-buttons';
 import { isKeepAlivePath } from '../lib/keep-alive';
 
@@ -11,8 +11,8 @@ const prefersReducedMotion = () =>
 /**
  * iOS / Instagram-style swipe-back for the phone layout.
  *
- * The drag runs **off React's render path**: touch handlers write the page's
- * `transform` directly (coalesced in a rAF), no per-frame setState. Release
+ * The drag runs **off React's render path**: touch handlers move a viewport
+ * preview directly (coalesced in a rAF), no per-frame setState. Release
  * settles with the Web Animations API (GPU-composited), with the duration
  * scaled to the remaining distance and release velocity.
  *
@@ -33,6 +33,10 @@ const prefersReducedMotion = () =>
  * no mid-gesture DOM building. During a back-swipe it shows underneath the
  * sliding page, offset left and moving at a fraction of the page (parallax),
  * with a leading-edge shadow and a scrim that lightens to 0.
+ *
+ * The live document is never transformed during Back: that would reparent
+ * fixed headers and reposition them when the window is scrolled. A static
+ * front preview covers it until the destination and its scroll are ready.
  *
  * Commit — the route transition is locked to instant when the commit settle
  * *starts* (so React has the whole settle to flush it), the real navigation
@@ -59,10 +63,10 @@ const MAX_SETTLE_MS = 320;
 const EASE = 'cubic-bezier(0.32, 0.72, 0, 1)';
 // Reveal
 const PARALLAX = 0.35;  // destination parks 35% left and moves at 35% of the page's travel (iOS)
-const SCRIM_MAX = 0.28; // darkest scrim over the destination at rest
+const SCRIM_MAX = 0.16; // darkest scrim over the destination at rest
 // Commit finalize — how long we'll wait for the destination to paint before
 // force-completing (rAF throttling, pathological renders).
-const FINALIZE_TIMEOUT_MS = 450;
+const FINALIZE_TIMEOUT_MS = 900;
 
 // ── Snapshot store ──────────────────────────────────────────────────────────
 // Inert clones of pages we've left, keyed by history index. We only ever need
@@ -70,7 +74,8 @@ const FINALIZE_TIMEOUT_MS = 450;
 // stays live; pruned aggressively to bound memory.
 interface Snap { node: HTMLElement; nav: HTMLElement | null; scrollY: number }
 const snapStore = new Map<number, Snap>();
-const KEEP = 3;
+const KEEP = 8;
+let snapshotSerial = 0;
 
 /**
  * Clone the bottom nav (if the page being left shows one) so the destination
@@ -134,6 +139,41 @@ function clonePageNode(node: HTMLElement): HTMLElement {
     const inner = b.firstElementChild as HTMLElement | null;
     if (inner) inner.classList.remove('opacity-0');
   });
+  // Mark scroll positions by walking corresponding retained top-level branches.
+  for (const child of Array.from(node.children) as HTMLElement[]) {
+    if (child.getAttribute('aria-hidden') === 'true') continue;
+    const branch = clone.children[Array.from(node.children).filter(c => c.getAttribute('aria-hidden') !== 'true').indexOf(child)] as HTMLElement;
+    if (!branch) continue;
+    const from = [child, ...Array.from(child.querySelectorAll<HTMLElement>('*'))];
+    const to = [branch, ...Array.from(branch.querySelectorAll<HTMLElement>('*'))];
+    from.forEach((el, i) => {
+      if (to[i] && /^(fixed|sticky)$/.test(getComputedStyle(el).position)) {
+        to[i].dataset.snapshotViewportY = String(el.getBoundingClientRect().top);
+      }
+      if (to[i] && (el.scrollTop || el.scrollLeft)) {
+        to[i].dataset.snapshotScroll = `${el.scrollLeft},${el.scrollTop}`;
+      }
+    });
+  }
+  clone.inert = true;
+  const idMap = new Map<string, string>();
+  const prefix = `nav-preview-${++snapshotSerial}-`;
+  clone.querySelectorAll('[id]').forEach(el => { const id = el.id; idMap.set(id, prefix + id); el.id = prefix + id; });
+  clone.querySelectorAll('*').forEach(el => {
+    for (const attribute of Array.from(el.attributes)) {
+      let value = attribute.value;
+      for (const [id, replacement] of idMap) {
+        value = value.split(`url(#${id})`).join(`url(#${replacement})`);
+        if ((attribute.name === 'href' || attribute.name === 'xlink:href') && value === `#${id}`) value = `#${replacement}`;
+      }
+      if (value !== attribute.value) el.setAttribute(attribute.name, value);
+    }
+  });
+  // Preview DOM must never impersonate a live route during scroll restoration.
+  for (const attribute of ['data-route-entry', 'data-route-stack', 'data-swipe-page']) {
+    clone.removeAttribute(attribute);
+    clone.querySelectorAll(`[${attribute}]`).forEach(el => el.removeAttribute(attribute));
+  }
   clone.style.transform = '';
   clone.style.transition = 'none';
   clone.style.boxShadow = '';
@@ -154,7 +194,7 @@ class LeaveSnapshot extends React.Component<LeaveSnapshotProps, {}, null> {
     if (prev.navKey !== this.props.navKey && prev.snapshotable) {
       const node = this.props.getNode();
       if (node) {
-        snapStore.set(prev.navKey, { node: clonePageNode(node), nav: cloneBottomNav(), scrollY: getPageScroll() });
+        snapStore.set(prev.navKey, { node: clonePageNode(node), nav: cloneBottomNav(), scrollY: getPrimaryScroller(node, true)?.scrollTop ?? window.scrollY });
         const keys = [...snapStore.keys()].sort((a, b) => b - a);
         for (const k of keys.slice(KEEP)) snapStore.delete(k);
       }
@@ -175,6 +215,8 @@ interface Props {
   /** True when the back target is a history pop, false when it's a navigate-to-parent. */
   backIsPop: boolean;
   onBack: () => void;
+  previewPush?: boolean;
+  edgeOnly?: boolean;
   onLockTransition: (locked: boolean) => void;
   children: ReactNode;
 }
@@ -204,10 +246,11 @@ function txOf(el: Element): number {
 
 export const SwipeBackContainer: React.FC<Props> = ({
   enabled, navKey, locationKey, snapshotable, revealSnapshotKey, backIsPop,
-  onBack, onLockTransition, children,
+  onBack, onLockTransition, previewPush = false, edgeOnly = false, children,
 }) => {
   const rootRef = useRef<HTMLDivElement>(null);
   const pageRef = useRef<HTMLDivElement>(null);
+  const frontRef = useRef<HTMLDivElement>(null);
   const revealRef = useRef<HTMLDivElement>(null);
   const shadowRef = useRef<HTMLDivElement>(null);
 
@@ -218,9 +261,13 @@ export const SwipeBackContainer: React.FC<Props> = ({
   const locationKeyRef = useRef(locationKey); locationKeyRef.current = locationKey;
   const revealKeyRef = useRef(revealSnapshotKey); revealKeyRef.current = revealSnapshotKey;
   const backIsPopRef = useRef(backIsPop); backIsPopRef.current = backIsPop;
+  const edgeOnlyRef = useRef(edgeOnly); edgeOnlyRef.current = edgeOnly;
+  const resetNavigationRef = useRef<() => void>(() => {});
+  const pushPreviewRef = useRef<() => void>(() => {});
   const rebuildRef = useRef<() => void>(() => {});
 
   const g = useRef({
+    commitBack: null as (() => void) | null,
     tracking: false, claimed: false, busy: false, moveBound: false,
     sx: 0, sy: 0, lx: 0, lt: 0, vx: 0, claimDx: 0, w: 0,
     fromEdge: false, deferEl: null as HTMLElement | null,
@@ -255,10 +302,37 @@ export const SwipeBackContainer: React.FC<Props> = ({
   useEffect(() => {
     const root = rootRef.current;
     const page = pageRef.current;
+    const front = frontRef.current;
     const reveal = revealRef.current;
     const shadow = shadowRef.current;
-    if (!root || !page || !reveal || !shadow) return;
+    if (!root || !page || !front || !reveal || !shadow) return;
     const width = () => root.clientWidth || window.innerWidth;
+
+    const hideFront = () => {
+      front.style.visibility = 'hidden';
+      front.replaceChildren();
+      page.style.opacity = '';
+    };
+    const showFront = () => {
+      if (front.childElementCount) return;
+      const host = clonePageNode(page);
+      const scrollY = getPrimaryScroller(page, true)?.scrollTop ?? window.scrollY;
+      host.style.cssText += ';position:absolute;inset:0 0 auto;';
+      front.appendChild(host);
+      const inner = getPrimaryScroller(host);
+      if (inner) inner.scrollTop = scrollY;
+      else host.style.transform = `translateY(${-scrollY}px)`;
+      host.querySelectorAll<HTMLElement>('[data-snapshot-scroll]').forEach(el => {
+        const [left, top] = el.dataset.snapshotScroll!.split(',').map(Number);
+        el.scrollLeft = left; el.scrollTop = top;
+      });
+      host.querySelectorAll<HTMLElement>('[data-snapshot-viewport-y]').forEach(el => {
+        const delta = Number(el.dataset.snapshotViewportY) - el.getBoundingClientRect().top;
+        if (Math.abs(delta) > .5) el.style.translate = `0 ${delta}px`;
+      });
+      front.style.visibility = 'visible';
+      page.style.opacity = '0';
+    };
 
     const paintReveal = (x: number) => {
       const s = g.current;
@@ -272,7 +346,7 @@ export const SwipeBackContainer: React.FC<Props> = ({
     const flush = () => {
       g.current.raf = 0;
       const x = g.current.x;
-      page.style.transform = x === 0 ? '' : `translateX(${x}px)`;
+      front.style.transform = x === 0 ? '' : `translateX(${x}px)`;
       paintReveal(x);
     };
     const schedule = (x: number) => {
@@ -328,6 +402,17 @@ export const SwipeBackContainer: React.FC<Props> = ({
         if (inner) inner.scrollTop = snap.scrollY;
         else host.style.transform = `translateY(${-snap.scrollY}px)`;
       }
+      host.querySelectorAll<HTMLElement>('[data-snapshot-scroll]').forEach(el => {
+        const [left, top] = el.dataset.snapshotScroll!.split(',').map(Number);
+        el.scrollLeft = left; el.scrollTop = top;
+      });
+      // A window-scrolled snapshot translates its content, but pinned chrome
+      // must stay at the same viewport position. Replay ancestors first so
+      // nested fixed controls are not compensated twice.
+      host.querySelectorAll<HTMLElement>('[data-snapshot-viewport-y]').forEach(el => {
+        const delta = Number(el.dataset.snapshotViewportY) - el.getBoundingClientRect().top;
+        if (Math.abs(delta) > .5) el.style.translate = `0 ${delta}px`;
+      });
       s.prepKey = key; s.prepWrap = destWrap; s.prepScrim = scrim; s.prepScrollY = snap.scrollY;
     };
 
@@ -357,11 +442,13 @@ export const SwipeBackContainer: React.FC<Props> = ({
       s.destWrap.style.willChange = 'transform';
       paintReveal(s.x);
       reveal.style.visibility = 'visible';
+      reveal.style.opacity = '1';
     };
 
     const hideReveal = () => {
       const s = g.current;
       reveal.style.visibility = 'hidden';
+      reveal.style.opacity = '0';
       if (s.destWrap) s.destWrap.style.willChange = '';
       s.revealActive = false; s.destWrap = null; s.scrim = null;
     };
@@ -426,11 +513,12 @@ export const SwipeBackContainer: React.FC<Props> = ({
       const destKeepAlive = isKeepAlivePath(window.location.pathname);
       if (!s.finIsPop) setPageScroll(0);
       else if (s.finHadSnap && !destKeepAlive) setPageScroll(s.finScrollY);
-      page.style.transform = '';
-      page.style.willChange = '';
+      front.style.transform = '';
+      front.style.willChange = '';
       page.style.pointerEvents = '';
       shadow.style.opacity = '0';
       hideReveal();
+      hideFront();
       if (s.glassHeld) { s.glassHeld = false; releaseGlass(); }
       if (s.finKey != null) snapStore.delete(s.finKey);
       s.x = 0;
@@ -439,7 +527,7 @@ export const SwipeBackContainer: React.FC<Props> = ({
       // Unlock on the next frame so the destination's first real render is
       // still covered by the instant-transition lock.
       requestAnimationFrame(() => onLockRef.current(false));
-      window.setTimeout(() => onLockRef.current(false), 120); // rAF-throttle fallback
+
       scheduleRebuild();
     };
 
@@ -448,14 +536,15 @@ export const SwipeBackContainer: React.FC<Props> = ({
       // Keep the page off-screen (the snapshot underneath shows the
       // destination) while the real route swaps in, then drop the now-real
       // page to 0 and remove the snapshot.
-      page.style.transform = `translateX(${w}px)`;
+      front.style.transform = `translateX(${w}px)`;
       s.finalizing = true;
       s.finFromLocKey = locationKeyRef.current;
       s.finKey = revealKeyRef.current;
       s.finHadSnap = s.revealActive;
       s.finScrollY = s.destScrollY;
       s.finIsPop = backIsPopRef.current;
-      onBackRef.current();
+      (s.commitBack || onBackRef.current)();
+      s.commitBack = null;
       const started = performance.now();
       let settledFrames = 0;
       const tick = () => {
@@ -463,11 +552,11 @@ export const SwipeBackContainer: React.FC<Props> = ({
         let ready = false;
         if (locationKeyRef.current !== s.finFromLocKey) {
           const destPath = window.location.pathname;
-          const stackEl = page.querySelector<HTMLElement>('[data-route-stack]');
+          const stackEl = page.querySelector<HTMLElement>(`[data-route-entry="${CSS.escape(locationKeyRef.current)}"]`);
           if (isKeepAlivePath(destPath)) {
             // Keep-alive destinations live outside the stack — ready once the
             // exiting stack page is fully gone.
-            ready = !stackEl;
+            ready = !(Array.from(page.querySelectorAll('[data-route-stack]')) as HTMLElement[]).some(el => !el.closest('[inert]'));
           } else {
             // Stack destinations must be MOUNTED and at rest. The wrapper has
             // to carry the destination's own pathname: mode="wait" leaves an
@@ -508,12 +597,12 @@ export const SwipeBackContainer: React.FC<Props> = ({
       // hard flick lands fast, a gentle release glides.
       const remaining = Math.abs(toX - s.x);
       const v = Math.abs(s.vx);
-      const dur = Math.round(Math.min(MAX_SETTLE_MS, Math.max(
+      const dur = s.reduce ? 1 : Math.round(Math.min(MAX_SETTLE_MS, Math.max(
         MIN_SETTLE_MS,
         v > 0.15 ? remaining / v : MAX_SETTLE_MS * (0.35 + 0.65 * (remaining / w)),
       )));
       const anims: Animation[] = [];
-      anims.push(page.animate(
+      anims.push(front.animate(
         [{ transform: `translateX(${s.x}px)` }, { transform: `translateX(${toX}px)` }],
         { duration: dur, easing: EASE, fill: 'both' },
       ));
@@ -549,10 +638,11 @@ export const SwipeBackContainer: React.FC<Props> = ({
         if (commit) {
           beginCommit(w);
         } else {
-          page.style.transform = '';
-          page.style.willChange = '';
+          front.style.transform = '';
+          front.style.willChange = '';
           shadow.style.opacity = '0';
           hideReveal();
+          hideFront();
           if (s.glassHeld) { s.glassHeld = false; releaseGlass(); }
           s.x = 0;
           s.settleMode = 'none';
@@ -565,13 +655,13 @@ export const SwipeBackContainer: React.FC<Props> = ({
     const grab = (t: Touch, now: number) => {
       const s = g.current;
       s.disarmSettle?.(); s.disarmSettle = null;
-      const cur = txOf(page);
+      const cur = txOf(front);
       for (const a of s.anims) a.cancel();
       s.anims = [];
       s.busy = false;
       s.settleMode = 'none';
       s.x = cur;
-      page.style.transform = `translateX(${cur}px)`;
+      front.style.transform = `translateX(${cur}px)`;
       paintReveal(cur);
       s.tracking = true; s.claimed = true;
       if (!s.glassHeld) { s.glassHeld = true; holdGlass(); }
@@ -595,6 +685,12 @@ export const SwipeBackContainer: React.FC<Props> = ({
         return;
       }
       if (!enabledRef.current || isOverlayOpen()) return;
+      const target = e.target instanceof Element ? e.target : null;
+      const fromEdge = t.clientX <= EDGE;
+      if (target?.closest('input, textarea, select, [contenteditable="true"], [role="slider"], [data-swipe-back="off"]')) return;
+      if (!fromEdge && (edgeOnlyRef.current || target?.closest('[data-horizontal-gesture]') || findHScrollable(e.target, root))) return;
+      if (Array.from<HTMLElement>(page.querySelectorAll<HTMLElement>('[data-route-stack]')).some(el => Math.abs(txOf(el)) > 2)) return;
+      s.commitBack = onBackRef.current;
       s.tracking = true; s.claimed = false;
       s.sx = t.clientX; s.sy = t.clientY; s.lx = t.clientX; s.lt = e.timeStamp || Date.now();
       s.vx = 0; s.claimDx = 0; s.w = width();
@@ -605,7 +701,7 @@ export const SwipeBackContainer: React.FC<Props> = ({
       // own layer while the finger is still, so the first drag frame doesn't
       // pay for it. Mid-screen touches are usually scrolls/taps — for those
       // the promotion happens at claim time instead.
-      if (s.fromEdge) page.style.willChange = 'transform';
+      if (s.fromEdge) front.style.willChange = 'transform';
       bindMove();
     };
 
@@ -624,7 +720,7 @@ export const SwipeBackContainer: React.FC<Props> = ({
           // Not ours — unbind immediately so the rest of this scroll runs
           // natively, untouched by a non-passive listener.
           stopTracking();
-          page.style.willChange = '';
+          front.style.willChange = '';
           return;
         }
         s.claimed = true;
@@ -632,7 +728,8 @@ export const SwipeBackContainer: React.FC<Props> = ({
         // it is at rest again (finishCommit / cancel settle).
         if (!s.glassHeld) { s.glassHeld = true; holdGlass(); }
         s.claimDx = dx;
-        page.style.willChange = 'transform';
+        showFront();
+        front.style.willChange = 'transform';
         if (!s.reduce) shadow.style.opacity = '1';
         showReveal();
       }
@@ -650,15 +747,18 @@ export const SwipeBackContainer: React.FC<Props> = ({
       schedule(Math.max(0, Math.min(s.w, dx - s.claimDx)));
     };
 
-    const end = () => {
+    const end = (event: TouchEvent) => {
       const s = g.current;
       const wasClaimed = s.claimed;
       s.claimed = false;
       stopTracking();
       if (!wasClaimed) {
-        if (!s.busy) page.style.willChange = '';
+        if (!s.busy) front.style.willChange = '';
         return;
       }
+      // A held finger is no longer a flick. Old velocity used to commit even
+      // after a deliberate pause or cancelled intention.
+      if ((event.timeStamp || Date.now()) - s.lt > 100) s.vx = 0;
       const flickBack = s.vx > FLICK_VELOCITY;
       const flickForward = s.vx < CANCEL_VELOCITY;
       const commit = flickBack || (!flickForward && s.x > s.w * COMMIT_RATIO);
@@ -673,11 +773,69 @@ export const SwipeBackContainer: React.FC<Props> = ({
         settle(0, false);
       } else {
         stopTracking();
-        if (!s.busy) page.style.willChange = '';
+        if (!s.busy) front.style.willChange = '';
       }
     };
 
     // Cancel cleanly when the app is backgrounded mid-gesture.
+    const requestBack = (event: Event) => {
+      if (!enabledRef.current || isOverlayOpen()) return;
+      if (prefersReducedMotion()) return;
+      if (revealKeyRef.current == null || !snapStore.has(revealKeyRef.current)) return;
+      event.preventDefault();
+      if (g.current.busy || g.current.tracking) return;
+      const s = g.current;
+      s.w = width(); s.x = 0; s.vx = 0; s.reduce = prefersReducedMotion();
+      s.commitBack = (event as CustomEvent<{ perform: () => void }>).detail.perform;
+      if (!s.glassHeld) { s.glassHeld = true; holdGlass(); }
+      showFront();
+      showReveal();
+      if (!s.reduce) shadow.style.opacity = '1';
+      front.style.willChange = 'transform';
+      settle(s.w, true);
+    };
+    window.addEventListener('app:request-back', requestBack);
+
+    // The source preview stays at its exact scroll position while the new
+    // route pushes over it. Live exiting DOM would jump when window scroll
+    // resets for the destination.
+    let pushAnims: Animation[] = [];
+    let pushTimer = 0;
+    const clearPush = () => {
+      clearTimeout(pushTimer);
+      pushAnims.forEach(animation => animation.cancel()); pushAnims = [];
+      if (!g.current.claimed && !g.current.busy) hideReveal();
+    };
+    resetNavigationRef.current = () => {
+      const s = g.current;
+      // Our own committed pop is finalized only after its destination mounts.
+      if (s.finalizing) return;
+      clearPush();
+      s.disarmSettle?.(); s.disarmSettle = null;
+      s.anims.forEach(animation => animation.cancel()); s.anims = [];
+      stopTracking();
+      if (s.raf) { cancelAnimationFrame(s.raf); s.raf = 0; }
+      s.claimed = false; s.busy = false; s.commitBack = null; s.x = 0;
+      front.style.transform = ''; front.style.willChange = ''; page.style.pointerEvents = '';
+      shadow.style.opacity = '0'; hideReveal(); hideFront();
+      if (s.glassHeld) { s.glassHeld = false; releaseGlass(); }
+      if (s.settleMode === 'commit') onLockRef.current(false);
+      s.settleMode = 'none';
+    };
+    pushPreviewRef.current = () => {
+      clearPush();
+      g.current.reduce = prefersReducedMotion();
+      if (g.current.reduce) return;
+      buildPrep(); showReveal();
+      const s = g.current;
+      if (!s.destWrap || !s.scrim) return;
+      const options = { duration: 360, easing: EASE, fill: 'both' as const };
+      pushAnims = [
+        s.destWrap.animate([{ transform: 'translateX(0)' }, { transform: `translateX(${-width() * PARALLAX}px)` }], options),
+        s.scrim.animate([{ opacity: 0 }, { opacity: SCRIM_MAX }], options),
+      ];
+      pushTimer = window.setTimeout(() => { clearPush(); scheduleRebuild(); }, 390);
+    };
     const onVisibility = () => { if (document.hidden && g.current.claimed) cancelGesture(); };
 
     root.addEventListener('touchstart', start, { passive: true });
@@ -687,11 +845,14 @@ export const SwipeBackContainer: React.FC<Props> = ({
     scheduleRebuild();
     return () => {
       const s = g.current;
+      clearPush();
+      window.removeEventListener('app:request-back', requestBack);
       root.removeEventListener('touchstart', start);
       root.removeEventListener('touchend', end);
       root.removeEventListener('touchcancel', cancelGesture);
       document.removeEventListener('visibilitychange', onVisibility);
       unbindMove();
+      if (s.glassHeld) { s.glassHeld = false; releaseGlass(); }
       if (s.raf) cancelAnimationFrame(s.raf);
       if (s.rebuildTimer) clearTimeout(s.rebuildTimer);
       if (s.finalizeTimer) clearTimeout(s.finalizeTimer);
@@ -702,6 +863,11 @@ export const SwipeBackContainer: React.FC<Props> = ({
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useLayoutEffect(() => {
+    resetNavigationRef.current();
+    if (previewPush) pushPreviewRef.current();
+  }, [locationKey]);
 
   // Rebuild the prepared reveal whenever the back target changes.
   useEffect(() => { rebuildRef.current(); }, [navKey, enabled, revealSnapshotKey]);
@@ -717,14 +883,17 @@ export const SwipeBackContainer: React.FC<Props> = ({
       <div
         ref={revealRef}
         aria-hidden="true"
+        inert
         data-swipe-reveal=""
-        style={{ position: 'fixed', inset: 0, zIndex: 0, overflow: 'hidden', visibility: 'hidden', background: 'var(--color-surface)', contain: 'layout paint', pointerEvents: 'none' }}
+        style={{ position: 'fixed', inset: 0, zIndex: 0, overflow: 'hidden', visibility: 'hidden', opacity: 0, background: 'var(--color-surface)', contain: 'layout paint', pointerEvents: 'none' }}
       />
+      <div ref={frontRef} data-swipe-front="" aria-hidden="true" inert
+        style={{ position: 'fixed', inset: 0, zIndex: 20, visibility: 'hidden', overflow: 'hidden', background: 'var(--color-surface)', pointerEvents: 'none', contain: 'layout paint', boxShadow: '-12px 0 32px rgba(0,0,0,.18)' }} />
       {/* No z-index here: it would create a stacking context that traps
           in-page bottom sheets (z-[110]) below the bottom nav (z-50). The page
           still paints above the reveal by DOM order (it comes after it), and
           the transform during a drag promotes it for that moment anyway. */}
-      <div ref={pageRef} style={{ position: 'relative', minHeight: '100dvh', background: 'var(--color-surface)' }}>
+      <div ref={pageRef} data-swipe-page="" style={{ position: 'relative', minHeight: '100dvh' }}>
         {children}
         {/* Leading-edge shadow. A child of the page, so it rides the drag for
             free; parked just outside the left edge, so it never overlaps

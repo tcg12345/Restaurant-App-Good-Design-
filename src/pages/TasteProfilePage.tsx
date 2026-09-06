@@ -21,12 +21,15 @@
  * away into a condensed glass strip, with the back button floating above
  * both.
  */
-import React, { useEffect, useRef, useState } from 'react';
-import { Link, useLocation, useNavigate } from 'react-router-dom';
+import React, { useEffect, useId, useRef, useState } from 'react';
+import { Link, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence, useReducedMotion, animate, useMotionValue } from 'motion/react';
-import { ChevronRight, Globe2, Info, Lock, MapPin, Sparkles, Trophy, Users, UtensilsCrossed } from 'lucide-react';
+import { ChevronDown, ChevronRight, Globe2, Info, Lock, MapPin, Sparkles, Trophy, Users, UtensilsCrossed } from 'lucide-react';
+import '../components/profile/ProfileDesign.css';
+import { homeHaptic } from '../lib/haptics';
 import { useAuth } from '../contexts/AuthContext';
 import { useSettings } from '../contexts/SettingsContext';
+import { usePageBack } from '../lib/usePageBack';
 import { FloatingBack } from '../components/FloatingBack';
 import { useHeaderFade, type HeaderFade } from '../lib/useHeaderFade';
 import { useToast } from '../contexts/ToastContext';
@@ -73,7 +76,7 @@ export const voiceFor = (name: string): Voice => ({ self: false, name, your: `${
 /* ── Page (own profile) ───────────────────────────────────────────────── */
 
 export const TasteProfilePage: React.FC = () => {
-  const navigate = useNavigate();
+  const back = usePageBack('/profile');
   const { user, profile: myProfile } = useAuth();
   const { showToast } = useToast();
   const { phoneMode, twoDecimalScores } = useSettings();
@@ -101,7 +104,7 @@ export const TasteProfilePage: React.FC = () => {
     setBoardSort(k);
   };
 
-  const rankLine = bench && bench.myRank != null && bench.rankedUsers > 0
+  const rankLine = bench && bench.myRank != null && bench.rankedUsers > 1
     ? `#${bench.myRank} of ${bench.rankedUsers} on GoodEats`
     : bench && bench.rankedUsers > 0
       ? `Ranked at 10 ratings · ${bench.rankedUsers} on the board`
@@ -125,8 +128,8 @@ export const TasteProfilePage: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-surface">
-      <TasteChrome fade={fade} title="Taste profile" right={`${points.total} pts`} onBack={() => navigate('/profile')} backId="taste-profile-back" />
+    <div className="taste-design min-h-screen bg-surface">
+      <TasteChrome fade={fade} title="Taste profile" right={`${points.total} pts`} onBack={back} backId="taste-profile-back" />
 
       <div className="mx-auto w-full max-w-[860px] px-5" style={{ paddingBottom: PAGE_BOTTOM }}>
         <TasteMasthead
@@ -136,6 +139,10 @@ export const TasteProfilePage: React.FC = () => {
           standing={standing}
           points={points}
           showInfo
+          archetype={insights.palate.archetype}
+          tagline={insights.palate.tagline}
+          ratingCount={n}
+          cuisineCount={insights.breadth.count}
           rankLine={rankLine}
           loadingLine={benchmarksLoading && !bench ? 'Checking the board…' : null}
           trailing={
@@ -223,64 +230,33 @@ export const TasteMasthead: React.FC<{
   extraLine?: string | null;
   loadingLine?: string | null;
   showInfo?: boolean;
+  archetype?: string | null;
+  tagline?: string | null;
+  ratingCount?: number;
+  cuisineCount?: number;
   trailing?: React.ReactNode;
-}> = ({ fade, phoneMode, eyebrow, standing, points, rankLine, extraLine, loadingLine, showInfo, trailing }) => {
+}> = ({ fade, phoneMode, eyebrow, standing, points, rankLine, extraLine, loadingLine, showInfo, trailing, archetype, tagline, ratingCount, cuisineCount }) => {
   const reduce = useReducedMotion();
   return (
-    <motion.header ref={fade.headerRef} style={fade.headerStyle}>
-      <div style={{ paddingTop: CHROME_TOP }}>
-        <div className="flex h-11 items-center justify-between pl-[52px]">
-          <p className="min-w-0 truncate text-[10.5px] font-bold uppercase tracking-[0.18em] text-on-surface/40">{eyebrow}</p>
-          {trailing}
-        </div>
-        <div className="mt-2 flex items-center gap-5">
-          <TierEmblem tier={standing.tier} progress={standing.progress} size={phoneMode ? 84 : 104} />
-          <div className="min-w-0 flex-1">
-            <h1 className={cn(
-              'font-serif font-bold leading-[1.02] tracking-[-0.03em] text-on-surface',
-              phoneMode ? 'text-[36px]' : 'text-[50px]',
-            )}>
-              {standing.tier.name}
-            </h1>
-            <p className="mt-2 text-[13.5px] leading-[1.45] text-on-surface/55" style={{ textWrap: 'pretty' } as React.CSSProperties}>
-              {standing.tier.blurb}
-            </p>
-          </div>
-        </div>
-        <div className="mt-5 flex flex-wrap items-baseline gap-x-3 gap-y-1 text-[13px] font-semibold tabular-nums">
-          <span className="inline-flex items-center gap-1.5 text-primary text-[15px]">
-            <CountUp to={points.total} /> pts
-            {showInfo && <PointsInfo components={points.components} />}
-          </span>
-          {rankLine && (
-            <>
-              <span className="h-3.5 w-px self-center bg-on-surface/15" aria-hidden />
-              <span className="text-on-surface/55">{rankLine}</span>
-            </>
-          )}
-          {loadingLine && <span className="text-on-surface/35">{loadingLine}</span>}
-        </div>
-        {extraLine && (
-          <p className="mt-1.5 text-[13px] font-semibold text-on-surface/70">{extraLine}</p>
-        )}
-        {/* Progress to the next rung — the sentence that makes the
-            emblem's ring legible as a number. */}
-        <div className="mt-3.5">
-          <div className="h-[6px] overflow-hidden rounded-full bg-on-surface/[0.07]">
-            <motion.div
-              className="h-full rounded-full bg-primary"
-              initial={reduce ? false : { width: 0 }}
-              animate={{ width: `${Math.round(standing.progress * 100)}%` }}
-              transition={{ duration: 1, ease: EASE, delay: 0.2 }}
-            />
-          </div>
-          <p className="mt-2 text-[12.5px] text-on-surface/50">
-            {standing.next
-              ? <>{standing.toNext} pts to <span className="font-semibold text-on-surface/75">{standing.next.name}</span> · {standing.next.min} pts</>
-              : 'Top of the ladder.'}
-          </p>
-        </div>
+    <motion.header className="taste-masthead" ref={fade.headerRef} style={fade.headerStyle}>
+      <div className="taste-navigation" style={{ paddingTop: CHROME_TOP }}><span>{eyebrow}</span>{trailing}</div>
+      <div className="taste-identity">
+        <div><span className="taste-kicker">{standing.tier.name} · Taste level</span><h1>{archetype || 'Your taste starts here'}</h1>{tagline && <p>{tagline}</p>}</div>
+        <TierEmblem tier={standing.tier} progress={standing.progress} size={68} />
       </div>
+      <div className="taste-metrics">
+        <div><strong><CountUp to={points.total} />{showInfo && <PointsInfo components={points.components} />}</strong><span>Points earned</span></div>
+        {ratingCount != null && <div><strong>{ratingCount}</strong><span>Places rated</span></div>}
+        {cuisineCount != null && <div><strong>{cuisineCount}</strong><span>Cuisines tried</span></div>}
+      </div>
+      <div className="taste-progress">
+        <div role="progressbar" aria-label={`Progress through ${standing.tier.name}`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(standing.progress * 100)}>
+          <motion.span initial={reduce ? false : { width: 0 }} animate={{ width: `${Math.round(standing.progress * 100)}%` }} transition={{ duration: reduce ? 0 : .8, ease: EASE }} />
+        </div>
+        <p><span>{standing.next ? <><strong>{standing.toNext} pts</strong> to {standing.next.name}</> : 'Highest taste level reached'}</span>{rankLine && <span>{rankLine}</span>}</p>
+      </div>
+      {loadingLine && <p className="taste-loading">{loadingLine}</p>}
+      {extraLine && <p className="taste-match">{extraLine}</p>}
     </motion.header>
   );
 };
@@ -308,14 +284,14 @@ export const TasteBody: React.FC<{
     return (
       <Reveal className="mt-8">
         <div className="rounded-[22px] bg-on-surface/[0.04] px-5 py-6">
-          <p className="font-serif text-[20px] font-bold tracking-[-0.02em] text-on-surface">Nothing on the record yet</p>
+          <p className="font-serif text-[20px] font-bold tracking-[-0.02em] text-on-surface">Start with a place you know</p>
           <p className="mt-2 text-[14px] leading-[1.55] text-on-surface/60" style={{ textWrap: 'pretty' } as React.CSSProperties}>
             {v.self
-              ? 'Your taste profile is built from what you rate — how you grade, where you spend, what you keep going back to. It starts moving with the first one, and the sentences start at five.'
+              ? 'Rate your first place to start. Personal insights appear after five ratings.'
               : `${v.name} hasn't rated anything yet. A taste profile starts with the first rating and starts talking at five.`}
           </p>
           {v.self && (
-            <Link to="/" className="mt-5 inline-flex h-11 items-center rounded-full bg-primary px-5 text-[13px] font-bold text-on-primary">
+            <Link to="/create" state={{ mode: 'rate' }} className="mt-5 inline-flex h-11 items-center rounded-full bg-primary px-5 text-[13px] font-bold text-on-primary">
               Rate a place
             </Link>
           )}
@@ -329,11 +305,11 @@ export const TasteBody: React.FC<{
   return (
     <>
       {/* ── Read-out ── */}
-      <Section title="In a sentence" sub={n < 5 ? `Unlocks at 5 ratings — ${5 - n} to go.` : `The three truest things the numbers say about ${v.name}.`}>
+      <Section title="What stands out" sub={n < 5 ? `${5 - n} more ratings to unlock insights.` : undefined}>
         {insights.sentences.length === 0 ? (
-          <Locked need={5} have={n} what="the read-out" />
+          <Locked need={5} have={n} what="taste insights" />
         ) : (
-          <ol className="flex flex-col">
+          <ol className="taste-insights flex flex-col">
             {insights.sentences.slice(0, 3).map((s, i) => (
               <li key={s.id} className={cn('flex items-start gap-3.5 py-4', i > 0 && 'border-t border-on-surface/[0.08]')}>
                 <span className="mt-[3px] flex h-6 w-6 flex-none items-center justify-center rounded-full bg-on-surface/[0.06] text-primary">
@@ -350,14 +326,14 @@ export const TasteBody: React.FC<{
       </Section>
 
       {/* ── Palate ── */}
-      <Section title={`${v.Your} palate`} sub={v.self ? 'What you actually like, apart from any points.' : `What ${v.name} actually likes, apart from any points.`}>
+      <Section title="Taste fingerprint" sub="Tap a cuisine to explore.">
         {insights.palate.petals.length < 3 || insights.scored < 5
           ? <Locked need={5} have={insights.scored} what={`${v.your} palate`} note="Needs five ratings across a few cuisines." />
           : <PalateCard v={v} insights={insights} twoDecimals={twoDecimals} onFindTwins={onFindTwins} twinsLocked={twinsLocked} />}
       </Section>
 
       {/* ── Grading ── */}
-      <Section title={v.self ? 'How you grade' : `How ${v.name} grades`} sub={`${v.Your} scale, and where the platform's sits on it.`}>
+      <Section title="Ratings & scores" sub="Your average and scoring patterns.">
         {insights.scored < 5 ? <Locked need={5} have={insights.scored} what={`${v.your} grading style`} /> : (
           <>
             <div className="grid grid-cols-2 gap-2.5">
@@ -373,7 +349,7 @@ export const TasteBody: React.FC<{
       </Section>
 
       {/* ── Price ── */}
-      <Section title="Where the money goes" sub={`Share of ${v.your} ratings in each price tier.`}>
+      <Section title="Spending" sub={`Share of ${v.your} ratings in each price tier.`}>
         {pricedN < 5
           ? <Locked need={5} have={pricedN} what={`${v.your} spending pattern`} note="Only ratings with a price count." />
           : <PriceTiers v={v} insights={insights} rankedUsers={bench?.rankedUsers ?? 0} />}
@@ -382,8 +358,8 @@ export const TasteBody: React.FC<{
       {locked ? (
         /* The rest of the reading is Pro: the first of it shows through
            the blur, real numbers and all, and one tap unlocks the lot. */
-        <ProGate feature="taste-depth" variant="teaser" unlockLine="Unlock love vs eat, trends, habits and the ladder with Pro">
-          <Section title="Love vs eat" sub="How often you eat a cuisine against how you score it. The gap is the story.">
+        <ProGate feature="taste-depth" variant="teaser" unlockLine="Explore cuisine favorites, trends, habits and points with Pro">
+          <Section title="Cuisine favorites" sub="How often you eat a cuisine against how you score it. The gap is the story.">
             {scoredTwice < 3
               ? <Locked need={3} have={scoredTwice} what="the cuisine map" note="Needs three cuisines rated at least twice." unit="cuisines" />
               : <CuisineMap v={v} insights={insights} twoDecimals={twoDecimals} />}
@@ -391,21 +367,21 @@ export const TasteBody: React.FC<{
         </ProGate>
       ) : (<>
       {/* ── Cuisines ── */}
-      <Section title="Love vs eat" sub={v.self ? 'How often you eat a cuisine against how you score it. The gap is the story.' : `How often ${v.name} eats a cuisine against how they score it. The gap is the story.`}>
+      <Section title="Cuisine favorites" sub={v.self ? 'How often you eat a cuisine against how you score it. The gap is the story.' : `How often ${v.name} eats a cuisine against how they score it. The gap is the story.`}>
         {scoredTwice < 3
           ? <Locked need={3} have={scoredTwice} what="the cuisine map" note="Needs three cuisines rated at least twice." unit="cuisines" />
           : <CuisineMap v={v} insights={insights} twoDecimals={twoDecimals} />}
       </Section>
 
       {/* ── Over time ── */}
-      <Section title="Over time" sub={`${v.Your} palate has a past. This is it.`}>
+      <Section title="Taste over time" sub="How your ratings have changed.">
         {insights.trend.periods.length < 2 || insights.scored < 6
           ? <Locked need={6} have={insights.scored} what="the timeline" note="Needs ratings across at least two quarters." />
           : <Trend insights={insights} twoDecimals={twoDecimals} />}
       </Section>
 
       {/* ── Habits ── */}
-      <Section title="Habits" sub={v.self ? "The fields nobody charts: whether you'd go back, who was at the table, what day it was." : `The fields nobody charts: whether ${v.name} would go back, who was at the table, what day it was.`}>
+      <Section title="Dining habits" sub="When, where, and with whom.">
         {n < 5 ? <Locked need={5} have={n} what={`${v.your} habits`} /> : <Habits v={v} insights={insights} />}
       </Section>
 
@@ -417,7 +393,7 @@ export const TasteBody: React.FC<{
       )}
 
       {/* ── Ladder ── */}
-      <Section title="The ladder" sub={`Where ${v.your} points come from. No component has a ceiling, and nothing here rewards agreeing with anyone.`}>
+      <Section title="Your points" sub="See what contributes to each level.">
         <Ladder components={points.components} total={points.total} />
       </Section>
       </>)}
@@ -618,7 +594,7 @@ const PetalChart: React.FC<{ petals: Petal[]; picked: string | null; onPick: (na
   const maxLen = 102; const minLen = 34;
   const k = petals.length;
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} className="block w-full" role="img" aria-label="Your palate as a fingerprint of cuisines">
+    <svg viewBox={`0 0 ${W} ${H}`} className="block w-full" role="group" aria-label="Your palate as a fingerprint of cuisines">
       <circle cx={cx} cy={cy} r={maxLen + 14} fill="none" stroke="currentColor" className="text-on-surface/12" strokeDasharray="2 5" />
       {petals.map((p, i) => {
         const angle = -Math.PI / 2 + (i / k) * Math.PI * 2;
@@ -635,7 +611,7 @@ const PetalChart: React.FC<{ petals: Petal[]; picked: string | null; onPick: (na
           : 2 * Math.min(lx - LABEL_EDGE_PAD, (W - LABEL_EDGE_PAD) - lx);
         const label = fitLabel(p.name, maxWidth);
         return (
-          <g key={p.name} onClick={() => onPick(p.name)} style={{ cursor: 'pointer', opacity: dim ? 0.3 : 1, transition: 'opacity 200ms var(--ease-out)' }}>
+          <g key={p.name} role="button" tabIndex={0} aria-label={`Explore ${p.name}`} aria-pressed={picked === p.name} onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onPick(p.name); } }} onClick={() => onPick(p.name)} style={{ cursor: 'pointer', opacity: dim ? 0.3 : 1, transition: 'opacity 200ms var(--ease-out)' }}>
             <motion.path
               d={`M 0 0 C ${w} ${len * 0.3}, ${w} ${len * 0.75}, 0 ${len} C ${-w} ${len * 0.75}, ${-w} ${len * 0.3}, 0 0 Z`}
               transform={`translate(${cx} ${cy}) rotate(${deg})`}
@@ -665,7 +641,7 @@ type PageTab = 'taste' | 'board';
 /** The same connected segmented track the profile's Rated/Posts/Reels/
  *  Guides control uses, so the two pages read as one app. */
 const TabBar: React.FC<{ tab: PageTab; onChange: (t: PageTab) => void }> = ({ tab, onChange }) => (
-  <div className="mt-6 flex rounded-full bg-on-surface/[0.05] p-1" role="tablist">
+  <div className="taste-tabs" role="group" aria-label="Taste profile views">
     {([
       ['taste', Sparkles, 'Your taste'],
       ['board', Trophy, 'Leaderboard'],
@@ -675,9 +651,8 @@ const TabBar: React.FC<{ tab: PageTab; onChange: (t: PageTab) => void }> = ({ ta
         <button
           key={key}
           type="button"
-          role="tab"
-          aria-selected={on}
-          onClick={() => onChange(key)}
+          aria-pressed={on}
+          onClick={() => { homeHaptic(); onChange(key); }}
           className={cn(
             'flex-1 min-w-0 inline-flex items-center justify-center gap-1.5 rounded-full py-2.5 transition-colors',
             on
@@ -830,16 +805,21 @@ const Reveal: React.FC<{ children: React.ReactNode; className?: string }> = ({ c
   );
 };
 
-const Section: React.FC<{ title: string; sub?: string; children: React.ReactNode }> = ({ title, sub, children }) => (
-  <Reveal className="mt-9">
-    <div className="border-t border-on-surface/[0.14]" aria-hidden />
-    <div className="pt-3">
-      <h2 className="text-on-surface" style={{ fontSize: '18px', fontWeight: 700, lineHeight: 1.15, letterSpacing: '-0.022em' }}>{title}</h2>
-      {sub && <p className="mt-1.5 text-on-surface/45" style={{ fontSize: '13px', lineHeight: 1.4, textWrap: 'pretty' } as React.CSSProperties}>{sub}</p>}
-    </div>
-    <div className="mt-4">{children}</div>
-  </Reveal>
-);
+const Section: React.FC<{ title: string; sub?: string; children: React.ReactNode }> = ({ title, sub, children }) => {
+  const [open, setOpen] = useState(title === 'What stands out');
+  const id = useId();
+  const reduce = useReducedMotion();
+  return <section className={`taste-section ${open ? 'is-open' : ''}`}>
+    <h2><button className="taste-section-toggle" aria-expanded={open} aria-controls={id} onClick={() => { homeHaptic(); setOpen(value => !value); }}>
+      <span><strong>{title}</strong>{sub && <small>{sub}</small>}</span><ChevronDown size={18} />
+    </button></h2>
+    <AnimatePresence initial={false}>
+      {open && <motion.div id={id} className="taste-section-body" initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={{ duration: reduce ? 0 : .25, ease: EASE }}>
+        <div>{children}</div>
+      </motion.div>}
+    </AnimatePresence>
+  </section>;
+};
 
 const Locked: React.FC<{ need: number; have: number; what: string; note?: string; unit?: string }> = ({ need, have, what, note, unit = 'ratings' }) => {
   const left = Math.max(0, need - have);
@@ -860,7 +840,7 @@ const Locked: React.FC<{ need: number; have: number; what: string; note?: string
 };
 
 const Stat: React.FC<{ value: string; label: string; tone?: string; accent?: boolean }> = ({ value, label, tone, accent }) => (
-  <div className={cn('flex flex-col items-start gap-2 rounded-[20px] px-3.5 py-4 bg-on-surface/[0.05]', accent && 'ring-1 ring-primary/30')}>
+  <div className={cn('taste-stat flex flex-col items-start gap-2 rounded-[20px] px-3.5 py-4 bg-on-surface/[0.05]', accent && 'ring-1 ring-primary/30')}>
     <span className={cn('tabular-nums', tone ?? (accent ? 'text-primary' : 'text-on-surface'))} style={{ fontSize: '22px', fontWeight: 700, lineHeight: 1, letterSpacing: '-0.04em' }}>{value}</span>
     <span className="text-on-surface/45" style={{ fontSize: '11px', fontWeight: 600, lineHeight: 1.15 }}>{label}</span>
   </div>
@@ -1281,20 +1261,22 @@ const Ladder: React.FC<{ components: PointsComponent[]; total: number }> = ({ co
 
 /** Rows and profiles per board, kept for the page's lifetime so tapping
  *  between chips doesn't refetch what was already on screen. */
-const boardCache = new Map<BoardKey, { rows: LeaderboardRow[]; profiles: Record<string, UserProfile> }>();
+const boardCache = new Map<string, { rows: LeaderboardRow[]; profiles: Record<string, UserProfile> }>();
 
 const Leaderboard: React.FC<{
   sort: BoardKey;
   headline: (typeof BOARDS)[number];
   myId: string | null; myRank: number | null; myPoints: number | null; ranked: number;
 }> = ({ sort, headline, myId, myRank, myPoints, ranked }) => {
+  const [attempt, setAttempt] = useState(0);
+  const cacheKey = `${myId || 'guest'}:${sort}`;
   type Load = { state: 'loading' } | { state: 'failed' } | { state: 'ready'; rows: LeaderboardRow[]; profiles: Record<string, UserProfile> };
   const [load, setLoad] = useState<Load>(() => {
-    const cached = boardCache.get(sort);
+    const cached = boardCache.get(cacheKey);
     return cached ? { state: 'ready', ...cached } : { state: 'loading' };
   });
   useEffect(() => {
-    const cached = boardCache.get(sort);
+    const cached = boardCache.get(cacheKey);
     if (cached) { setLoad({ state: 'ready', ...cached }); return; }
     let cancelled = false;
     setLoad({ state: 'loading' });
@@ -1304,14 +1286,14 @@ const Leaderboard: React.FC<{
       if (rows == null) { setLoad({ state: 'failed' }); return; }
       const profiles = rows.length > 0 ? await getProfilesByIds(rows.map((r) => r.userId)) : {};
       if (cancelled) return;
-      boardCache.set(sort, { rows, profiles });
+      boardCache.set(cacheKey, { rows, profiles });
       setLoad({ state: 'ready', rows, profiles });
     })();
     return () => { cancelled = true; };
-  }, [sort]);
+  }, [sort, cacheKey, attempt]);
 
   if (load.state === 'failed') {
-    return <p className="text-[13.5px] text-on-surface/50">The board isn't available right now — try again in a moment.</p>;
+    return <div role="alert" className="taste-board-error"><p>Couldn’t load the leaderboard.</p><button onClick={() => setAttempt(a => a + 1)}>Try again</button></div>;
   }
   if (load.state === 'loading') return <p className="text-[13.5px] text-on-surface/45">Loading the board…</p>;
   const { rows, profiles } = load;

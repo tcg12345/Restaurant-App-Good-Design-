@@ -20,6 +20,7 @@ export type FeatureKey =
   | 'recipe-import-link' // R5
   | 'recipe-import-text' // R6 text
   | 'recipe-import-photo'// R6 photo
+  | 'recipe-photo'       // recreate a dish from a photo
   | 'nutrition'          // R9
   | 'taste-depth'        // T1
   | 'taste-compare'      // T2
@@ -73,6 +74,7 @@ export const FEATURES: Record<FeatureKey, Feature> = {
   'recipe-import-link':  { key: 'recipe-import-link', label: 'Import from a link', blurb: 'Import recipes from links without a weekly cap', endpoint: 'import-recipe', benefit: 'recipes' },
   'recipe-import-text':  { key: 'recipe-import-text', label: 'Import from text', blurb: 'Paste any recipe, as often as you like', endpoint: 'import-recipe-text', benefit: 'recipes' },
   'recipe-import-photo': { key: 'recipe-import-photo', label: 'Import from a photo', blurb: 'Snap a cookbook page and get the recipe', endpoint: 'import-recipe-photo', benefit: 'recipes' },
+  'recipe-photo':        { key: 'recipe-photo', label: 'Recreate a dish', blurb: 'Photograph a plate, get the recipe', endpoint: 'build-recipe-photo', benefit: 'recipes' },
   'nutrition':           { key: 'nutrition', label: 'Nutrition', blurb: 'Calories and macros on every recipe', endpoint: 'nutrition-estimate', benefit: 'recipes' },
   'taste-depth':         { key: 'taste-depth', label: 'Taste profile', blurb: 'Trends, habits and what you look for', benefit: 'taste' },
   'taste-compare':       { key: 'taste-compare', label: 'Comparisons', blurb: 'How you grade against everyone else', benefit: 'taste' },

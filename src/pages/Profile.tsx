@@ -1,3 +1,4 @@
+import { DeleteConfirmation } from '../components/DeleteConfirmation';
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import {
@@ -19,6 +20,9 @@ import { TopBar } from '../components/TopBar';
 import { getFollowCounts, getExpertRecommendationCount, getProfilesByIds, type UserProfile } from '../lib/supabase-community';
 import { getMyGuides, deleteGuide, setGuideVisibility, getGuidesForFeed, type Guide as MyGuide } from '../lib/supabase-guides';
 import { supabase } from '../lib/supabase';
+import { shareExternally, canonicalShareUrl } from '../lib/native-share';
+import { homeHaptic } from '../lib/haptics';
+import '../components/profile/ProfileDesign.css';
 import { cn, parseVisitDate } from '../lib/utils';
 import { GlassButton } from '../lib/glass-buttons';
 import { VerifiedBadge } from '../components/VerifiedBadge';
@@ -868,10 +872,10 @@ export const Profile: React.FC = () => {
   );
 
   return (
-    <div className="relative pb-32 min-h-screen bg-surface type-archivo">
+    <div className="profile-design relative pb-32 min-h-screen bg-surface">
       {/* The wash: the accent, faint, fading out under the header. The one
           place the page is allowed to be a colour rather than a surface. */}
-      <div aria-hidden className="pointer-events-none absolute inset-x-0 top-0 h-[360px] bg-gradient-to-b from-tint/30 via-tint/[0.12] via-55% to-transparent" />
+      <div aria-hidden className="profile-wash" />
       {/* Mirror the mobile Discover header — Create shortcut on the
           left, centered logo, messages/Circle cluster on the right.
           Hidden on desktop where the sidebar layout owns the chrome. */}
@@ -886,13 +890,13 @@ export const Profile: React.FC = () => {
           condensedTitle={phoneMode ? displayName : undefined}
           leftAction={phoneMode ? (
             <GlassButton
-              id="profile-create"
-              symbol="plus"
-              label="Create"
-              onClick={() => navigate('/create')}
+              id="profile-settings"
+              symbol="gearshape"
+              label="Settings"
+              onClick={() => navigate('/settings')}
               className="w-11 h-11 rounded-full flex items-center justify-center text-on-surface/80 transition-colors"
             >
-              <Plus size={20} />
+              <Settings size={20} />
             </GlassButton>
           ) : undefined}
         />
@@ -939,70 +943,24 @@ export const Profile: React.FC = () => {
       )}
 
       {/* ── Profile header ────────────────────────────────────────────── */}
-      <div className="px-[22px] pt-4 pb-1">
-        {/* Avatar, and the three numbers that describe the account, in a
-            row beside it. They used to be centred columns under a
-            gradient disc — three centred numbers next to a left-aligned
-            everything-else is two grids fighting over the same block. */}
-        <div data-tour="profile-stats" className="flex items-center gap-[18px]">
-          <div className="relative flex-none">
-            <Avatar src={profile?.avatar_url} name={displayName} size={84} letterSize={34} />
-            <span aria-hidden className="pointer-events-none absolute inset-0 rounded-full ring-[3px] ring-tint/55" />
-            {profile?.is_verified && (
-              <div className="absolute -bottom-0.5 -right-0.5 w-7 h-7 rounded-full bg-surface ring-[3px] ring-surface flex items-center justify-center">
-                <VerifiedBadge size={24} />
-              </div>
-            )}
+      <div className="profile-hero">
+        <div className="profile-identity">
+          <div className="profile-avatar">
+            <Avatar src={profile?.avatar_url} name={displayName} size={76} letterSize={30} />
+            {profile?.is_verified && <span className="profile-verified"><VerifiedBadge size={21} /></span>}
           </div>
-
-          <div className="flex-1 min-w-0 flex justify-between gap-2.5">
-            {([
-              ['rated', String(ratings.length), 'rated'],
-              ['followers', String(followers), 'followers'],
-              ['following', String(following), 'following'],
-            ] as const).map(([path, value, label]) => (
-              <button
-                key={path}
-                type="button"
-                onClick={() => navigate(`${publicProfilePath}/${path}`)}
-                className="flex-1 min-w-0 flex flex-col items-start gap-1.5 text-left active:opacity-60 transition-opacity"
-              >
-                <span className="text-on-surface tabular-nums" style={{ fontSize: '21px', fontWeight: 700, lineHeight: 1, letterSpacing: '-0.03em' }}>{value}</span>
-                <span className="text-on-surface/45" style={{ fontSize: '12px', lineHeight: 1 }}>{label}</span>
-              </button>
-            ))}
+          <div className="profile-name">
+            <h1>{displayName}</h1>
+            <Link to={publicProfilePath} aria-label="View public profile">@{username} <ChevronRight size={12} /></Link>
+            <span className="profile-visibility">{profile?.is_public ? <Globe size={11} /> : <EyeOff size={11} />}{profile?.is_public ? 'Public profile' : 'Private profile'}{memberSince && ` · Joined ${memberSince}`}</span>
           </div>
         </div>
-
-        <div className="mt-4 flex flex-col gap-[7px]">
-          <div className="flex items-baseline gap-2.5 flex-wrap">
-            <h1 className="text-on-surface" style={{ fontSize: '27px', fontWeight: 700, lineHeight: 1.05, letterSpacing: '-0.035em' }}>{displayName}</h1>
-            <span className="text-on-surface/45" style={{ fontSize: '13.5px' }}>@{username}</span>
-          </div>
-          {/* One quiet line, not three bordered chips. Whether the account
-              is public, whether it is verified and when it was made are
-              facts about the account, not badges it wears. */}
-          <div className="flex items-center gap-2 flex-wrap text-on-surface/45" style={{ fontSize: '12.5px' }}>
-            <span className="inline-flex items-center gap-1.5">
-              {profile?.is_public ? <Globe size={12} /> : <EyeOff size={12} />}
-              {profile?.is_public ? 'Public' : 'Private'}
-            </span>
-            {profile?.is_verified && (
-              <>
-                <span className="text-on-surface/25">·</span>
-                <span className="inline-flex items-center gap-1 text-primary" style={{ fontWeight: 600 }}>
-                  <VerifiedBadge size={12} />
-                  Verified{expertPickCount > 0 && ` · ${expertPickCount}`}
-                </span>
-              </>
-            )}
-            {memberSince && (
-              <>
-                <span className="text-on-surface/25">·</span>
-                <span>Joined {memberSince}</span>
-              </>
-            )}
-          </div>
+        <div className="profile-stats" data-tour="profile-stats" aria-label="Profile statistics">
+          {([
+            ['rated', String(ratings.length), 'Rated places'],
+            ['followers', String(followers), 'Followers'],
+            ['following', String(following), 'Following'],
+          ] as const).map(([path, value, label]) => <button key={path} onClick={() => { homeHaptic(); navigate(`${publicProfilePath}/${path}`); }}><strong>{value}</strong><span>{label}</span></button>)}
         </div>
 
         {profile?.is_verified && profile?.verified_status && (
@@ -1016,7 +974,7 @@ export const Profile: React.FC = () => {
         {/* Action row — one accent verb, one outlined verb, two outlined
             circles. The four used to be equal-weight grey rectangles, so
             nothing said which one you were meant to press. */}
-        <div ref={createWrapRef} className="relative flex items-center gap-2 mt-[22px]">
+        <div ref={createWrapRef} className="profile-actions relative flex items-center gap-2 mt-[22px]">
           {pickerInput}
           <button
             type="button"
@@ -1038,21 +996,11 @@ export const Profile: React.FC = () => {
             <SquarePen size={14} />
             Edit
           </button>
-          <Link
-            to={publicProfilePath}
-            className="flex-none w-11 h-11 rounded-full border border-on-surface/[0.22] text-on-surface flex items-center justify-center active:bg-on-surface/[0.06] transition-colors"
-            aria-label="View public profile"
-          >
-            <Upload size={16} />
-          </Link>
-          <button
-            type="button"
-            onClick={() => navigate('/settings')}
-            className="flex-none w-11 h-11 rounded-full border border-on-surface/[0.22] text-on-surface flex items-center justify-center active:bg-on-surface/[0.06] transition-colors"
-            aria-label="Settings"
-          >
-            <Settings size={16} />
-          </button>
+          <button type="button" aria-label="Share profile" className="profile-share" onClick={async () => {
+            const result = await shareExternally({ title: `${displayName} on GoodEats`, url: canonicalShareUrl(publicProfilePath) });
+            if (result === 'copied') showToast('Profile link copied');
+            else if (result === 'unsupported') showToast('Sharing isn’t available here');
+          }}><Upload size={17} /><span>Share</span></button>
 
           <AnimatePresence>
             {createMenuOpen && (
@@ -1089,15 +1037,17 @@ export const Profile: React.FC = () => {
         </div>
       </div>
 
+      <div className="profile-taste-entry"><TasteProfileCard /></div>
+
       {/* ── Pinned ── Above the tabs because pins span every kind. */}
-      <PinnedShelf className="mt-6 px-[22px]" cards={pinnedCards} isOwn onEdit={() => setEditPinsOpen(true)} />
+      <PinnedShelf className="profile-pins" cards={pinnedCards} isOwn onEdit={() => setEditPinsOpen(true)} />
 
       {/* ── Tabs ──────────────────────────────────────────────────────
           One full-width segmented track, not four free-floating pills —
           the same connected control the Friends and Lists pages use, so
           the four choices read as one object with a raised active cell. */}
-      <div className="mt-6 px-[22px] pb-3.5 border-b border-on-surface/[0.14]">
-        <div className="flex rounded-full bg-on-surface/[0.05] p-1">
+      <div className="profile-tabs">
+        <div className="profile-tab-track" role="group" aria-label="Profile content">
           {([
             ['rated', Star, 'Rated'],
             ['posts', LayoutGrid, 'Posts'],
@@ -1109,7 +1059,7 @@ export const Profile: React.FC = () => {
               <button
                 key={key}
                 type="button"
-                onClick={() => setActiveTab(key)}
+                onClick={() => { homeHaptic(); setActiveTab(key); }}
                 aria-pressed={on}
                 className={cn(
                   'flex-1 min-w-0 inline-flex items-center justify-center gap-1.5 rounded-full py-2.5 transition-colors',
@@ -1127,7 +1077,7 @@ export const Profile: React.FC = () => {
         </div>
       </div>
       {/* ── Tab content ───────────────────────────────────────────────── */}
-      <main className="px-[22px]">
+      <main className="profile-content" key={activeTab}>
         {activeTab === 'posts' && (
           myPosts.length === 0 ? (
             <EmptyTabState
@@ -1204,13 +1154,13 @@ export const Profile: React.FC = () => {
               {/* The ladder exists before the first rating — Newcomer,
                   zero points — so a new account sees what it is
                   climbing toward, not just an empty tab. */}
-              <TasteProfileCard className="mt-5" />
+
               <EmptyTabState
                 icon={<Star size={22} />}
                 title="No ratings yet"
                 subtitle="Rate restaurants to build your top lists and see your cuisine breakdown."
                 ctaLabel="Rate a place"
-                onCta={() => navigate('/')}
+                onCta={() => navigate('/create', { state: { mode: 'rate' } })}
               />
             </>
           ) : (
@@ -1218,7 +1168,7 @@ export const Profile: React.FC = () => {
               {/* ── Taste profile ──
                   The tier, the points, and the palate behind the
                   ratings. The full reading is a tap away. */}
-              <TasteProfileCard className="mt-5" />
+
 
               {/* ── Top lists ── */}
               {visibleLists.length > 0 && (
@@ -1228,7 +1178,7 @@ export const Profile: React.FC = () => {
                     <div className="flex-1 min-w-0">
                       <ProfileHeading>Top lists</ProfileHeading>
                       <p className="mt-1.5 text-on-surface/45" style={{ fontSize: '13px', lineHeight: 1.4 }}>
-                        Your ratings, sliced. Tap one for the full ranking.
+                        Your favorites, in order.
                       </p>
                     </div>
                     <button
@@ -1390,66 +1340,12 @@ export const Profile: React.FC = () => {
       {/* Delete-reel / Delete-post confirmations. Both call into their
           respective contexts and clean up storage objects. */}
       <AnimatePresence>
-        {confirmDeleteReelId && (
-          <motion.div
-            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-            className="fixed inset-0 bg-black/55 backdrop-blur-sm z-[80] flex items-center justify-center px-6"
-            onClick={() => { if (!deletingReel) setConfirmDeleteReelId(null); }}
-          >
-            <motion.div
-              initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }}
-              onClick={(e) => e.stopPropagation()}
-              className="bg-surface rounded-3xl p-6 max-w-xs w-full text-center"
-            >
-              <h4 className="font-serif font-bold text-on-surface text-lg">Delete reel?</h4>
-              <p className="text-sm text-on-surface/55 mt-1">This permanently removes the video and all of its likes, saves, and comments. It can't be undone.</p>
-              <div className="flex gap-2 mt-5">
-                <button type="button" onClick={() => setConfirmDeleteReelId(null)} disabled={deletingReel} className="flex-1 h-11 rounded-full bg-on-surface/[0.06] text-on-surface text-sm font-bold hover:bg-on-surface/[0.1] disabled:opacity-40">Cancel</button>
-                <button type="button" onClick={onConfirmDeleteReel} disabled={deletingReel} className="flex-1 h-11 rounded-full bg-rose-600 text-white text-sm font-bold hover:bg-rose-700 disabled:opacity-60">{deletingReel ? 'Deleting…' : 'Delete'}</button>
-              </div>
-            </motion.div>
-          </motion.div>
-        )}
-        {confirmDeletePostId && (
-          <motion.div
-            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-            className="fixed inset-0 bg-black/55 backdrop-blur-sm z-[80] flex items-center justify-center px-6"
-            onClick={() => { if (!deletingPost) setConfirmDeletePostId(null); }}
-          >
-            <motion.div
-              initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }}
-              onClick={(e) => e.stopPropagation()}
-              className="bg-surface rounded-3xl p-6 max-w-xs w-full text-center"
-            >
-              <h4 className="font-serif font-bold text-on-surface text-lg">Delete post?</h4>
-              <p className="text-sm text-on-surface/55 mt-1">This permanently removes every photo / video and the comments. It can't be undone.</p>
-              <div className="flex gap-2 mt-5">
-                <button type="button" onClick={() => setConfirmDeletePostId(null)} disabled={deletingPost} className="flex-1 h-11 rounded-full bg-on-surface/[0.06] text-on-surface text-sm font-bold hover:bg-on-surface/[0.1] disabled:opacity-40">Cancel</button>
-                <button type="button" onClick={onConfirmDeletePost} disabled={deletingPost} className="flex-1 h-11 rounded-full bg-rose-600 text-white text-sm font-bold hover:bg-rose-700 disabled:opacity-60">{deletingPost ? 'Deleting…' : 'Delete'}</button>
-              </div>
-            </motion.div>
-          </motion.div>
-        )}
-        {confirmDeleteGuideId && (
-          <motion.div
-            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-            className="fixed inset-0 bg-black/55 backdrop-blur-sm z-[80] flex items-center justify-center px-6"
-            onClick={() => { if (!deletingGuide) setConfirmDeleteGuideId(null); }}
-          >
-            <motion.div
-              initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }}
-              onClick={(e) => e.stopPropagation()}
-              className="bg-surface rounded-3xl p-6 max-w-xs w-full text-center"
-            >
-              <h4 className="font-serif font-bold text-on-surface text-lg">Delete guide?</h4>
-              <p className="text-sm text-on-surface/55 mt-1">This permanently removes the guide and all its entries. It can't be undone.</p>
-              <div className="flex gap-2 mt-5">
-                <button type="button" onClick={() => setConfirmDeleteGuideId(null)} disabled={deletingGuide} className="flex-1 h-11 rounded-full bg-on-surface/[0.06] text-on-surface text-sm font-bold hover:bg-on-surface/[0.1] disabled:opacity-40">Cancel</button>
-                <button type="button" onClick={onConfirmDeleteGuide} disabled={deletingGuide} className="flex-1 h-11 rounded-full bg-rose-600 text-white text-sm font-bold hover:bg-rose-700 disabled:opacity-60">{deletingGuide ? 'Deleting…' : 'Delete'}</button>
-              </div>
-            </motion.div>
-          </motion.div>
-        )}
+        {confirmDeleteReelId && <DeleteConfirmation title="Delete reel?" message="This permanently removes the video and its likes, saves, and comments. This can’t be undone."
+          onCancel={() => setConfirmDeleteReelId(null)} onConfirm={onConfirmDeleteReel} />}
+        {confirmDeletePostId && <DeleteConfirmation title="Delete post?" message="This permanently removes the post and its comments. This can’t be undone."
+          onCancel={() => setConfirmDeletePostId(null)} onConfirm={onConfirmDeletePost} />}
+        {confirmDeleteGuideId && <DeleteConfirmation title="Delete guide?" message="This permanently removes the guide and all its entries. This can’t be undone."
+          onCancel={() => setConfirmDeleteGuideId(null)} onConfirm={onConfirmDeleteGuide} />}
       </AnimatePresence>
 
     </div>

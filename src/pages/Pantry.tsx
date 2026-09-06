@@ -1,3 +1,8 @@
+import { DeleteConfirmation as ConfirmDeleteDialog } from '../components/DeleteConfirmation';
+import { SwipeActionTray, useSwipeActions } from '../components/SwipeActions';
+import { CardActionMenu, useCardLongPress } from '../components/CardActionMenu';
+import { usePageBack } from '../lib/usePageBack';
+import '../components/LibraryDesign.css';
 import React, { useState, useRef, useMemo, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { createPortal } from 'react-dom';
@@ -40,7 +45,7 @@ import { passesMichelinFilter } from '../lib/michelin';
 import { MichelinDistinctionFilter, MichelinDrillSection } from '../components/MichelinDistinctionFilter';
 import { MichelinMark } from '../components/MichelinBadge';
 import { FilterSheet as FilterSheetShell } from '../components/FilterSheet';
-import { FilterSection, PillRow, Pill, Segment, SegmentItem, RangeSlider, FilterDrillSection, HoursFilterSection } from '../components/filterPrimitives';
+import { FilterSortSection, FilterSection, PillRow, Pill, Segment, SegmentItem, RangeSlider, FilterDrillSection, HoursFilterSection } from '../components/filterPrimitives';
 import { passesHoursFilter, isHoursFilterActive, emptyHoursFilter, type HoursFilter, restaurantLocalNow } from '../lib/hours';
 import { useWarmHoursForFilter } from '../lib/useWarmHours';
 import { useAuth } from '../contexts/AuthContext';
@@ -589,47 +594,6 @@ function formatTodayHours(hours: string[] | undefined): string {
 /* ── Clean, centered confirmation dialog for destructive actions (swipe /
    menu Delete). Rendered through a portal so it's always viewport-centered,
    never clipped by a card's overflow or swipe transform. ── */
-const ConfirmDeleteDialog: React.FC<{ name: string; onCancel: () => void; onConfirm: () => void }> = ({ name, onCancel, onConfirm }) =>
-  createPortal(
-    <motion.div
-      className="fixed inset-0 z-[300] flex items-center justify-center p-6 bg-black/40 backdrop-blur-sm"
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      onClick={onCancel}
-    >
-      <motion.div
-        initial={{ opacity: 0, scale: 0.94, y: 8 }}
-        animate={{ opacity: 1, scale: 1, y: 0 }}
-        transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
-        onClick={(e) => e.stopPropagation()}
-        role="alertdialog"
-        aria-modal="true"
-        className="w-full max-w-[320px] rounded-2xl bg-surface p-6 text-center shadow-[0_24px_70px_-20px_rgba(0,0,0,0.5)]"
-      >
-        <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-red-50 text-red-500">
-          <Trash2 size={20} />
-        </div>
-        <h3 className="line-clamp-2 font-serif text-[19px] font-bold leading-snug text-on-surface">Delete {name}?</h3>
-        <p className="mt-1.5 text-[13.5px] leading-snug text-on-surface/55">This can’t be undone.</p>
-        <div className="mt-5 flex gap-2.5">
-          <button
-            onClick={onCancel}
-            className="flex-1 rounded-xl bg-on-surface/[0.06] py-3 text-[14px] font-semibold text-on-surface/70 transition-colors hover:bg-on-surface/10"
-          >
-            Cancel
-          </button>
-          <button
-            onClick={onConfirm}
-            className="flex-1 rounded-xl bg-red-500 py-3 text-[14px] font-semibold text-white transition-colors hover:bg-red-600 active:scale-[0.98]"
-          >
-            Delete
-          </button>
-        </div>
-      </motion.div>
-    </motion.div>,
-    document.body,
-  );
-
 /* ── Open/Closed + today's-hours status line (Restaurant Cards Redesign).
    Dot + Open/Closed + the concise next boundary ("opens 5:00 PM" /
    "closes 10:00 PM") and an optional trailing value (distance). Always ONE
@@ -680,16 +644,13 @@ const RestaurantRow: React.FC<{
   const { restaurantMeta, scoresUnlocked } = useLists();
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [dismissed, setDismissed] = useState(false);
-  // Pointer-driven swipe-to-reveal (smooth in the iOS WKWebView, unlike
-  // framer-motion's drag): `tx` is the live translateX, `open` snaps it to the
-  // revealed position, and the refs track the in-flight gesture.
-  const [tx, setTx] = useState(0);
-  const [open, setOpen] = useState(false);
-  const [dragging, setDragging] = useState(false);
-  const dragRef = useRef<{ startX: number; startY: number; base: number; moved: boolean; horizontal: boolean } | null>(null);
-  const txRef = useRef(0);
-  const justSwipedRef = useRef(false);
-
+  const swipe = useSwipeActions((onEdit ? 1 : 0) + (onRemove ? 1 : 0));
+  const { tx, open, dragging, revealWidth, closeSwipe, onForegroundClick } = swipe;
+  const actions = [
+    ...(onEdit ? [{ label: 'Edit', icon: <Edit3 size={20} />, onClick: onEdit }] : []),
+    ...(onRemove ? [{ label: 'Delete', icon: <Trash2 size={20} />, danger: true, onClick: () => setConfirmDelete(true) }] : []),
+  ];
+  const contextMenu = swipe.menuRect && <CardActionMenu rect={swipe.menuRect} actions={actions} onClose={() => swipe.setMenuRect(null)} />;
   // Resolve a "City, ST" / "City, Country" label from the address. Use the
   // Beli-style hierarchical label — neighborhood + borough/city + state
   // when address components are cached, falls back to formatted-address
@@ -722,100 +683,17 @@ const RestaurantRow: React.FC<{
 
   if (dismissed) return null;
 
-  // Total width for swipe-revealed action buttons (Edit + Delete side by side)
-  const hasEdit = !!onEdit;
-  const hasRemove = !!onRemove;
-  const actionCount = (hasEdit ? 1 : 0) + (hasRemove ? 1 : 0);
-  const revealWidth = actionCount * 76;
-
   const metaLoc = [location, distanceLabel].filter(Boolean).join('  ·  ');
-
-  // ── Pointer-event swipe (mobile). Capture only once the gesture is clearly
-  //    horizontal so vertical scrolling (touch-action: pan-y) is never hijacked,
-  //    then translate the foreground over the Edit/Delete actions. ──
-  const onSwipeDown = (e: React.PointerEvent) => {
-    if (actionCount === 0) return;
-    dragRef.current = { startX: e.clientX, startY: e.clientY, base: open ? -revealWidth : 0, moved: false, horizontal: false };
-  };
-  const onSwipeMove = (e: React.PointerEvent) => {
-    const d = dragRef.current;
-    if (!d) return;
-    const dx = e.clientX - d.startX;
-    const dy = e.clientY - d.startY;
-    if (!d.horizontal) {
-      if (Math.abs(dx) < 6 && Math.abs(dy) < 6) return;
-      if (Math.abs(dy) >= Math.abs(dx)) { dragRef.current = null; return; } // vertical → let the page scroll
-      d.horizontal = true;
-      setDragging(true);
-      try { (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId); } catch { /* not supported */ }
-    }
-    d.moved = true;
-    const next = Math.max(-revealWidth, Math.min(0, d.base + dx));
-    txRef.current = next;
-    setTx(next);
-  };
-  const onSwipeEnd = () => {
-    const d = dragRef.current;
-    dragRef.current = null;
-    if (!d || !d.horizontal) { setDragging(false); return; }
-    justSwipedRef.current = d.moved;
-    // iOS never synthesizes a click after a real drag, so the flag would
-    // otherwise stay set and swallow the NEXT genuine tap (dead tap /
-    // two-taps-to-close). Auto-expire it just after any synthesized click
-    // could have fired.
-    if (d.moved) setTimeout(() => { justSwipedRef.current = false; }, 350);
-    setDragging(false);
-    const shouldOpen = txRef.current < -revealWidth / 2;
-    const snapped = shouldOpen ? -revealWidth : 0;
-    txRef.current = snapped;
-    setTx(snapped);
-    setOpen(shouldOpen);
-  };
-  const closeSwipe = () => { justSwipedRef.current = false; txRef.current = 0; setTx(0); setOpen(false); };
-  // Swallow the click that follows a swipe; tapping an open row closes it.
-  const onForegroundClick = (e: React.MouseEvent) => {
-    if (justSwipedRef.current) { e.preventDefault(); justSwipedRef.current = false; return; }
-    if (open) { e.preventDefault(); closeSwipe(); }
-  };
-
   // ── Mobile: flat row, swipe left to reveal Edit (grey) + Delete (red) ──
   if (phoneMode) {
     return (
-      <div className="relative overflow-hidden">
-        {actionCount > 0 && (
-          <div className="absolute inset-y-0 right-0 z-0 flex items-stretch" style={{ width: revealWidth }}>
-            {hasEdit && (
-              <button
-                onClick={(e) => { e.stopPropagation(); closeSwipe(); onEdit?.(); }}
-                className="flex w-[76px] flex-col items-center justify-center gap-1.5 text-white transition-[filter] active:brightness-110"
-                style={{ background: 'var(--color-swipe-neutral)' }}
-                aria-label="Edit"
-              >
-                <Edit3 size={19} />
-                <span className="text-[10px] font-bold uppercase tracking-[0.1em]">Edit</span>
-              </button>
-            )}
-            {hasRemove && (
-              <button
-                onClick={(e) => { e.stopPropagation(); setConfirmDelete(true); }}
-                className="flex w-[76px] flex-col items-center justify-center gap-1.5 text-white transition-[filter] active:brightness-110"
-                style={{ background: 'var(--color-danger)' }}
-                aria-label="Delete"
-              >
-                <Trash2 size={19} />
-                <span className="text-[10px] font-bold uppercase tracking-[0.1em]">Delete</span>
-              </button>
-            )}
-          </div>
-        )}
+      <div ref={swipe.rowRef} className="library-restaurant-row relative overflow-hidden">
+        <SwipeActionTray actions={actions} width={revealWidth} visible={tx < -5} onClose={closeSwipe} />
         <div
-          onPointerDown={onSwipeDown}
-          onPointerMove={onSwipeMove}
-          onPointerUp={onSwipeEnd}
-          onPointerCancel={onSwipeEnd}
+          {...swipe.foregroundProps}
           style={{
             transform: `translateX(${tx}px)`,
-            transition: dragging ? 'none' : 'transform 0.32s cubic-bezier(0.22, 0.61, 0.36, 1)',
+            transition: dragging ? 'none' : 'transform 0.38s cubic-bezier(0.2, 0.85, 0.25, 1)',
             touchAction: 'pan-y',
             WebkitUserSelect: 'none',
             userSelect: 'none',
@@ -846,6 +724,7 @@ const RestaurantRow: React.FC<{
             <ScoreRing score={score} size={46} locked={!scoresUnlocked} className="mt-0.5" />
           </Link>
         </div>
+        {contextMenu}
         {confirmDelete && (
           <ConfirmDeleteDialog
             name={name}
@@ -859,7 +738,7 @@ const RestaurantRow: React.FC<{
 
   // ── Desktop: boxed list card with rank gutter + inset-ring score ──
   return (
-    <div className="group relative">
+    <div ref={swipe.rowRef} className="library-restaurant-row group relative" onContextMenu={swipe.foregroundProps.onContextMenu}>
       <Link
         to={`/restaurant/${restaurantId}`}
         className="card-surface card-surface-hover flex items-center gap-[22px] px-[26px] py-[22px] shadow-sm"
@@ -898,6 +777,7 @@ const RestaurantRow: React.FC<{
         )}
         <ScoreRing score={score} size={48} locked={!scoresUnlocked} />
       </Link>
+      {contextMenu}
       {confirmDelete && (
         <ConfirmDeleteDialog
           name={name}
@@ -1100,6 +980,12 @@ const RestaurantGridCard: React.FC<{
   showMichelin?: boolean;
 }> = ({ restaurantId, name, image, cuisine, price, score, address, notes, onEdit, onEditNotes, onRemove, showMichelin = false }) => {
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [cardMenu, setCardMenu] = useState<DOMRect | null>(null);
+  const cardPress = useCardLongPress<null>((_, target) => { if (onEdit || onRemove) setCardMenu(target.getBoundingClientRect()); });
+  const cardMenuNode = cardMenu && <CardActionMenu rect={cardMenu} onClose={() => setCardMenu(null)} actions={[
+    ...(onEdit ? [{ label: 'Edit', icon: <Edit3 size={18} />, onClick: onEdit }] : []),
+    ...(onRemove ? [{ label: 'Delete', icon: <Trash2 size={18} />, danger: true, onClick: () => setConfirmDelete(true) }] : []),
+  ]} />;
   const [moreOpen, setMoreOpen] = useState(false);
   const [notesOpen, setNotesOpen] = useState(false);
   const moreRef = useRef<HTMLDivElement | null>(null);
@@ -1151,7 +1037,7 @@ const RestaurantGridCard: React.FC<{
   // (notes affordance left, hover edit/more right).
   return (
     <div className="group relative h-full">
-      <Link
+      <Link {...cardPress.getHandlers(null)} onClick={e => { if (cardPress.suppressClickRef.current) { e.preventDefault(); cardPress.suppressClickRef.current = false; } }}
         to={`/restaurant/${restaurantId}`}
         className="relative flex h-full flex-col rounded-[18px] border border-on-surface/[0.07] bg-white px-5 pb-3.5 pt-5 shadow-sm transition-all duration-200 hover:-translate-y-px hover:border-on-surface/15 hover:shadow-[0_4px_12px_rgba(0,0,0,0.08)]"
       >
@@ -1291,6 +1177,7 @@ const RestaurantGridCard: React.FC<{
         </div>
       </Link>
 
+      {cardMenuNode}
       {confirmDelete && (
         <ConfirmDeleteDialog
           name={name}
@@ -2504,13 +2391,13 @@ const FilterSheet: React.FC<{
 }> = ({ open, onClose, sortBy, onSortBy, scoreRange, onScoreRange, cityFilter, onCityFilter, cuisineFilter, onCuisineFilter, priceFilter, onPriceFilter, hoursFilter, onHoursFilter, michelinFilter, onMichelinToggle, allCities, allCuisines, counts, initialPage, onReset }) => {
   return (
     <FilterSheetShell open={open} onClose={onClose} title="Filters" onReset={onReset} initialPage={initialPage}>
-      <FilterSection label="Sort by">
+      <FilterSortSection>
         <PillRow>
           {([['recent', 'Recent'], ['highest', 'Highest Score'], ['lowest', 'Lowest Score'], ['added', 'Date Added'], ['custom', 'Custom Order']] as const).map(([key, label]) => (
             <Pill key={key} active={sortBy === key} onClick={() => onSortBy(key)}>{label}</Pill>
           ))}
         </PillRow>
-      </FilterSection>
+      </FilterSortSection>
 
       <FilterSection
         label="Score"
@@ -2603,7 +2490,7 @@ const WishlistFilterSheet: React.FC<{
       zIndex={120}
       initialPage={initialPage}
     >
-      <FilterSection label="Sort by">
+      <FilterSortSection>
         <PillRow>
           {([
             ['recent', 'Recently Added'],
@@ -2614,7 +2501,7 @@ const WishlistFilterSheet: React.FC<{
             <Pill key={key} active={sortBy === key} onClick={() => onSortBy(key)}>{label}</Pill>
           ))}
         </PillRow>
-      </FilterSection>
+      </FilterSortSection>
 
       <FilterSection label="Price">
         <Segment>
@@ -4311,25 +4198,7 @@ const HomeCookingTab: React.FC<{
 
     const deleteConfirmOverlay = (
       <AnimatePresence>
-        {confirmDeleteId && (
-          <>
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-              className="fixed inset-0 bg-black/40 z-50" onClick={() => setConfirmDeleteId(null)} />
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }}
-              className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-72 bg-white rounded-2xl p-5 z-50 shadow-xl text-center"
-            >
-              <p className="font-semibold text-on-surface mb-2">Delete this meal?</p>
-              <p className="text-sm text-on-surface/50 mb-4">This cannot be undone.</p>
-              <div className="flex gap-3">
-                <button onClick={() => setConfirmDeleteId(null)}
-                  className="flex-1 py-2 rounded-xl bg-on-surface/5 text-on-surface/60 text-sm font-semibold">Cancel</button>
-                <button onClick={() => { onDeleteMeal(confirmDeleteId); setConfirmDeleteId(null); onSelectMeal(null); }}
-                  className="flex-1 py-2 rounded-xl bg-red-500 text-white text-sm font-semibold">Delete</button>
-              </div>
-            </motion.div>
-          </>
-        )}
+        {confirmDeleteId && <ConfirmDeleteDialog title="Delete this recipe?" onCancel={() => setConfirmDeleteId(null)} onConfirm={() => { onDeleteMeal(confirmDeleteId); setConfirmDeleteId(null); onSelectMeal(null); }} />}
       </AnimatePresence>
     );
 
@@ -4699,7 +4568,7 @@ const HomeCookingTab: React.FC<{
           </div>
 
           {/* The count line — recomputes with every control above. */}
-          {meals.length > 0 && (
+          {meals.length > 0 && (!phoneMode || recipeActiveFilterCount > 0 || sortBy !== 'recent' || savedOnly || searchQuery.trim()) && (
             <div className="flex items-center justify-between px-1 pt-3.5">
               <span className="text-[12px] text-on-surface/55 tabular-nums">
                 {filteredMeals.length} recipe{filteredMeals.length === 1 ? '' : 's'}
@@ -4862,7 +4731,7 @@ function homeMealToCardData(meal: HomeMeal): RecipeCardData {
     cuisine: meal.cuisine,
     totalTime: (meal.prepTime ?? 0) + (meal.cookTime ?? 0),
     difficulty: meal.difficulty,
-    dishCount: meal.dishes.length,
+    dishCount: meal.dishes?.length ?? 0,
     score: meal.score,
     ingredientText: preview.map((i) => i.name).filter(Boolean).join(' · '),
     ingredientOverflow: ingredients.length > preview.length,
@@ -4934,18 +4803,8 @@ const RecipeRow: React.FC<RecipeCardData & {
   const { phoneMode } = useSettings();
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [dismissed, setDismissed] = useState(false);
-  const [tx, setTx] = useState(0);
-  const [open, setOpen] = useState(false);
-  const [dragging, setDragging] = useState(false);
-  const dragRef = useRef<{ startX: number; startY: number; base: number; moved: boolean; horizontal: boolean } | null>(null);
-  const txRef = useRef(0);
-  const justSwipedRef = useRef(false);
-  // Long-press → a context menu at the press point with the same actions
-  // as the swipe (Publish/Private · Edit · Delete).
-  const [menuPos, setMenuPos] = useState<{ x: number; y: number } | null>(null);
-  const longPressRef = useRef<{ timer: ReturnType<typeof setTimeout> | null; fired: boolean }>({ timer: null, fired: false });
-  const clearLongPress = () => { if (longPressRef.current.timer) { clearTimeout(longPressRef.current.timer); longPressRef.current.timer = null; } };
-
+  const swipe = useSwipeActions((onToggleVisibility ? 1 : 0) + (onEdit && canEdit ? 1 : 0) + (onDelete ? 1 : 0));
+  const { tx, open, dragging, revealWidth, closeSwipe } = swipe;
   const metaText = recipeMetaText({ cuisine, totalTime, difficulty, dishCount });
   // Phone meta line — time moved into its pill, so this is just the words.
   const smallMeta = [cuisine, difficulty].filter(Boolean).join(' · ')
@@ -4962,150 +4821,24 @@ const RecipeRow: React.FC<RecipeCardData & {
   if (dismissed) return null;
 
   const hasVisibility = !!onToggleVisibility;
-  const actionCount = (hasVisibility ? 1 : 0) + (hasEdit ? 1 : 0) + (hasRemove ? 1 : 0);
-  const revealWidth = actionCount * 76;
-
-  // ── Pointer-event swipe (mobile), identical to the restaurant rows so
-  //    vertical scrolling is never hijacked (touch-action: pan-y). ──
-  const onSwipeDown = (e: React.PointerEvent) => {
-    if (actionCount === 0) return;
-    dragRef.current = { startX: e.clientX, startY: e.clientY, base: open ? -revealWidth : 0, moved: false, horizontal: false };
-    // Arm the long-press: if the finger stays put for ~450ms, open the menu
-    // at the press point and cancel any swipe in progress.
-    longPressRef.current.fired = false;
-    clearLongPress();
-    const px = e.clientX, py = e.clientY;
-    longPressRef.current.timer = setTimeout(() => {
-      longPressRef.current = { timer: null, fired: true };
-      dragRef.current = null;
-      txRef.current = 0; setTx(0); setDragging(false);
-      setMenuPos({ x: px, y: py });
-    }, 450);
-  };
-  const onSwipeMove = (e: React.PointerEvent) => {
-    const d = dragRef.current;
-    if (!d) return;
-    const dx = e.clientX - d.startX;
-    const dy = e.clientY - d.startY;
-    if (Math.abs(dx) > 8 || Math.abs(dy) > 8) clearLongPress(); // moved → swipe/scroll, not a long-press
-    if (!d.horizontal) {
-      if (Math.abs(dx) < 6 && Math.abs(dy) < 6) return;
-      if (Math.abs(dy) >= Math.abs(dx)) { dragRef.current = null; return; }
-      d.horizontal = true;
-      setDragging(true);
-      try { (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId); } catch { /* not supported */ }
-    }
-    d.moved = true;
-    const next = Math.max(-revealWidth, Math.min(0, d.base + dx));
-    txRef.current = next;
-    setTx(next);
-  };
-  const onSwipeEnd = () => {
-    clearLongPress();
-    const d = dragRef.current;
-    dragRef.current = null;
-    if (!d || !d.horizontal) { setDragging(false); return; }
-    justSwipedRef.current = d.moved;
-    // iOS never synthesizes a click after a real drag — auto-expire the
-    // flag so it can't swallow the next genuine tap (see RestaurantRow).
-    if (d.moved) setTimeout(() => { justSwipedRef.current = false; }, 350);
-    setDragging(false);
-    const shouldOpen = txRef.current < -revealWidth / 2;
-    const snapped = shouldOpen ? -revealWidth : 0;
-    txRef.current = snapped;
-    setTx(snapped);
-    setOpen(shouldOpen);
-  };
-  const closeSwipe = () => { justSwipedRef.current = false; txRef.current = 0; setTx(0); setOpen(false); };
-  const onForegroundClick = (e: React.MouseEvent) => {
-    if (longPressRef.current.fired) { e.preventDefault(); longPressRef.current.fired = false; return; }
-    if (justSwipedRef.current) { e.preventDefault(); justSwipedRef.current = false; return; }
-    if (open) { e.preventDefault(); closeSwipe(); return; }
-    onClick();
-  };
-
-  // Shared long-press / right-click context menu — portalled to <body> so it's
-  // never clipped by the row's overflow or swipe transform.
-  const contextMenu = menuPos && createPortal(
-    <div className="fixed inset-0 z-[120]" onPointerDown={() => setMenuPos(null)} onContextMenu={(e) => { e.preventDefault(); setMenuPos(null); }}>
-      <div
-        className="absolute min-w-[190px] overflow-hidden rounded-2xl border border-on-surface/10 bg-paper shadow-[0_16px_44px_rgba(0,0,0,0.22)]"
-        style={{ left: Math.max(8, Math.min(menuPos.x, window.innerWidth - 202)), top: Math.max(8, Math.min(menuPos.y, window.innerHeight - 172)) }}
-        onPointerDown={(e) => e.stopPropagation()}
-      >
-        {hasVisibility && (
-          <button onClick={() => { setMenuPos(null); onToggleVisibility?.(); }}
-            className="flex w-full items-center gap-3 px-4 py-3 text-left text-[15px] font-semibold text-on-surface hover:bg-on-surface/[0.05] active:bg-on-surface/[0.07]">
-            {isPrivate ? <Globe size={17} className="text-secondary" /> : <Lock size={17} className="text-secondary" />}
-            {isPrivate ? 'Make public' : 'Make private'}
-          </button>
-        )}
-        {hasEdit && (
-          <button onClick={() => { setMenuPos(null); onEdit?.(); }}
-            className="flex w-full items-center gap-3 px-4 py-3 text-left text-[15px] font-semibold text-on-surface hover:bg-on-surface/[0.05] active:bg-on-surface/[0.07] border-t border-on-surface/[0.06]">
-            <Edit3 size={17} className="text-on-surface/55" /> Edit
-          </button>
-        )}
-        {hasRemove && (
-          <button onClick={() => { setMenuPos(null); setConfirmDelete(true); }}
-            className="flex w-full items-center gap-3 px-4 py-3 text-left text-[15px] font-semibold text-red-500 hover:bg-red-500/[0.06] active:bg-red-500/[0.1] border-t border-on-surface/[0.06]">
-            <Trash2 size={17} /> Delete
-          </button>
-        )}
-      </div>
-    </div>,
-    document.body,
-  );
+  const actions = [
+    ...(hasVisibility ? [{ label: isPrivate ? 'Publish' : 'Private', icon: isPrivate ? <Globe size={20} /> : <Lock size={20} />, onClick: () => onToggleVisibility?.() }] : []),
+    ...(hasEdit ? [{ label: 'Edit', icon: <Edit3 size={20} />, onClick: () => onEdit?.() }] : []),
+    ...(hasRemove ? [{ label: 'Delete', icon: <Trash2 size={20} />, danger: true, onClick: () => setConfirmDelete(true) }] : []),
+  ];
+  const onForegroundClick = (e: React.MouseEvent) => { if (!swipe.onForegroundClick(e)) onClick(); };
+  const contextMenu = swipe.menuRect && <CardActionMenu rect={swipe.menuRect} actions={actions} onClose={() => swipe.setMenuRect(null)} />;
 
   // ── Mobile: flat row, swipe left to reveal Edit + Delete ──
   if (phoneMode) {
     return (
-      <div className="relative overflow-hidden">
-        {actionCount > 0 && (
-          <div className="absolute inset-y-0 right-0 z-0 flex items-stretch" style={{ width: revealWidth }}>
-            {hasVisibility && (
-              <button
-                onClick={(e) => { e.stopPropagation(); closeSwipe(); onToggleVisibility?.(); }}
-                className="flex w-[76px] flex-col items-center justify-center gap-1.5 text-white transition-[filter] active:brightness-110"
-                style={{ background: isPrivate ? 'var(--color-olive)' : 'var(--color-swipe-muted)' }}
-                aria-label={isPrivate ? 'Make public' : 'Make private'}
-              >
-                {isPrivate ? <Globe size={19} /> : <Lock size={19} />}
-                <span className="text-[10px] font-bold uppercase tracking-[0.1em]">{isPrivate ? 'Publish' : 'Private'}</span>
-              </button>
-            )}
-            {hasEdit && (
-              <button
-                onClick={(e) => { e.stopPropagation(); closeSwipe(); onEdit?.(); }}
-                className="flex w-[76px] flex-col items-center justify-center gap-1.5 text-white transition-[filter] active:brightness-110"
-                style={{ background: 'var(--color-swipe-neutral)' }}
-                aria-label="Edit"
-              >
-                <Edit3 size={19} />
-                <span className="text-[10px] font-bold uppercase tracking-[0.1em]">Edit</span>
-              </button>
-            )}
-            {hasRemove && (
-              <button
-                onClick={(e) => { e.stopPropagation(); setConfirmDelete(true); }}
-                className="flex w-[76px] flex-col items-center justify-center gap-1.5 text-white transition-[filter] active:brightness-110"
-                style={{ background: 'var(--color-danger)' }}
-                aria-label="Delete"
-              >
-                <Trash2 size={19} />
-                <span className="text-[10px] font-bold uppercase tracking-[0.1em]">Delete</span>
-              </button>
-            )}
-          </div>
-        )}
+      <div ref={swipe.rowRef} className="library-recipe-row relative overflow-hidden">
+        <SwipeActionTray actions={actions} width={revealWidth} visible={tx < -5} onClose={closeSwipe} />
         <div
-          onPointerDown={onSwipeDown}
-          onPointerMove={onSwipeMove}
-          onPointerUp={onSwipeEnd}
-          onPointerCancel={onSwipeEnd}
+          {...swipe.foregroundProps}
           style={{
             transform: `translateX(${tx}px)`,
-            transition: dragging ? 'none' : 'transform 0.32s cubic-bezier(0.22, 0.61, 0.36, 1)',
+            transition: dragging ? 'none' : 'transform 0.38s cubic-bezier(0.2, 0.85, 0.25, 1)',
             touchAction: 'pan-y',
             WebkitUserSelect: 'none',
             userSelect: 'none',
@@ -5116,7 +4849,7 @@ const RecipeRow: React.FC<RecipeCardData & {
             onClick={onForegroundClick}
             className="flex w-full items-start gap-3.5 px-1 py-[15px] text-left"
           >
-            <RecipeThumb coverPhoto={coverPhoto} name={name} size={74} />
+            <RecipeThumb coverPhoto={coverPhoto} name={name} size={90} />
             <div className="min-w-0 flex-1">
               <h3 className="font-serif text-[16px] font-bold leading-[1.2] tracking-[-0.025em] text-on-surface line-clamp-2">{name}</h3>
               {(totalTime > 0 || smallMeta) && (
@@ -5155,13 +4888,13 @@ const RecipeRow: React.FC<RecipeCardData & {
   // The clickable surface is a role="button" div (not a <button>) so the
   // inline Edit/Delete buttons can nest without invalid-DOM warnings.
   return (
-    <div className="group relative">
+    <div ref={swipe.rowRef} className="library-recipe-row group relative">
       <div
         role="button"
         tabIndex={0}
         onClick={onClick}
         onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick(); } }}
-        onContextMenu={(e) => { e.preventDefault(); setMenuPos({ x: e.clientX, y: e.clientY }); }}
+        onContextMenu={swipe.foregroundProps.onContextMenu}
         className="card-surface card-surface-hover flex w-full cursor-pointer items-center gap-5 px-[22px] py-[18px] text-left shadow-sm"
       >
         <RecipeThumb coverPhoto={coverPhoto} name={name} size={76} />
@@ -5229,13 +4962,19 @@ const RecipeGridCard: React.FC<RecipeCardData & {
   score, byline, canEdit = true, onClick, onEdit, onDelete,
 }) => {
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [cardMenu, setCardMenu] = useState<DOMRect | null>(null);
+  const cardPress = useCardLongPress<null>((_, target) => { if ((onEdit && canEdit) || onDelete) setCardMenu(target.getBoundingClientRect()); });
+  const cardMenuNode = cardMenu && <CardActionMenu rect={cardMenu} onClose={() => setCardMenu(null)} actions={[
+    ...(onEdit && canEdit ? [{ label: 'Edit', icon: <Edit3 size={18} />, onClick: onEdit }] : []),
+    ...(onDelete ? [{ label: 'Delete', icon: <Trash2 size={18} />, danger: true, onClick: () => setConfirmDelete(true) }] : []),
+  ]} />;
   const metaText = recipeMetaText({ cuisine, totalTime, difficulty, dishCount });
   const hasEdit = !!onEdit && canEdit;
   const hasRemove = !!onDelete;
   return (
     <div className="group relative">
-      <button
-        onClick={onClick}
+      <button {...cardPress.getHandlers(null)}
+        onClick={() => { if (cardPress.suppressClickRef.current) { cardPress.suppressClickRef.current = false; return; } onClick(); }}
         className="w-full text-left card-surface card-surface-hover active:scale-[0.99]"
       >
         {/* Cover image / placeholder */}
@@ -5292,6 +5031,7 @@ const RecipeGridCard: React.FC<RecipeCardData & {
           )}
         </div>
       )}
+      {cardMenuNode}
       {confirmDelete && (
         <ConfirmDeleteDialog
           name={name}
@@ -5332,13 +5072,13 @@ const RecipeFilterSheet: React.FC<{
       applyLabel={activeCount > 0 ? 'Show recipes' : 'Done'}
       zIndex={120}
     >
-      <FilterSection label="Sort by">
+      <FilterSortSection>
         <PillRow>
           {([['recent', 'Recent'], ['highest', 'Highest score'], ['lowest', 'Lowest score'], ['quickest', 'Quickest']] as const).map(([key, label]) => (
             <Pill key={key} active={sortBy === key} onClick={() => onSortBy(key)}>{label}</Pill>
           ))}
         </PillRow>
-      </FilterSection>
+      </FilterSortSection>
 
       <FilterSection label="Difficulty">
         <PillRow>
@@ -5437,7 +5177,7 @@ const FilterPill: React.FC<{
     type="button"
     onClick={onClick}
     className={cn(
-      'hit-44-y inline-flex items-center gap-1.5 rounded-full border px-[13px] py-[9px] flex-shrink-0 active:opacity-80 transition-colors',
+      'library-filter hit-44-y inline-flex items-center gap-1.5 rounded-full border px-[13px] py-[9px] flex-shrink-0 active:opacity-80 transition-colors',
       active
         ? 'bg-on-surface border-on-surface text-cream'
         : 'bg-transparent border-on-surface/20 text-on-surface',
@@ -5681,6 +5421,7 @@ const SwitcherRow: React.FC<{
 
 export const Pantry: React.FC = () => {
   const navigate = useNavigate();
+  const goBack = usePageBack('/pantry');
   const location = useLocation();
   // Read URL params synchronously on first render so the initial state
   // matches the URL — fixes the flicker (and worse, the visible "back-
@@ -5700,7 +5441,7 @@ export const Pantry: React.FC = () => {
     if (!id) return null;
     if (id === '__wishlist__') {
       return {
-        id: '__wishlist__', name: 'Wishlist', emoji: '🔖',
+        id: '__wishlist__', name: 'Want to try', emoji: '🔖',
         restaurantIds: [], wishlistIds: [], createdAt: 0,
       } as CustomList;
     }
@@ -5715,7 +5456,7 @@ export const Pantry: React.FC = () => {
   // Which tab the create-list sheet was opened from — controls which presets
   // appear and whether a custom list is tagged as a recipe list.
   const [createSheetKind, setCreateSheetKind] = useState<'restaurants' | 'recipes'>('restaurants');
-  const [viewMode, setViewMode] = useState<'list' | 'grid'>('grid');
+  const [viewMode, setViewMode] = useState<'list' | 'grid'>('list');
   const [showTrips, setShowTrips] = useState<boolean>(() => initialUrlState.view === 'trips');
   const [showHomeCooking, setShowHomeCooking] = useState<boolean>(() => initialUrlState.view === 'home-cooking');
   const [homeCookingSelectedMealId, setHomeCookingSelectedMealId] = useState<string | null>(null);
@@ -5991,7 +5732,7 @@ export const Pantry: React.FC = () => {
         // wishlist below, so any object with this id flows through the
         // same code path the pill row used.
         setSelectedList({
-          id: '__wishlist__', name: 'Wishlist', emoji: '🔖',
+          id: '__wishlist__', name: 'Want to try', emoji: '🔖',
           restaurantIds: [], wishlistIds: [], createdAt: 0,
         } as CustomList);
       } else {
@@ -6246,7 +5987,7 @@ export const Pantry: React.FC = () => {
     }
     if (selectedList) {
       if (selectedList.id === '__wishlist__') {
-        return { emoji: '🔖', name: 'Wishlist', count: regularWishlist.length };
+        return { emoji: '🔖', name: 'Want to try', count: regularWishlist.length };
       }
       const isRecipeList = selectedList.type === 'home-cooking';
       const count = isRecipeList
@@ -6291,7 +6032,7 @@ export const Pantry: React.FC = () => {
     setListSwitcherOpen(false); setListDrawerOpen(false);
     setShowHomeCooking(false); setShowTrips(false);
     setSelectedList({
-      id: '__wishlist__', name: 'Wishlist', emoji: '🔖',
+      id: '__wishlist__', name: 'Want to try', emoji: '🔖',
       restaurantIds: [], wishlistIds: regularWishlist.map((w) => w.restaurantId),
       createdAt: 0,
     } as CustomList);
@@ -6494,7 +6235,7 @@ export const Pantry: React.FC = () => {
   })();
 
   return (
-    <div className="pb-32 type-archivo">
+    <div className="library-page pb-32 type-archivo">
       {/* Combined tabs + list selector — desktop only.
           The tab pill IS the list selector: each tab shows the active
           list within its section (emoji + name + count + chevron).
@@ -6570,7 +6311,7 @@ export const Pantry: React.FC = () => {
                         />
                         <SwitcherRow
                           icon={<Bookmark size={14} className="text-primary fill-primary" />}
-                          label="Wishlist"
+                          label="Want to try"
                           count={regularWishlist.length}
                           active={selectedList?.id === '__wishlist__'}
                           onClick={switchToWishlist}
@@ -6695,6 +6436,7 @@ export const Pantry: React.FC = () => {
             viewLabel={phoneViewLabel}
             drawerOpen={listDrawerOpen}
             onOpenDrawer={() => setListDrawerOpen(true)}
+            onDecideTogether={isRecipeSection ? undefined : () => navigate('/decide')}
             onOpenRecommendations={isRecipeSection ? undefined : () => navigate('/pantry/recommended')}
             /* The recipes side of the same slot: "what should I cook
                tonight?" → the AI creator, landed on the brainstorm. */
@@ -6723,15 +6465,15 @@ export const Pantry: React.FC = () => {
           <SharedListView
             list={selectedShared}
             hidePhoneHeader={showPhoneHeader}
-            onBack={() => navigate('/pantry')}
-            onGone={() => navigate('/pantry')}
+            onBack={goBack}
+            onGone={() => navigate('/pantry', { replace: true })}
           />
         ) : currentList ? (
           <ListDetailView
             list={currentList}
             viewMode={effectiveViewMode}
             onViewModeChange={setViewMode}
-            onBack={() => navigate('/pantry')}
+            onBack={goBack}
             hidePhoneHeader={showPhoneHeader}
             searchOpen={pantrySearchOpen}
             confirmDelete={showPhoneHeader ? confirmDeletePageList : undefined}
@@ -6743,7 +6485,7 @@ export const Pantry: React.FC = () => {
             onUpdateMeal={updateHomeMeal}
             onDeleteMeal={deleteHomeMeal}
             onOpenModal={openHomeMealModal}
-            onBack={() => { setHomeCookingSelectedMealId(null); navigate("/pantry"); }}
+            onBack={() => { setHomeCookingSelectedMealId(null); goBack(); }}
             selectedMealId={homeCookingSelectedMealId}
             onSelectMeal={setHomeCookingSelectedMealId}
             // The page-level Restaurants/Recipes chrome already owns the
@@ -6766,7 +6508,7 @@ export const Pantry: React.FC = () => {
             openAddRestaurantModal={openAddRestaurantModal}
             cacheRestaurantMeta={cacheRestaurantMeta}
             ratings={ratings}
-            onBack={() => navigate("/pantry")}
+            onBack={goBack}
             autoCreate={createTripFromList}
             onAutoCreateHandled={() => setCreateTripFromList(false)}
           />
@@ -6978,7 +6720,7 @@ export const Pantry: React.FC = () => {
                       onClick={() => setRecsOpen(true)}
                       className="inline-flex items-center gap-1.5 h-8 px-3.5 rounded-full bg-primary text-on-primary text-[12px] font-bold hover:bg-primary/90 transition-colors flex-shrink-0"
                     >
-                      <span>Recommendations</span>
+                      <Sparkles size={14} /><span>For you</span>
                     </button>
                     {regularRatingsCount > 0 && (
                       <p className="text-[12px] text-on-surface/50 whitespace-nowrap tabular-nums">

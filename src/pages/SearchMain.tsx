@@ -228,6 +228,7 @@ export const SearchMain: React.FC<{
   inputRef?: React.RefObject<HTMLInputElement | null>;
 }> = ({ embedded = false, query, onQueryChange, inputRef: hostInputRef }) => {
   const navigate = useNavigate();
+  const route = useLocation();
   const { openAddRestaurantModal, toggleWishlist, isWishlisted } = useLists();
   const { phoneMode } = useSettings();
   const { user } = useAuth();
@@ -310,9 +311,12 @@ export const SearchMain: React.FC<{
   }, [michelinReady, results]);
 
   useEffect(() => {
+    // This page stays mounted: refocus when Home opens search again.
+    // Embedded search leaves focus ownership to its host.
+    if (embedded || route.pathname !== '/search/main') return;
     const t = setTimeout(() => inputRef.current?.focus(), 80);
     return () => clearTimeout(t);
-  }, []);
+  }, [embedded, route.pathname, route.key]);
 
   // Build the recipe search pool once: public home meals (where most recipes
   // live) + the public recipes table, deduped by id. Filtered client-side as

@@ -11,7 +11,7 @@
  * the masthead says how close the two palates are (get_taste_twins).
  */
 import React, { useEffect, useMemo, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useParams } from 'react-router-dom';
 import { Lock } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useSettings } from '../contexts/SettingsContext';
@@ -23,6 +23,7 @@ import {
 } from '../lib/supabase-community';
 import { getTasteLeaderboard, getTasteMyRanks, getTasteTwins } from '../lib/supabase-taste';
 import { buildTasteStateFromCommunity } from '../lib/taste-state';
+import { usePageBack } from '../lib/usePageBack';
 import { FloatingBack } from '../components/FloatingBack';
 import { TasteBody, TasteChrome, TasteMasthead, voiceFor } from './TasteProfilePage';
 
@@ -33,7 +34,7 @@ const firstName = (p: UserProfile | null): string =>
 
 export const UserTasteProfilePage: React.FC = () => {
   const { username = '' } = useParams<{ username: string }>();
-  const navigate = useNavigate();
+  const back = usePageBack(`/user/${encodeURIComponent(username)}`);
   const { user } = useAuth();
   const { phoneMode, twoDecimalScores } = useSettings();
   const fade = useHeaderFade({ enabled: phoneMode, windowScroll: true });
@@ -82,12 +83,11 @@ export const UserTasteProfilePage: React.FC = () => {
     [rows, photos, profile, michelinReady, name],
   );
 
-  const back = () => navigate(`/user/${encodeURIComponent(username)}`);
   const displayName = profile?.display_name || profile?.username || 'Taste profile';
 
   if (notFound || canView === false) {
     return (
-      <div className="min-h-screen bg-surface">
+      <div className="taste-design min-h-screen bg-surface">
         <FloatingBack id="user-taste-back" onBack={back} />
         <div className="mx-auto w-full max-w-[860px] px-5 text-center" style={{ paddingTop: 'calc(env(safe-area-inset-top, 0px) + 76px)' }}>
           <span className="mx-auto mt-10 flex h-14 w-14 items-center justify-center rounded-2xl bg-on-surface/[0.05]">
@@ -108,7 +108,7 @@ export const UserTasteProfilePage: React.FC = () => {
 
   if (!state || !profile) {
     return (
-      <div className="min-h-screen bg-surface">
+      <div className="taste-design min-h-screen bg-surface">
         <FloatingBack id="user-taste-back" onBack={back} />
         <p className="mx-auto w-full max-w-[860px] px-5 text-[13.5px] text-on-surface/45" style={{ paddingTop: 'calc(env(safe-area-inset-top, 0px) + 76px)' }}>
           Reading {displayName}'s palate…
@@ -123,7 +123,7 @@ export const UserTasteProfilePage: React.FC = () => {
     : null;
 
   return (
-    <div className="min-h-screen bg-surface">
+    <div className="taste-design min-h-screen bg-surface">
       <TasteChrome fade={fade} title={`${displayName} · Taste`} right={`${state.points.total} pts`} onBack={back} backId="user-taste-back" />
       <div className="mx-auto w-full max-w-[860px] px-5" style={{ paddingBottom: PAGE_BOTTOM }}>
         <TasteMasthead
@@ -132,6 +132,10 @@ export const UserTasteProfilePage: React.FC = () => {
           eyebrow={`${displayName} · Taste profile`}
           standing={state.standing}
           points={state.points}
+          archetype={state.insights.palate.archetype}
+          tagline={state.insights.palate.tagline}
+          ratingCount={state.ratingCount}
+          cuisineCount={state.insights.breadth.count}
           rankLine={rankLine}
           extraLine={matchLine}
         />

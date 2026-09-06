@@ -1,5 +1,10 @@
+import { useEntryState } from '../lib/useEntryState';
+import { usePageBack } from '../lib/usePageBack';
+import './RestaurantDetail.css';
+import { RestaurantRatingOrb } from '../components/RestaurantRatingOrb';
+import { homeHaptic } from '../lib/haptics';
 import React, { useState, useEffect, useRef } from 'react';
-import { motion, AnimatePresence } from 'motion/react';
+import { motion, AnimatePresence, useReducedMotion } from 'motion/react';
 import {
   ArrowLeft,
   Star,
@@ -54,6 +59,7 @@ import { ScoreBadge } from '../components/ScoreBadge';
 import { useRestaurantDetail, formatReviewCount, getTodayHours, getCuisineLabel } from './useRestaurantDetail';
 import { MichelinBadge } from '../components/MichelinBadge';
 import { useLists } from '../contexts/ListsContext';
+import { usePaywall } from '../contexts/PaywallContext';
 import { useToast } from '../contexts/ToastContext';
 import { useChat, type SharedRestaurant } from '../contexts/ChatContext';
 import { ShareDialog } from '../components/ShareDialog';
@@ -99,14 +105,14 @@ import 'mapbox-gl/dist/mapbox-gl.css';
    restaurant's own name, and there are six of them down the page. The
    rule does the separating; the heading only has to say what follows. */
 const SECTION_TITLE_STYLE: React.CSSProperties = {
-  fontSize: '18px',
-  fontWeight: 700,
+  fontSize: '16px',
+  fontWeight: 600,
   lineHeight: 1.15,
   letterSpacing: '-0.022em',
 };
 
 const SectionRule: React.FC<{ className?: string }> = ({ className }) => (
-  <div className={cn('border-t border-on-surface/[0.14]', className)} aria-hidden />
+  <div className={cn('restaurant-rule border-t border-on-surface/[0.08]', className)} aria-hidden />
 );
 
 const SectionTitle: React.FC<{ children: React.ReactNode; className?: string }> = ({ children, className }) => (
@@ -127,6 +133,9 @@ const MetaRow: React.FC<{ label: string; children: React.ReactNode }> = ({ label
 );
 
 export const RestaurantDetailMobile: React.FC = () => {
+  const goBack = usePageBack('/search/main');
+  const identityTitleRef = useRef<HTMLHeadingElement>(null);
+  const [compactHeader, setCompactHeader] = useState(false);
   const { twoDecimalScores } = useSettings();
   const [distOpen, setDistOpen] = useState(false);
   const {
@@ -143,7 +152,8 @@ export const RestaurantDetailMobile: React.FC = () => {
   const [cuisinePickerOpen, setCuisinePickerOpen] = useState(false);
   const { showToast } = useToast();
 
-  const { toggleWishlist, isWishlisted, getRating, openAddRestaurantModal, deleteVisit, scoresUnlocked } = useLists();
+  const { toggleWishlist, isWishlisted, getRating, openAddRestaurantModal, deleteVisit, scoresUnlocked, openHomeMealModal } = useLists();
+  const { requirePro } = usePaywall();
 
   /* ── "Ask about this place" ────────────────────────────────────────
      Pins the chat to this restaurant and opens it. The digest is built
@@ -243,7 +253,7 @@ export const RestaurantDetailMobile: React.FC = () => {
   };
 
   const onHeroTouchStart = (e: React.TouchEvent) => {
-    if (heroG.current.busy) return;
+    if (heroG.current.busy || e.touches[0].clientX <= 28) return;
     const t = e.touches[0];
     heroG.current = { x: t.clientX, y: t.clientY, dragging: true, decided: false, horizontal: false, moved: false, swiped: false, busy: false };
   };
@@ -295,7 +305,7 @@ export const RestaurantDetailMobile: React.FC = () => {
   const { user } = useAuth();
   // Hours start collapsed — the summary row already shows the Open/Closed
   // status and today's hours; expanding reveals the full week.
-  const [hoursOpen, setHoursOpen] = useState(false);
+  const [hoursOpen, setHoursOpen] = useEntryState('restaurant:hoursOpen', false);
   // Ref on the "My Rating Details" section so the Your Rating summary
   // card above can smooth-scroll down to it when tapped.
   const myRatingRef = useRef<HTMLElement | null>(null);
@@ -311,7 +321,11 @@ export const RestaurantDetailMobile: React.FC = () => {
   const [openReview, setOpenReview] = useState<CommunityRating | null>(null);
   // Your rating folds away; the score rides up next to the heading when
   // it does, so closing the section never hides the answer.
-  const [myRatingOpen, setMyRatingOpen] = useState(true);
+  const [myRatingOpen, setMyRatingOpen] = useEntryState('restaurant:myRatingOpen', false);
+  const [historyOpen, setHistoryOpen] = useEntryState('restaurant:historyOpen', false);
+  const [ownPhotoIndex, setOwnPhotoIndex] = useState<number | null>(null);
+  const reduceMotion = useReducedMotion();
+  const expertsRef = useRef<HTMLElement>(null);
   // Profile lookup for the inline friend reviews under "Your Circle"
   // — keyed by user_id so each card can show display name + initial.
   const [friendReviewProfiles, setFriendReviewProfiles] = useState<Record<string, UP>>({});
@@ -334,6 +348,16 @@ export const RestaurantDetailMobile: React.FC = () => {
     });
   }, [myRating?.friendIds]);
 
+  useEffect(() => {
+    const title = identityTitleRef.current;
+    if (!title) return;
+    const observer = new IntersectionObserver(([entry]) => {
+      setCompactHeader(!entry.isIntersecting && entry.boundingClientRect.top < 100);
+    }, { rootMargin: '-100px 0px 0px 0px' });
+    observer.observe(title);
+    return () => observer.disconnect();
+  }, [loading, place?.id]);
+
   if (loading) {
     // Skeleton mirroring the page shape (hero, title, meta, review rows)
     // instead of a bare centered spinner that popped into the full page.
@@ -354,7 +378,7 @@ export const RestaurantDetailMobile: React.FC = () => {
     return (
       <div className="min-h-screen bg-surface flex flex-col items-center justify-center gap-4 px-8">
         <p className="text-on-surface/60 text-center">{error || 'Restaurant not found'}</p>
-        <button onClick={() => navigate(-1)} className="text-primary font-medium">Go Back</button>
+        <button onClick={() => goBack()} className="text-primary font-medium">Go Back</button>
       </div>
     );
   }
@@ -395,23 +419,24 @@ export const RestaurantDetailMobile: React.FC = () => {
   // eyebrow labels already said where they started.
 
   return (
-    <div className="min-h-screen bg-cream type-archivo">
+    <div className={cn("restaurant-detail restaurant-detail-mobile min-h-screen bg-cream type-archivo", photos.length > 0 && "has-detail-photo")}>
 
       {/* ── Floating top controls — back / bookmark / share. Light glass
           circles so the icons stay legible both over the hero photo and
           on the cream surface once the page scrolls (the thin ring gives
           the white fill an edge on the white page). ── */}
       <div className="sticky top-0 z-50 h-0">
-        <div className="absolute top-0 inset-x-0 px-4 pt-safe-4 flex items-center justify-between pointer-events-none">
+        <div className={cn("restaurant-nav-chrome absolute top-0 inset-x-0 px-4 pt-safe-4 flex items-center justify-between pointer-events-none", compactHeader && "is-condensed")}>
           <GlassButton
             id="restaurant-back"
-            symbol="arrow.left"
+            symbol="chevron.left"
             label="Back"
-            onClick={() => navigate(-1)}
+            onClick={() => goBack()}
             className="hit-44 pointer-events-auto w-11 h-11 rounded-full flex items-center justify-center text-ink-2 active:scale-95 transition-transform"
           >
-            <ArrowLeft size={18} />
+            <ChevronLeft size={21} />
           </GlassButton>
+          <span className="restaurant-nav-title" aria-hidden={!compactHeader}>{place.name}</span>
           {/* Save + share share one capsule, the same one-piece-of-glass
               rule as the header pair on Discover: two touching circles read
               as two objects; one surface with two regions reads as the
@@ -462,7 +487,8 @@ export const RestaurantDetailMobile: React.FC = () => {
       {photos.length > 0 ? (
       <div
         ref={heroRef}
-        className="relative w-full overflow-hidden"
+        data-horizontal-gesture=""
+        className="restaurant-hero relative w-full overflow-hidden"
         style={{ height: '40vh', maxHeight: '46vh', touchAction: 'pan-y' }}
         onTouchStart={onHeroTouchStart}
         onTouchMove={onHeroTouchMove}
@@ -594,7 +620,7 @@ export const RestaurantDetailMobile: React.FC = () => {
       )}
 
       {/* ── Main Content ── */}
-      <main className="pt-5" style={{ paddingLeft: 22, paddingRight: 22 }}>
+      <main className="restaurant-body pt-5" style={{ paddingLeft: 22, paddingRight: 22 }}>
 
         {/* ── Identity — cuisine · price over the name, and the two circles
             that say what you have done about this place. Then the facts as
@@ -609,7 +635,7 @@ export const RestaurantDetailMobile: React.FC = () => {
           const on = 'bg-primary/10 border-primary/35 text-primary';
           const off = 'bg-transparent border-on-surface/20 text-on-surface';
           return (
-            <section>
+            <section className="restaurant-identity">
               <EditableCuisineLine
                 cuisine={cuisineLine}
                 priceStr={priceStr}
@@ -622,7 +648,7 @@ export const RestaurantDetailMobile: React.FC = () => {
                 className="group/cuisine mb-3 text-on-surface/50 text-[16px] font-medium tracking-normal normal-case"
               />
               <div className="flex items-start justify-between gap-3.5">
-                <h1 className="min-w-0 flex-1 text-on-surface" style={{ fontSize: '30px', fontWeight: 700, lineHeight: 1.08, letterSpacing: '-0.035em' }}>
+                <h1 ref={identityTitleRef} className="min-w-0 flex-1 text-on-surface" style={{ fontSize: '30px', fontWeight: 700, lineHeight: 1.08, letterSpacing: '-0.035em' }}>
                   {place.name}
                 </h1>
                 <div className="flex items-center gap-[7px] flex-shrink-0 mt-0.5">
@@ -669,7 +695,7 @@ export const RestaurantDetailMobile: React.FC = () => {
                 </div>
               )}
 
-              <div className="mt-5 flex flex-col gap-3">
+              <div className="restaurant-facts mt-4 flex flex-col gap-2">
                 {place.isOpen !== null && (
                   <div style={{ fontSize: '14px' }}>
                     <span className="flex items-center gap-2">
@@ -721,15 +747,15 @@ export const RestaurantDetailMobile: React.FC = () => {
             { Icon: Globe, label: 'Website', href: place.website || null, external: true },
             ...(michelin ? [{ Icon: Award, label: 'Michelin', href: michelin.guideUrl, external: true, accent: true }] : []),
           ] as any[];
-          const base = 'flex-none inline-flex items-center gap-2 rounded-full border px-4 py-[11px] active:opacity-80 transition-opacity';
-          const font = { fontSize: '12.5px', fontWeight: 700 } as React.CSSProperties;
+          const base = 'restaurant-quick-action inline-flex items-center justify-center gap-2 active:opacity-80 transition-opacity';
+          const font = { fontSize: '12px', fontWeight: 550 } as React.CSSProperties;
           return (
-            <div className="mt-6 -mx-[22px] px-[22px] flex gap-2 overflow-x-auto no-scrollbar">
+            <div className="restaurant-quick-actions">
               {actions.map(({ Icon, label, href, external, onClick, accent }) => {
                 const inner = (<><Icon size={15} />{label}</>);
                 const cls = cn(base, accent ? 'bg-primary/10 border-primary/30 text-primary' : 'bg-transparent border-on-surface/20 text-on-surface');
                 if (onClick) return <button key={label} type="button" onClick={onClick} className={cls} style={font}>{inner}</button>;
-                if (!href) return <div key={label} className={cn(base, 'border-on-surface/12 text-on-surface/30')} style={font}>{inner}</div>;
+                if (!href) return null;
                 return (
                   <a key={label} href={href} {...(external ? { target: '_blank', rel: 'noopener noreferrer' } : {})} className={cls} style={font}>
                     {inner}
@@ -758,32 +784,9 @@ export const RestaurantDetailMobile: React.FC = () => {
           const hasExperts = expertCount > 0;
           const hasGoogle = Number(place.rating) > 0 && place.userRatingCount > 0;
 
-          const Disc = ({ label, score, meta, onClick }: {
-            label: string; score: number | null; meta: string; onClick?: () => void;
-          }) => {
-            const body = (
-              <>
-                <span
-                  className={cn(
-                    'w-[72px] h-[72px] rounded-full flex items-center justify-center tabular-nums',
-                    score != null ? scoreTint(score) : 'bg-on-surface/[0.06] text-on-surface/30',
-                  )}
-                  style={{ fontSize: '24px', fontWeight: 700, letterSpacing: '-0.01em' }}
-                >
-                  {score != null ? formatScore(score, twoDecimalScores) : '—'}
-                </span>
-                <span className="mt-3 text-on-surface" style={{ fontSize: '14px', fontWeight: 700 }}>{label}</span>
-                <span className={cn('mt-1.5', score != null ? 'text-on-surface/50' : 'text-on-surface/35')} style={{ fontSize: '13px' }}>{meta}</span>
-              </>
-            );
-            const cls = 'flex-1 min-w-0 flex flex-col items-center text-center';
-            return onClick
-              ? <button type="button" onClick={onClick} className={cn(cls, 'active:opacity-70 transition-opacity')}>{body}</button>
-              : <div className={cls}>{body}</div>;
-          };
 
           return (
-            <section className="mt-8">
+            <section className="restaurant-ratings">
               <SectionRule />
               <div className="pt-3 flex items-center justify-between gap-3">
                 <SectionTitle>Ratings</SectionTitle>
@@ -794,23 +797,24 @@ export const RestaurantDetailMobile: React.FC = () => {
                   </p>
                 )}
               </div>
-              <div className="mt-6 flex gap-2">
-                <Disc
+              <div className="restaurant-ratings-row">
+                <RestaurantRatingOrb
                   label="Everyone"
                   score={hasCommunity ? communityStats.avgScore : null}
                   meta={hasCommunity ? `${communityStats.totalRatings.toLocaleString()} ${communityStats.totalRatings === 1 ? 'rating' : 'ratings'}` : 'Be the first'}
                   onClick={hasCommunity ? () => setDistOpen(true) : undefined}
                 />
-                <Disc
+                <RestaurantRatingOrb
                   label="Friends"
                   score={hasFriends ? friendsStats.avgScore : null}
                   meta={hasFriends ? `${friendsStats.totalRatings} ${friendsStats.totalRatings === 1 ? 'rating' : 'ratings'}` : 'None yet'}
                   onClick={hasFriends ? () => navigate(`/restaurant/${place.id}/circle`) : undefined}
                 />
-                <Disc
+                <RestaurantRatingOrb
                   label="Experts"
                   score={hasExperts ? expertAvg : null}
                   meta={hasExperts ? `${expertCount} ${expertCount === 1 ? 'pick' : 'picks'}` : 'No picks'}
+                  onClick={hasExperts ? () => { homeHaptic(); expertsRef.current?.scrollIntoView({ behavior: reduceMotion ? 'auto' : 'smooth', block: 'start' }); } : undefined}
                 />
               </div>
             </section>
@@ -854,98 +858,32 @@ export const RestaurantDetailMobile: React.FC = () => {
           return (
             <section ref={myRatingRef} className="mt-8 scroll-mt-4">
               <SectionRule />
-              <div className="pt-3 flex items-center gap-3">
-                <button
-                  type="button"
-                  onClick={() => setMyRatingOpen(!myRatingOpen)}
-                  className="flex-1 min-w-0 flex items-center gap-2.5 text-left active:opacity-70 transition-opacity"
-                >
-                  <SectionTitle className="flex-none">Your rating</SectionTitle>
-                  {/* The score follows the heading up when the section is
-                      folded, so closing it never hides the answer. */}
-                  {myRating && !myRatingOpen && (
-                    scoresUnlocked ? (
-                      <span
-                        /* Tier-tinted, not accent-tinted: this is the same
-                           number the expanded section shows in the tier
-                           colour, and one score should not change colour
-                           because a section folded. */
-                        className={cn('flex-none rounded-full px-2.5 py-1.5', scoreTint(myRating.score))}
-                        style={{ fontSize: '12.5px', fontWeight: 700 }}
-                      >
-                        {myRating.score.toFixed(1)}
-                      </span>
-                    ) : (
-                      <span
-                        className="flex-none w-7 h-7 rounded-full bg-on-surface/[0.07] text-on-surface/45 flex items-center justify-center"
-                        aria-label={`Score hidden until you have rated ${SCORE_UNLOCK_THRESHOLD} places`}
-                      >
-                        <Lock size={13} />
-                      </span>
-                    )
-                  )}
-                  <ChevronDown size={16} className={cn('flex-none text-on-surface/40 transition-transform duration-200', myRatingOpen && 'rotate-180')} />
-                </button>
-                {myRating && myRatingOpen && (
-                  <div className="flex-none flex gap-[7px]">
-                    <button
-                      type="button"
-                      onClick={() => openAddRestaurantModal(meta, 'new-visit')}
-                      className="rounded-full bg-primary/10 text-primary px-3 py-2 active:opacity-75 transition-opacity"
-                      style={{ fontSize: '12px', fontWeight: 700 }}
-                    >
-                      Re-rate
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => openAt('main')}
-                      className="rounded-full bg-on-surface/[0.07] text-on-surface px-3 py-2 active:opacity-75 transition-opacity"
-                      style={{ fontSize: '12px', fontWeight: 700 }}
-                    >
-                      Edit
-                    </button>
-                  </div>
-                )}
-              </div>
-
+              <button
+                type="button"
+                className="restaurant-visit-summary"
+                aria-expanded={myRatingOpen}
+                onClick={() => { homeHaptic(); setMyRatingOpen(!myRatingOpen); }}
+              >
+                {myRating && scoresUnlocked && <RestaurantRatingOrb label="You" score={myRating.score} />}
+                <span className="restaurant-visit-copy">
+                  <span className="restaurant-section-label">Your visit</span>
+                  <span className="restaurant-visit-facts">{myRating ? factLine : 'Add a rating, notes and photos'}</span>
+                </span>
+                <ChevronDown size={17} className={cn('restaurant-expand', myRatingOpen && 'is-open')} />
+              </button>
               <Collapse open={myRatingOpen}>
                 {myRating ? (
                   <>
-                    <div className="pt-[18px]">
-                      <button onClick={() => openAt('main')} className="flex items-baseline gap-2 text-left active:opacity-70 transition-opacity">
-                        {scoresUnlocked ? (
-                          <>
-                            <span className={scoreColor(myRating.score)} style={{ fontSize: '40px', fontWeight: 700, lineHeight: 1, letterSpacing: '-0.045em' }}>
-                              {formatScore(myRating.score, twoDecimalScores)}
-                            </span>
-                            <span className="text-on-surface/45" style={{ fontSize: '15px' }}>/ 10</span>
-                          </>
-                        ) : (
-                          /* Nothing to reveal yet, so reveal nothing. The
-                             slot used to carry the tier label, and "Loved
-                             it" set at 40px reads as the verdict itself —
-                             which is not what it is. It is a stand-in for a
-                             number you have not unlocked. A lock says that
-                             and says nothing else; the line under it says
-                             when it opens. */
-                          <span
-                            className="w-14 h-14 rounded-full bg-on-surface/[0.06] text-on-surface/40 flex items-center justify-center"
-                            aria-label={`Score hidden until you have rated ${SCORE_UNLOCK_THRESHOLD} places`}
-                          >
-                            <Lock size={22} />
-                          </span>
-                        )}
-                      </button>
-                      {factLine && (
-                        <p className="mt-3 text-on-surface/50" style={{ fontSize: '13.5px' }}>{factLine}</p>
-                      )}
+                    <div className="restaurant-visit-actions" id="restaurant-visit-details">
+                      <button type="button" onClick={() => openAddRestaurantModal(meta, 'new-visit')}><Star size={14} />Rate another visit</button>
+                      <button type="button" onClick={() => openAt('main')}><Edit3 size={14} />Edit visit</button>
                     </div>
 
                     {/* Notes and photos — a sub-block opened by a hairline
                         rather than by a heading of its own weight. */}
-                    <div className="mt-[22px] pt-[18px] border-t border-on-surface/[0.09]">
+                    <div className="restaurant-visit-details">
                       <div className="flex items-center justify-between gap-3 mb-3.5">
-                        <span className="text-on-surface" style={{ fontSize: '14px', fontWeight: 700, letterSpacing: '-0.02em' }}>Your notes &amp; photos</span>
+                        <span className="text-on-surface" style={{ fontSize: '14px', fontWeight: 700, letterSpacing: '-0.02em' }}>Notes &amp; photos</span>
                         {mineSummary && (
                           <span className="flex-none rounded-full bg-on-surface/[0.06] text-on-surface/60 px-2.5 py-1.5" style={{ fontSize: '11.5px', fontWeight: 600 }}>{mineSummary}</span>
                         )}
@@ -953,7 +891,9 @@ export const RestaurantDetailMobile: React.FC = () => {
 
                       <div className="flex gap-2 overflow-x-auto no-scrollbar -mx-[22px] px-[22px] pb-3.5 snap-x">
                         {myPhotos.map((ph, i) => (
-                          <img key={i} src={ph.url} alt="" className="flex-none w-[88px] h-[88px] rounded-[20px] object-cover snap-start bg-on-surface/[0.05]" referrerPolicy="no-referrer" />
+                          <button key={i} type="button" className="restaurant-visit-photo" aria-label={`View your photo ${i + 1}`} onClick={() => { homeHaptic(); setOwnPhotoIndex(i); }}>
+                            <img src={ph.url} alt={ph.caption || `Your visit to ${place.name}`} referrerPolicy="no-referrer" />
+                          </button>
                         ))}
                         <button
                           type="button"
@@ -971,7 +911,7 @@ export const RestaurantDetailMobile: React.FC = () => {
                       <button
                         type="button"
                         onClick={() => openAt('notes')}
-                        className="w-full flex items-center gap-2 rounded-full bg-on-surface/[0.055] pl-4 pr-[5px] py-[5px] text-left active:opacity-75 transition-opacity"
+                        className="restaurant-note-field w-full flex items-center gap-2 text-left active:opacity-75 transition-opacity"
                       >
                         <span className={cn('flex-1 min-w-0 truncate', myRating.notes ? 'text-on-surface' : 'text-on-surface/40')} style={{ fontSize: '14px' }}>
                           {myRating.notes || 'Add notes…'}
@@ -981,7 +921,7 @@ export const RestaurantDetailMobile: React.FC = () => {
                         </span>
                       </button>
 
-                      <div className="mt-3">
+                      <div className="restaurant-edit-fields">
                         {detailRows.map(({ icon, label, value, page }) => (
                           <button
                             key={label}
@@ -1003,12 +943,7 @@ export const RestaurantDetailMobile: React.FC = () => {
                   /* Nothing recorded yet — say what would go here and give
                      the one button that starts it. */
                   <div className="pt-[18px] flex flex-col items-start gap-2">
-                    <p className="text-on-surface" style={{ fontSize: '20px', fontWeight: 700, letterSpacing: '-0.028em', lineHeight: 1.2 }}>
-                      You haven&rsquo;t rated this yet
-                    </p>
-                    <p className="text-on-surface/55" style={{ fontSize: '14px', lineHeight: 1.55 }}>
-                      Rate it once you&rsquo;ve been — your score, notes and photos show up here, and your circle sees it too.
-                    </p>
+
                     <button
                       type="button"
                       onClick={() => openAddRestaurantModal(wishMeta)}
@@ -1031,16 +966,21 @@ export const RestaurantDetailMobile: React.FC = () => {
         {myRating && place && visitHistory.length > 0 && (
           <div className="mt-8">
             <SectionRule />
+            <button type="button" className="restaurant-disclosure" aria-expanded={historyOpen} onClick={() => { homeHaptic(); setHistoryOpen(!historyOpen); }}>
+              <SectionTitle>Score history</SectionTitle><span>{visitHistory.length + 1} visits</span><ChevronDown size={16} className={cn('restaurant-expand', historyOpen && 'is-open')} />
+            </button>
+            <Collapse open={historyOpen}>
             <ScoreHistory
-              className="pt-3"
+              className="restaurant-history pt-3"
               variant="mobile"
-              heading={<SectionTitle>Score history</SectionTitle>}
+              heading={<span className="sr-only">Score history</span>}
               entries={[
                 { id: 'current', score: myRating.score, date: parseVisitDate(myRating.visitDate), notes: myRating.notes, tags: myRating.tags, photos: myRating.photos, isCurrent: true },
                 ...visitHistory.map((v) => ({ id: v.id, score: v.score, date: parseVisitDate(v.visit_date), notes: v.notes, tags: v.tags, photos: v.photos })),
               ]}
               onDeleteVisit={(id) => deleteVisit(place.id, id)}
             />
+            </Collapse>
           </div>
         )}
 
@@ -1142,7 +1082,7 @@ export const RestaurantDetailMobile: React.FC = () => {
 
         {/* ── Verified picks — the experts, as rows on the page. ── */}
         {expertRecommendations.length > 0 && (
-          <section className="mt-8">
+          <section ref={expertsRef} className="mt-8 restaurant-experts">
             <SectionRule />
             <div className="pt-3"><SectionTitle>Verified picks</SectionTitle></div>
             <ul className="pt-2 flex flex-col">
@@ -1205,7 +1145,7 @@ export const RestaurantDetailMobile: React.FC = () => {
         {place.hours.length > 0 && (
           <section className="mt-8">
             <SectionRule />
-            <button onClick={() => setHoursOpen(!hoursOpen)} className="w-full pt-3 flex items-center gap-2.5 text-left active:opacity-70 transition-opacity">
+            <button aria-expanded={hoursOpen} onClick={() => { homeHaptic(); setHoursOpen(!hoursOpen); }} className="w-full pt-3 flex items-center gap-2.5 text-left active:opacity-70 transition-opacity">
               <SectionTitle className="flex-none">Hours</SectionTitle>
               {place.isOpen !== null ? (
                 <>
@@ -1241,14 +1181,11 @@ export const RestaurantDetailMobile: React.FC = () => {
           </section>
         )}
 
-        {/* ── Location — the map is an object on the page, not the page's
-            floor. Full-bleed it ran to all four edges and read as the end
-            of the document; inset and rounded it is the last item in the
-            list, and the section rule above it says so. ── */}
+        {/* The location map finishes the page, including the bottom safe area. */}
         <section className="mt-8">
           <SectionRule />
           <div className="pt-3"><SectionTitle>Location</SectionTitle></div>
-          <div className="relative mt-4 h-[210px] rounded-[24px] overflow-hidden bg-on-surface/[0.05]">
+          <div className="restaurant-location-map relative mt-4 overflow-hidden bg-on-surface/[0.05]">
             <div ref={mapContainerRef} className="absolute inset-0" style={{ width: '100%', height: '100%' }} />
             <button
               type="button"
@@ -1279,20 +1216,31 @@ export const RestaurantDetailMobile: React.FC = () => {
           </div>
         </section>
 
-        {/* Tail clearance — the bottom nav is hidden on /restaurant/*, so
-            nothing else keeps the map off the home indicator. */}
-        <div style={{ height: 'calc(52px + env(safe-area-inset-bottom, 0px))' }} aria-hidden />
       </main>
 
       {/* Photo Gallery Bottom Sheet */}
       <AnimatePresence>
-        {galleryOpen && photos.length > 0 && (
+        {ownPhotoIndex !== null && myRating && <PhotoGallery photos={myRating.photos.map(p => p.url)} communityPhotos={[]} name={place.name} initialIndex={ownPhotoIndex} startExpanded onClose={() => setOwnPhotoIndex(null)} />}
+      {galleryOpen && photos.length > 0 && (
           <PhotoGallery
             photos={photos}
             communityPhotos={communityPhotos}
             name={place.name}
             initialIndex={photoIndex}
             onClose={() => setGalleryOpen(false)}
+            onRecreate={(p) => {
+              // Gate first: the modal's deep link skips the chooser's own
+              // Pro check. A purchase lands right back here.
+              const open = () => {
+                setGalleryOpen(false);
+                openHomeMealModal(undefined, {
+                  initialMethod: 'dish',
+                  dishPhoto: { url: p.rawUrl || p.url, caption: p.caption || undefined, restaurantId: place.id, restaurantName: place.name, ownerUserId: p.ownerUserId },
+                });
+              };
+              if (!requirePro('recipe-photo', { onUnlocked: open })) return;
+              open();
+            }}
           />
         )}
       </AnimatePresence>

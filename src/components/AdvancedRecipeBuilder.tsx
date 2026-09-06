@@ -30,7 +30,7 @@ import {
   type RecipeNote,
   type RecipeStepDetail,
   type RecipeStepGroup,
-  type CombinedFromRef,
+  type CombinedFromRef, type RecreatedFromRef,
 } from '../contexts/ListsContext';
 import { flattenIngredientGroups } from '../lib/ingredient-parsing';
 import { refineRecipe } from '../lib/build-recipe-client';
@@ -48,6 +48,9 @@ import { StepMethod } from './advanced-recipe-steps/StepMethod';
 import { StepReview } from './advanced-recipe-steps/StepReview';
 import './AdvancedRecipeBuilder.css';
 import './RecipeBuilder.css';
+import './DishRecreation.css';
+import { CreatorProgress } from './CreatorProgress';
+import './CreatorStudio.css';
 
 /* ── Form state shape (also the localStorage draft shape) ───────── */
 
@@ -97,6 +100,8 @@ export interface AdvancedRecipeState {
    *  from an imported seed so the "Imported from …" note survives editing
    *  + publishing. Not user-editable. */
   importedFrom: string;
+  /** "Recreate a dish" provenance — same carry-through rule. */
+  recreatedFrom: RecreatedFromRef | null;
 }
 
 /** Serif step titles for the header. Five steps: the old Basics+Timing
@@ -211,6 +216,7 @@ function emptyState(): AdvancedRecipeState {
     createdWithAi: false,
     combinedFrom: [],
     importedFrom: '',
+    recreatedFrom: null,
   };
 }
 
@@ -261,6 +267,7 @@ function fromHomeMeal(meal: HomeMeal): AdvancedRecipeState {
     createdWithAi: !!meal.createdWithAi,
     combinedFrom: meal.combinedFrom || [],
     importedFrom: meal.importedFrom || '',
+    recreatedFrom: meal.recreatedFrom ?? null,
   };
 }
 
@@ -312,6 +319,7 @@ function stateToHomeMeal(state: AdvancedRecipeState, base?: HomeMeal | null): Ho
     createdWithAi: state.createdWithAi || undefined,
     combinedFrom: state.combinedFrom.length > 0 ? state.combinedFrom : undefined,
     importedFrom: state.importedFrom || undefined,
+    recreatedFrom: state.recreatedFrom ?? undefined,
     // The builder has no nutrition fields; an edit keeps what was there.
     nutrition: base?.nutrition,
     // Preserve source attribution if somehow present (defensive — saved
@@ -923,6 +931,7 @@ export const AdvancedRecipeBuilder: React.FC<AdvancedRecipeBuilderProps> = ({ ex
       createdWithAi: state.createdWithAi || undefined,
       combinedFrom: state.combinedFrom.length > 0 ? state.combinedFrom : undefined,
       importedFrom: state.importedFrom || undefined,
+      recreatedFrom: state.recreatedFrom ?? undefined,
     };
 
     // Clear both the autoresume slot AND the explicit Activity draft
@@ -962,7 +971,7 @@ export const AdvancedRecipeBuilder: React.FC<AdvancedRecipeBuilderProps> = ({ ex
     currentStep === 1 ? 'Ingredients' :
     currentStep === 2 ? (gate.ok ? 'Method' : 'Add at least one ingredient') :
     currentStep === 3 ? (gate.ok ? 'Review & publish' : 'Write at least one step') :
-    (existing ? 'Save changes' : 'Publish recipe');
+    (existing ? 'Save changes' : state.isPublic ? 'Publish recipe' : 'Save recipe');
 
   const renderStep = () => {
     switch (currentStep) {
@@ -976,7 +985,7 @@ export const AdvancedRecipeBuilder: React.FC<AdvancedRecipeBuilderProps> = ({ ex
   };
 
   return (
-    <div className={`rcx${phoneMode ? ' is-phone' : ''}`}>
+    <div role="dialog" aria-modal="true" aria-label={existing ? 'Edit recipe' : 'Create custom recipe'} className={`rcx recipe-studio${phoneMode ? ' is-phone' : ''}${state.recreatedFrom ? ' dish-editor' : ''}`}>
       {/* ── Header ── */}
       <div className="rcx-head">
         <div className="rcx-head-row">
@@ -986,7 +995,7 @@ export const AdvancedRecipeBuilder: React.FC<AdvancedRecipeBuilderProps> = ({ ex
           <div className="rcx-head-actions">
             <span className={`rcx-saved${draftSavedAt ? ' is-saved' : ''}`}>
               <span className="rcx-saved-dot" />
-              <span className="rcx-saved-label">{draftSavedAt ? 'Saved' : 'Unsaved'}</span>
+              <span className="rcx-saved-label">{draftSavedAt ? 'Saved on this device' : 'New draft'}</span>
             </span>
             <button type="button" className="rcx-head-link" onClick={handleSaveDraft}>
               Save draft
@@ -1030,17 +1039,7 @@ export const AdvancedRecipeBuilder: React.FC<AdvancedRecipeBuilderProps> = ({ ex
           <span className="rcx-step-counter">{currentStep + 1} / {STEP_COUNT}</span>
         </div>
 
-        <div className="rcx-segs">
-          {STEP_TITLES.map((t, i) => (
-            <button
-              key={i}
-              type="button"
-              className={`rcx-seg${i < currentStep ? ' is-done' : ''}${i === currentStep ? ' is-current' : ''}`}
-              onClick={() => handleJumpTo(i)}
-              aria-label={`Step ${i + 1}: ${t}`}
-            />
-          ))}
-        </div>
+        <CreatorProgress labels={['Basics', 'Details', 'Ingredients', 'Method', 'Review']} current={currentStep} onSelect={handleJumpTo} />
       </div>
 
       {/* ── Scrollable step body ── */}
@@ -1048,9 +1047,16 @@ export const AdvancedRecipeBuilder: React.FC<AdvancedRecipeBuilderProps> = ({ ex
         className="rcx-body"
         ref={bodyScrollRef}
         onScroll={(e) => { stepScrollsRef.current[currentStep] = e.currentTarget.scrollTop; }}
-        style={{ paddingBottom: 'calc(120px + var(--kb-height, 0px))' }}
+
       >
         <div key={currentStep} className="rcx-step-anim">
+          <p className="creator-step-intro">{[
+            'Give it a name, then set the time and portions.',
+            'Add a cuisine and photo. Public recipes need a cover photo.',
+            'Add ingredients one at a time, or paste your whole list.',
+            'Break the cooking into clear, manageable steps.',
+            'One last look. Choose who can see it before you publish.',
+          ][currentStep]}</p>
           {renderStep()}
           {showValidation && !validation.ok && (
             <div className="rcx-validation">
@@ -1075,6 +1081,7 @@ export const AdvancedRecipeBuilder: React.FC<AdvancedRecipeBuilderProps> = ({ ex
         <button
           type="button"
           className={`rcx-foot-cta${!gate.ok ? ' is-disabled' : ''}${currentStep === LAST_STEP && gate.ok ? ' is-publish' : ''}`}
+          disabled={!gate.ok && currentStep !== LAST_STEP}
           onClick={currentStep === LAST_STEP ? handlePublish : handleNext}
         >
           {ctaLabel}
@@ -1092,7 +1099,7 @@ export const AdvancedRecipeBuilder: React.FC<AdvancedRecipeBuilderProps> = ({ ex
             </svg>
           </div>
           <div className="rcx-published-title">
-            {existing ? 'Changes saved' : 'Recipe published'}
+            {existing ? 'Changes saved' : state.isPublic ? 'Recipe published' : 'Recipe saved'}
           </div>
           <div className="rcx-published-sub">
             {published.name || 'Your recipe'} is in your pantry

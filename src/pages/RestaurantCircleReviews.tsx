@@ -1,3 +1,4 @@
+import { usePageBack } from '../lib/usePageBack';
 import React, { useEffect, useMemo, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useNavigate, useParams } from 'react-router-dom';
@@ -77,6 +78,7 @@ type Filter = 'Recent' | 'Top rated' | 'With photos';
 export const RestaurantCircleReviews: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const goBack = usePageBack('/search/main');
   const { user } = useAuth();
   const { phoneMode, twoDecimalScores } = useSettings();
   // Mobile top bar dissolves with scroll, Discover-style.
@@ -193,7 +195,7 @@ export const RestaurantCircleReviews: React.FC = () => {
       {/* Top bar — fades away with scroll, back near the top */}
       <motion.header ref={headerFade.headerRef} style={headerFade.headerStyle} className="sticky top-0 z-10 backdrop-blur-md bg-cream/90 border-b border-on-surface/[0.12]">
         <div className="flex items-center gap-3 px-3.5 pt-safe-4 pb-3">
-          <GlassButton id="circle-reviews-back" symbol="arrow.left" label="Back" onClick={() => navigate(-1)} className="hit-44 flex-none w-11 h-11 rounded-full flex items-center justify-center text-on-surface/80 transition-transform active:scale-95">
+          <GlassButton id="circle-reviews-back" symbol="arrow.left" label="Back" onClick={() => goBack()} className="hit-44 flex-none w-11 h-11 rounded-full flex items-center justify-center text-on-surface/80 transition-transform active:scale-95">
             <ArrowLeft size={18} />
           </GlassButton>
           <div className="min-w-0 flex-1">

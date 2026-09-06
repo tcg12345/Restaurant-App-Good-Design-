@@ -88,6 +88,20 @@ function liftToTopLayer(panel: HTMLElement): void {
   try { el.showPopover(); } catch { /* already shown, or detached mid-frame */ }
 }
 
+/**
+ * Lift an overlay that is NOT a drag sheet into the top layer. Needed for
+ * anything that must paint above a sheet-hosting layer that is already up
+ * there: the Add Recipe modal's backdrop is lifted while its method
+ * chooser is open and stays lifted for the modal's life (the layer never
+ * unmounts), so a z-indexed sibling like the recipe draft sheet rendered
+ * underneath it — invisible — until it was lifted too. Promotion order is
+ * paint order, so lifting on open puts it above whatever was up before.
+ * Idempotent; a no-op where the top layer is unavailable.
+ */
+export function liftOverlayToTopLayer(el: HTMLElement | null): void {
+  if (el) liftToTopLayer(el);
+}
+
 /** True when the top layer is available — App only zooms the page back
  *  when sheets can be lifted out of it. */
 export const topLayerAvailable = (): boolean => typeof document !== 'undefined' && typeof (document.createElement('div') as HTMLElement & { showPopover?: unknown }).showPopover === 'function';

@@ -1,0 +1,15 @@
+.home-search-overlay {
+  position: fixed; inset: 0; z-index: 210; display: flex; flex-direction: column;
+  background: radial-gradient(ellipse at 95% 95%, rgba(172, 230, 233, .23), transparent 52%), radial-gradient(ellipse at 15% 20%, rgba(231, 210, 175, .15), transparent 60%), var(--color-surface, #f8f7f3);
+  color: var(--color-on-surface, #242320); overflow: hidden; overscroll-behavior: none;
+}
+.dark .home-search-overlay { background: radial-gradient(ellipse at 95% 95%, rgba(55, 113, 119, .18), transparent 52%), #17191d; color: #f2f3f6; }
+.home-search-overlay-chrome { flex: none; padding: calc(env(safe-area-inset-top, 0px) + 16px) 16px 12px; }
+.home-search-overlay-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 20px; }
+.home-search-overlay-close { width: 44px; height: 44px; border-radius: 50%; display: grid; place-items: center; flex: none; }
+.home-search-overlay-location { min-height: 44px; max-width: 75%; display: flex; align-items: center; gap: 8px; padding: 0 17px; border-radius: 30px; font-size: 16px; }
+.home-search-overlay-location span { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.home-search-overlay-location svg { flex: none; opacity: .6; }
+.home-search-overlay-results { min-height: 0; flex: 1; overflow-y: auto; overscroll-behavior: contain; padding: 0 16px calc(env(safe-area-inset-bottom, 0px) + 24px); }
+.home-search-overlay button:focus-visible { outline: 2px solid currentColor; outline-offset: 3px; }
+@media(min-width: 768px) { .home-search-overlay-chrome, .home-search-overlay-results { width: 100%; max-width: 800px; margin-inline: auto; } }

@@ -9,7 +9,8 @@
 // arrives with a `recsPreset` in router state (who / where / mood).
 
 import React from 'react';
-import { useLocation, useNavigate } from 'react-router-dom';
+import { usePageBack } from '../lib/usePageBack';
+import { useLocation } from 'react-router-dom';
 import { RecommendationsBrowser } from '../components/RecommendationsBrowser';
 
 interface RecsPreset {
@@ -19,15 +20,9 @@ interface RecsPreset {
 }
 
 export const RecommendedForYou: React.FC = () => {
-  const navigate = useNavigate();
+  const goBack = usePageBack('/pantry');
   const location = useLocation();
   const preset = (location.state as { recsPreset?: RecsPreset } | null)?.recsPreset ?? null;
-  const goBack = () => {
-    // Deep link / fresh session — no in-app history to pop, go "up".
-    const idx = (window.history.state as { idx?: number } | null)?.idx ?? 0;
-    if (idx > 0) navigate(-1);
-    else navigate('/pantry', { replace: true });
-  };
   return (
     <RecommendationsBrowser
       // Keyed by the history entry: a NEW navigation here (the chat's

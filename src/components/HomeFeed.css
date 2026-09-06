@@ -1,0 +1,42 @@
+/* Home chrome uses the same native glass bridge as the rest of the app. */
+.home-topbar nav { gap: 8px; }
+.home-topbar .home-glass-button, .home-glass-button { width: 44px; height: 44px; border-radius: 50%; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+.home-glass-social { display: flex; border-radius: 24px; padding: 2px; }
+.home-glass-social .home-glass-button { width: 41px; }
+.home-location { width: fit-content; max-width: 100%; min-height: 40px; border-radius: 22px; padding: 4px 12px 4px 5px; gap: 8px; margin-top: 10px; margin-bottom: 3px; background: var(--home-card); border: 1px solid var(--home-line); color: var(--home-ink); font-size: 12px; font-weight: 550; box-shadow: 0 2px 7px #10182004; }
+.home-location-pin { width: 29px; height: 29px; border-radius: 50%; display: grid; place-items: center; background: #e9efec; color: #546d60; flex-shrink: 0; }
+.home-location > span:nth-child(2) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.home-location > svg { color: var(--home-muted); flex-shrink: 0; }
+.dark .home-location-pin { background: #313e36; color: #b7c9bc; }
+/* Quiet floating navigation; the photos remain the feed's main surface. */
+.home-feed-page { position: relative; }
+.home-feed-header { position: absolute; z-index: 4; inset: 0 0 auto; padding: calc(env(safe-area-inset-top, 0px) + 8px) 18px 10px; border: 0; pointer-events: none; background: linear-gradient(to bottom, var(--home-bg), color-mix(in srgb, var(--home-bg) 80%, transparent) 60%, transparent); }
+.home-feed-header > * { pointer-events: auto; }
+.home-feed-header .home-feed-back { display: flex; align-items: center; justify-content: center; gap: 5px; height: 44px; padding: 0 14px; border-radius: 24px; font-size: 13px; font-weight: 600; }
+.home-feed-header.is-collapsed { background: linear-gradient(to bottom, color-mix(in srgb, var(--home-bg) 65%, transparent), transparent); }
+.home-feed-scroll { padding-top: calc(env(safe-area-inset-top, 0px) + 66px); scroll-padding-top: calc(env(safe-area-inset-top, 0px) + 66px); }
+.home-feed-content { padding-top: 0; }
+.home-feed-filters { display: flex; gap: 3px; margin: 0 16px 3px; padding: 3px; border-radius: 24px; background: color-mix(in srgb, var(--home-ink) 5%, transparent); }
+.home-feed-filters button { flex: 1; display: flex; align-items: center; justify-content: center; gap: 7px; padding: 0 12px; min-height: 38px; border-radius: 21px; font-size: 13px; font-weight: 600; color: var(--home-muted); border: 0; background: transparent; transition: color .2s, background .2s; }
+.home-feed-filters button[aria-pressed="true"] { background: color-mix(in srgb, var(--home-ink) 8%, var(--home-bg)); color: var(--home-ink); }
+.home-feed-page .feed-post { background: transparent; border: 0; border-radius: 0; margin: 0; padding-top: 20px; box-shadow: none; }
+.home-feed-page .feed-post-author { padding: 0 20px; gap: 11px; }
+.home-feed-page .feed-post-kind { padding: 0; background: transparent; color: var(--home-muted); text-transform: none !important; letter-spacing: 0 !important; font-weight: 450 !important; }
+.home-feed-page .feed-post-kind::before { content: '·'; margin-right: 6px; }
+.home-feed-page .feed-post-media { margin: 14px 0 0; border-radius: 0; max-width: none; }
+.home-feed-page .feed-post-actions { padding: 10px 16px 0; gap: 4px; }
+.home-feed-page .feed-post-actions button { min-width: 44px; min-height: 44px; }
+.home-feed-page .feed-post-actions button[aria-label="Like"],
+.home-feed-page .feed-post-actions button[aria-label="Comments"],
+.home-feed-page .feed-post-actions button[aria-label="Share"] { background: transparent; }
+.home-feed-page .feed-post-actions svg { width: 19px; height: 19px; stroke-width: 1.7px; }
+.home-experience .home-feed-page .feed-post-place { background: transparent; border: 0; border-radius: 0; padding: 9px 0 3px; margin-top: 4px; }
+.home-feed-page .feed-post-divider { margin-top: 22px; border-color: var(--home-line); }
+@media (min-width: 1024px) {
+  .home-feed-header { padding-left: max(24px, calc((100% - 1060px) / 2)); padding-right: max(24px, calc((100% - 1060px) / 2)); }
+  .home-feed-page .feed-post { max-width: 660px; margin-left: 20px; }
+  .home-feed-filters { max-width: 620px; margin-left: 40px; }
+}
+@media (prefers-reduced-motion: reduce) { .home-feed-filters button { transition: none; } }
+
+.home-feed-filters button { white-space: nowrap; padding-left: 8px; padding-right: 8px; font-size: 12px; gap: 5px; }

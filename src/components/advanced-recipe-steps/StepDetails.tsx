@@ -109,6 +109,7 @@ export const StepDetails: React.FC<Props> = ({ state, dispatch }) => {
               <button
                 key={c}
                 type="button"
+                aria-pressed={isActive}
                 className={`rcx-chip${isActive ? ' is-on' : ''}`}
                 onClick={() => dispatch({ type: 'TOGGLE_COURSE', course: c })}
               >
@@ -128,6 +129,7 @@ export const StepDetails: React.FC<Props> = ({ state, dispatch }) => {
               <button
                 key={d.level}
                 type="button"
+                aria-pressed={isActive}
                 className={`rcx-diff-card${isActive ? ' is-on' : ''}`}
                 onClick={() => dispatch({ type: 'SET_FIELD', field: 'difficulty', value: d.level })}
               >
@@ -142,7 +144,7 @@ export const StepDetails: React.FC<Props> = ({ state, dispatch }) => {
 
       <div>
         <div className="rcx-kicker">
-          Photo<span className="rcx-kicker-opt"> · optional</span>
+          Photo<span className="rcx-kicker-opt"> · {state.isPublic ? 'required for public recipes' : 'optional'}</span>
         </div>
         {state.coverPhoto ? (
           <div className="rcx-photo-preview">

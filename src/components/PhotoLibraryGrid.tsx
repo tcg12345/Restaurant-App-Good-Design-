@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Image as ImageIcon, Play, Settings, RefreshCw, Check, Camera } from 'lucide-react';
 import { cn } from '../lib/utils';
+import { App } from '@capacitor/app';
 import { PermissionPrimer } from './PermissionPrimer';
 import {
   PhotoLibrary,
@@ -76,6 +77,7 @@ export const PhotoLibraryGrid: React.FC<Props> = ({
       if (inflightRef.current) return;
       inflightRef.current = true;
       try {
+        setError(null);
         const res = await PhotoLibrary.listMedia({
           mediaType,
           limit: pageSize,
@@ -111,6 +113,27 @@ export const PhotoLibraryGrid: React.FC<Props> = ({
       }
     })();
     return () => { cancelled = true; };
+  }, [fetchPage]);
+
+  // Returning from Settings must refresh authorization and the allowed assets.
+  useEffect(() => {
+    let active = true;
+    const refresh = async () => {
+      try {
+        const permission = await PhotoLibrary.checkPermission();
+        if (!active) return;
+        setStatus(permission.status);
+        if (permission.status === 'authorized' || permission.status === 'limited') await fetchPage(0);
+      } catch { /* Keep the current permission UI; the user can retry. */ }
+    };
+    const onFocus = () => void refresh();
+    window.addEventListener('focus', onFocus);
+    const subscription = App.addListener('appStateChange', ({ isActive }) => { if (isActive) void refresh(); }).catch(() => null);
+    return () => {
+      active = false;
+      window.removeEventListener('focus', onFocus);
+      void subscription.then((handle) => handle?.remove());
+    };
   }, [fetchPage]);
 
   // Infinite-scroll sentinel. Triggers when the bottom of the grid is
@@ -265,13 +288,14 @@ export const PhotoLibraryGrid: React.FC<Props> = ({
           );
         })}
       </div>
+      {!items.length && !loadingMore && !error && <p className="px-4 py-8 text-center text-sm text-on-surface/55">{mediaType === 'photo' ? 'No photos to show yet. Take a photo to get started.' : 'No photos or videos to show yet.'}</p>}
       {loadingMore && (
         <div className="py-3 flex items-center justify-center text-on-surface/45">
           <RefreshCw size={14} className="animate-spin" />
         </div>
       )}
       {error && (
-        <p className="px-3 py-2 text-[11.5px] text-red-600">{error}</p>
+        <div className="px-3 py-3 text-sm text-on-surface/65" role="alert"><p>{error}</p><button type="button" className="underline mt-2" onClick={() => void fetchPage(items.length)}>Try again</button></div>
       )}
       <div ref={sentinelRef} className="h-1" />
     </div>

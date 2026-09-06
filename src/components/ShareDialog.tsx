@@ -1,3 +1,4 @@
+import { composeShareMessage } from '../lib/share-message';
 /**
  * ShareDialog — single share popup used for reels, posts, restaurants,
  * recipes, and guides.
@@ -250,7 +251,7 @@ export const ShareDialog: React.FC<ShareDialogProps> = ({ open, onClose, payload
     }
     if (targets.length === 0) return;
     setPhase('sending');
-    const sentTo = shareToTargets(targets, { ...payload, text: message.trim() });
+    const sentTo = shareToTargets(targets, { ...payload, text: composeShareMessage(message, payload.text) });
     if (sentTo.length > 0) {
       setPhase('sent');
       window.setTimeout(() => onClose(), 900);
@@ -295,7 +296,7 @@ export const ShareDialog: React.FC<ShareDialogProps> = ({ open, onClose, payload
 
   const onMore = async () => {
     if (!payload) return;
-    const text = payload.sharedReel?.caption || payload.sharedPost?.caption || undefined;
+    const text = payload.text || payload.sharedReel?.caption || payload.sharedPost?.caption || undefined;
     const result = await shareExternally({ title: computedTitle, text, url: shareUrl });
     if (result === 'copied') showToast('Link copied');
     else if (result === 'unsupported') showToast('Sharing not supported on this device');
@@ -309,7 +310,7 @@ export const ShareDialog: React.FC<ShareDialogProps> = ({ open, onClose, payload
   };
 
   const quickActions: QuickAction[] = [
-    { key: 'ai', label: 'Ask AI', icon: <Sparkles size={19} />, onClick: onAskAI },
+    ...(payload && buildAssistantAttachment(payload) ? [{ key: 'ai', label: 'Ask AI', icon: <Sparkles size={19} />, onClick: onAskAI }] : []),
     { key: 'copy', label: 'Copy link', icon: <Link2 size={19} />, onClick: onCopyLink },
     { key: 'message', label: 'Message', icon: <MessageCircle size={19} />, onClick: onMessage },
     { key: 'email', label: 'Email', icon: <Mail size={19} />, onClick: onEmail },

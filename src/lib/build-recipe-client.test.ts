@@ -12,6 +12,7 @@ import {
   readRecipeStream,
   readIdeasStream,
   generateRecipe,
+  generateRecipeFromPhoto,
   editRecipeIngredient,
   combineRecipes,
   homeMealToBuildInput,
@@ -163,6 +164,40 @@ describe('request payloads', () => {
       ingredientEdit: { action: 'substitute', ingredient: 'chicken thighs', replacement: 'tofu' },
       current: { name: 'Chicken Fried Rice' },
     });
+  });
+
+  it('generateRecipeFromPhoto sends the photo, hint and guidelines', async () => {
+    const res = await generateRecipeFromPhoto('data:image/jpeg;base64,AAAA', {
+      hint: '  the lamb shawarma from Mamoun\'s ',
+      difficulty: 'Medium',
+      constraints: { servings: 2, dietary: ['Gluten-free'] },
+    });
+    expect(res.ok).toBe(true);
+    expect(res.meal?.name).toBe('Test Dish');
+    expect(res.meal?.createdWithAi).toBe(true);
+    expect(lastBody).toEqual({
+      dishPhoto: 'data:image/jpeg;base64,AAAA',
+      hint: "the lamb shawarma from Mamoun's",
+      difficulty: 'Medium',
+      constraints: { servings: 2, dietary: ['Gluten-free'] },
+    });
+  });
+
+  it('generateRecipeFromPhoto omits an empty hint and empty guidelines', async () => {
+    await generateRecipeFromPhoto('data:image/png;base64,BBBB', { hint: '   ', constraints: {} });
+    expect(lastBody).toEqual({ dishPhoto: 'data:image/png;base64,BBBB' });
+  });
+
+  it('generateRecipeFromPhoto surfaces a decline as declined + error', async () => {
+    vi.stubGlobal('fetch', async () =>
+      sseResponse(toolUseEvents('decline_change', JSON.stringify({ reason: 'That looks like a menu, not a plate.' }))),
+    );
+    const res = await generateRecipeFromPhoto('data:image/jpeg;base64,CCCC');
+    expect(res.ok).toBe(false);
+    expect(res.declined).toBe(true);
+    expect(res.declineReason).toContain('menu');
+    expect(res.error).toBe(res.declineReason);
+    expect(res.meal).toBeUndefined();
   });
 
   it('editRecipeIngredient surfaces a decline without touching the meal', async () => {

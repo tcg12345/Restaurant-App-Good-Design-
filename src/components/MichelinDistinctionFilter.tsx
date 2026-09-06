@@ -1,7 +1,7 @@
 import { Star, Soup, Utensils } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { MICHELIN_DISTINCTIONS, type MichelinDistinction } from '../lib/michelin';
-import { FilterDrillRow, FilterCheckRow } from './filterPrimitives';
+import { FilterDrillRow, FilterCheckRow, useClearFilterSelection } from './filterPrimitives';
 
 /** What the Guide's own words mean, said once on the page rather than
  *  assumed. */
@@ -81,6 +81,7 @@ export function MichelinDistinctionFilter({ selected, onToggle, className }: Mic
  * blocks so every sheet gets the same Beli-style page navigation.
  */
 export function MichelinDrillSection({ selected, onToggle }: Omit<MichelinDistinctionFilterProps, 'className'>) {
+  const clearSelection = useClearFilterSelection(selected, onToggle);
   const value = selected.length === 0
     ? 'Any'
     : selected.length === 1
@@ -93,7 +94,7 @@ export function MichelinDrillSection({ selected, onToggle }: Omit<MichelinDistin
       value={value}
       isSet={selected.length > 0}
       subtitle="Pick as many as you like"
-      onClear={selected.length > 0 ? () => selected.forEach((v) => onToggle(v as MichelinDistinction)) : undefined}
+      onClear={selected.length > 0 ? clearSelection : undefined}
     >
       {/* Rows, not a two-column card grid. Every other page in this flow
           is a list of rows with a check on the right; Michelin was the one

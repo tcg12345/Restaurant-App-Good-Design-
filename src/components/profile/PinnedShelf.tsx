@@ -270,7 +270,7 @@ export const PinnedShelf: React.FC<{
     // The owner's empty state: one quiet line that says what this is and
     // where to start. Never shown to anyone else.
     return (
-      <div className={cn('relative', className)}>
+      <div className={cn('profile-pin-empty relative', className)}>
         <button
           type="button"
           onClick={onEdit}
@@ -278,8 +278,8 @@ export const PinnedShelf: React.FC<{
         >
           <span className="flex-none w-8 h-8 rounded-full bg-tint/20 text-tint-ink flex items-center justify-center"><Pin size={14} /></span>
           <span className="flex-1 min-w-0">
-            <span className="block text-on-surface" style={{ fontSize: '13.5px', fontWeight: 700 }}>Pin up to three things</span>
-            <span className="block text-on-surface/50" style={{ fontSize: '12px' }}>A place, a recipe, a guide, a post — at the top of your profile.</span>
+            <span className="block text-on-surface" style={{ fontSize: '13.5px', fontWeight: 700 }}>Pin your favorites</span>
+            <span className="block text-on-surface/50" style={{ fontSize: '12px' }}>Choose up to three highlights.</span>
           </span>
         </button>
         {/* A sibling, not a child: a button inside a button is invalid and

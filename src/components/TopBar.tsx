@@ -5,7 +5,6 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { cn } from '../lib/utils';
 import { useAuth } from '../contexts/AuthContext';
 import { useChat } from '../contexts/ChatContext';
-import { useNotifications } from '../contexts/NotificationsContext';
 import { useHeaderFade } from '../lib/useHeaderFade';
 import { GlassButton, GlassGroup, GlassSurface } from '../lib/glass-buttons';
 import { Logo } from './Logo';
@@ -43,10 +42,8 @@ interface TopBarProps {
 export const TopBar: React.FC<TopBarProps> = ({ title = "GoodEats", rightAction, leftAction, centerLogo = false, showBackButton = false, onBack, fadeOnScroll = false, condensedTitle, transparent = false }) => {
   const { pendingRequestCount } = useAuth();
   const { unreadCount } = useChat();
-  // The Circle button is the only way into the notification centre on a
-  // phone, so its badge covers requests + alerts together.
-  const { unreadCount: alertCount } = useNotifications();
-  const circleBadge = pendingRequestCount + alertCount;
+  // Friends badges represent actionable follow requests.
+  const circleBadge = pendingRequestCount;
   const navigate = useNavigate();
   const location = useLocation();
 

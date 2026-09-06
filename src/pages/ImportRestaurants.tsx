@@ -1,3 +1,4 @@
+import { usePageBack } from '../lib/usePageBack';
 import React, { useState, useRef } from 'react';
 import { motion } from 'motion/react';
 import { useNavigate } from 'react-router-dom';
@@ -20,6 +21,7 @@ import {
 
 export const ImportRestaurants: React.FC = () => {
   const navigate = useNavigate();
+  const goBack = usePageBack('/pantry');
   const { phoneMode } = useSettings();
   // Mobile top bar dissolves with scroll, Discover-style.
   const headerFade = useHeaderFade({ enabled: phoneMode, windowScroll: true });
@@ -188,7 +190,7 @@ export const ImportRestaurants: React.FC = () => {
             id="import-back"
             symbol="chevron.left"
             label="Back"
-            onClick={() => navigate(-1)}
+            onClick={() => goBack()}
             className="hit-44 flex-none w-11 h-11 -ml-1 rounded-full flex items-center justify-center text-on-surface bg-on-surface/[0.05] active:scale-95 transition-transform"
           >
             <ArrowLeft size={18} />

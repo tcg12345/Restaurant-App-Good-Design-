@@ -1,8 +1,11 @@
+import { usePageBack } from '../lib/usePageBack';
 import React, { useState, useRef, useCallback, useEffect, useMemo, useLayoutEffect } from 'react';
+import { discoverSheetStops, nearestDiscoverSnap } from '../lib/discover-sheet-motion';
+import './DiscoverSheet.css';
 import { primaryHex } from '../lib/brand';
 import { createPortal } from 'react-dom';
 import { useNavigate, useLocation, Link } from 'react-router-dom';
-import { motion, AnimatePresence, useMotionValue, useMotionTemplate, useTransform, animate } from 'motion/react';
+import { motion, AnimatePresence, useMotionValue, useMotionTemplate, useTransform, useSpring, animate, useReducedMotion } from 'motion/react';
 import { Search, Star, Plus, Navigation, RotateCw, SlidersHorizontal, Users, MapPinned, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, ArrowRight, Layers, X, Box, Square, Loader2, ArrowUpDown, UtensilsCrossed, DollarSign, Check, Clock, Sparkles, MapPin, ChevronsUp, Eye, Map as MapIcon, ChefHat, BookOpen, ImageOff, RefreshCw, Footprints, Tag, Bookmark, MessageCircle, BadgeCheck } from 'lucide-react';
 import mapboxgl, { type Marker as MapboxMarker } from 'mapbox-gl';
 import { attachMapErrorFallback } from '../lib/map-error';
@@ -12,6 +15,7 @@ import { cn, safeImage } from '../lib/utils';
 import { GlassButton, GlassGroup, GlassChipRow } from '../lib/glass-buttons';
 import { getTasteQuiz } from '../lib/taste-quiz';
 import { VerifiedBadge } from '../components/VerifiedBadge';
+import { ScoreBadge } from '../components/ScoreBadge';
 import { scoreColor, scoreHex, scoreTintStyle, formatScore } from '../lib/score';
 import { useSettings } from '../contexts/SettingsContext';
 import { useHomeLocation } from '../contexts/HomeLocationContext';
@@ -42,7 +46,7 @@ import { MichelinBadge, MichelinMark } from '../components/MichelinBadge';
 import { haversineDistanceMi as havMi } from '../lib/distance';
 import { MichelinDrillSection } from '../components/MichelinDistinctionFilter';
 import { FilterSheet as FilterSheetShell } from '../components/FilterSheet';
-import { FilterSection, PillRow, Pill, Segment, SegmentItem, RangeSlider, FilterDrillSection, HoursFilterSection } from '../components/filterPrimitives';
+import { FilterSortSection, FilterSection, PillRow, Pill, Segment, SegmentItem, RangeSlider, FilterDrillSection, HoursFilterSection } from '../components/filterPrimitives';
 import { passesHoursFilter, isHoursFilterActive, emptyHoursFilter, type HoursFilter, restaurantLocalNow } from '../lib/hours';
 import { useWarmHoursForFilter } from '../lib/useWarmHours';
 import { geocodePlace } from '../components/HomeLocationBar';
@@ -327,6 +331,7 @@ const SectionLink: React.FC<{ label: string; to?: string; onClick?: () => void; 
 export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, searchHandlerRef, dimChrome = false, onSheetFullChange, locationBridgeRef, onFollowingViewChange, followingBridgeRef, followingQuery, onClearFollowingQuery }) => {
   const searchTab = variant === 'searchTab';
   const navigate = useNavigate();
+  const goBack = usePageBack('/');
   const location = useLocation();
   const { setHideBottomNav, phoneMode, darkMode, twoDecimalScores } = useSettings();
   // Michelin dataset readiness. michCuisinePrice() overrides a place's
@@ -973,6 +978,9 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, sear
   // with the redesigned header + first results peeking) and cannot reach 'full'.
   const [sheetState, setSheetState] = useState<'peek' | 'half' | 'full'>(mode === 'map' ? (variant === 'searchTab' ? 'half' : 'peek') : 'full');
   const sheetRef = useRef<HTMLDivElement>(null);
+  const reduceSheetMotion = useReducedMotion();
+  const dragOriginRef = useRef(0);
+  const suppressSheetClickRef = useRef(0);
   const dragStartYRef = useRef(0);
   const dragCurrentYRef = useRef(0);
   const isDraggingRef = useRef(false);
@@ -1016,22 +1024,13 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, sear
      already showing, and reading them meant reading past the nav pill
      they sat behind. */
   const COLLAPSED_NAV_HEIGHT = 71;
-  /** Sheet visible above the collapsed nav at peek — the grabber's band. */
-  const PEEK_STRIP = 40;
+  /** Collapsed band includes both the grabber and a tappable result preview. */
+  const PEEK_STRIP = 78;
   const getSheetY = (state: 'peek' | 'half' | 'full') => {
     // The Search tab's sheet has three REAL snap points, like the reference:
     // a peek that clears the floating tab bar, a half that splits the screen
     // with the map, and a full that turns the sheet into the list page.
-    if (searchTab) {
-      // Full stops at the chrome's lower edge — the sheet is only ever the
-      // region below the grabber. The band above it is not sheet: a
-      // same-colour backdrop fades in over the map as the sheet rises (see
-      // `backdropOpacity`), which is what makes the raised state read as
-      // one page without the sheet's body ever sliding through the chrome.
-      if (state === 'full') return CHROME_BOTTOM;
-      if (state === 'half') return Math.round(FULL_HEIGHT * 0.5);
-      return FULL_HEIGHT - COLLAPSED_NAV_HEIGHT - PEEK_STRIP;
-    }
+    if (searchTab) return discoverSheetStops(FULL_HEIGHT, CHROME_BOTTOM)[state];
     let y = state === 'full' ? 0 : state === 'half' ? FULL_HEIGHT - HALF_HEIGHT : FULL_HEIGHT - PEEK_HEIGHT;
     // Hard cap on the map page: the sheet top can never rise above its 'half'
     // position (≈88%, below the safe area), so the map stays visible and the
@@ -1044,7 +1043,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, sear
   // value (instead of swapping inline transforms) keeps every transition — taps,
   // marker selection, drag-release snap-back, programmatic opens — a smooth
   // spring with no instant jumps.
-  const SHEET_SPRING = { type: 'spring' as const, damping: 32, stiffness: 300, mass: 0.8 };
+  const SHEET_SPRING = reduceSheetMotion ? { duration: 0 } : { type: 'spring' as const, damping: 34, stiffness: 340, mass: 0.85 };
   const onSheetFullChangeRef = useRef(onSheetFullChange);
   onSheetFullChangeRef.current = onSheetFullChange;
   useEffect(() => {
@@ -1074,7 +1073,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, sear
     dragLastRef.current = { y: clientY, t: now };
     const delta = clientY - dragStartYRef.current;
     dragCurrentYRef.current = delta;
-    let y = getSheetY(sheetState) + delta;
+    let y = dragOriginRef.current + delta;
     const minY = sheetMinY();
     const maxY = sheetMaxY();
     if (y < minY) y = minY - (minY - y) * 0.25;
@@ -1085,21 +1084,11 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, sear
     if (!isDraggingRef.current) return;
     isDraggingRef.current = false;
     const delta = dragCurrentYRef.current;
-    const vel = dragVelRef.current;
+    const vel = performance.now() - dragLastRef.current.t > 90 ? 0 : dragVelRef.current;
+    if (Math.abs(delta) > 6) suppressSheetClickRef.current = performance.now() + 400;
     let next = sheetState;
     if (searchTab) {
-      // The platform's rule: project the position forward by the release
-      // velocity, then snap to whatever is nearest the projection. One rule
-      // covers everything — a short flick projects past the next state and
-      // lands there, a long committed drag lands where the finger left it,
-      // and a slow nudge stays put.
-      const yNow = getSheetY(sheetState) + delta;
-      const projected = yNow + vel * 220;
-      let bd = Infinity;
-      (['full', 'half', 'peek'] as const).forEach((k) => {
-        const d = Math.abs(getSheetY(k) - projected);
-        if (d < bd) { bd = d; next = k; }
-      });
+      next = nearestDiscoverSnap(sheetY.get(), vel, discoverSheetStops(FULL_HEIGHT, CHROME_BOTTOM));
     } else if (sheetState === 'half') {
       if (delta > 60) next = 'peek';
       else if (delta < -60 && mode !== 'map') {
@@ -1110,7 +1099,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, sear
       if (delta < -50) next = 'half';
     }
     setSheetState(next);
-    animate(sheetY, getSheetY(next), SHEET_SPRING);
+    if (next === sheetState) animate(sheetY, getSheetY(next), SHEET_SPRING);
   };
   /* ── Using the page shrinks the tab bar ───────────────────────────────
      The scroll listener in `useGlassScrollMinimize` drives this everywhere
@@ -1129,6 +1118,8 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, sear
 
   const beginSheetDrag = (clientY: number) => {
     noteMapInteraction();
+    sheetY.stop();
+    dragOriginRef.current = sheetY.get();
     dragStartYRef.current = clientY;
     dragCurrentYRef.current = 0;
     dragVelRef.current = 0;
@@ -1146,6 +1137,26 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, sear
      freshest drag machinery through a ref, so a data re-render mid-gesture
      cannot re-base the drag under the finger. */
   const panelListRef = useRef<HTMLDivElement | null>(null);
+  // Keep scroll updates off React's render path. Only the non-interactive
+  // count line contracts; the source and map controls never move out of reach.
+  const headerCollapseTarget = useMotionValue(0);
+  const easedHeaderCollapse = useSpring(headerCollapseTarget, { stiffness: 400, damping: 40, mass: 0.65 });
+  const headerCollapse = reduceSheetMotion ? headerCollapseTarget : easedHeaderCollapse;
+  const summaryHeight = useTransform(headerCollapse, [0, 1], [28, 0]);
+  const summaryOpacity = useTransform(headerCollapse, [0, 0.75], [1, 0]);
+  const summaryY = useTransform(headerCollapse, [0, 1], [0, -6]);
+  const updateSheetHeader = (scrollTop: number) => {
+    headerCollapseTarget.set(searchTab && sheetState === 'full' ? Math.min(1, Math.max(0, scrollTop / 72)) : 0);
+  };
+  useEffect(() => {
+    updateSheetHeader(panelListRef.current?.scrollTop ?? 0);
+  }, [sheetState, searchTab]);
+  useEffect(() => {
+    if (!searchTab) return;
+    panelListRef.current?.scrollTo({ top: 0, behavior: 'instant' });
+    headerCollapseTarget.set(0);
+  }, [searchTab, mapMode, selectedListId, followingView]);
+
   const listDragRef = useRef({ begin: beginSheetDrag, apply: applySheetDrag, end: endSheetDrag, state: sheetState });
   listDragRef.current = { begin: beginSheetDrag, apply: applySheetDrag, end: endSheetDrag, state: sheetState };
   useEffect(() => {
@@ -1153,16 +1164,21 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, sear
     const el = panelListRef.current;
     if (!el) return;
     let startY = 0;
+    let startX = 0;
     let gesture: 'idle' | 'sheet' | 'scroll' = 'idle';
     const onStart = (e: TouchEvent) => {
+      if (e.touches.length !== 1) return;
       startY = e.touches[0].clientY;
+      startX = e.touches[0].clientX;
       gesture = 'idle';
     };
     const onMove = (e: TouchEvent) => {
+      if (e.touches.length !== 1) return;
       const y = e.touches[0].clientY;
       if (gesture === 'idle') {
         const dy = y - startY;
         if (Math.abs(dy) < 6) return;
+        if (Math.abs(e.touches[0].clientX - startX) > Math.abs(dy)) { gesture = 'scroll'; return; }
         const d = listDragRef.current;
         if (dy > 0 && el.scrollTop <= 0) {
           gesture = 'sheet';
@@ -1183,36 +1199,34 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, sear
       if (gesture === 'sheet') listDragRef.current.end();
       gesture = 'idle';
     };
+    const onCancel = () => { dragVelRef.current = 0; onEnd(); };
     el.addEventListener('touchstart', onStart, { passive: true });
     el.addEventListener('touchmove', onMove, { passive: false });
     el.addEventListener('touchend', onEnd);
-    el.addEventListener('touchcancel', onEnd);
+    el.addEventListener('touchcancel', onCancel);
     return () => {
       el.removeEventListener('touchstart', onStart);
       el.removeEventListener('touchmove', onMove);
       el.removeEventListener('touchend', onEnd);
-      el.removeEventListener('touchcancel', onEnd);
+      el.removeEventListener('touchcancel', onCancel);
     };
   }, [searchTab]);
 
   const sheetDrag = {
-    onTouchStart: (e: React.TouchEvent) => beginSheetDrag(e.touches[0].clientY),
-    onTouchMove: (e: React.TouchEvent) => applySheetDrag(e.touches[0].clientY),
-    onTouchEnd: endSheetDrag,
-    onMouseDown: (e: React.MouseEvent) => {
-      e.preventDefault();
+    onPointerDown: (e: React.PointerEvent<HTMLElement>) => {
+      if (e.button !== 0 || (e.target as HTMLElement).closest('button, a, input, [role="menu"]')) return;
+      e.currentTarget.setPointerCapture(e.pointerId);
       beginSheetDrag(e.clientY);
-      const onMouseMove = (ev: MouseEvent) => applySheetDrag(ev.clientY);
-      const onMouseUp = () => {
-        endSheetDrag();
-        window.removeEventListener('mousemove', onMouseMove);
-        window.removeEventListener('mouseup', onMouseUp);
-      };
-      window.addEventListener('mousemove', onMouseMove);
-      window.addEventListener('mouseup', onMouseUp);
     },
+    onPointerMove: (e: React.PointerEvent<HTMLElement>) => { if (isDraggingRef.current) applySheetDrag(e.clientY); },
+    onPointerUp: (e: React.PointerEvent<HTMLElement>) => {
+      endSheetDrag();
+      if (e.currentTarget.hasPointerCapture(e.pointerId)) e.currentTarget.releasePointerCapture(e.pointerId);
+    },
+    onPointerCancel: () => { dragVelRef.current = 0; endSheetDrag(); },
   };
-  const sheetY = useMotionValue(getSheetY(mode === 'map' ? 'peek' : 'full'));
+  const sheetY = useMotionValue(getSheetY(sheetState));
+  const visibleSheetHeight = useTransform(sheetY, y => Math.max(0, FULL_HEIGHT - y));
   /* ── The morph into a full page ────────────────────────────────────────
      Rides the sheet's position directly, so the morph is the drag itself
      rather than a state flip at the end of it: as the sheet climbs its
@@ -1227,10 +1241,10 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, sear
   // band ruled across the page exactly where the two surfaces meet.
   const sheetShadowAlpha = useTransform(sheetY, [CHROME_BOTTOM, CHROME_BOTTOM + 140], [0, 0.1]);
   const sheetShadow = useMotionTemplate`0 -20px 50px rgba(0, 0, 0, ${sheetShadowAlpha})`;
-  // The grabber melts away over the same stretch: fully raised, the sheet
-  // meets the chrome with the header first — no bar, no blank strip.
-  const handleHeight = useTransform(sheetY, [CHROME_BOTTOM, CHROME_BOTTOM + 120], [0, 34]);
-  const handleOpacity = useTransform(sheetY, [CHROME_BOTTOM, CHROME_BOTTOM + 120], [0, 1]);
+  // Keep a usable grabber at every stop. The collapsed band grows to
+  // include its restaurant-count preview above the navigation bar.
+  const handleHeight = useTransform(sheetY, [getSheetY('half'), getSheetY('peek')], [28, 76]);
+  const handleOpacity = useTransform(sheetY, [CHROME_BOTTOM, CHROME_BOTTOM + 120], [1, 1]);
   /* The body goes with the sheet on the way down. At the peek only the
      grabber is left — a strip that reads as a handle to pull, not as a
      row of facts truncated by the nav pill in front of it. It's a fade
@@ -1286,7 +1300,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, sear
     const controls = animate(sheetY, getSheetY(sheetState), SHEET_SPRING);
     return () => controls.stop();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sheetState, mode, FULL_HEIGHT]);
+  }, [sheetState, mode, FULL_HEIGHT, reduceSheetMotion]);
 
   // ── Discover feed state ──
   const [discoverSearchActive, setDiscoverSearchActive] = useState(false);
@@ -2926,13 +2940,14 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, sear
     });
   }, [selectedMarker]);
 
-  // Dismiss restaurant card when sheet leaves peek state
+  // Standalone map retains its original peek/detail behavior. Search keeps
+  // the restaurant modal independent so returning preserves the list.
   useEffect(() => {
-    if (sheetState !== 'peek' && selectedPlace) {
+    if (!searchTab && sheetState !== 'peek' && selectedPlace) {
       setSelectedPlace(null);
       setSelectedMarker(null);
     }
-  }, [sheetState, selectedPlace]);
+  }, [sheetState, selectedPlace, searchTab]);
 
   // Listen for "open-discover-sheet" events from BottomNav Explore button
   useEffect(() => {
@@ -3762,10 +3777,10 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, sear
   const panelRecipes = useMemo(() => friendRecipes.filter((m) => matchesPanelQ(m.name || '')), [friendRecipes, matchesPanelQ]);
 
   const panelResultCount =
-    mapMode === 'discover' ? panelDiscoverPlaces.length
-    : mapMode === 'myratings' ? panelMyRatings.length
-    : mapMode === 'friends' ? panelFriendRatings.length
-    : mapMode === 'experts' ? panelExpertRatings.length
+    mapMode === 'discover' ? (searchTab ? displayPlaces.length : panelDiscoverPlaces.length)
+    : mapMode === 'myratings' ? (searchTab ? filteredMyRatings.length : panelMyRatings.length)
+    : mapMode === 'friends' ? (searchTab ? filteredFriendRatings.length : panelFriendRatings.length)
+    : mapMode === 'experts' ? (searchTab ? filteredExpertRatings.length : panelExpertRatings.length)
     : mapMode === 'recipes' ? panelRecipes.length
     : 0;
 
@@ -3775,7 +3790,8 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, sear
     isMarkerSelectedRef.current = true;
     setSelectedPlace(place);
     setSelectedMarker(place.id);
-    setSheetState('peek');
+    // Keep the list at the same detent underneath the detail sheet.
+    if (!searchTab) setSheetState('peek');
     const map = mapRef.current;
     if (map) {
       // Zoom into the place so the marker is the obvious centre of
@@ -3785,7 +3801,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, sear
       const targetZoom = Math.max(map.getZoom(), 15.5);
       map.easeTo({ center: [place.lng, place.lat], zoom: targetZoom, duration: 700 });
     }
-  }, []);
+  }, [searchTab]);
   const focusPanelRating = useCallback((r: CommunityRating) => {
     const place = ratingToPlace(r);
     if (!place) return;
@@ -3858,6 +3874,18 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, sear
     // old row carried (the FOR YOU caption, the second context line, the
     // filled action circles) was hierarchy fighting itself.
     const facts = [metaText || null, dist || city || null].filter(Boolean).join('  ·  ');
+    if (searchTab) return (
+      <article key={key} className={cn('ds-place', selected && 'is-selected')}>
+        <button className="ds-place-open" onClick={onClick} aria-label={`View ${name}`}>
+          {tint && <ScoreBadge rating={score!} size="lg" className="ds-score-circle" />}
+          <div className="ds-place-copy"><h3>{name}</h3><p className="ds-place-facts"><span>{metaText || 'Restaurant'}</span>{(dist || city) && <span className="ds-place-distance"><MapPin size={11} />{dist || city}</span>}</p>
+            {((tint && scoreLabel !== 'For your taste') || michHit) && <div className="ds-place-rating">{tint && scoreLabel !== 'For your taste' && <small>{scoreLabel || 'Rating'}</small>}{michHit && <MichelinMark michelin={michHit} size={12} />}</div>}
+          </div>
+        </button>
+        <div className="ds-place-actions"><button onClick={onSave} aria-label={`${fav ? 'Unsave' : 'Save'} ${name}`} aria-pressed={fav}><Bookmark size={19} fill={fav ? 'currentColor' : 'none'} /></button><button onClick={onAdd} aria-label={`Add ${name} to a list`}><Plus size={19} /></button></div>
+        {extra && <div className="ds-place-context">{extra}</div>}
+      </article>
+    );
     return (
       <div
         key={key}
@@ -3939,7 +3967,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, sear
       key: r.id, onClick: () => focusPanelRating(r), selected,
       image: r.photo_url || undefined, name: r.restaurant_name,
       cuisine: r.cuisine || undefined, price: r.price || undefined, city,
-      lat: r.lat, lng: r.lng, score: s, extra: opts.extra, restData,
+      lat: r.lat, lng: r.lng, score: s, scoreLabel: mapMode === 'myratings' ? 'Your rating' : mapMode === 'experts' ? 'Expert rating' : 'Friend rating', extra: opts.extra, restData,
     });
   };
 
@@ -3981,6 +4009,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, sear
       image: p.photoUrl || undefined, name: p.name,
       cuisine, price, city, lat: p.lat, lng: p.lng,
       score: disp ? disp.score : p.rating && p.rating > 0 ? Math.min(10, p.rating > 5 ? p.rating : p.rating * 2) : undefined,
+      scoreLabel: myScore !== undefined ? 'Your rating' : disp?.forYou ? 'For your taste' : 'Google · scaled to 10',
       extra, restData, michHit,
     });
   };
@@ -4105,7 +4134,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, sear
     const routesLoading = routeLegs?.loading;
 
     const topChrome = (
-      <div className="px-5 pt-4 pb-4">
+      <div className="rp-toolbar rp-search-toolbar">
         {/* Back arrow + wishlist bookmark. The save control is a soft circle
             that stays visible whether or not the place is saved (the fill
             carries the state). */}
@@ -4131,6 +4160,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, sear
               <X size={18} />
             </GlassButton>
           )}
+          {!isDesktopMapMode && <span className="rp-toolbar-label">Restaurant</span>}
           <GlassButton
             id="map-detail-save"
             symbol={fav ? 'bookmark.fill' : 'bookmark'}
@@ -4147,9 +4177,14 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, sear
           </GlassButton>
         </div>
 
+      </div>
+    );
+
+    const detailIdentity = (
+      <div className="rp-identity">
         {/* Single header block: name + a flowing meta row that carries
             cuisine, price, distance and the two route durations. */}
-        <h1 className="font-serif font-bold text-[24px] leading-[1.15] tracking-tight text-on-surface mt-3">
+        <h1 className="rp-title">
           {place.name}
         </h1>
         {michelin && (
@@ -4210,6 +4245,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, sear
           glassSuspended={detailGlassSuspended}
           noHero
           topChrome={topChrome}
+          headSlot={detailIdentity}
         />
       </div>
     );
@@ -4645,7 +4681,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, sear
       {mode === 'map' && !usingDesktopHeader && !searchTab && (
         <button
           type="button"
-          onClick={() => navigate(-1)}
+          onClick={() => goBack()}
           aria-label="Back"
           className="absolute top-[calc(env(safe-area-inset-top)+0.625rem)] left-4 z-40 w-11 h-11 rounded-full bg-white shadow-md border border-on-surface/[0.06] flex items-center justify-center text-on-surface active:scale-95 transition-transform"
         >
@@ -4980,13 +5016,13 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, sear
         {/* ─── DISCOVER ─── */}
         {mapMode === 'discover' && (
           <>
-            <FilterSection label="Sort by">
+            <FilterSortSection>
               <PillRow>
                 {SORT_OPTIONS.map((opt) => (
                   <Pill key={opt.value} active={sortBy === opt.value} onClick={() => setSortBy(opt.value)}>{opt.label}</Pill>
                 ))}
               </PillRow>
-            </FilterSection>
+            </FilterSortSection>
             <FilterSection label="Price">
               <Segment>
                 {PRICE_LEVELS.map((p) => (
@@ -5011,13 +5047,13 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, sear
         {/* ─── MY RATINGS ─── */}
         {mapMode === 'myratings' && (
           <>
-            <FilterSection label="Sort by">
+            <FilterSortSection>
               <PillRow>
                 {([['recent', 'Recent'], ['highest', 'Highest Score'], ['lowest', 'Lowest Score'], ['visited', 'Date Visited']] as const).map(([key, label]) => (
                   <Pill key={key} active={ratingSortBy === key} onClick={() => setRatingSortBy(key)}>{label}</Pill>
                 ))}
               </PillRow>
-            </FilterSection>
+            </FilterSortSection>
             <FilterSection label="Score" value={`${scoreRange[0]} – ${scoreRange[1]}`} isSet={scoreRange[0] > 0 || scoreRange[1] < 10}>
               <RangeSlider min={0} max={10} step={0.5} value={scoreRange} onChange={setScoreRange} ariaLabelMin="Minimum score" ariaLabelMax="Maximum score" />
               <div className="fs-slider-range"><span>0</span><span>10</span></div>
@@ -5080,13 +5116,13 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, sear
                   searchPlaceholder="Search friends"
             />
             )}
-            <FilterSection label="Sort by">
+            <FilterSortSection>
               <PillRow>
                 {([['recent', 'Recent'], ['highest', 'Highest Score'], ['lowest', 'Lowest Score']] as const).map(([key, label]) => (
                   <Pill key={key} active={ratingSortBy === key} onClick={() => setRatingSortBy(key)}>{label}</Pill>
                 ))}
               </PillRow>
-            </FilterSection>
+            </FilterSortSection>
             <FilterSection label="Score" value={`${scoreRange[0]} – ${scoreRange[1]}`} isSet={scoreRange[0] > 0 || scoreRange[1] < 10}>
               <RangeSlider min={0} max={10} step={0.5} value={scoreRange} onChange={setScoreRange} ariaLabelMin="Minimum score" ariaLabelMax="Maximum score" />
               <div className="fs-slider-range"><span>0</span><span>10</span></div>
@@ -5107,13 +5143,13 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, sear
         {/* ─── EXPERTS ─── */}
         {mapMode === 'experts' && (
           <>
-            <FilterSection label="Sort by">
+            <FilterSortSection>
               <PillRow>
                 {([['recent', 'Recent'], ['highest', 'Highest Score']] as const).map(([key, label]) => (
                   <Pill key={key} active={ratingSortBy === key} onClick={() => setRatingSortBy(key)}>{label}</Pill>
                 ))}
               </PillRow>
-            </FilterSection>
+            </FilterSortSection>
             <FilterSection label="Score" value={`${scoreRange[0]} – ${scoreRange[1]}`} isSet={scoreRange[0] > 0 || scoreRange[1] < 10}>
               <RangeSlider min={0} max={10} step={0.5} value={scoreRange} onChange={setScoreRange} ariaLabelMin="Minimum score" ariaLabelMax="Maximum score" />
               <div className="fs-slider-range"><span>0</span><span>10</span></div>
@@ -5165,16 +5201,17 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, sear
             onAnimationComplete={() => setDetailEntered(true)}
             ref={detailSheetRef as React.RefObject<HTMLDivElement>}
             {...detailDragProps}
-            className="fixed left-0 right-0 bottom-0 z-[71] bg-surface rounded-t-[1.75rem] overflow-hidden flex flex-col ring-1 ring-on-surface/[0.08] shadow-[0_-20px_60px_rgba(0,0,0,0.22)]"
-            style={{ height: '92%', willChange: 'transform' }}
+            role="dialog" aria-modal="true" aria-label={selectedPlace.name}
+            className="rp-sheet fixed left-0 right-0 bottom-0 z-[71] bg-surface overflow-hidden flex flex-col shadow-[0_-20px_60px_rgba(0,0,0,0.22)]"
+            style={{ height: 'min(92dvh, 940px)', willChange: 'transform' }}
           >
             {/* Grab strip — swipe down anywhere on it to dismiss the sheet. */}
             <div
-              className="flex justify-center pt-2.5 pb-1.5 flex-shrink-0 cursor-grab active:cursor-grabbing"
+              className="rp-grabber cursor-grab active:cursor-grabbing"
               style={{ touchAction: 'none' }}
               onPointerDown={startDetailDrag}
             >
-              <div className="w-10 h-1.5 rounded-full bg-on-surface/15" />
+              <div className="w-9 h-1 rounded-full bg-on-surface/20" />
             </div>
             <div className="flex-1 min-h-0">
               {renderPanelDetail(selectedPlace)}
@@ -5211,7 +5248,8 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, sear
       {!isDesktopMapMode && (
       <motion.div
         ref={sheetRef}
-        style={{ y: sheetY, height: FULL_HEIGHT, ...(searchTab ? { boxShadow: sheetShadow } : null) }}
+        data-discover-sheet={searchTab ? sheetState : undefined}
+        style={{ y: sheetY, height: searchTab ? visibleSheetHeight : FULL_HEIGHT, ...(searchTab ? { top: 0, bottom: 'auto', boxShadow: sheetShadow } : null) }}
         className={cn(
           // NB: the white top hairline (frosted-glass edge) is applied only to
           // the glass sheet states below — NOT the home full state. On the home
@@ -5230,14 +5268,14 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, sear
           // hover-expanded flyout. Phone keeps z-40 — there the sheet must
           // beat the BottomNav when expanded.
           usingDesktopHeader ? "z-[29]" : "z-40",
-          searchTab && "transition-opacity duration-300",
+          searchTab && "discover-sheet transition-opacity duration-300",
           searchTab && dimChrome && "opacity-0 pointer-events-none",
           // The Search tab's sheet is solid ground with a slight curve (the
           // radius lives in the style below so it can flatten as the sheet
           // becomes the page); the frosted translucency read as unfinished
           // over a busy map. The other surfaces keep their glass.
           searchTab
-            ? "bg-surface rounded-t-[18px]"
+            ? "bg-surface rounded-t-[28px]"
             : sheetState === 'full'
               ? (mode === 'home' ? "bg-surface rounded-t-none" : "glass rounded-t-none border-t border-white/40")
               : "glass rounded-t-[3rem] border-t border-white/40"
@@ -5250,7 +5288,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, sear
         <motion.div
           className={cn(
             'w-full flex flex-col items-center cursor-grab active:cursor-grabbing flex-shrink-0',
-            searchTab ? 'justify-center overflow-hidden' : 'pt-4 pb-4',
+            searchTab ? 'ds-grab justify-center overflow-hidden' : 'pt-4 pb-4',
           )}
           style={searchTab ? { touchAction: 'none', height: handleHeight, opacity: handleOpacity } : { touchAction: 'none' }}
           onClick={() => {
@@ -5261,6 +5299,10 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, sear
               else setSheetState(sheetState === 'peek' ? 'half' : 'peek');
             }
           }}
+          role={searchTab ? 'button' : undefined}
+          tabIndex={searchTab ? 0 : undefined}
+          aria-label={searchTab ? (sheetState === 'full' ? 'Show map' : 'Expand restaurant list') : undefined}
+          onKeyDown={e => { if (searchTab && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); setSheetState(sheetState === 'full' ? 'peek' : 'full'); } }}
           {...sheetDrag}
         >
           {sheetState === 'half' && mode !== 'map' ? (
@@ -5271,7 +5313,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, sear
               <ChevronsUp size={20} className="text-on-surface/50" />
             </button>
           ) : (
-            <div className="w-12 h-1.5 bg-on-surface/10 rounded-full" />
+            <><div className="w-9 h-1 bg-on-surface/20 rounded-full" />{searchTab && sheetState === 'peek' && <span className="ds-peek-title">{followingView ? 'From your people' : `${panelResultCount} places to explore`}<ChevronsUp size={16} /></span>}</>
           )}
         </motion.div>
         )}
@@ -5678,7 +5720,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, sear
           style={searchTab ? { opacity: bodyOpacity, pointerEvents: sheetState === 'peek' ? 'none' : 'auto' } : undefined}
         >
         {/* Search Bar & Filters — only on discover tab */}
-        <div ref={filterBarRef} className={cn("pb-4 flex-shrink-0 relative", searchTab && "pt-2", phoneMode ? "px-3" : "px-6")}>
+        <div ref={filterBarRef} className={cn("pb-4 flex-shrink-0 relative", searchTab && "ds-header", phoneMode ? "px-3" : "px-6")}>
           {/* Sheet title. On the Search tab it is the reference's header —
               count as the title, context underneath, sort on the right —
               and it drags the sheet, because a title bar you can't grab is
@@ -5686,24 +5728,15 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, sear
               title row stays. */}
           {searchTab ? (
             <div
-              className="flex items-center justify-between gap-2.5 pb-2.5 px-1 cursor-grab active:cursor-grabbing"
+              className="ds-heading cursor-grab active:cursor-grabbing"
               style={{ touchAction: 'none' }}
               {...sheetDrag}
             >
-              <span className="min-w-0 truncate text-[13px] font-semibold text-on-surface/60">
-                {followingView ? (
-                  /* The feed prints its own richer count line ("N restaurants
-                     · from M people you follow") in the body — the header
-                     just names the view. */
-                  'Following'
-                ) : (
-                  <>
-                    {panelResultCount} {panelResultCount === 1 ? 'place' : 'places'}
-                    {discoverSearchActive && searchQuery.trim() ? ` · \u201c${searchQuery.trim()}\u201d` : mapMode === 'discover' ? ' nearby' : ''}
-                  </>
-                )}
-              </span>
-              <div className="flex items-center gap-1.5 flex-shrink-0">
+              <motion.div className="ds-summary" style={{ height: summaryHeight, opacity: summaryOpacity, y: summaryY }}>
+                <p>{followingView ? 'Places from your circle' : <>{panelResultCount} {panelResultCount === 1 ? 'place' : 'places'}{discoverSearchActive && searchQuery.trim() ? ` · “${searchQuery.trim()}”` : mapMode === 'discover' ? ' nearby' : ` · ${panelTitle}`}</>}{isSearching && <Loader2 size={12} className="animate-spin" />}</p>
+              </motion.div>
+              <div className="ds-source-controls">
+
                 {followingView ? (
                   /* The way back. Same pill language as the source control
                      it replaces, chevron first so it reads as "return". */
@@ -5746,13 +5779,8 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, sear
                     </span>
                     <ChevronDown size={12} strokeWidth={2.6} className={cn('flex-shrink-0 transition-transform', sourceMenuOpen && 'rotate-180')} />
                   </button>
-                  {sourceMenuOpen && (
-                    <>
-                      <div className="fixed inset-0 z-[60]" onClick={() => setSourceMenuOpen(false)} aria-hidden />
-                      <div className={cn(
-                        'absolute right-0 z-[61] w-[200px] max-h-[300px] overflow-y-auto no-scrollbar rounded-2xl bg-paper border border-on-surface/10 shadow-xl py-1.5',
-                        sheetState === 'peek' ? 'bottom-full mb-2' : 'top-full mt-2',
-                      )}>
+                  <FilterSheetShell open={sourceMenuOpen} onClose={() => setSourceMenuOpen(false)} title="Explore places" subtitle="Choose what appears on your map" onReset={() => { setMapMode('discover'); setSelectedListId(null); }} applyLabel="Done">
+                      <div className="ds-source-options">
                         {([
                           { key: 'nearby', label: 'Nearby', on: mapMode === 'discover', pick: () => { setMapMode('discover'); setSelectedListId(null); } },
                           { key: 'myratings', label: 'My Ratings', on: mapMode === 'myratings' && !selectedListId, pick: () => { setMapMode('myratings'); setSelectedListId(null); } },
@@ -5767,20 +5795,21 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, sear
                             key={opt.key}
                             type="button"
                             onClick={() => { opt.pick(); setSourceMenuOpen(false); }}
-                            className={cn('w-full flex items-center gap-2 px-4 py-2.5 text-left transition-colors', opt.on ? 'bg-primary/[0.07]' : 'hover:bg-on-surface/[0.04] active:bg-on-surface/[0.05]')}
+                            aria-pressed={opt.on}
+                            className={cn('ds-source-option', opt.on && 'is-selected')}
                           >
                             <span className={cn('text-[13px] font-semibold truncate flex-1', opt.on ? 'text-primary' : 'text-on-surface')}>{opt.label}</span>
                             {opt.on && <Check size={14} className="text-primary flex-shrink-0" />}
                           </button>
                         ))}
                       </div>
-                    </>
-                  )}
+                  </FilterSheetShell>
                 </div>
                 {/* Sorting lives in the filter sheet's SORT BY — a second
                     control for the same value was one pill too many. */}
                 </>
                 )}
+              <button type="button" className="ds-map-toggle" onClick={() => setSheetState(sheetState === 'full' ? 'half' : 'full')} aria-label={sheetState === 'full' ? 'Show map and list' : 'Expand restaurant list'}>{sheetState === 'full' ? <MapIcon size={17} /> : <ChevronsUp size={17} />}{sheetState === 'full' ? 'Map' : 'Expand'}</button>
               </div>
             </div>
           ) : (
@@ -5998,7 +6027,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, sear
         </div>
 
         {/* Results List */}
-        <div ref={panelListRef} className={cn("flex-1 overflow-y-auto overflow-x-hidden overscroll-x-none no-scrollbar pb-32", searchTab && "overscroll-y-contain", phoneMode ? "px-3" : "px-6")}>
+        <div ref={panelListRef} onScroll={e => updateSheetHeader(e.currentTarget.scrollTop)} onClickCapture={e => { if (performance.now() < suppressSheetClickRef.current) { e.preventDefault(); e.stopPropagation(); } }} className={cn("flex-1 overflow-y-auto overflow-x-hidden overscroll-x-none no-scrollbar pb-32", searchTab && "ds-results overscroll-y-contain", phoneMode ? "px-3" : "px-6")}>
           {/* ── Following view — the feed component, whole, inside the
               sheet. It owns its data, filters and chips; this page just
               gives it the scroller and plots what it reports. ── */}
@@ -6199,7 +6228,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, sear
                         {displayPlaces.map((place) => renderPlaceCard(place))}
                       </div>
                     </section>
-                  ) : null}
+                  ) : searchTab ? <div className="ds-empty"><MapPinned size={30} /><h3>No places in this view</h3><p>{activeFilterCount > 0 ? 'Try adjusting your filters to see more places.' : 'Move the map to a new area and tap Search this area.'}</p><button onClick={() => activeFilterCount > 0 ? setFilterSheetOpen(true) : setSheetState('peek')}>{activeFilterCount > 0 ? 'Adjust filters' : 'Explore the map'}<ArrowRight size={16} /></button></div> : null}
                   </>
                   )}
             </div>

@@ -1,8 +1,10 @@
 import React from 'react';
 import { motion } from 'motion/react';
-import { ChefHat, ChevronDown, Menu, Plus, Search, Sparkles, UtensilsCrossed } from 'lucide-react';
+import { ChevronDown, Menu, Plus, Search, Sparkles, Users, ArrowUpRight } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { GlassButton, useGlassSegments } from '../lib/glass-buttons';
+import { homeHaptic } from '../lib/haptics';
+import './LibraryDesign.css';
 import { useSettings } from '../contexts/SettingsContext';
 
 /**
@@ -32,6 +34,7 @@ interface Props {
 
   /** Restaurants tab only — "For you", the ranked recommendations page. */
   onOpenRecommendations?: () => void;
+  onDecideTogether?: () => void;
   /** Recipes tab only — "Ideas", the AI brainstorm ("what should I cook
    *  tonight?"). The two props are the same pill in the same slot, one
    *  per section; passing both would render both, so hosts pass exactly
@@ -59,6 +62,7 @@ export const PantryPhoneHeader: React.FC<Props> = ({
   drawerOpen,
   onOpenDrawer,
   onOpenRecommendations,
+  onDecideTogether,
   onOpenIdeas,
   searchOpen,
   onToggleSearch,
@@ -129,19 +133,18 @@ export const PantryPhoneHeader: React.FC<Props> = ({
         </motion.div>
       </div>
 
-      <motion.div ref={headerRef} style={headerStyle}>
+      <motion.div ref={headerRef} style={headerStyle} className="library-header">
         {/* Row 1 — which kind of list, and the actions that apply to it. */}
-        <div className="pt-safe-3 flex items-center gap-2">
+        <div className="library-topbar pt-safe-3 flex items-center gap-2">
           <div
             ref={seg.ref}
             data-tour="pantry-tabs"
             className={cn(
-              'relative inline-flex items-center gap-0.5 rounded-full p-[3px]',
+              'library-tabs relative inline-flex items-center gap-0.5 rounded-full p-[3px]',
               !seg.active && 'glass-control',
             )}
           >
             {(['restaurants', 'recipes'] as PantrySection[]).map((t) => {
-              const Icon = t === 'restaurants' ? UtensilsCrossed : ChefHat;
               const active = activeSection === t;
               return (
                 <button
@@ -163,14 +166,11 @@ export const PantryPhoneHeader: React.FC<Props> = ({
                           : 'text-on-surface/50 active:text-on-surface/80',
                   )}
                 >
-                  <Icon size={13} strokeWidth={2.4} className="flex-shrink-0" />
                   {t === 'restaurants' ? 'Restaurants' : 'Recipes'}
                 </button>
               );
             })}
           </div>
-
-          <div className="flex-1" />
 
           <GlassButton
             id="pantry-search-toggle"
@@ -197,62 +197,17 @@ export const PantryPhoneHeader: React.FC<Props> = ({
           {moreMenu}
         </div>
 
-        {/* Row 2 — which list (title, opens the drawer), For you alongside
-            it, and the drawer's own chevron trailing the row so the row
-            reads left-to-right as "what you're on" → "what else to try" →
-            "switch". */}
-        {/* Breathing room goes ABOVE the title, where the 38px segment
-            sits, and the chips below hug it: mt-2/mb-4 had the title
-            crowding the control and floating over the chip row. */}
-        <div className="mt-4 mb-2.5 flex items-center gap-2">
-          {/* Title + chevron stay welded together — the chevron is the
-              title's affordance, so it sits against the text rather than
-              drifting to the far side of the row. */}
-          <div className="flex items-center gap-2 min-w-0">
-            <button
-              type="button"
-              onClick={onOpenDrawer}
-              className="min-w-0 text-left active:opacity-70 transition-opacity"
-            >
-              <span className="font-serif text-[25px] font-bold tracking-[-0.6px] text-on-surface truncate block">
-                {viewLabel.name}
-              </span>
-            </button>
-            <button
-              type="button"
-              onClick={onOpenDrawer}
-              aria-label="Your lists"
-              className={cn(
-                'flex-shrink-0 w-9 h-9 rounded-full bg-cream-2 text-primary flex items-center justify-center transition-transform duration-300 ease-[var(--ease-out-strong)]',
-                drawerOpen && 'rotate-180',
-              )}
-            >
-              <ChevronDown size={15} strokeWidth={2.6} />
-            </button>
-          </div>
-          <div className="flex-1" />
-          {onOpenRecommendations && (
-            <button
-              type="button"
-              onClick={onOpenRecommendations}
-              className="flex-none inline-flex h-9 items-center gap-1.5 rounded-full border border-primary/30 bg-primary/10 text-primary px-3.5 active:opacity-80 transition-opacity"
-              style={{ fontSize: '12.5px', fontWeight: 700 }}
-            >
-              <Sparkles size={13} />
-              For you
-            </button>
-          )}
-          {onOpenIdeas && (
-            <button
-              type="button"
-              onClick={onOpenIdeas}
-              className="flex-none inline-flex h-9 items-center gap-1.5 rounded-full border border-primary/30 bg-primary/10 text-primary px-3.5 active:opacity-80 transition-opacity"
-              style={{ fontSize: '12.5px', fontWeight: 700 }}
-            >
-              <Sparkles size={13} />
-              Ideas
-            </button>
-          )}
+        <div className="library-title-row">
+          <button type="button" className="library-title" onClick={() => { homeHaptic(); onOpenDrawer(); }} aria-label={`Choose a list. Current: ${viewLabel.name}`} aria-expanded={drawerOpen}>
+            <h1>{viewLabel.name === 'All Recipes' ? 'Your cookbook' : viewLabel.name}</h1>
+            <ChevronDown size={18} className={drawerOpen ? 'rotate-180' : ''} />
+          </button>
+          <span className="library-count">{viewLabel.count} {activeSection === 'recipes' ? (viewLabel.count === 1 ? 'recipe' : 'recipes') : (viewLabel.count === 1 ? 'place' : 'places')}</span>
+        </div>
+        <div className="library-discovery" aria-label="Discover">
+          {onOpenRecommendations && <button onClick={() => { homeHaptic(); onOpenRecommendations(); }}><Sparkles size={16} /><span>For you</span><ArrowUpRight size={14} /></button>}
+          {onOpenIdeas && <button onClick={() => { homeHaptic(); onOpenIdeas(); }}><Sparkles size={16} /><span>Recipe ideas</span><ArrowUpRight size={14} /></button>}
+          {onDecideTogether && <button onClick={() => { homeHaptic(); onDecideTogether(); }}><Users size={16} /><span>Decide together</span><ArrowUpRight size={14} /></button>}
         </div>
       </motion.div>
     </>

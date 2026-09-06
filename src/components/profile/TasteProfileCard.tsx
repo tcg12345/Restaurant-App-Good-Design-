@@ -1,4 +1,5 @@
 import React from 'react';
+import './ProfileDesign.css';
 import { useNavigate } from 'react-router-dom';
 import { ChevronRight } from 'lucide-react';
 import { useTasteProfile } from '../../lib/useTasteProfile';
@@ -6,24 +7,8 @@ import { TierEmblem } from './TierEmblem';
 import { cn } from '../../lib/utils';
 import type { TierStanding } from '../../lib/taste-tier';
 
-/**
- * The taste-profile teaser, presentational.
- *
- * A card: a raised surface with its own hairline and padding, so the
- * palate reads as one object you can tap rather than a run of text in
- * the page's own margin. (It was a flat section once — the sections
- * around it have since become cards too, and it was the odd one out.) Only the chevron and the
- * press-scale say it is tappable.
- *
- * Everything below the identity row runs the full width — the palate's
- * sentence, the ladder, the traits. The version before this one put the
- * emblem in a fixed left column and the chevron in a fixed right one, so
- * every line of prose was squeezed into the ~70% between them and a
- * one-line tagline wrapped to four.
- *
- * Used on your own profile (TasteProfileCard, below) and on other
- * people's (UserProfile), so the two read as the same object.
- */
+/** Compact shared entry to the full taste profile, using the same derived
+ * identity and level as the detail page. */
 export const TasteSummaryCard: React.FC<{
   standing: TierStanding;
   points: number;
@@ -41,101 +26,24 @@ export const TasteSummaryCard: React.FC<{
   // this is the version you can read a number off.
   const ladder = standing.next
     ? `${standing.toNext} ${standing.toNext === 1 ? 'pt' : 'pts'} to ${standing.next.name}`
-    : 'Top of the ladder';
+    : 'Highest level reached';
   // The palate's name leads. Before there is one, the tier is the only
   // name this thing has, and the meta line drops it rather than say it
   // twice.
   const title = archetype ?? standing.tier.name;
   const meta = archetype ? `${standing.tier.name} · ${points} pts` : `${points} pts`;
   return (
-    <button
-      type="button"
-      onClick={onPress}
-      data-tour="taste-profile"
-      className={cn(
-        'card-surface-press block w-full text-left rounded-[22px] bg-paper px-[18px] py-4',
-        'ring-1 ring-on-surface/[0.07] shadow-[0_1px_3px_rgba(0,0,0,0.05)]',
-        className,
-      )}
-      aria-label={ariaLabel ?? `${eyebrow}: ${standing.tier.name}, ${points} points`}
-    >
-      <span className="flex items-center justify-between gap-2">
-        <span
-          className="truncate text-tint-ink"
-          style={{ fontSize: '10.5px', fontWeight: 700, letterSpacing: '0.16em', textTransform: 'uppercase' }}
-        >
-          {eyebrow}
-        </span>
-        {/* The rank rides the EYEBROW line, where there is room. Beside the
-            palate name it stole width from the one line that has to hold a
-            name, and "Explorer 212 pts" broke in half the moment the rank
-            read "#14 of 326". */}
-        {rank != null && ranked > 0 && (
-          <span
-            className="flex-none whitespace-nowrap text-on-surface/45 tabular-nums"
-            style={{ fontSize: '11.5px', fontWeight: 600 }}
-          >
-            #{rank} of {ranked}
-          </span>
-        )}
+    <button type="button" onClick={onPress} data-tour="taste-profile"
+      className={cn('profile-taste-card', className)}
+      aria-label={ariaLabel ?? `${eyebrow}: ${standing.tier.name}, ${points} points`}>
+      <span className="profile-taste-eyebrow">{eyebrow}{rank != null && ranked > 1 && <span>#{rank} of {ranked}</span>}</span>
+      <span className="profile-taste-identity">
+        <TierEmblem tier={standing.tier} progress={standing.progress} size={42} animate={false} ring={false} />
+        <span><strong>{title}</strong><small>{meta}</small></span>
+        <ChevronRight size={18} />
       </span>
-
-      <span className="mt-2.5 flex items-center gap-3">
-        {/* No ring: the ladder below states the same progress in a form you
-            can read, and a low fill renders as an arc floating off the disc. */}
-        <TierEmblem tier={standing.tier} progress={standing.progress} size={44} animate={false} ring={false} />
-        <span className="min-w-0 flex-1">
-          {/* Wraps, never truncates: this is the name of the thing, and
-              "The Fine-Dining Explor…" is worse than two lines. */}
-          <span
-            className="block font-serif text-on-surface"
-            style={{ fontSize: '19px', fontWeight: 700, lineHeight: 1.2, letterSpacing: '-0.02em', textWrap: 'balance' } as React.CSSProperties}
-          >
-            {title}
-          </span>
-          <span className="mt-[3px] block truncate text-on-surface/45 tabular-nums" style={{ fontSize: '12.5px', fontWeight: 600 }}>
-            {meta}
-          </span>
-        </span>
-        <ChevronRight size={17} className="flex-none text-on-surface/25" />
-      </span>
-
-      {lead && (
-        <span
-          className="mt-3 block text-on-surface/65"
-          style={{ fontSize: '13.5px', lineHeight: 1.5, textWrap: 'pretty' } as React.CSSProperties}
-        >
-          {lead}
-        </span>
-      )}
-
-      {/* The ladder: a full-width rule with its own caption on the same
-          line, so the next rung is concrete without costing a block. */}
-      <span className="mt-3.5 flex items-center gap-3">
-        <span className="block h-1 flex-1 overflow-hidden rounded-full bg-on-surface/[0.09]" aria-hidden>
-          <span
-            className="block h-full rounded-full bg-tint"
-            style={{ width: `${Math.max(2, standing.progress * 100)}%` }}
-          />
-        </span>
-        <span className="flex-none whitespace-nowrap text-on-surface/45" style={{ fontSize: '11.5px', fontWeight: 600 }}>
-          {ladder}
-        </span>
-      </span>
-
-      {chips.length > 0 && (
-        <span className="mt-3 flex flex-wrap gap-1.5">
-          {chips.map((chip) => (
-            <span
-              key={chip}
-              className="rounded-full bg-tint/[0.12] text-tint-ink"
-              style={{ padding: '5px 10px', fontSize: '11.5px', fontWeight: 600 }}
-            >
-              {chip}
-            </span>
-          ))}
-        </span>
-      )}
+      {chips.length > 0 ? <span className="profile-taste-traits">{chips.slice(0, 3).join(' · ')}</span> : lead && <span className="profile-taste-traits">{lead}</span>}
+      <span className="profile-taste-footer"><span>View taste profile</span><span>{ladder}</span></span>
     </button>
   );
 };

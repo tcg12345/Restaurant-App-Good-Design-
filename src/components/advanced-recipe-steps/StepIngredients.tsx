@@ -134,6 +134,7 @@ const Row: React.FC<RowProps> = ({ ingredient, onChange, onRemove }) => {
       <input
         type="text"
         inputMode="decimal"
+        aria-label="Amount"
         className={cn('rcx-ing-input rcx-ing-qty', amountError && 'is-error')}
         value={ingredient.amount}
         onChange={(e) => handleAmountChange(e.target.value)}
@@ -145,6 +146,7 @@ const Row: React.FC<RowProps> = ({ ingredient, onChange, onRemove }) => {
         <input
           ref={unitInputRef}
           type="text"
+          aria-label="Unit"
           className="rcx-ing-input rcx-ing-unit"
           value={unitOpen ? unitSearch : ingredient.unit}
           onFocus={handleUnitFocus}
@@ -186,6 +188,7 @@ const Row: React.FC<RowProps> = ({ ingredient, onChange, onRemove }) => {
       </div>
       <input
         type="text"
+        aria-label="Ingredient"
         className="rcx-ing-input rcx-ing-name"
         value={ingredient.name}
         onChange={(e) => handleNameChange(e.target.value)}
@@ -296,7 +299,7 @@ export const StepIngredients: React.FC<Props> = ({ state, dispatch, existingId }
               />
               <div className="rcx-paste-actions">
                 <button type="button" className="rcx-mini-primary" onClick={() => handleBulk(gi)}>
-                  Parse &amp; add
+                  Add ingredients
                 </button>
                 <button type="button" className="rcx-mini-ghost" onClick={() => { setBulkOpen(null); setBulkText(''); }}>
                   Cancel

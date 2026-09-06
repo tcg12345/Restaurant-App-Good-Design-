@@ -270,7 +270,7 @@ function effectiveOpacity(el: HTMLElement): number {
   let node: HTMLElement | null = el;
   while (node && node !== document.body) {
     const style = window.getComputedStyle(node);
-    if (style.display === 'none' || style.visibility === 'hidden') return 0;
+    if (style.display === 'none' || style.visibility === 'hidden' || node.hasAttribute('inert')) return 0;
     const own = parseFloat(style.opacity);
     if (!Number.isNaN(own)) opacity *= own;
     if (opacity <= 0.01) return 0;

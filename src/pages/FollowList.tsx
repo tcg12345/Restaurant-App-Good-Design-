@@ -1,3 +1,5 @@
+import { usePageBack } from '../lib/usePageBack';
+import '../components/social/SocialDesign.css';
 /**
  * FollowList — the follower / following (and own rated) lists behind a
  * profile's stat row, presented as a SHEET: it rises from the bottom over
@@ -74,7 +76,7 @@ const Sheet: React.FC<{
   const dragControls = useDragControls();
   return (
     <motion.div
-      className="absolute inset-0 flex flex-col bg-surface"
+      className="social-design social-follow-sheet absolute inset-0 flex flex-col bg-surface"
       drag="y"
       dragListener={false}
       dragControls={dragControls}
@@ -122,6 +124,7 @@ const Sheet: React.FC<{
 export const FollowList: React.FC = () => {
   const { username } = useParams();
   const navigate = useNavigate();
+  const goBack = usePageBack('/circle');
   const location = useLocation();
   const { user } = useAuth();
   const { requireSignIn } = useSignInModal();
@@ -132,8 +135,7 @@ export const FollowList: React.FC = () => {
    *  falls through to the profile this list belongs to. */
   const dismiss = () => {
     const idx = typeof window.history.state?.idx === 'number' ? window.history.state.idx : 0;
-    if (idx > 0) navigate(-1);
-    else navigate(`/user/${encodeURIComponent(username || '')}`, { replace: true });
+    goBack();
   };
 
   // Active tab is the last path segment (/user/:username/<tab>).
@@ -441,7 +443,7 @@ export const FollowList: React.FC = () => {
                   to={`/restaurant/${r.restaurantId}`}
                   className="flex items-center gap-3.5 rounded-[18px] px-2 py-2.5 active:bg-on-surface/[0.05] transition-colors"
                 >
-                  <span className="w-6 flex-none text-right font-serif text-[15px] font-bold leading-none tabular-nums text-on-surface/30">{i + 1}</span>
+                  <span className="w-6 flex-none text-right font-sans text-[15px] font-bold leading-none tabular-nums text-on-surface/30">{i + 1}</span>
                   <div className="h-12 w-12 flex-none overflow-hidden rounded-[14px] bg-on-surface/[0.06] flex items-center justify-center">
                     {r.image ? (
                       <img src={r.image} alt="" className="h-full w-full object-cover" referrerPolicy="no-referrer" />

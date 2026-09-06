@@ -1,3 +1,4 @@
+import { usePageBack } from '../lib/usePageBack';
 /**
  * One top list, in full: /profile/top/:listKey
  *
@@ -49,6 +50,7 @@ const PAGE_BOTTOM = 'calc(env(safe-area-inset-bottom, 0px) + 104px)';
 export const TopListPage: React.FC = () => {
   const { listKey = '' } = useParams<{ listKey: string }>();
   const navigate = useNavigate();
+  const goBack = usePageBack('/profile');
   const { user } = useAuth();
   const { ratings, scoresUnlocked } = useLists();
   const { phoneMode, twoDecimalScores } = useSettings();
@@ -72,7 +74,7 @@ export const TopListPage: React.FC = () => {
   if (!config || !list || !stillVisible) {
     return (
       <div className="min-h-screen bg-surface">
-        <FloatingBack id="top-list-back" onBack={() => navigate('/profile')} />
+        <FloatingBack id="top-list-back" onBack={() => goBack()} />
         <div className="mx-auto w-full max-w-[860px] px-5 text-center" style={{ paddingTop: 'calc(env(safe-area-inset-top, 0px) + 76px)' }}>
           <span className="mx-auto mt-10 flex h-14 w-14 items-center justify-center rounded-2xl bg-on-surface/[0.05]">
             <Star size={26} className="text-on-surface/20" />
@@ -121,7 +123,7 @@ export const TopListPage: React.FC = () => {
             </div>
           </div>
         </motion.div>
-        <FloatingBack id="top-list-back" onBack={() => navigate('/profile')} />
+        <FloatingBack id="top-list-back" onBack={() => goBack()} />
       </div>
 
       <div className="mx-auto w-full max-w-[860px] px-5" style={{ paddingBottom: PAGE_BOTTOM }}>

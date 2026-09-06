@@ -1,3 +1,4 @@
+import { usePageBack } from '../lib/usePageBack';
 /**
  * /pro — GoodEats Pro at page scale, in glass night, on ONE screen: a
  * swipeable story card that takes whatever height the phone has to
@@ -98,6 +99,7 @@ const StoryCarousel: React.FC = () => {
 
 export const ProPage: React.FC = () => {
   const navigate = useNavigate();
+  const goBack = usePageBack('/profile');
   const location = useLocation();
   const { phoneMode, setHideBottomNav } = useSettings();
   const { user } = useAuth();
@@ -163,7 +165,7 @@ export const ProPage: React.FC = () => {
         }}
       >
         <div className="flex items-center gap-3" style={{ marginBottom: 14, flex: 'none' }}>
-          <GlassButton id="pro-back" symbol="chevron.left" label="Back" tint="white" onClick={() => navigate(-1)} className="hit-44 flex-none w-11 h-11 rounded-full grid place-items-center active:scale-95 transition-transform" style={{ background: 'rgba(255,255,255,0.1)', color: NIGHT_INK }}><ChevronLeft size={18} /></GlassButton>
+          <GlassButton id="pro-back" symbol="chevron.left" label="Back" tint="white" onClick={() => goBack()} className="hit-44 flex-none w-11 h-11 rounded-full grid place-items-center active:scale-95 transition-transform" style={{ background: 'rgba(255,255,255,0.1)', color: NIGHT_INK }}><ChevronLeft size={18} /></GlassButton>
           <span style={eyebrow}>GoodEats Pro</span>
         </div>
         {children}
@@ -200,7 +202,7 @@ export const ProPage: React.FC = () => {
   }
 
   const subscribed = plan.checked && plan.subscribed;
-  const outcome = p.phase === 'success' || p.phase === 'web-sent';
+  const outcome = p.phase === 'success' || p.phase === 'web-sent' || p.phase === 'pending';
 
   return (
     <Shell>
@@ -225,7 +227,7 @@ export const ProPage: React.FC = () => {
             )}
           </div>
         ) : outcome ? (
-          <NightOutcome phase={p.phase as 'success' | 'web-sent'} onDone={p.reset} />
+          <NightOutcome phase={p.phase as 'success' | 'web-sent' | 'pending'} onDone={() => { if (p.phase === 'pending') navigate('/'); else p.reset(); }} />
         ) : (
           <>
             {p.loadingOffers ? (

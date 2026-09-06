@@ -74,14 +74,14 @@ export const SignInModalProvider: React.FC<{ children: ReactNode }> = ({ childre
               type="button"
               onClick={close}
               aria-label="Close sign in"
-              className="hit-44 absolute z-10 top-[max(0.75rem,env(safe-area-inset-top))] right-4 w-9 h-9 rounded-full bg-on-surface/[0.06] hover:bg-on-surface/[0.12] active:bg-on-surface/[0.16] grid place-items-center text-on-surface/65 transition-colors"
+              className="hit-44 absolute z-30 top-[max(0.75rem,env(safe-area-inset-top))] right-4 w-9 h-9 rounded-full bg-on-surface/[0.06] hover:bg-on-surface/[0.12] active:bg-on-surface/[0.16] grid place-items-center text-on-surface/65 transition-colors"
             >
               <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
                 <path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
               </svg>
             </button>
             {reason && (
-              <div className="absolute z-10 top-[max(0.75rem,env(safe-area-inset-top))] left-0 right-14 px-5 text-center pointer-events-none">
+              <div className="absolute z-30 top-[max(0.75rem,env(safe-area-inset-top))] left-0 right-14 px-5 text-center pointer-events-none">
                 <span className="inline-block max-w-full truncate text-[13px] font-semibold text-on-surface/70 bg-on-surface/[0.05] rounded-full px-3 py-1">
                   {reason}
                 </span>

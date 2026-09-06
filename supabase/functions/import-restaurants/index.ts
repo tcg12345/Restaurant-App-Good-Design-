@@ -300,6 +300,9 @@ async function handler(req: Request): Promise<Response> {
 
   const anthropicBody = {
     model: MODEL,
+    // Keep forced tools and the existing non-thinking output budget.
+    thinking: { type: 'disabled' },
+    output_config: { effort: 'high' },
     max_tokens: MAX_TOKENS,
     stream: true,
     system: SYSTEM_PROMPT,

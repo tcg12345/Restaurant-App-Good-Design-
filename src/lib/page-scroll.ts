@@ -11,13 +11,13 @@ function isVScroller(el: HTMLElement, excludeHidden: boolean): boolean {
   // Hidden keep-alive tab layers keep live layout while invisible — their
   // scrollers must never be mistaken for the current page's (reading one
   // saves the wrong offset; writing one corrupts a preserved tab).
-  if (excludeHidden && cs.visibility === 'hidden') return false;
+  if (excludeHidden && (cs.visibility === 'hidden' || el.closest('[inert]'))) return false;
   const oy = cs.overflowY;
   return oy === 'auto' || oy === 'scroll';
 }
 
 /** Largest in-page vertical scroller, or null when the window is the scroller. */
-export function getPrimaryScroller(root: ParentNode = document): HTMLElement | null {
+export function getPrimaryScroller(root: ParentNode = document, visibleOnly = false): HTMLElement | null {
   let best: HTMLElement | null = null;
   let bestH = 0;
   // Document-wide scans must skip invisible content: the swipe-back reveal
@@ -26,8 +26,8 @@ export function getPrimaryScroller(root: ParentNode = document): HTMLElement | n
   // clone itself (inside the hidden reveal) as `root` to replay its scroll.
   const documentScan = root === document;
   root.querySelectorAll<HTMLElement>('div, main, section, ul').forEach((el) => {
-    if (documentScan && el.closest('[data-swipe-reveal]')) return;
-    if (el.scrollHeight > bestH && isVScroller(el, documentScan)) { bestH = el.scrollHeight; best = el; }
+    if (documentScan && isOffscreenScrollTarget(el)) return;
+    if (el.scrollHeight > bestH && isVScroller(el, documentScan || visibleOnly)) { bestH = el.scrollHeight; best = el; }
   });
   return best;
 }
@@ -72,6 +72,8 @@ export function maxPageScroll(root?: ParentNode): number {
  */
 export function isOffscreenScrollTarget(target: EventTarget | null): boolean {
   if (!(target instanceof Element)) return false;
-  if (target.closest('[data-swipe-reveal]')) return true;
+  if (target.closest('[data-swipe-reveal], [data-swipe-front], [inert]')) return true;
+  const route = target.closest('[data-route-entry]');
+  if (route && route.getAttribute('data-route-entry') !== window.history.state?.key) return true;
   return getComputedStyle(target).visibility === 'hidden';
 }

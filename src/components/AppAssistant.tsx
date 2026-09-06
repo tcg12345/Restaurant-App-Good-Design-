@@ -99,6 +99,10 @@ function shouldHideAssistant(pathname: string, isPhone: boolean): boolean {
  *  the button did nothing at all. `/recipes` (the browse list) is
  *  deliberately not matched: only `/recipe/:id`. */
 function shouldHideFab(pathname: string): boolean {
+  // The guide reader offers contextual AI in its toolbar menu.
+  if (/^\/guides\/[^/]+$/.test(pathname)) return true;
+  if (pathname === '/settings' || pathname.startsWith('/settings/') || pathname === '/verify/apply') return true;
+  if (pathname === '/decide') return true;
   // `/restaurant/<id>` exactly — NOT `/restaurant/<id>/circle`, a sub-page
   // with no capsule of its own, which needs the FAB to have any way in.
   if (/^\/restaurant\/[^/]+$/.test(pathname)) return true;
@@ -120,6 +124,7 @@ function routeShowsBottomNav(pathname: string): boolean {
   if (HIDE_BOTTOM_NAV_PATHS.has(pathname)) return false;
   if (pathname.startsWith('/restaurant/')) return false;
   if (pathname.startsWith('/user/')) return false;
+  if (pathname === '/decide') return false;
   if (pathname.startsWith('/recipe/')) return false;
   if (pathname.startsWith('/review/')) return false;
   if (pathname.startsWith('/activity')) return false;
@@ -389,7 +394,7 @@ export const AppAssistant: React.FC = () => {
   const guides = useGuideCreator();
   const homeLocation = useHomeLocation();
   const homeLoc = homeLocation?.location || null;
-  const { pageContext, attachment, setAttachment, openRequest } = useAssistantContext();
+  const { pageContext, attachment, setAttachment, openRequest, homeFeedVisible } = useAssistantContext();
 
   // The Search tab is the map now, and the FAB sat on the results sheet's
   // corner there. It stands down on the map and steps back in when the
@@ -1135,7 +1140,12 @@ export const AppAssistant: React.FC = () => {
 
   return (
     <LocationChat
-      hideLauncher={shouldHideFab(location.pathname)}
+      onExploreFeature={(feature) => {
+        if (feature === 'dish' || feature === 'recipe') {
+          lists.openHomeMealModal(undefined, { initialMethod: feature === 'dish' ? 'dish' : 'ai', initialAiView: 'recipe' });
+        } else navigate(feature === 'group' ? '/decide' : '/pantry/recommended');
+      }}
+      hideLauncher={shouldHideFab(location.pathname) || (location.pathname === '/' && !homeFeedVisible)}
       fabAboveBottomNav={fabAboveBottomNav}
       fabOverTakeover={onSearchMap && takeoverOpen}
       fabHidden={fabHidden}

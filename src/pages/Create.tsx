@@ -1,36 +1,13 @@
-// /create — the plus-button page. YouTube-Shorts-style creation hub:
-// the bottom is an infinite wheel carousel of the three actions (Post,
-// Guide, Recipe — momentum, always-centered selection, faded
-// neighbors), and the area above it IS the selected action's surface,
-// live and usable immediately — no "Start X" button:
-//
-//   Post   — the composer's media page, embedded: a dark canvas
-//            previewing the selection with the camera roll in a
-//            draggable bottom sheet (pull up for a full-screen
-//            gallery). Next routes Instagram-style — one video becomes
-//            a reel, anything else a post — into the full composer.
-//   Rate   — find the restaurant, then the rating flow. It lives here
-//            because rating used to be reachable ONLY from a restaurant
-//            page: the ＋ button offered Post/Guide/Recipe and testers
-//            reasonably concluded posting was how you logged a meal.
-//   Guide  — choose the guide type and name it; Continue opens the
-//            wizard pre-filled.
-//   Recipe — the four ways in (link / photo / scratch / AI), one tap
-//            deep-links into that flow.
-//
-// All surfaces stay mounted so half-written input survives wheel
-// spins. The full flows open as the usual overlays above this page.
-
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { useLocation, useNavigate } from 'react-router-dom';
-import { motion } from 'motion/react';
+import { useLocation } from 'react-router-dom';
+import { motion, useReducedMotion } from 'motion/react';
 import {
-  X, Film, ChefHat, ArrowRight, Link2, Camera, PenLine, ClipboardType,
+  X, Film, ChefHat, Link2, Camera, PenLine, ClipboardType,
   Sparkles, ChevronRight, MapPin, Plus, Loader2, Image as ImageIcon, Video as VideoIcon,
-  Search,
+  Search, ScanLine, BookOpen, Star, ArrowLeft,
 } from 'lucide-react';
 import { useGuideCreator } from '../contexts/GuideCreatorContext';
-import { useLists } from '../contexts/ListsContext';
+import { useLists, type HomeMealMethod } from '../contexts/ListsContext';
 import { searchPlacesByText, priceLevelToString, extractCityState } from '../lib/places';
 import { RestaurantCard } from '../components/cards';
 import { getCuisineLabel } from './useRestaurantDetail';
@@ -39,207 +16,19 @@ import { DraggableSheet, type SheetPos } from '../components/DraggableSheet';
 import { PhotoLibraryGrid } from '../components/PhotoLibraryGrid';
 import { PhotoLibrary, canUseNativePhotoLibrary, nativePathToFile, type MediaItem } from '../lib/native-photos';
 import { POST_MAX_ITEMS } from '../contexts/PostsContext';
-import type { GuideType } from '../lib/supabase-guides';
 import { cn } from '../lib/utils';
 import { GlassButton } from '../lib/glass-buttons';
 import { SearchField } from '../components/SearchField';
+import { usePageBack } from '../lib/usePageBack';
+import './Create.css';
 
 type Mode = 'post' | 'rate' | 'guide' | 'recipe';
 const MODES: Mode[] = ['post', 'rate', 'guide', 'recipe'];
-const MODE_LABELS: Record<Mode, string> = { post: 'Post', rate: 'Rate', guide: 'Guide', recipe: 'Recipe' };
-
-const mod = (n: number, m: number) => ((n % m) + m) % m;
-
-/* ── Infinite mode wheel ──────────────────────────────────────────
-   Horizontal looping carousel, iOS-camera-style: drag with momentum,
-   the selected label always snaps to center, neighbors fade + shrink,
-   tapping a side label glides to it. Pointer-driven (not native
-   scroll) so the loop is seamless in both directions.               */
-
-const ITEM_W = 92;
-const WHEEL_MASK =
-  'linear-gradient(to right, transparent 0%, rgba(0,0,0,0.5) 18%, black 34%, black 66%, rgba(0,0,0,0.5) 82%, transparent 100%)';
-
-const ModeWheel: React.FC<{
-  count: number;
-  labels: string[];
-  /** Where the wheel starts. It is uncontrolled after that — it owns the
-   *  offset and reports changes out — so this is read once, on mount. It
-   *  exists because the page can open on a surface other than the first
-   *  one, and a wheel that always started at 0 then sat under the Recipe
-   *  surface reading POST. */
-  initial?: number;
-  onChange: (idx: number) => void;
-}> = ({ count, labels, initial = 0, onChange }) => {
-  const [offset, setOffset] = useState(initial);
-  const offsetRef = useRef(initial);
-  const rafRef = useRef<number | null>(null);
-  const draggingRef = useRef(false);
-  const lastXRef = useRef(0);
-  const movedRef = useRef(0);
-  const lastTimeRef = useRef(0);
-  const velRef = useRef(0);
-  const lastReportedRef = useRef(initial);
-
-  const setOff = (v: number) => { offsetRef.current = v; setOffset(v); };
-
-  const reportRef = useRef<(off: number) => void>(() => {});
-  reportRef.current = (off: number) => {
-    const v = mod(Math.round(off), count);
-    if (v !== lastReportedRef.current) {
-      lastReportedRef.current = v;
-      onChange(v);
-    }
-  };
-  const report = (off: number) => reportRef.current(off);
-
-  const stopAnim = () => {
-    if (rafRef.current !== null) { cancelAnimationFrame(rafRef.current); rafRef.current = null; }
-  };
-
-  const settleTo = (target?: number) => {
-    const t = target ?? Math.round(offsetRef.current);
-    stopAnim();
-    const step = () => {
-      const diff = t - offsetRef.current;
-      if (Math.abs(diff) < 0.004) {
-        setOff(t);
-        report(t);
-        rafRef.current = null;
-        return;
-      }
-      setOff(offsetRef.current + diff * 0.22);
-      report(offsetRef.current);
-      rafRef.current = requestAnimationFrame(step);
-    };
-    rafRef.current = requestAnimationFrame(step);
-  };
-
-  const momentum = () => {
-    stopAnim();
-    const step = () => {
-      velRef.current *= 0.93;
-      const next = offsetRef.current + velRef.current;
-      setOff(next);
-      report(next);
-      if (Math.abs(velRef.current) < 0.02) {
-        rafRef.current = null;
-        settleTo();
-        return;
-      }
-      rafRef.current = requestAnimationFrame(step);
-    };
-    rafRef.current = requestAnimationFrame(step);
-  };
-
-  useEffect(() => () => stopAnim(), []);
-
-  const onPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
-    e.currentTarget.setPointerCapture(e.pointerId);
-    draggingRef.current = true;
-    stopAnim();
-    lastXRef.current = e.clientX;
-    movedRef.current = 0;
-    velRef.current = 0;
-    lastTimeRef.current = performance.now();
-  };
-
-  const onPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (!draggingRef.current) return;
-    const dx = e.clientX - lastXRef.current;
-    lastXRef.current = e.clientX;
-    movedRef.current += Math.abs(dx);
-    const now = performance.now();
-    const dt = Math.max(1, now - lastTimeRef.current);
-    lastTimeRef.current = now;
-    const dItems = -dx / ITEM_W;
-    velRef.current = dItems * (16.7 / dt);
-    const next = offsetRef.current + dItems;
-    setOff(next);
-    report(next);
-  };
-
-  const onPointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (!draggingRef.current) return;
-    draggingRef.current = false;
-    if (movedRef.current < 6) {
-      // Tap — glide to the tapped label.
-      const rect = e.currentTarget.getBoundingClientRect();
-      const delta = Math.round((e.clientX - (rect.left + rect.width / 2)) / ITEM_W);
-      settleTo(Math.round(offsetRef.current) + delta);
-      return;
-    }
-    if (Math.abs(velRef.current) > 0.05) momentum();
-    else settleTo();
-  };
-
-  // Labels around the current position (center ± 3 covers the mask).
-  const first = Math.floor(offset) - 3;
-  const items: Array<{ k: number; label: string; d: number }> = [];
-  for (let k = first; k <= first + 7; k++) {
-    items.push({ k, label: labels[mod(k, count)], d: k - offset });
-  }
-
-  return (
-    <div className="flex flex-col items-center">
-      <div
-        // The translucent frosted fill shares the strip's edge-fade mask,
-        // so it reads as a soft pill keeping the labels legible over
-        // whatever the wheel happens to float above — not a solid band.
-        className="relative w-full max-w-sm h-11 overflow-hidden select-none cursor-ew-resize rounded-full bg-surface/60 backdrop-blur-md"
-        style={{ touchAction: 'none', WebkitMaskImage: WHEEL_MASK, maskImage: WHEEL_MASK }}
-        onPointerDown={onPointerDown}
-        onPointerMove={onPointerMove}
-        onPointerUp={onPointerUp}
-        onPointerCancel={onPointerUp}
-        role="tablist"
-        aria-label="Creation mode"
-      >
-        {items.map(({ k, label, d }) => {
-          const dist = Math.min(Math.abs(d), 2.4);
-          return (
-            <span
-              key={k}
-              className="absolute top-1/2 left-1/2 flex items-center justify-center uppercase font-bold text-[12.5px] tracking-[0.2em] text-on-surface whitespace-nowrap pointer-events-none"
-              style={{
-                width: ITEM_W,
-                transform: `translate(calc(-50% + ${d * ITEM_W}px), -50%) scale(${1 - dist * 0.07})`,
-                opacity: Math.max(0.25, 1 - dist * 0.42),
-                willChange: 'transform, opacity',
-              }}
-              aria-hidden
-            >
-              {label}
-            </span>
-          );
-        })}
-      </div>
-      <span className="mt-1 w-1 h-1 rounded-full bg-primary" aria-hidden />
-    </div>
-  );
-};
 
 /* ── Shared surface bits ─────────────────────────────────────────── */
 
 const Eyebrow: React.FC<{ children: React.ReactNode }> = ({ children }) => (
   <div className="text-[11px] font-bold uppercase tracking-[0.18em] text-on-surface/40 mb-3">{children}</div>
-);
-
-const ContinueBtn: React.FC<{ label?: string; disabled?: boolean; onClick: () => void }> = ({ label = 'Continue', disabled, onClick }) => (
-  <button
-    type="button"
-    onClick={onClick}
-    disabled={disabled}
-    className={cn(
-      'inline-flex items-center gap-2 px-7 py-3 rounded-full font-semibold text-[14px] transition-all active:scale-[0.98]',
-      disabled
-        ? 'bg-on-surface/[0.07] text-on-surface/35'
-        : 'bg-primary text-on-primary shadow-sm hover:bg-primary/90',
-    )}
-  >
-    {label}
-    <ArrowRight size={15} strokeWidth={2.2} />
-  </button>
 );
 
 /* ── Post surface — the composer's media page, embedded ───────────
@@ -265,11 +54,11 @@ interface SurfacePick {
 }
 
 const PostSurface: React.FC<{
+  onClose: () => void;
   /** Reports whether the gallery sheet is raised to full screen — the
    *  page hides the floating mode wheel while it is. */
   onFullChange?: (full: boolean) => void;
-}> = ({ onFullChange }) => {
-  const navigate = useNavigate();
+}> = ({ onFullChange, onClose }) => {
   const openComposer = useUnifiedComposer();
   const useNative = canUseNativePhotoLibrary();
   // Tracks the sheet's detent so the floating close button can restyle
@@ -476,7 +265,7 @@ const PostSurface: React.FC<{
           // The material re-chromes itself from the backdrop; the glyph can't,
           // so it flips with the same signal the old classes flipped on.
           tint={sheetPos === 'full' ? 'label' : 'white'}
-          onClick={() => navigate('/')}
+          onClick={onClose}
           className={cn(
             'w-11 h-11 rounded-full flex items-center justify-center pointer-events-auto transition-colors duration-300',
             sheetPos === 'full' ? 'text-on-surface/70' : 'text-white',
@@ -743,87 +532,32 @@ const RateSurface: React.FC = () => {
 
 /* ── Guide surface — type + title, wizard opens pre-filled ───────── */
 
-const GuideSurface: React.FC = () => {
-  const { openGuideCreator } = useGuideCreator();
-  const [type, setType] = useState<GuideType>('restaurants');
-  const [title, setTitle] = useState('');
-
-  const handleContinue = () => {
-    openGuideCreator(null, { seed: { type, title: title.trim() } });
-    setTitle('');
-  };
-
-  return (
-    <div className="w-full max-w-md mx-auto">
-      <Eyebrow>Build a guide</Eyebrow>
-
-      <div className="grid grid-cols-2 gap-2.5">
-        {([
-          { key: 'restaurants' as GuideType, label: 'Restaurants', sub: 'Places to eat & drink', icon: <MapPin size={16} /> },
-          { key: 'recipes' as GuideType, label: 'Recipes', sub: 'Things to cook at home', icon: <ChefHat size={16} /> },
-        ]).map((o) => (
-          <button
-            key={o.key}
-            type="button"
-            onClick={() => setType(o.key)}
-            className={cn(
-              'flex flex-col items-start gap-1 rounded-2xl border p-4 text-left transition-all',
-              type === o.key
-                ? 'border-primary ring-1 ring-primary bg-primary/[0.04]'
-                : 'border-on-surface/[0.1] hover:border-on-surface/25',
-            )}
-          >
-            <span className={cn('mb-1.5 w-9 h-9 rounded-full flex items-center justify-center',
-              type === o.key ? 'bg-primary/10 text-primary' : 'bg-on-surface/[0.05] text-on-surface/45')}>
-              {o.icon}
-            </span>
-            <span className="text-[14px] font-semibold">{o.label}</span>
-            <span className="text-[11.5px] text-on-surface/45 leading-snug">{o.sub}</span>
-          </button>
-        ))}
-      </div>
-
-      <div className="mt-6">
-        <div className="text-[11px] font-bold uppercase tracking-[0.14em] text-on-surface/40 mb-1.5">Title</div>
-        <input
-          value={title}
-          onChange={(e) => setTitle(e.target.value)}
-          placeholder={type === 'recipes' ? 'Weeknight comfort classics' : 'Best pasta in the Village'}
-          maxLength={80}
-          className="w-full bg-transparent border-0 border-b-[1.5px] border-on-surface/15 focus:border-primary focus:outline-none py-2 font-serif font-semibold text-[21px] placeholder:text-on-surface/25"
-        />
-      </div>
-
-      <div className="mt-6 flex justify-end">
-        <ContinueBtn onClick={handleContinue} />
-      </div>
-    </div>
-  );
-};
-
 /* ── Recipe surface — the four ways in, one tap deep ─────────────── */
 
 const RecipeSurface: React.FC = () => {
   const { openHomeMealModal } = useLists();
 
-  const methods: Array<{ key: 'link' | 'photo' | 'text' | 'custom' | 'ai'; icon: React.ReactNode; title: string; sub: string }> = [
+  // Mirrors AddHomeMealModal's METHODS — keep the two lists in sync.
+  const methods: Array<{ key: HomeMealMethod; icon: React.ReactNode; title: string; sub: string }> = [
+    { key: 'custom', icon: <PenLine size={21} />, title: 'Create a custom recipe', sub: 'Your ingredients. Your method. Made by you.' },
     { key: 'link', icon: <Link2 size={17} strokeWidth={2} />, title: 'From a web link', sub: 'Paste a link from any recipe site' },
-    { key: 'photo', icon: <Camera size={17} strokeWidth={2} />, title: 'From a photo', sub: 'A cookbook page, screenshot, or card' },
+    { key: 'photo', icon: <ScanLine size={17} strokeWidth={2} />, title: 'Scan a recipe', sub: 'A cookbook page, screenshot, or card' },
     { key: 'text', icon: <ClipboardType size={17} strokeWidth={2} />, title: 'From text', sub: 'Paste a recipe you already have' },
-    { key: 'custom', icon: <PenLine size={17} strokeWidth={2} />, title: 'Start from scratch', sub: 'Build it step by step' },
+
     { key: 'ai', icon: <Sparkles size={17} strokeWidth={2} />, title: 'Create with AI', sub: 'Describe it, get a complete draft' },
+    { key: 'dish', icon: <Camera size={17} strokeWidth={2} />, title: 'Recreate a dish', sub: 'Photograph a plate, get the recipe' },
   ];
 
   return (
     <div className="w-full max-w-md mx-auto">
-      <Eyebrow>Add a recipe</Eyebrow>
+      <Eyebrow>Choose how to begin</Eyebrow>
       <div>
         {methods.map((m) => (
           <button
             key={m.key}
             type="button"
             onClick={() => openHomeMealModal(undefined, { initialMethod: m.key })}
-            className="w-full flex items-center gap-3.5 py-3.5 text-left border-b border-on-surface/[0.07] last:border-0 active:bg-on-surface/[0.03] transition-colors"
+            className={`create-recipe-method ${m.key === 'custom' ? 'is-featured' : ''}`}
           >
             <span className="w-11 h-11 rounded-full bg-primary/10 text-primary flex items-center justify-center flex-shrink-0">
               {m.icon}
@@ -842,79 +576,51 @@ const RecipeSurface: React.FC = () => {
 
 /* ── Page ─────────────────────────────────────────────────────────── */
 
+const CREATION_CHOICES = [
+  { id: 'recipe' as const, title: 'Recipe', description: 'Make something worth passing down.', icon: ChefHat, tone: 'sage' },
+  { id: 'guide' as const, title: 'Guide', description: 'Your favorite places, beautifully collected.', icon: BookOpen, tone: 'sand' },
+  { id: 'post' as const, title: 'Post or reel', description: 'Share the moments around the table.', icon: Camera, tone: 'blue' },
+  { id: 'rate' as const, title: 'Rating', description: 'Remember a meal. Refine your taste.', icon: Star, tone: 'rose' },
+];
+
 export const Create: React.FC = () => {
-  const navigate = useNavigate();
-  // Callers that already know what you're making land you on that surface —
-  // the Recipes page's + means "add a recipe", not "open the create page and
-  // then spin the wheel to Recipe". Unknown / absent state starts on Post as
-  // it always has.
+  const goBack = usePageBack('/');
   const { state } = useLocation() as { state?: { mode?: Mode } };
-  const [modeIdx, setModeIdx] = useState(() => {
-    const i = state?.mode ? MODES.indexOf(state.mode) : -1;
-    return i >= 0 ? i : 0;
-  });
-  // Post surface's gallery sheet is at full screen — hide the wheel.
-  const [postSheetFull, setPostSheetFull] = useState(false);
-  const mode = MODES[modeIdx];
-  const wheelHidden = mode === 'post' && postSheetFull;
-
-  return (
-    <div className="relative h-[100dvh] overflow-hidden bg-surface text-on-surface">
-      {/* Live surfaces — all mounted so half-written input survives
-          wheel spins; only the active one is visible + interactive.
-          They run full-bleed to the bottom edge; the mode wheel floats
-          above them on a transparent background. */}
-      {MODES.map((m) => {
-        const active = m === mode;
-        return (
-          <div
-            key={m}
-            className={cn(
-              'absolute inset-0 transition-all duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]',
-              // The post surface is a full-bleed composer (dark canvas
-              // + its own bottom sheet); the others are padded forms
-              // whose bottom padding clears the floating wheel.
-              m === 'post' ? 'overflow-hidden' : 'overflow-y-auto px-5 pt-safe-4 pb-32',
-              active ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-2 pointer-events-none',
-            )}
-            aria-hidden={!active}
-          >
-            {m !== 'post' && (
-              <GlassButton
-                id={`create-close-${m}`}
-                symbol="xmark"
-                label="Close"
-                onClick={() => navigate('/')}
-                className="w-11 h-11 mb-3 rounded-full flex items-center justify-center text-on-surface/70 transition-colors"
-              >
-                <X size={19} />
-              </GlassButton>
-            )}
-            {m === 'post' && <PostSurface onFullChange={setPostSheetFull} />}
-            {m === 'rate' && <RateSurface />}
-            {m === 'guide' && <GuideSurface />}
-            {m === 'recipe' && <RecipeSurface />}
-          </div>
-        );
-      })}
-
-      {/* Infinite mode wheel — floats over the surfaces, no backing
-          band; fades away while the post gallery is raised to full. */}
-      <div
-        className={cn(
-          'absolute inset-x-0 bottom-0 z-40 pt-2 pb-safe-6 pointer-events-none transition-opacity duration-300',
-          wheelHidden && 'opacity-0',
-        )}
-      >
-        <div className={wheelHidden ? 'pointer-events-none' : 'pointer-events-auto'}>
-          <ModeWheel
-            initial={modeIdx}
-            count={MODES.length}
-            labels={MODES.map((m) => MODE_LABELS[m])}
-            onChange={setModeIdx}
-          />
+  const initial = state?.mode && MODES.includes(state.mode) ? state.mode : null;
+  const [mode, setMode] = useState<Mode | null>(initial);
+  const [visited, setVisited] = useState<Mode[]>(initial && initial !== 'guide' ? [initial] : []);
+  const { openGuideCreator } = useGuideCreator();
+  const reduced = useReducedMotion();
+  const select = (next: Mode) => {
+    if (next === 'guide') { openGuideCreator(); return; }
+    setVisited(previous => previous.includes(next) ? previous : [...previous, next]);
+    setMode(next);
+  };
+  useEffect(() => { if (initial === 'guide') { setMode(null); openGuideCreator(); } }, []);
+  const current = CREATION_CHOICES.find(choice => choice.id === mode);
+  return <div className="create-studio">
+    {mode !== 'post' && <header className="create-studio-header">
+      <GlassButton id="create-back" symbol={mode ? 'chevron.left' : 'xmark'} label={mode ? 'Back to Create' : 'Close Create'} onClick={mode ? () => setMode(null) : goBack} className="create-studio-back">
+        {mode ? <ArrowLeft size={21} /> : <X size={22} />}
+      </GlassButton>
+      <span>{current?.title || 'Create'}</span><span className="create-studio-header-space" />
+    </header>}
+    <div className="create-studio-workspace">
+      {!mode && <motion.main className="create-studio-home" initial={{ opacity: 0, y: reduced ? 0 : 10 }} animate={{ opacity: 1, y: 0 }}>
+        <div className="create-studio-intro"><span>A LITTLE OF YOUR GOOD TASTE</span><h1>Make it yours.</h1><p>A recipe to keep. A place to remember.<br />Something good to share.</p></div>
+        <div className="create-studio-choices">
+          {CREATION_CHOICES.map(({id, title, description, icon: Icon, tone}) => <button key={id} className={`create-studio-choice tone-${tone}`} onClick={() => select(id)}>
+            <span className="create-studio-choice-icon"><Icon size={25} strokeWidth={1.7} /></span>
+            <span><strong>{title}</strong><small>{description}</small></span><ChevronRight size={18} />
+          </button>)}
         </div>
-      </div>
+        <p className="create-studio-note">Your ideas, your pace. Review before sharing.</p>
+      </motion.main>}
+      {visited.map(item => <section key={item} hidden={mode !== item} inert={mode !== item} className={`create-studio-surface ${item === 'post' ? 'is-post' : ''}`} aria-label={`Create ${item}`}>
+        {item === 'post' && <PostSurface onClose={() => setMode(null)} />}
+        {item === 'rate' && <><div className="create-studio-surface-intro"><h1>How was your meal?</h1><p>Find a restaurant to add or update your rating.</p></div><RateSurface /></>}
+        {item === 'recipe' && <><div className="create-studio-surface-intro"><h1>Your next great recipe.</h1><p>Start with an idea, or bring a favorite with you.</p></div><RecipeSurface /></>}
+      </section>)}
     </div>
-  );
+  </div>;
 };

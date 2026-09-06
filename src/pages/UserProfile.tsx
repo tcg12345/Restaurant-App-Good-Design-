@@ -1,3 +1,5 @@
+import { useEntryState } from '../lib/useEntryState';
+import { usePageBack } from '../lib/usePageBack';
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { PinnedShelf, usePinnedCards } from '../components/profile/PinnedShelf';
@@ -34,7 +36,7 @@ import { useMichelinIndexReady } from '../lib/useMichelinMatch';
 import { passesMichelinFilter } from '../lib/michelin';
 import { MichelinDrillSection } from '../components/MichelinDistinctionFilter';
 import { FilterSheet } from '../components/FilterSheet';
-import { FilterSection, Segment, SegmentItem, Pill, PillRow, RangeSlider, FilterDrillSection, HoursFilterSection } from '../components/filterPrimitives';
+import { FilterSortSection, FilterSection, Segment, SegmentItem, Pill, PillRow, RangeSlider, FilterDrillSection, HoursFilterSection } from '../components/filterPrimitives';
 import { ProfileRestaurantRow } from '../components/profile/ProfileRestaurantRow';
 import { ProfileRestaurantRowMinimal } from '../components/profile/ProfileRestaurantRowMinimal';
 import { ProfilePalate } from '../components/profile/ProfilePalate';
@@ -43,6 +45,8 @@ import { buildTasteStateFromCommunity } from '../lib/taste-state';
 import { ProfileRecipeRow } from '../components/profile/ProfileRecipeRow';
 import { ProfilePostsSection, ProfileReelsSection, ProfileGuidesSection } from '../components/ProfileReelsSection';
 import { SearchField } from '../components/SearchField';
+import '../components/profile/PublicProfileDesign.css';
+import { homeHaptic } from '../lib/haptics';
 
 // Simple in-memory cache to avoid re-fetching on back navigation
 const profileCache: Record<string, {
@@ -78,6 +82,7 @@ const createRatingMarkerEl = (score: number): HTMLDivElement => {
 export const UserProfile: React.FC = () => {
   const { username } = useParams();
   const navigate = useNavigate();
+  const goBack = usePageBack('/circle');
   const { user } = useAuth();
   const { requireSignIn } = useSignInModal();
   const { reels } = useReels();
@@ -106,25 +111,24 @@ export const UserProfile: React.FC = () => {
 
   const [expertRecCount, setExpertRecCount] = useState(0);
 
-  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [expandedId, setExpandedId] = useEntryState<string | null>('public-profile:expandedId', null);
 
-  const [viewTab, setViewTab] = useState<ViewTab>('restaurants');
+  const [viewTab, setViewTab] = useEntryState<ViewTab>('public-profile:viewTab', 'restaurants');
 
-  const [searchQuery, setSearchQuery] = useState('');
-  const [filterCuisine, setFilterCuisine] = useState<string | null>(null);
-  const [filterPrice, setFilterPrice] = useState<string | null>(null);
-  const [filterCity, setFilterCity] = useState<string | null>(null);
-  const [filterMichelin, setFilterMichelin] = useState<string[]>([]);
+  const [searchQuery, setSearchQuery] = useEntryState('public-profile:searchQuery', '');
+  const [filterCuisine, setFilterCuisine] = useEntryState<string | null>('public-profile:filterCuisine', null);
+  const [filterPrice, setFilterPrice] = useEntryState<string | null>('public-profile:filterPrice', null);
+  const [filterCity, setFilterCity] = useEntryState<string | null>('public-profile:filterCity', null);
+  const [filterMichelin, setFilterMichelin] = useEntryState<string[]>('public-profile:filterMichelin', []);
   const toggleFilterMichelin = (d: string) =>
     setFilterMichelin((prev) => prev.includes(d) ? prev.filter((x) => x !== d) : [...prev, d]);
   const michelinReady = useMichelinIndexReady();
-  const [scoreRange, setScoreRange] = useState<[number, number]>([0, 10]);
-  const [hoursFilter, setHoursFilter] = useState<HoursFilter>(emptyHoursFilter());
-  const [sortBy, setSortBy] = useState<SortBy>('recent');
+  const [scoreRange, setScoreRange] = useEntryState<[number, number]>('public-profile:scoreRange', [0, 10]);
+  const [hoursFilter, setHoursFilter] = useEntryState<HoursFilter>('public-profile:hoursFilter', emptyHoursFilter());
+  const [sortBy, setSortBy] = useEntryState<SortBy>('public-profile:sortBy', 'recent');
   const [filtersOpen, setFiltersOpen] = useState(false);
   // Which drill page the sheet should open on (set by the quick chips).
   const [sheetPage, setSheetPage] = useState<{ id: string; title: string } | null>(null);
-  const [mobileSortOpen, setMobileSortOpen] = useState(false);
   const [sortOpen, setSortOpen] = useState(false);
   const [showMapPage, setShowMapPage] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -183,11 +187,15 @@ export const UserProfile: React.FC = () => {
 
     (async () => {
       setLoading(true);
+      // Clear the previous person's content before resolving the next profile.
+      setCanView(false); setUserRatings([]); setUserPhotos([]); setUserLists([]);
+      setUserWishlistItems([]); setPublicHomeMeals([]); setPublicGuides([]);
+      setFollowers(0); setFollowing(0); setIsFollowing(false); setFollowSent(false);
+      setTheyFollowMe(false); setExpertRecCount(0); setExpandedId(null);
       const p = await getProfileByUsername(username);
       if (cancelled) return;
       setProfile(p);
-      setLoading(false);
-      if (!p) return;
+      if (!p) { setLoading(false); return; }
 
       const isAuthed = !!userId;
 
@@ -202,6 +210,7 @@ export const UserProfile: React.FC = () => {
       const viewable = isAuthed ? await canViewProfile(userId!, p) : !!p.is_public;
       if (cancelled) return;
       setCanView(viewable);
+      setLoading(false);
 
       const fSnapshot: Partial<typeof profileCache[string]> = {
         profile: p,
@@ -387,14 +396,14 @@ export const UserProfile: React.FC = () => {
 
 
   const activeFilterCount =
-    (filterPrice ? 1 : 0) + (filterCity ? 1 : 0) +
+    (filterCuisine ? 1 : 0) + (filterPrice ? 1 : 0) + (filterCity ? 1 : 0) +
     (filterMichelin.length > 0 ? 1 : 0) +
     (scoreRange[0] > 0 || scoreRange[1] < 10 ? 1 : 0) +
     (isHoursFilterActive(hoursFilter) ? 1 : 0) +
     (sortBy !== 'recent' ? 1 : 0);
 
   const handleResetFilters = () => {
-    setFilterPrice(null); setFilterCity(null); setFilterMichelin([]);
+    setFilterCuisine(null); setFilterPrice(null); setFilterCity(null); setFilterMichelin([]);
     setScoreRange([0, 10]); setHoursFilter(emptyHoursFilter()); setSortBy('recent');
   };
 
@@ -691,9 +700,9 @@ export const UserProfile: React.FC = () => {
 
   if (!profile) {
     return (
-      <div className="min-h-screen bg-surface">
+      <div className="public-profile-design public-profile-desktop min-h-screen bg-surface">
         <header className="sticky top-0 px-4 pt-safe-3 pb-3 bg-surface/70 backdrop-blur-md z-10 flex items-center gap-3">
-          <button onClick={() => navigate(-1)} className="p-2 -ml-2 text-on-surface/50"><ArrowLeft size={20} /></button>
+          <button onClick={() => goBack()} className="p-2 -ml-2 text-on-surface/50"><ArrowLeft size={20} /></button>
           <h1 className="font-serif font-bold text-lg">User Not Found</h1>
         </header>
         <div className="text-center py-16">
@@ -726,7 +735,7 @@ export const UserProfile: React.FC = () => {
       initialPage={sheetPage}
       onReset={() => { handleResetFilters(); setFiltersOpen(false); }}
     >
-      <FilterSection label="Sort by">
+      <FilterSortSection>
         <PillRow>
           {(['recent', 'highest', 'lowest', 'az'] as SortBy[]).map((s) => (
             <Pill key={s} active={sortBy === s} onClick={() => setSortBy(s)}>
@@ -734,7 +743,7 @@ export const UserProfile: React.FC = () => {
             </Pill>
           ))}
         </PillRow>
-      </FilterSection>
+      </FilterSortSection>
 
       <FilterSection
         label="Score"
@@ -842,11 +851,11 @@ export const UserProfile: React.FC = () => {
   // ═══════════════════════════════════════════════════════════════════════
   if (!phoneMode) {
     return (
-      <div className="min-h-screen bg-surface">
+      <div className="public-profile-design public-profile-desktop min-h-screen bg-surface">
         {/* slim top strip — just a back affordance, keeps the page airy */}
         <div className="max-w-[1180px] mx-auto px-12 pt-6">
           <button
-            onClick={() => navigate(-1)}
+            onClick={() => goBack()}
             className="inline-flex items-center gap-2 text-[13.5px] font-semibold text-ink-3 px-3 py-2 -ml-3 rounded-full hover:bg-on-surface/[0.05] hover:text-on-surface transition-colors"
           >
             <ArrowLeft size={18} /> Back
@@ -1015,7 +1024,8 @@ export const UserProfile: React.FC = () => {
                         <button
                           key={t.key}
                           type="button"
-                          onClick={() => setViewTab(t.key)}
+                          aria-pressed={viewTab === t.key}
+                  onClick={(event) => { homeHaptic(); setViewTab(t.key); event.currentTarget.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' }); }}
                           className={cn(
                             'inline-flex items-center gap-2 px-1 pb-3.5 -mb-px border-b-2 transition-colors mr-6 last:mr-0 flex-none',
                             active ? 'border-primary' : 'border-transparent',
@@ -1280,16 +1290,16 @@ export const UserProfile: React.FC = () => {
   };
 
   return (
-    <div className="relative min-h-screen bg-surface pb-16">
+    <div className="public-profile-design relative min-h-screen bg-surface pb-16">
       {/* The same wash the owner's profile wears: the accent, fading out
           under the header, running up behind the bar. The bar only takes
           its glass once the page has scrolled under it. */}
-      <div aria-hidden className="pointer-events-none absolute inset-x-0 top-0 h-[360px] bg-gradient-to-b from-tint/30 via-tint/[0.12] via-55% to-transparent" />
+      <div aria-hidden className="public-profile-wash" />
       {/* Top bar — always present; mini identity + follow fade in on scroll */}
       <header
         ref={barRef}
         className={cn(
-          'sticky top-0 z-30 border-b transition-colors duration-300',
+          'public-profile-bar sticky top-0 z-30 border-b transition-colors duration-300',
           scrolled ? 'bg-surface/90 backdrop-blur-xl border-on-surface/[0.10]' : 'bg-transparent border-transparent',
         )}
       >
@@ -1298,7 +1308,7 @@ export const UserProfile: React.FC = () => {
             id="pubprofile-back"
             symbol="chevron.left"
             label="Back"
-            onClick={() => navigate(-1)}
+            onClick={() => goBack()}
             className="hit-44 flex-none w-11 h-11 -ml-1 rounded-full flex items-center justify-center text-on-surface bg-on-surface/[0.05] active:scale-95 transition-transform"
           >
             <ArrowLeft size={18} />
@@ -1309,6 +1319,7 @@ export const UserProfile: React.FC = () => {
               scrolled ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-[5px] pointer-events-none',
             )}
             aria-hidden={!scrolled || undefined}
+            inert={!scrolled}
           >
             <span className="relative flex-none w-[26px] h-[26px] rounded-full overflow-hidden bg-primary/[0.13] text-primary flex items-center justify-center font-serif font-bold text-[12px]">
               {profile.avatar_url ? (
@@ -1325,6 +1336,7 @@ export const UserProfile: React.FC = () => {
               scrolled ? 'opacity-100' : 'opacity-0 pointer-events-none',
             )}
             aria-hidden={!scrolled || undefined}
+            inert={!scrolled}
           >
             {followPill(true)}
           </div>
@@ -1340,56 +1352,16 @@ export const UserProfile: React.FC = () => {
         </div>
       </header>
 
-      {/* Identity — one compact band, left-aligned */}
-      <div className="px-5 pt-2 flex items-center gap-3.5">
-        <div
-          className="relative flex-none w-[66px] h-[66px] rounded-full grid place-items-center overflow-hidden"
-          style={{ background: 'linear-gradient(150deg, color-mix(in srgb, var(--color-primary) 14%, var(--color-paper)), color-mix(in srgb, var(--color-primary) 7%, var(--color-paper)))', boxShadow: 'inset 0 0 0 1px color-mix(in srgb, var(--color-primary) 10%, transparent)' }}
-        >
-          {profile.avatar_url ? (
-            <img src={profile.avatar_url} alt="" referrerPolicy="no-referrer" className="absolute inset-0 w-full h-full object-cover" />
-          ) : (
-            <span className="font-serif font-bold text-[27px] leading-none text-primary">
-              {profile.display_name.charAt(0).toUpperCase()}
-            </span>
-          )}
+      <section className="public-profile-identity" aria-label="Profile">
+        <div className="public-profile-avatar">
+          {profile.avatar_url ? <img src={profile.avatar_url} alt="" referrerPolicy="no-referrer" /> : <span>{profile.display_name.charAt(0).toUpperCase()}</span>}
         </div>
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-1.5">
-            <h1 className="min-w-0 font-serif text-[24px] font-bold leading-none tracking-[-0.03em] text-on-surface truncate">
-              {profile.display_name}
-            </h1>
-            {profile.is_verified && <VerifiedBadge size={15} className="flex-none" />}
-            {!profile.is_public && !profile.is_verified && <Lock size={13} className="flex-none text-ink-4" />}
-          </div>
-          <p className="mt-2 text-[13px] text-ink-3 truncate">
-            @{profile.username}{profile.home_city ? ` · ${profile.home_city}` : ''}
-          </p>
+        <div className="public-profile-name">
+          <div><h1>{profile.display_name}</h1>{profile.is_verified && <VerifiedBadge size={18} />}{!profile.is_public && <Lock size={14} />}</div>
+          <p>@{profile.username}</p>
+          {profile.home_city && <p className="public-profile-city"><MapPin size={12} />{profile.home_city}</p>}
         </div>
-        {/* The two counts that lead somewhere, in the space beside the
-            name — the same place the owner's profile keeps them. What was
-            rated and cooked is already counted on the tabs below. */}
-        <div className="flex-none flex items-start gap-5 mr-3">
-          {([
-            { n: followers, l: 'followers', tab: 'followers' as const },
-            { n: following, l: 'following', tab: 'following' as const },
-          ]).map((it) => {
-            const clickable = canView && !!profile.username;
-            const Tag = (clickable ? 'button' : 'div') as 'button';
-            return (
-              <Tag
-                key={it.l}
-                type={clickable ? 'button' : undefined}
-                onClick={clickable ? () => navigate(`/user/${encodeURIComponent(profile.username)}/${it.tab}`) : undefined}
-                className={cn('flex flex-col items-center gap-1', clickable && 'active:opacity-60 transition-opacity')}
-              >
-                <span className="text-on-surface tabular-nums" style={{ fontSize: '19px', fontWeight: 700, lineHeight: 1, letterSpacing: '-0.03em' }}>{it.n}</span>
-                <span className="text-ink-3" style={{ fontSize: '11.5px', lineHeight: 1 }}>{it.l}</span>
-              </Tag>
-            );
-          })}
-        </div>
-      </div>
+      </section>
 
       {profile.is_verified && profile.verified_status && (
         <p className="mt-3 px-5 text-[13px] font-semibold text-primary">{profile.verified_status}</p>
@@ -1405,29 +1377,24 @@ export const UserProfile: React.FC = () => {
         </p>
       )}
 
-      {/* Actions */}
-      {userId && !isOwnProfile ? (
-        <div className="flex gap-2.5 px-5 pt-4">
-          {followPill(false)}
-          <button
-            type="button"
-            onClick={() => navigate('/messages', { state: { openUserId: profile.user_id } })}
-            className="flex-none rounded-full border border-on-surface/20 text-on-surface px-[18px] py-[13px] text-[13.5px] font-bold active:bg-on-surface/[0.06] transition-colors"
-          >
-            Message
+      <div className="public-profile-stats" aria-label="Profile statistics">
+        <div><strong>{canView ? userRatings.length : '—'}</strong><span>Places rated</span></div>
+        {(['followers', 'following'] as const).map((tab) => (
+          <button key={tab} type="button" disabled={!canView} onClick={() => navigate(`/user/${encodeURIComponent(profile.username)}/${tab}`)}>
+            <strong>{tab === 'followers' ? followers : following}</strong><span>{tab === 'followers' ? 'Followers' : 'Following'}</span>
           </button>
+        ))}
+      </div>
+      {userId && !isOwnProfile ? (
+        <div className="public-profile-actions">
+          {followPill(false)}
+          <button type="button" onClick={() => navigate('/messages', { state: { openUserId: profile.user_id } })}>Message</button>
         </div>
       ) : isOwnProfile ? (
-        <div className="px-5 pt-4">
-          <button
-            type="button"
-            onClick={handleShare}
-            className="w-full rounded-full border border-on-surface/20 inline-flex items-center justify-center gap-2 py-[13px] text-[13.5px] font-bold text-on-surface active:bg-on-surface/[0.06] transition-colors"
-          >
-            {copied ? <><Check size={15} className="text-primary" /> Link copied</> : <><ShareIcon size={15} /> Share profile</>}
-          </button>
-        </div>
-      ) : null}
+        <div className="public-profile-actions"><button type="button" onClick={() => navigate('/profile')}>Manage profile</button></div>
+      ) : (
+        <div className="public-profile-actions"><button type="button" onClick={handleFollow}>Follow</button></div>
+      )}
 
       {/* Taste profile — the palate behind the ratings; tap for the reading. */}
       {canView && <PinnedShelf className="mx-5 mt-6" gutter={20} cards={pinnedCards} isOwn={false} />}
@@ -1437,7 +1404,8 @@ export const UserProfile: React.FC = () => {
         <>
           {/* Tabs — pills with counts, stuck just under the top bar */}
           <div
-            className="sticky z-20 mt-[22px] px-5 pt-3 pb-[11px] bg-surface/[0.94] backdrop-blur-lg border-b border-on-surface/[0.10] flex gap-[7px] overflow-x-auto scrollbar-hide"
+            className="public-profile-tabs sticky z-20 overflow-x-auto scrollbar-hide"
+            role="group" aria-label="Profile content"
             style={{ top: barH ? barH - 1 : 0 }}
           >
             {tabs.map((t) => {
@@ -1446,14 +1414,12 @@ export const UserProfile: React.FC = () => {
                 <button
                   key={t.key}
                   type="button"
-                  onClick={() => setViewTab(t.key)}
-                  className={cn(
-                    'flex-none inline-flex items-center gap-[7px] whitespace-nowrap rounded-full px-3.5 py-[9px] text-[12.5px] font-bold transition-colors',
-                    active ? 'bg-on-surface text-surface' : 'bg-on-surface/[0.06] text-on-surface',
-                  )}
+                  aria-pressed={viewTab === t.key}
+                  onClick={(event) => { homeHaptic(); setViewTab(t.key); event.currentTarget.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' }); }}
+                  className="flex-none inline-flex items-center whitespace-nowrap transition-colors"
                 >
                   {t.label}
-                  <span className={cn('font-medium tabular-nums', active ? 'text-surface/60' : 'text-ink-4')}>{t.count}</span>
+                  <span className="font-medium tabular-nums">{t.count}</span>
                 </button>
               );
             })}
@@ -1492,85 +1458,18 @@ export const UserProfile: React.FC = () => {
                 </button>
               </div>
 
-              {/* Quick chips — sort menu plus drill-in shortcuts */}
-              <div className="flex gap-[7px] overflow-x-auto scrollbar-hide px-5 pt-2.5">
-                <div className="relative flex-none">
-                  <button
-                    onClick={() => setMobileSortOpen((v) => !v)}
-                    className={cn(
-                      'inline-flex items-center gap-1.5 px-3.5 py-[9px] rounded-full text-[12px] font-bold flex-none transition-colors',
-                      sortBy !== 'recent' ? 'bg-on-surface text-surface' : 'bg-on-surface/[0.06] text-on-surface',
-                    )}
-                    aria-label="Sort"
-                  >
-                    <ArrowUpDown size={11.5} />
-                    {sortLabel[sortBy]}
-                  </button>
-                  {mobileSortOpen && (
-                    <>
-                      <div className="fixed inset-0 z-10" onClick={() => setMobileSortOpen(false)} />
-                      <div className="absolute left-0 top-full z-20 mt-1.5 w-44 overflow-hidden rounded-2xl border border-on-surface/[0.08] bg-paper py-1 shadow-xl">
-                        {(['recent', 'highest', 'lowest', 'az'] as SortBy[]).map((sv) => (
-                          <button
-                            key={sv}
-                            onClick={() => { setSortBy(sv); setMobileSortOpen(false); }}
-                            className={cn(
-                              'flex w-full items-center justify-between px-3.5 py-2.5 text-left text-[13px] font-semibold',
-                              sortBy === sv ? 'text-primary' : 'text-on-surface/75',
-                            )}
-                          >
-                            {sortLabel[sv]}
-                            {sortBy === sv && <span className="h-1.5 w-1.5 rounded-full bg-primary" />}
-                          </button>
-                        ))}
-                      </div>
-                    </>
-                  )}
-                </div>
-                {([
-                  [filterCuisine || 'Cuisines', !!filterCuisine, () => { setSheetPage({ id: 'cuisine', title: 'Cuisine' }); setFiltersOpen(true); }],
-                  [filterPrice || 'Price', !!filterPrice, () => { setSheetPage(null); setFiltersOpen(true); }],
-                  [`Michelin${filterMichelin.length > 0 ? ` · ${filterMichelin.length}` : ''}`, filterMichelin.length > 0, () => { setSheetPage({ id: 'michelin', title: 'Michelin' }); setFiltersOpen(true); }],
-                ] as [string, boolean, () => void][]).map(([label, on, press]) => (
-                  <button
-                    key={label}
-                    onClick={press}
-                    className={cn(
-                      'inline-flex items-center gap-1 px-3.5 py-[9px] rounded-full text-[12px] font-bold flex-none transition-colors',
-                      on ? 'bg-on-surface text-surface' : 'bg-on-surface/[0.06] text-on-surface',
-                    )}
-                  >
-                    {label}
-                    <ChevronDown size={12} className={on ? 'text-surface/60' : 'text-on-surface/40'} />
-                  </button>
-                ))}
+              <div className="public-profile-tools">
+                <label className="public-profile-sort"><ArrowUpDown size={13} /><select aria-label="Sort ratings" value={sortBy} onChange={(e) => setSortBy(e.target.value as SortBy)}>{(['recent', 'highest', 'lowest', 'az'] as SortBy[]).map((value) => <option key={value} value={value}>{sortLabel[value]}</option>)}</select><ChevronDown size={12} /></label>
+                <span className="public-profile-results">{filteredRatings.length} {filteredRatings.length === 1 ? 'place' : 'places'}</span>
+                {userRatings.length > 0 && <button type="button" onClick={() => setShowMapPage(true)}><MapIcon size={15} />Map</button>}
               </div>
-
-              {/* Result line + map — the map affordance lives here now,
-                  not floating over the content */}
-              <div className="flex items-center gap-2.5 px-5 pt-3.5">
-                <span className="flex-none text-[12px] text-ink-3 tabular-nums">
-                  {searchQuery.trim() || activeFilterCount > 0 || filterCuisine
-                    ? `${filteredRatings.length} of ${userRatings.length} shown`
-                    : `${userRatings.length} place${userRatings.length === 1 ? '' : 's'} rated`}
-                </span>
-                <span className="flex-1 h-px bg-on-surface/[0.12]" />
-                {userRatings.length > 0 && (
-                  <button
-                    type="button"
-                    onClick={() => setShowMapPage(true)}
-                    className="flex-none inline-flex items-center gap-1.5 rounded-full bg-on-surface/[0.06] px-3 py-2 text-[11.5px] font-bold text-on-surface active:bg-on-surface/[0.1] transition-colors"
-                  >
-                    <MapIcon size={12} strokeWidth={2.2} /> Map
-                  </button>
-                )}
-              </div>
+              {(activeFilterCount > 0 || searchQuery.trim()) && <div className="public-profile-filter-status"><span>{[filterCuisine, filterPrice, filterCity, filterMichelin.length ? 'Michelin' : null].filter(Boolean).join(' · ') || `${filteredRatings.length} of ${userRatings.length} places shown`}</span><button type="button" onClick={() => { handleResetFilters(); setSearchQuery(''); }}>Clear all</button></div>}
 
               {filteredRatings.length === 0 ? (
                 <div className="px-5 pt-8">
-                  <div className="font-serif text-[17px] font-bold tracking-[-0.028em] text-on-surface">Nothing matches that</div>
+                  <div className="font-serif text-[17px] font-bold tracking-[-0.028em] text-on-surface">{userRatings.length ? 'No matching places' : 'No ratings yet'}</div>
                   <p className="mt-2 text-[13.5px] leading-relaxed text-ink-3 max-w-[262px]" style={{ textWrap: 'pretty' } as React.CSSProperties}>
-                    Try a shorter search — this is only what {profile.display_name.split(' ')[0]} has rated publicly.
+                    {userRatings.length ? 'Try another search or clear your filters.' : `${profile.display_name.split(' ')[0]}’s ratings will appear here.`}
                   </p>
                 </div>
               ) : (
@@ -1585,14 +1484,14 @@ export const UserProfile: React.FC = () => {
                       ownerName={profile.display_name}
                       compact
                       saved={isWishlisted(r.restaurant_id)}
-                      onToggleSave={isOwnProfile ? undefined : () => toggleWishlist({
+                      onToggleSave={isOwnProfile ? undefined : () => { if (!userId) { requireSignIn('Sign in to save places'); return; } toggleWishlist({
                         id: r.restaurant_id,
                         name: r.restaurant_name || '',
                         image: r.photo_url || '',
                         cuisine: r.cuisine || '',
                         price: r.price || '',
                         address: r.address || '',
-                      })}
+                      }); }}
                     />
                   ))}
                 </div>
@@ -1659,9 +1558,6 @@ export const UserProfile: React.FC = () => {
               ? <>Your follow request is pending. Once {profile.display_name} approves it, you'll see their ratings, recipes, posts and activity.</>
               : <>Follow {profile.display_name} to see their ratings, recipes, posts and activity. They'll need to approve your request.</>}
           </p>
-          {userId && !isOwnProfile && (
-            <div className="flex justify-center">{renderFollowButton('block')}</div>
-          )}
         </section>
       )}
 

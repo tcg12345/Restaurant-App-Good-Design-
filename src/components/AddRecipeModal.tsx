@@ -1,3 +1,4 @@
+import { DeleteConfirmation } from './DeleteConfirmation';
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { X, Plus, Check, Camera, ChevronLeft, ChevronRight, Image, Hash, FileText, Lock, Clock, Flame, Users } from 'lucide-react';
@@ -75,9 +76,9 @@ export const AddRecipeModal: React.FC = () => {
         setServings(existing.servings);
         setDifficulty(existing.difficulty);
         setCuisine(existing.cuisine);
-        setIngredients([...existing.ingredients]);
-        setSteps([...existing.steps]);
-        setPhotos([...existing.photos]);
+        setIngredients([...(existing.ingredients || [])]);
+        setSteps([...(existing.steps || [])]);
+        setPhotos([...(existing.photos || [])]);
         setScore(existing.score);
         setIsPrivate(existing.isPrivate);
       } else {
@@ -414,15 +415,7 @@ export const AddRecipeModal: React.FC = () => {
                         Delete Recipe
                       </button>
                     )}
-                    {existing && confirmDelete && (
-                      <div className="flex items-center justify-between bg-red-50 border border-red-200 rounded-xl px-3 py-2.5">
-                        <p className="text-xs text-red-600 font-medium">Delete this recipe?</p>
-                        <div className="flex gap-2">
-                          <button onClick={() => setConfirmDelete(false)} className="px-3 py-1.5 text-xs font-semibold text-on-surface/50 border border-on-surface/15 rounded-lg hover:bg-white">Cancel</button>
-                          <button onClick={handleDelete} className="px-3 py-1.5 text-xs font-semibold text-white bg-red-500 rounded-lg hover:bg-red-600">Delete</button>
-                        </div>
-                      </div>
-                    )}
+                    {existing && confirmDelete && <DeleteConfirmation name={title} onCancel={() => setConfirmDelete(false)} onConfirm={() => { setConfirmDelete(false); void handleDelete(); }} />}
                   </div>
                 </motion.div>
               )}

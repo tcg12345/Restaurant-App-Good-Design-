@@ -306,3 +306,16 @@ export function changedFieldsInEdit(input: BuildRecipeInput): string[] {
     Object.prototype.hasOwnProperty.call(input, k) && input[k] !== undefined,
   ) as string[];
 }
+
+/** A cover is also a photo entry; keep the PhotoItem shape and captions
+ * intact when the preview's Change / Remove actions update it. */
+export function withRecipeCover(meal: HomeMeal, url: string | null): HomeMeal {
+  const photos = meal.photos || [];
+  return {
+    ...meal,
+    coverPhoto: url || undefined,
+    photos: url
+      ? [photos.find((photo) => photo.url === url) || { url, caption: '', isFavorite: false }, ...photos.filter((photo) => photo.url !== url)]
+      : photos.filter((photo) => photo.url !== meal.coverPhoto),
+  };
+}

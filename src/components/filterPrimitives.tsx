@@ -1,6 +1,6 @@
-import React, { useContext, useMemo, useState } from 'react';
-import { createPortal } from 'react-dom';
-import { ChevronRight, Search, Check, X } from 'lucide-react';
+import React, { useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal, flushSync } from 'react-dom';
+import { ChevronRight, Search, Check, X, ArrowUpDown, Clock3, MapPin, Utensils, Award, Users, SlidersHorizontal } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { MEAL_KEYS, MEAL_LABELS, type HoursFilter, type MealKey } from '../lib/hours';
 
@@ -54,6 +54,7 @@ export const Pill: React.FC<{
   <button
     type="button"
     onClick={onClick}
+    aria-pressed={!!active}
     className={cn('fs-pill', sm && 'is-sm', active && 'is-active')}
   >
     {children}
@@ -70,7 +71,7 @@ export const SegmentItem: React.FC<{
   onClick: () => void;
   children: React.ReactNode;
 }> = ({ active, onClick, children }) => (
-  <button type="button" onClick={onClick} className={cn('fs-segment-item', active && 'is-active')}>
+  <button type="button" onClick={onClick} aria-pressed={!!active} className={cn('fs-segment-item', active && 'is-active')}>
     {children}
   </button>
 );
@@ -151,9 +152,19 @@ export const FilterDrillRow: React.FC<{
   onClear?: () => void;
 }> = ({ id, label, value, isSet, subtitle, onClear, children }) => {
   const nav = useContext(FilterSheetNavContext);
+  const clearRef = useRef(onClear);
+  clearRef.current = onClear;
+  const clear = useCallback(() => clearRef.current?.(), []);
+  const canClear = !!onClear;
+  useEffect(() => {
+    if (nav.activeId === id) nav.openPage(id, label, { subtitle, onClear: canClear ? clear : undefined });
+  }, [nav.activeId, nav.openPage, id, label, subtitle, canClear, clear]);
+  const Icon = id === 'sort' ? ArrowUpDown : id === 'hours' ? Clock3 : /city|location/.test(id) ? MapPin
+    : /cuisine/.test(id) ? Utensils : /michelin/.test(id) ? Award : /friend/.test(id) ? Users : SlidersHorizontal;
   return (
     <>
-      <button type="button" className="fs-drill-row" onClick={() => nav.openPage(id, label, { subtitle, onClear })}>
+      <button type="button" className="fs-drill-row" data-filter-page={id} onClick={() => nav.openPage(id, label, { subtitle, onClear })}>
+        <Icon size={19} strokeWidth={1.7} className="fs-drill-icon" aria-hidden />
         <span className="fs-drill-label">{label}</span>
         <span className={cn('fs-drill-value', isSet && 'is-set')}>{value || 'Any'}</span>
         <ChevronRight className="fs-drill-chev" />
@@ -178,9 +189,10 @@ export const FilterOptionList: React.FC<{
 }> = ({ options, selected, onToggle, multiple = true, searchable = true, searchPlaceholder = 'Search' }) => {
   const [query, setQuery] = useState('');
   const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
+    const normalize = (text: string) => text.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLocaleLowerCase();
+    const q = normalize(query.trim());
     if (!q) return options;
-    return options.filter((o) => o.label.toLowerCase().includes(q));
+    return options.filter((o) => normalize(o.label).includes(q));
   }, [options, query]);
   return (
     <div className="fs-optionlist">
@@ -190,6 +202,7 @@ export const FilterOptionList: React.FC<{
           <input
             type="text"
             placeholder={searchPlaceholder}
+            aria-label={searchPlaceholder}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             autoCapitalize="off"
@@ -200,6 +213,14 @@ export const FilterOptionList: React.FC<{
               <X size={11} strokeWidth={2.6} />
             </button>
           )}
+        </div>
+      )}
+      {multiple && selected.length > 0 && (
+        <div className="fs-selections" aria-label="Selected filters">
+          {selected.map(value => <button type="button" key={value} onClick={() => onToggle(value)}
+            aria-label={`Remove ${options.find(o => o.value === value)?.label ?? value}`}>
+            {options.find(o => o.value === value)?.label ?? value}<X size={13} />
+          </button>)}
         </div>
       )}
       <div className="fs-optionlist-rows">
@@ -273,14 +294,15 @@ export const FilterDrillSection: React.FC<{
   counts?: Record<string, number>;
   /** Noun for the count line — "place", "recipe". */
   countNoun?: string;
-}> = ({ id, label, options, selected, onToggle, multiple = true, searchable = true, searchPlaceholder = 'Search', emptyLabel = 'Any', counts, countNoun = 'place' }) => (
-  <FilterDrillRow
+}> = ({ id, label, options, selected, onToggle, multiple = true, searchable = true, searchPlaceholder = 'Search', emptyLabel = 'Any', counts, countNoun = 'place' }) => {
+  const clearSelection = useClearFilterSelection(selected, onToggle);
+  return <FilterDrillRow
     id={id}
     label={label}
     value={drillSummary(options, selected, emptyLabel)}
     isSet={selected.length > 0}
     subtitle={multiple ? 'Pick as many as you like' : 'One choice'}
-    onClear={selected.length > 0 ? () => selected.forEach((v) => onToggle(v)) : undefined}
+    onClear={selected.length > 0 ? clearSelection : undefined}
   >
     <FilterOptionList
       options={counts
@@ -295,8 +317,8 @@ export const FilterDrillSection: React.FC<{
       searchable={searchable}
       searchPlaceholder={searchPlaceholder}
     />
-  </FilterDrillRow>
-);
+  </FilterDrillRow>;
+};
 
 /* ── Hours / meal-time filter ──
    A drop-in "Hours" drill row for any filter sheet: its sub-page holds
@@ -360,4 +382,38 @@ export interface DropdownOption {
   /** How many of your places this option would keep — shown under the
    *  label so a filter can be chosen on evidence rather than on hope. */
   meta?: string;
+}
+
+/** Callers include both functional setters and callbacks derived from current
+ * selection props. Commit each removal before reading the next callback so a
+ * batched clear cannot reintroduce an earlier selection. Only used on Clear. */
+export function useClearFilterSelection<T extends string>(selected: string[], onToggle: (value: T) => void) {
+  const latest = useRef(onToggle);
+  latest.current = onToggle;
+  return () => {
+    for (const value of selected) flushSync(() => latest.current(value as T));
+  };
+}
+
+/** A compact summary opens a focused sort list. Accepts the same PillRow or
+ * Segment choices as the inline version, preserving each caller's sort logic. */
+export function FilterSortSection({ children }: { children: React.ReactNode }) {
+  const nav = useContext(FilterSheetNavContext);
+  const choices: Array<{ active?: boolean; onClick: () => void; children: React.ReactNode }> = [];
+  const collect = (nodes: React.ReactNode) => React.Children.forEach(nodes, node => {
+    if (!React.isValidElement<{ active?: boolean; onClick: () => void; children: React.ReactNode }>(node)) return;
+    if (node.type === Pill || node.type === SegmentItem) choices.push(node.props);
+    else if (node.type === PillRow || node.type === Segment || node.type === React.Fragment) collect(node.props.children);
+  });
+  collect(children);
+  const active = choices.find(choice => choice.active);
+  return <div className="fs-sort-section"><FilterDrillRow id="sort" label="Sort by"
+    value={typeof active?.children === 'string' ? active.children : 'Choose'}>
+    <div className="fs-sort-options">{choices.map((choice, i) => <button key={i} type="button"
+      className="fs-page-row" aria-pressed={!!choice.active}
+      onClick={() => { choice.onClick(); nav.closePage(); }}>
+      <span className="fs-page-row-text"><span className="fs-page-row-label">{choice.children}</span></span>
+      <span className={cn('fs-page-check', choice.active && 'is-on')}><Check size={15} /></span>
+    </button>)}</div>
+  </FilterDrillRow></div>;
 }

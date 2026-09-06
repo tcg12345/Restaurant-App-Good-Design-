@@ -1,6 +1,10 @@
+import { usePageBack } from '../lib/usePageBack';
+import { SCORE_UNLOCK_THRESHOLD } from '../lib/scoreUnlock';
+import './RestaurantDetail.css';
+import { RestaurantRatingOrb } from '../components/RestaurantRatingOrb';
 import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Star, MapPin, Phone, Globe, ChevronLeft, ChevronRight, ChevronDown, Loader2, Navigation, ExternalLink, X, Users, UserCircle, Bookmark, Edit3, Send, Building2, Car, Footprints, RotateCw, Award, Plus, Image as ImageIcon, Pencil } from 'lucide-react';
+import { Star, MapPin, Phone, Globe, ChevronLeft, ChevronRight, ChevronDown, Loader2, Navigation, ExternalLink, X, Users, UserCircle, Bookmark, Edit3, Send, Building2, Car, Footprints, RotateCw, Award, Plus, Image as ImageIcon, Pencil, Lock } from 'lucide-react';
 import { ShareIcon } from '../components/icons/ShareIcon';
 import { cn, parseVisitDate } from '../lib/utils';
 import { tierOfScore } from '../lib/settleScores';
@@ -13,6 +17,7 @@ import { ScoreHistory } from '../components/ScoreHistory';
 import { useRestaurantDetail, formatReviewCount, getTodayHours, getCuisineLabel } from './useRestaurantDetail';
 import { MichelinBadge } from '../components/MichelinBadge';
 import { useLists } from '../contexts/ListsContext';
+import { usePaywall } from '../contexts/PaywallContext';
 import { useToast } from '../contexts/ToastContext';
 import { type SharedRestaurant } from '../contexts/ChatContext';
 import { ShareDialog } from '../components/ShareDialog';
@@ -57,11 +62,12 @@ function timeAgo(date: string): string {
    var() string can't do, so it uses the literal scoreHex mirror. */
 const scoreColor = (s: number) => scoreHex(s);
 /** Soft card surface used throughout the page. */
-const CARD = 'bg-white border border-on-surface/[0.07] rounded-2xl';
+const CARD = 'restaurant-panel';
 /** Section heading (serif, matches the reference). */
 const H2 = 'font-serif font-bold text-[22px] tracking-[-0.02em] text-on-surface';
 
 export const RestaurantDetailDesktop: React.FC = () => {
+  const goBack = usePageBack('/search/main');
   const { twoDecimalScores } = useSettings();
   const {
     place, michelin, loading, error, navigate,
@@ -103,7 +109,8 @@ export const RestaurantDetailDesktop: React.FC = () => {
   const [hoursOpen, setHoursOpen] = useState(false);
   const [myRatingOpen, setMyRatingOpen] = useState(true);
 
-  const { toggleWishlist, isWishlisted, getRating, openAddRestaurantModal, deleteVisit, scoresUnlocked } = useLists();
+  const { toggleWishlist, isWishlisted, getRating, openAddRestaurantModal, deleteVisit, scoresUnlocked, openHomeMealModal } = useLists();
+  const { requirePro } = usePaywall();
   const friendsDetailScrollRef = useRef<HTMLDivElement | null>(null);
   const { dragProps: friendsDetailDragProps, sheetRef: friendsDetailSheetRef } = useBottomSheet(showFriendsDetail, () => setShowFriendsDetail(false), friendsDetailScrollRef);
   const { user } = useAuth();
@@ -152,7 +159,7 @@ export const RestaurantDetailDesktop: React.FC = () => {
     return (
       <div className="min-h-screen bg-surface flex flex-col items-center justify-center gap-4 px-8">
         <p className="text-on-surface/60 text-center">{error || 'Restaurant not found'}</p>
-        <button onClick={() => navigate(-1)} className="text-primary font-medium">Go Back</button>
+        <button onClick={() => goBack()} className="text-primary font-medium">Go Back</button>
       </div>
     );
   }
@@ -194,28 +201,10 @@ export const RestaurantDetailDesktop: React.FC = () => {
   /* ── Hero score circle (reuse for photo + editorial heroes) ─────────── */
   const HeroScore: React.FC<{ onPhoto: boolean }> = ({ onPhoto }) =>
     badgeScore == null ? null : (
-      <div className="flex flex-col items-center gap-2 flex-shrink-0">
-        <div
-          className={cn(
-            'w-[84px] h-[84px] rounded-full grid place-items-center font-serif font-bold text-white tabular-nums tracking-[-0.02em]',
-            twoDecimalScores ? 'text-[26px]' : 'text-[31px]',
-          )}
-          style={{
-            background: scoreColor(badgeScore),
-            boxShadow: `0 10px 26px ${scoreColor(badgeScore)}59, inset 0 0 0 1.5px rgba(255,255,255,0.3)`,
-          }}
-          aria-label={badgeIsPersonal ? `Your rating ${formatScore(badgeScore, twoDecimalScores)}` : `Community rating ${formatScore(badgeScore, twoDecimalScores)}`}
-        >
-          {badgeIsPersonal && !scoresUnlocked
-            ? <span className="text-[15px] leading-tight text-center px-2">{TIER_LABELS[tierOfScore(badgeScore)]}</span>
-            : formatScore(badgeScore, twoDecimalScores)}
-        </div>
-        <div className={cn(
-          'text-[11px] font-bold uppercase tracking-[0.12em]',
-          onPhoto ? 'text-white/85' : 'text-on-surface/45',
-        )}>
-          {badgeIsPersonal ? 'Your rating' : `Everyone · ${communityStats.totalRatings}`}
-        </div>
+      <div className={cn('restaurant-hero-score', onPhoto && 'on-photo')}>
+        {badgeIsPersonal && !scoresUnlocked ? (
+          <span className="restaurant-orb" aria-label={`Your score unlocks at ${SCORE_UNLOCK_THRESHOLD} rated places`}><Lock size={18} /><span className="restaurant-orb-label">You</span></span>
+        ) : <RestaurantRatingOrb label={badgeIsPersonal ? 'You' : 'Everyone'} score={badgeScore} />}
       </div>
     );
 
@@ -254,13 +243,13 @@ export const RestaurantDetailDesktop: React.FC = () => {
   );
 
   return (
-    <div className="bg-surface min-h-screen pb-24">
+    <div className="restaurant-detail restaurant-detail-desktop bg-surface min-h-screen pb-24">
       {/* ── Sticky header — Back · title-on-scroll · Share / Save / More ── */}
       <header className="sticky top-0 z-50 bg-surface/82 backdrop-blur-xl border-b border-on-surface/[0.06]">
         <div className="max-w-[1200px] mx-auto h-16 px-6 lg:px-10 grid grid-cols-[1fr_auto_1fr] items-center">
           <button
             type="button"
-            onClick={() => navigate(-1)}
+            onClick={() => goBack()}
             className="justify-self-start inline-flex items-center gap-1.5 text-[15px] font-bold text-on-surface hover:bg-on-surface/[0.05] rounded-full pl-2 pr-3.5 py-2 transition-colors"
           >
             <ChevronLeft size={20} />
@@ -300,7 +289,7 @@ export const RestaurantDetailDesktop: React.FC = () => {
       <div className="max-w-[1200px] mx-auto px-6 lg:px-10 pt-8">
         {hasPhotos ? (
           // Photo hero — full-bleed image with overlaid name, score, actions.
-          <div className="relative h-[440px] rounded-[26px] overflow-hidden bg-on-surface/[0.06] shadow-sm">
+          <div className="relative h-[380px] rounded-[24px] overflow-hidden bg-on-surface/[0.06] shadow-sm">
             <img src={photos[photoIndex]} alt={place.name} referrerPolicy="no-referrer" className="absolute inset-0 w-full h-full object-cover" />
             <div className="absolute inset-0" style={{ background: 'linear-gradient(to top, rgba(14,10,8,0.88) 2%, rgba(14,10,8,0.34) 42%, rgba(14,10,8,0.04) 100%)' }} />
 
@@ -326,7 +315,7 @@ export const RestaurantDetailDesktop: React.FC = () => {
                   onPhoto
                   className="group/cuisine text-xs font-bold uppercase tracking-[0.2em] text-white/82"
                 />
-                <h1 className="mt-3 font-serif font-bold text-white text-[58px] leading-[0.98] tracking-[-0.03em]">
+                <h1 className="mt-3 font-serif font-bold text-white text-[44px] leading-[0.98] tracking-[-0.03em]">
                   {place.name}
                 </h1>
                 {michelin && (
@@ -352,7 +341,7 @@ export const RestaurantDetailDesktop: React.FC = () => {
                 credit={cuisineCredit}
                   className="group/cuisine text-xs font-bold uppercase tracking-[0.2em] text-on-surface/55"
                 />
-                <h1 className="mt-3.5 font-serif font-bold text-on-surface text-[56px] leading-none tracking-[-0.03em]">
+                <h1 className="mt-3.5 font-serif font-bold text-on-surface text-[44px] leading-none tracking-[-0.03em]">
                   {place.name}
                 </h1>
                 {michelin && (
@@ -427,33 +416,13 @@ export const RestaurantDetailDesktop: React.FC = () => {
 
             const Cell: React.FC<{ label: string; score: number | null; count: number; countLabel: string; emptyCopy: string; onClick?: () => void; bordered?: boolean }> =
               ({ label, score, count, countLabel, emptyCopy, onClick, bordered }) => {
-              const body = (
-                <div className={cn('flex flex-col items-center gap-2.5 py-5 px-4', bordered && 'border-l border-on-surface/[0.06]')}>
-                  <div className="text-[11px] font-bold uppercase tracking-[0.18em] text-on-surface/40">{label}</div>
-                  {score != null ? (
-                    <div className={cn('w-[52px] h-[52px] rounded-full grid place-items-center font-serif font-bold text-white tabular-nums', twoDecimalScores ? 'text-base' : 'text-xl')}
-                      style={{ background: scoreColor(score), boxShadow: 'inset 0 0 0 1.5px rgba(255,255,255,0.22)' }}>
-                      {formatScore(score, twoDecimalScores)}
-                    </div>
-                  ) : (
-                    <div className="w-[52px] h-[52px] rounded-full grid place-items-center bg-on-surface/[0.03]" style={{ boxShadow: 'inset 0 0 0 1.5px rgba(30,27,26,0.08)' }}>
-                      <div className="w-[18px] h-[2.5px] rounded bg-on-surface/30" />
-                    </div>
-                  )}
-                  <div className={cn('text-[12.5px] text-center', score != null ? 'font-semibold text-on-surface/55' : 'font-serif italic text-on-surface/40')}>
-                    {score != null ? `${count.toLocaleString()} ${countLabel}` : emptyCopy}
-                  </div>
-                </div>
-              );
-              return onClick ? (
-                <button type="button" onClick={onClick} className="transition-colors hover:bg-on-surface/[0.02]">{body}</button>
-              ) : <div>{body}</div>;
+              return <RestaurantRatingOrb label={label} score={score} meta={score != null ? `${count.toLocaleString()} ${countLabel}` : emptyCopy} onClick={onClick} />;
             };
 
             return (
               <section>
                 <div className={cn(CARD, 'overflow-hidden')}>
-                  <div className="grid grid-cols-3">
+                  <div className="restaurant-ratings-row">
                     <Cell label="Everyone"
                       score={hasCommunity ? communityStats.avgScore : null}
                       count={communityStats.totalRatings}
@@ -859,7 +828,24 @@ export const RestaurantDetailDesktop: React.FC = () => {
       {/* Photo Gallery Modal */}
       <AnimatePresence>
         {galleryOpen && photos.length > 0 && (
-          <PhotoGallery photos={photos} communityPhotos={communityPhotos} name={place.name} initialIndex={photoIndex} onClose={() => setGalleryOpen(false)} />
+          <PhotoGallery
+            photos={photos}
+            communityPhotos={communityPhotos}
+            name={place.name}
+            initialIndex={photoIndex}
+            onClose={() => setGalleryOpen(false)}
+            onRecreate={(p) => {
+              const open = () => {
+                setGalleryOpen(false);
+                openHomeMealModal(undefined, {
+                  initialMethod: 'dish',
+                  dishPhoto: { url: p.rawUrl || p.url, caption: p.caption || undefined, restaurantId: place.id, restaurantName: place.name, ownerUserId: p.ownerUserId },
+                });
+              };
+              if (!requirePro('recipe-photo', { onUnlocked: open })) return;
+              open();
+            }}
+          />
         )}
       </AnimatePresence>
 

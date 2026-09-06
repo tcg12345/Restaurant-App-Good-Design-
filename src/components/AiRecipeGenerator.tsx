@@ -5,10 +5,9 @@
 // just set guidelines) and a complete editable draft lands on the
 // Advanced builder's Review step.
 
-import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { GlassButton } from '../lib/glass-buttons';
-import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   Sparkles,
@@ -16,10 +15,8 @@ import {
   AlertCircle,
   X,
   ArrowUp,
-  ChevronDown,
+  Camera,
   Check,
-  Minus,
-  Plus,
   Search,
   Lightbulb,
 } from 'lucide-react';
@@ -30,13 +27,18 @@ import { ProTag } from './pro/ProMark';
 import { QuotaMeter } from './pro/QuotaMeter';
 import {
   generateRecipe, generateRecipeIdeas, combineRecipes,
-  type RecipeConstraints, type RecipeIdea,
+  type RecipeIdea,
 } from '../lib/build-recipe-client';
 import type { HomeMeal } from '../contexts/ListsContext';
 import {
-  estimateProgress, estimateRemainingMs, formatRemaining, loadExpectation, recordGeneration,
+  estimateProgress, estimateRemainingMs, loadExpectation, recordGeneration,
   type GenExpectation, type GenKind,
 } from '../lib/gen-progress';
+import {
+  GuidelinePills, GenProgressBar,
+  composeConstraints as composeGuidelineConstraints, hasGuidelines as guidelinesSet, describeGuidelines,
+  type Guidelines, type MenuKey,
+} from './recipe-guidelines';
 import { saveIdeasSession, takeIdeasSession } from '../lib/ideas-session';
 import './AdvancedRecipeBuilder.css';
 import './RecipeBuilder.css';
@@ -56,6 +58,10 @@ interface AiRecipeGeneratorProps {
   /** Which view to open on. The Pantry "Ideas" pill lands straight on
    *  the brainstorm; everything else starts on the full-recipe prompt. */
   initialView?: 'recipe' | 'ideas';
+  /** When set, the prompt bar grows a camera button that hands off to
+   *  the "Recreate a dish" flow (photo of a plate → recipe). The parent
+   *  gates it (Pro) before switching. */
+  onOpenDish?: () => void;
 }
 
 // A few tappable starting points on the empty canvas — concrete and
@@ -68,123 +74,6 @@ const EXAMPLES = [
   'A high-protein chicken meal-prep bowl',
 ];
 
-// Optional guidelines — sent to the API as STRUCTURED constraints
-// (difficulty, time budget, servings, course, dietary) rather than being
-// folded into the prompt prose: the server renders them as an explicit
-// hard-requirement checklist the model must satisfy and re-check.
-const DIFFICULTIES = ['Easy', 'Medium', 'Hard'] as const;
-const TIME_OPTIONS: { key: string; label: string }[] = [
-  { key: '30', label: 'Under 30 min' },
-  { key: '60', label: 'Under 1 hr' },
-  { key: '120', label: 'Under 2 hr' },
-];
-const COURSE_OPTIONS = ['Breakfast', 'Lunch', 'Dinner', 'Dessert', 'Snack', 'Side'];
-const DIETARY_OPTIONS = ['Vegetarian', 'Vegan', 'Gluten-free', 'Dairy-free', 'High-protein', 'Low-carb'];
-
-type MenuKey = 'time' | 'skill' | 'course' | 'dietary' | 'serves';
-
-/* ── Guideline dropdown — pill trigger + upward-opening panel ────────
-   The panel portals to <body>: the pills row scrolls horizontally (it
-   would clip an in-place panel), and the modal card's residual framer
-   transform would trap position:fixed inside it anyway. Anchored to the
-   pill's rect at open time. */
-
-const GuidelineMenu: React.FC<{
-  label: string;
-  active: boolean;
-  open: boolean;
-  onToggle: () => void;
-  onClose: () => void;
-  children: React.ReactNode;
-}> = ({ label, active, open, onToggle, onClose, children }) => {
-  const triggerRef = useRef<HTMLButtonElement | null>(null);
-  const [anchor, setAnchor] = useState<{ left: number; bottom: number } | null>(null);
-
-  useLayoutEffect(() => {
-    if (!open) return;
-    const r = triggerRef.current?.getBoundingClientRect();
-    if (!r) return;
-    setAnchor({
-      // Keep the panel on-screen when the pill sits near the right edge.
-      left: Math.max(8, Math.min(r.left, window.innerWidth - 212)),
-      bottom: window.innerHeight - r.top + 8,
-    });
-  }, [open]);
-
-  return (
-    <div className="rcxa-pill-wrap">
-      <button
-        ref={triggerRef}
-        type="button"
-        className={cn('rcxa-pill', active && 'is-on', open && 'is-open')}
-        onClick={onToggle}
-        aria-expanded={open}
-      >
-        {label}
-        <ChevronDown size={13} strokeWidth={2.4} className="rcxa-pill-caret" />
-      </button>
-      {createPortal(
-        <AnimatePresence>
-          {open && anchor && (
-            <>
-              <div className="rcxa-menu-backdrop" onClick={onClose} />
-              <motion.div
-                initial={{ opacity: 0, y: 8, scale: 0.97 }}
-                animate={{ opacity: 1, y: 0, scale: 1 }}
-                exit={{ opacity: 0, y: 6, scale: 0.98 }}
-                transition={{ duration: 0.16, ease: [0.22, 1, 0.36, 1] }}
-                className="rcxa-menu"
-                style={{ left: anchor.left, bottom: anchor.bottom }}
-                role="listbox"
-              >
-                {children}
-              </motion.div>
-            </>
-          )}
-        </AnimatePresence>,
-        document.body,
-      )}
-    </div>
-  );
-};
-
-const MenuOption: React.FC<{ label: string; selected: boolean; onSelect: () => void }> = ({
-  label,
-  selected,
-  onSelect,
-}) => (
-  <button
-    type="button"
-    className={cn('rcxa-opt', selected && 'is-on')}
-    onClick={onSelect}
-    role="option"
-    aria-selected={selected}
-  >
-    <span>{label}</span>
-    {selected && <Check size={14} strokeWidth={2.6} />}
-  </button>
-);
-
-/* ── Progress — a bar fed by the streamed size, and the time left ──── */
-
-const GenProgressBar: React.FC<{ progress: number; remainingMs: number | null; elapsed: number }> = ({
-  progress,
-  remainingMs,
-  elapsed,
-}) => {
-  const pct = Math.round(progress * 100);
-  return (
-    <div className="rcx-ai-progress" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={pct}>
-      <div className="rcx-ai-progress-track">
-        <div className="rcx-ai-progress-fill" style={{ width: `${pct}%` }} />
-      </div>
-      <span className="rcx-ai-progress-label">
-        {formatRemaining(remainingMs) || (elapsed >= 2 ? `${elapsed}s` : '')}
-      </span>
-    </div>
-  );
-};
-
 /* ── The generator ─────────────────────────────────────────────────── */
 
 export const AiRecipeGenerator: React.FC<AiRecipeGeneratorProps> = ({
@@ -193,6 +82,7 @@ export const AiRecipeGenerator: React.FC<AiRecipeGeneratorProps> = ({
   tabSlot,
   phoneMode,
   initialView,
+  onOpenDish,
 }) => {
   const [prompt, setPrompt] = useState('');
   const [loading, setLoading] = useState(false);
@@ -310,30 +200,27 @@ export const AiRecipeGenerator: React.FC<AiRecipeGeneratorProps> = ({
   // Abort any in-flight request if the component unmounts.
   useEffect(() => () => abortRef.current?.abort(), []);
 
-  const toggleDietary = (d: string) =>
-    setDietary((prev) => (prev.includes(d) ? prev.filter((x) => x !== d) : [...prev, d]));
-
-  const hasGuidelines = !!(difficulty || timeBudget || servings || course || dietary.length);
-
-  const composeConstraints = (): RecipeConstraints | undefined => {
-    const c: RecipeConstraints = {};
-    if (timeBudget) c.totalTimeMax = Number(timeBudget);
-    if (servings) c.servings = servings;
-    if (course) c.course = course;
-    if (dietary.length) c.dietary = dietary;
-    return Object.keys(c).length > 0 ? c : undefined;
+  // The five guideline states stay separate (the ideas-session restore
+  // and "Find existing" read them individually); the shared pill row
+  // works on this one view of them.
+  const guidelines: Guidelines = { difficulty: difficulty as Guidelines['difficulty'], timeBudget, servings, course, dietary };
+  const applyGuidelines = (g: Guidelines) => {
+    setDifficulty(g.difficulty);
+    setTimeBudget(g.timeBudget);
+    setServings(g.servings);
+    setCourse(g.course);
+    setDietary(g.dietary);
   };
+
+  const hasGuidelines = guidelinesSet(guidelines);
+
+  const composeConstraints = () => composeGuidelineConstraints(guidelines);
 
   // Human-readable description of the full request — used as the prompt
   // when the user typed nothing, and as the chat-history label.
   const describeRequest = (): string => {
     const base = prompt.trim();
-    const parts: string[] = [];
-    if (course) parts.push(`a ${course.toLowerCase()} dish`);
-    if (dietary.length) parts.push(dietary.map((d) => d.toLowerCase()).join(', '));
-    if (servings) parts.push(`serves ${servings}`);
-    if (timeBudget) parts.push(`ready in ${(TIME_OPTIONS.find((t) => t.key === timeBudget)?.label ?? `${timeBudget} min`).toLowerCase()}`);
-    if (difficulty) parts.push(`${difficulty.toLowerCase()} difficulty`);
+    const parts = describeGuidelines(guidelines);
     if (base) return parts.length ? `${base} (${parts.join('; ')})` : base;
     return parts.length ? `A recipe: ${parts.join('; ')}` : '';
   };
@@ -559,15 +446,6 @@ export const AiRecipeGenerator: React.FC<AiRecipeGeneratorProps> = ({
   const handleSubmit = () => (view === 'ideas' ? void handleBrainstorm() : void handleGenerate());
   const loadingTitle = elapsed >= 18 ? 'Almost there…' : elapsed >= 8 ? 'Writing the steps…' : 'Drafting your recipe…';
 
-  // Value-aware pill labels — the selection IS the label, so nothing
-  // needs a second "selected" readout anywhere else.
-  const timeLabel = timeBudget ? TIME_OPTIONS.find((t) => t.key === timeBudget)?.label ?? 'Time' : 'Time';
-  const dietaryLabel =
-    dietary.length === 0 ? 'Dietary' : dietary.length === 1 ? dietary[0] : `Dietary · ${dietary.length}`;
-  const servesLabel = servings === null ? 'Serves' : `Serves ${servings}`;
-
-  const toggleMenu = (key: MenuKey) => setOpenMenu((prev) => (prev === key ? null : key));
-  const closeMenu = () => setOpenMenu(null);
 
   return (
     <div className={`rcx rcxa${phoneMode ? ' is-phone' : ''}`}>
@@ -798,122 +676,25 @@ export const AiRecipeGenerator: React.FC<AiRecipeGeneratorProps> = ({
               )}
             </AnimatePresence>
 
-            <div className="rcxa-pills">
-              <GuidelineMenu
-                label={timeLabel}
-                active={!!timeBudget}
-                open={openMenu === 'time'}
-                onToggle={() => toggleMenu('time')}
-                onClose={closeMenu}
-              >
-                {TIME_OPTIONS.map((t) => (
-                  <MenuOption
-                    key={t.key}
-                    label={t.label}
-                    selected={timeBudget === t.key}
-                    onSelect={() => {
-                      setTimeBudget((prev) => (prev === t.key ? '' : t.key));
-                      closeMenu();
-                    }}
-                  />
-                ))}
-              </GuidelineMenu>
+            <GuidelinePills
+              value={guidelines}
+              onChange={applyGuidelines}
+              openMenu={openMenu}
+              onOpenMenu={setOpenMenu}
+            />
 
-              <GuidelineMenu
-                label={difficulty || 'Skill'}
-                active={!!difficulty}
-                open={openMenu === 'skill'}
-                onToggle={() => toggleMenu('skill')}
-                onClose={closeMenu}
-              >
-                {DIFFICULTIES.map((d) => (
-                  <MenuOption
-                    key={d}
-                    label={d}
-                    selected={difficulty === d}
-                    onSelect={() => {
-                      setDifficulty((prev) => (prev === d ? '' : d));
-                      closeMenu();
-                    }}
-                  />
-                ))}
-              </GuidelineMenu>
-
-              <GuidelineMenu
-                label={course || 'Course'}
-                active={!!course}
-                open={openMenu === 'course'}
-                onToggle={() => toggleMenu('course')}
-                onClose={closeMenu}
-              >
-                {COURSE_OPTIONS.map((c) => (
-                  <MenuOption
-                    key={c}
-                    label={c}
-                    selected={course === c}
-                    onSelect={() => {
-                      setCourse((prev) => (prev === c ? '' : c));
-                      closeMenu();
-                    }}
-                  />
-                ))}
-              </GuidelineMenu>
-
-              <GuidelineMenu
-                label={dietaryLabel}
-                active={dietary.length > 0}
-                open={openMenu === 'dietary'}
-                onToggle={() => toggleMenu('dietary')}
-                onClose={closeMenu}
-              >
-                {/* Multi-select — stays open across toggles. */}
-                {DIETARY_OPTIONS.map((d) => (
-                  <MenuOption
-                    key={d}
-                    label={d}
-                    selected={dietary.includes(d)}
-                    onSelect={() => toggleDietary(d)}
-                  />
-                ))}
-              </GuidelineMenu>
-
-              <GuidelineMenu
-                label={servesLabel}
-                active={servings !== null}
-                open={openMenu === 'serves'}
-                onToggle={() => toggleMenu('serves')}
-                onClose={closeMenu}
-              >
-                <div className="rcxa-serves-row">
-                  <button
-                    type="button"
-                    className="rcx-round-btn"
-                    onClick={() => setServings((prev) => {
-                      if (prev === null) return null;
-                      return prev <= 1 ? null : prev - 1;
-                    })}
-                    disabled={servings === null}
-                    aria-label="Decrease servings"
-                  >
-                    <Minus size={12} strokeWidth={2.4} />
-                  </button>
-                  <span className={`rcx-serves-value${servings === null ? ' is-any' : ''}`}>
-                    {servings === null ? 'Any' : servings}
-                  </span>
-                  <button
-                    type="button"
-                    className="rcx-round-btn"
-                    onClick={() => setServings((prev) => (prev === null ? 2 : Math.min(24, prev + 1)))}
-                    disabled={servings !== null && servings >= 24}
-                    aria-label="Increase servings"
-                  >
-                    <Plus size={12} strokeWidth={2.4} />
-                  </button>
-                </div>
-              </GuidelineMenu>
-            </div>
-
-            <div className="rcxa-bar">
+            <div className={cn('rcxa-bar', onOpenDish && view !== 'ideas' && 'has-attach')}>
+              {onOpenDish && view !== 'ideas' && (
+                <button
+                  type="button"
+                  className="rcxa-attach"
+                  onClick={() => { setOpenMenu(null); onOpenDish(); }}
+                  aria-label="Recreate a dish from a photo"
+                  title="Recreate a dish from a photo"
+                >
+                  <Camera size={16} strokeWidth={2.1} />
+                </button>
+              )}
               <textarea
                 ref={textareaRef}
                 className="rcxa-input"

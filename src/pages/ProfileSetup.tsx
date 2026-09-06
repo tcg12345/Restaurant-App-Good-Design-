@@ -1,52 +1,26 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { motion, AnimatePresence } from 'motion/react';
-import { User, ArrowLeft, ArrowRight, Camera, Loader2 } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
+import { motion } from 'motion/react';
+import { Camera, Loader2 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
-import { VerifiedBadge } from '../components/VerifiedBadge';
 import { Avatar } from '../components/Avatar';
 import { processPhoto } from '../lib/images';
 import { saveProfile, isUsernameTaken } from '../lib/supabase-community';
 import { geocodePlace, savePickedLocation, type HomeLocation } from '../components/HomeLocationBar';
 import { CityAutocomplete } from '../components/CityAutocomplete';
-import { AuthShell, useDesktopAuthLayout } from '../components/AuthShell';
-// Mobile uses the new cream/terracotta onboarding wizard; desktop keeps the
-// original single-form AuthShell design.
+// One responsive setup flow across phones, tablets, and desktop.
 import * as OB from '../components/onboarding/OnboardingKit';
 import {
-  CuisineGrid, PriceStep, DietaryStep, FollowRail, RatePlacesStep,
+  CuisineGrid, PriceStep, DietaryStep,
   TASTE_CUISINES,
 } from '../components/onboarding/TasteSteps';
-import { RatingFlow } from '../components/RatingFlow';
-import { ImportStep, importFooter, useOnboardingImport } from '../components/onboarding/ImportStep';
-import { SummaryStep } from '../components/onboarding/SummaryStep';
-import { loadLastSelectedLocation } from '../components/HomeLocationBar';
 import { saveTasteQuiz, getTasteQuiz } from '../lib/taste-quiz';
 import { getPreauthCity } from '../lib/preauth';
 import { logOnboardingEvent, markOnboardingStep } from '../lib/onboarding-events';
-import { armFeatureTour } from '../lib/feature-tour';
 import { usePlan } from '../contexts/PlanContext';
 import { billingAvailable } from '../lib/billing';
 import { ProIntroStep } from '../components/onboarding/ProIntroStep';
-import { ContactsSync } from '../components/ContactsSync';
-import { SuggestedPeople } from '../components/SuggestedPeople';
-import { canUseNativeContacts } from '../lib/native-contacts';
-import { openAppSettings } from '../lib/native-settings';
 
-type StepKey =
-  | 'name' | 'handle' | 'city'
-  // Taste + first-actions steps — one wizard, one progress bar, instead of
-  // the separate /onboarding page these lived on. The profile row persists
-  // on leaving 'visibility', so a bail-out mid-taste still keeps the account.
-  | 'cuisines' | 'prices' | 'dietary' | 'import' | 'follow' | 'rate'
-  // The payoff: the taste profile the gate promised, shown back before
-  // the app opens. 'summary', not 'done' — the completion EVENT is named
-  // wizard_done, and an abandon on this screen must not read as one.
-  | 'summary'
-  // The Pro intro (components/onboarding/ProIntroStep): four stories and
-  // the plan, only for accounts the billing gates apply to. Every exit
-  // finishes the wizard the same way 'summary' does.
-  | 'pro';
+type StepKey = 'handle' | 'city' | 'cuisines' | 'prices' | 'dietary' | 'pro';
 
 /**
  * Save failures are shown verbatim to someone in the middle of creating an
@@ -70,12 +44,8 @@ export const ProfileSetup: React.FC = () => {
   // and only overwrite what the user actually touches — this screen must
   // never reset a real profile back to defaults.
   const { user, profile, refreshProfile, signOut } = useAuth();
-  const useDesktopLayout = useDesktopAuthLayout();
 
-  // Seed name/username from the identity provider ONCE, synchronously, so the
-  // mobile wizard can decide up-front whether to even show the name step (App
-  // Store Guideline 4 — when Sign in with Apple gives us the name we must not
-  // re-collect it). Apple "Hide My Email" private-relay addresses are skipped.
+  // Reuse provider names and avoid exposing private-relay email prefixes.
   const [seed] = useState(() => {
     const md = (user?.user_metadata ?? {}) as Record<string, unknown>;
     const metaName = (
@@ -89,7 +59,6 @@ export const ProfileSetup: React.FC = () => {
     return {
       name,
       username: name.toLowerCase().replace(/[^a-z0-9_]/g, '').slice(0, 20),
-      nameFromProvider: !!metaName,
     };
   });
 
@@ -99,7 +68,7 @@ export const ProfileSetup: React.FC = () => {
   // Existing row first, then the city picked during the pre-auth flow.
   const preauthCity = getPreauthCity();
   const [homeCity, setHomeCity] = useState(profile?.home_city || preauthCity?.label || '');
-  const [homeGeo, setHomeGeo] = useState<HomeLocation | null>(profile?.home_city ? null : preauthCity);
+  const [homeGeo, setHomeGeo] = useState<HomeLocation | null>(profile?.home_city && typeof profile.home_lat === 'number' && typeof profile.home_lng === 'number' ? { label: profile.home_city, lat: profile.home_lat, lng: profile.home_lng } : profile?.home_city ? null : preauthCity);
   const [isPublic, setIsPublic] = useState(profile?.is_public ?? true);
   // Only persist visibility when the user explicitly chose it here (or the
   // account has no row yet) — otherwise an untouched default would flip an
@@ -107,7 +76,6 @@ export const ProfileSetup: React.FC = () => {
   const [visibilityTouched, setVisibilityTouched] = useState(false);
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
-  const navigate = useNavigate();
   // Mobile wizard state (unused by desktop, but hooks must be unconditional).
   const [pStep, setPStep] = useState(0);
   // +1 forward, -1 back — the step slide matches travel direction.
@@ -123,7 +91,7 @@ export const ProfileSetup: React.FC = () => {
   // wizard skips them and this state carries the answers to the profile
   // row once it exists.
   const [preauth] = useState(() => ({
-    answers: getTasteQuiz(null),
+    answers: getTasteQuiz(profile),
     city: getPreauthCity(),
   }));
   const [cuisineSel, setCuisineSel] = useState<string[]>(preauth.answers?.cuisines ?? []);
@@ -133,7 +101,6 @@ export const ProfileSetup: React.FC = () => {
   const [priceSecondary, setPriceSecondary] = useState<number | undefined>(
     preauth.answers?.priceSecondary ?? preauth.answers?.prices?.[1],
   );
-  const priceSel = [pricePrimary, priceSecondary].filter((n): n is number => n !== undefined);
   // Dietary preferences — asked here, after the account exists, never in
   // the pre-auth stretch (three questions is that flow's whole promise).
   const [dietarySel, setDietarySel] = useState<string[]>(preauth.answers?.dietary ?? []);
@@ -162,40 +129,11 @@ export const ProfileSetup: React.FC = () => {
     }
     setAvatarBusy(false);
   };
-  // The profile row saves once, on leaving 'visibility' — backing up and
-  // coming forward again must not re-await a geocode + write.
-  const [profileSaved, setProfileSaved] = useState(false);
-  /**
-   * Frozen when the user LEAVES the import step, never derived from
-   * ratings.length. `pStep` is a positional index into `steps`, so removing
-   * an entry is only safe while the user stands BEFORE it — a live
-   * derivation could shrink the array out from under someone already on
-   * 'rate', leaving steps[pStep] undefined and a blank screen.
-   */
-  const [skipRate, setSkipRate] = useState(false);
-  // The Pro intro is the last step for anyone the gates apply to. Latched
-  // the first time the plan answers, never released: a purchase on the
-  // step itself flips isPro, and a live derivation would drop the step
-  // out from under the person standing on it (the skipRate note above).
   const plan = usePlan();
   const proOffered = useRef(false);
   if (plan.checked && plan.gatesEnabled && !plan.isPro && billingAvailable()) proOffered.current = true;
-  const importState = useOnboardingImport((() => {
-    if (homeGeo) return { lat: homeGeo.lat, lng: homeGeo.lng };
-    if (typeof profile?.home_lat === 'number' && typeof profile?.home_lng === 'number') {
-      return { lat: profile.home_lat, lng: profile.home_lng };
-    }
-    const last = loadLastSelectedLocation();
-    return last ? { lat: last.lat, lng: last.lng } : null;
-  })());
-
   useEffect(() => { logOnboardingEvent('wizard_start', user?.id); }, [user?.id]);
-  // Which step an abandon is attributed to. Read through a ref because the
-  // desktop layout returns before `steps` is computed, and a hook below
-  // that return would change the hook count on a breakpoint resize.
-  // Effects run after render, so the ref is already current; pStep and
-  // finishing cover every transition. `finishing` clears it — completing
-  // the wizard is not leaving it.
+  // Track abandonment against the screen actually being shown.
   const stepKeyRef = useRef<string | undefined>(undefined);
   useEffect(() => {
     markOnboardingStep(finishing ? null : `wizard_${stepKeyRef.current ?? 'start'}`, user?.id);
@@ -251,160 +189,10 @@ export const ProfileSetup: React.FC = () => {
     return { ok: result.success, error: result.error };
   }, [user, profile, homeCity, homeGeo, displayName, username, isPublic, visibilityTouched, avatarUrl, avatarTouched]);
 
-  /* ── Desktop split layout (original single form) ─────────────────────── */
-  if (useDesktopLayout) {
-    const handleSubmit = async (e?: React.FormEvent) => {
-      e?.preventDefault();
-      setError('');
-      if (!username.trim()) { setError('Please choose a username'); return; }
-      if (username.length < 3) { setError('Username must be at least 3 characters'); return; }
-      if (!/^[a-zA-Z0-9_]+$/.test(username)) { setError('Username can only contain letters, numbers, and underscores'); return; }
-      if (availability === 'taken') { setError('That username is already taken'); return; }
-      setSubmitting(true);
-      const res = await persistProfile();
-      // Desktop goes straight into the app: the taste steps are part of the
-      // MOBILE wizard (the product's real signup surface). A desktop signup
-      // just starts with default priors until they rate.
-      if (res.ok) { armFeatureTour(); await refreshProfile(); }
-      else setError(friendlyError(res.error));
-      setSubmitting(false);
-    };
-    const handleSubmitThenVerify = async () => {
-      setError('');
-      if (!username.trim()) { setError('Please choose a username'); return; }
-      if (username.length < 3) { setError('Username must be at least 3 characters'); return; }
-      if (!/^[a-zA-Z0-9_]+$/.test(username)) { setError('Username can only contain letters, numbers, and underscores'); return; }
-      if (availability === 'taken') { setError('That username is already taken'); return; }
-      setSubmitting(true);
-      const res = await persistProfile();
-      if (res.ok) {
-        // The tour waits for a tab root (FeatureTour START_ROUTES), so it
-        // holds until the verification flow is left, not interrupting it.
-        armFeatureTour();
-        navigate('/verify/apply');
-        await refreshProfile();
-      } else setError(friendlyError(res.error));
-      setSubmitting(false);
-    };
-    const handleBack = () => { void signOut(); };
-    const headerRight = (
-      <button type="button" onClick={handleBack} className="inline-flex items-center gap-1.5 text-on-surface/55 hover:text-on-surface transition-colors cursor-pointer">
-        <ArrowLeft size={14} />
-        <span>Sign out</span>
-      </button>
-    );
-    return (
-      <AuthShell headerRight={headerRight} panel="profile">
-        <div className="space-y-3">
-          <header>
-            <h1 className="font-serif font-bold text-3xl xl:text-4xl tracking-tight leading-[1.05] text-on-surface mb-1.5">
-              Set up your profile
-            </h1>
-            <p className="text-sm text-on-surface/55 font-light leading-relaxed">
-              Choose a display name and username so friends can find you.
-            </p>
-          </header>
-          <form onSubmit={handleSubmit} className="w-full flex flex-col gap-3">
-            <div>
-              <label className="block text-xs font-semibold tracking-wider uppercase text-on-surface/45 mb-1.5">
-                Display name
-              </label>
-              <input type="text" placeholder="e.g. Tyler Gorin" value={displayName}
-                onChange={(e) => setDisplayName(e.target.value)}
-                autoCapitalize="words" autoComplete="name"
-                className="w-full px-4 py-3 rounded-2xl bg-white/70 backdrop-blur-sm border border-black/5 text-on-surface placeholder:text-on-surface/30 focus:outline-none focus:ring-2 focus:ring-primary/20 text-sm" />
-              <p className="text-[11px] text-on-surface/40 mt-1 px-1">The name friends see on your profile.</p>
-            </div>
-            <div>
-              <label className="block text-xs font-semibold tracking-wider uppercase text-on-surface/45 mb-1.5">
-                Username
-              </label>
-              <input type="text" placeholder="e.g. tyler_eats" value={username}
-                onChange={(e) => setUsername(e.target.value.replace(/[^a-zA-Z0-9_]/g, ''))}
-                className="w-full px-4 py-3 rounded-2xl bg-white/70 backdrop-blur-sm border border-black/5 text-on-surface placeholder:text-on-surface/30 focus:outline-none focus:ring-2 focus:ring-primary/20 text-sm"
-                autoCapitalize="off" autoCorrect="off" autoComplete="username" />
-              <p className="text-[11px] text-on-surface/40 mt-1 px-1 flex items-center justify-between gap-2">
-                <span>
-                  {username
-                    ? <>Your unique handle: <span className="font-semibold text-primary">@{username.toLowerCase()}</span></>
-                    : 'Your unique @handle — letters, numbers, and underscores.'}
-                </span>
-                {availability === 'checking' && <span className="flex-shrink-0">Checking…</span>}
-                {availability === 'available' && <span className="flex-shrink-0 font-semibold text-green-700">Available</span>}
-                {availability === 'taken' && <span className="flex-shrink-0 font-semibold text-red-600">Taken</span>}
-              </p>
-            </div>
-            <div>
-              <label className="block text-xs font-semibold tracking-wider uppercase text-on-surface/45 mb-1.5">
-                Home city <span className="normal-case font-medium text-on-surface/35">(optional)</span>
-              </label>
-              <CityAutocomplete
-                variant="form"
-                value={homeCity}
-                onChange={(v) => { setHomeCity(v); setHomeGeo(null); }}
-                onPick={setHomeGeo}
-              />
-              <p className="text-[11px] text-on-surface/40 mt-1 px-1">Helps us surface restaurants near you.</p>
-            </div>
-            <div className="flex items-center justify-between bg-white/70 backdrop-blur-sm border border-black/5 rounded-2xl px-4 py-2.5">
-              <div>
-                <p className="text-sm font-medium text-on-surface">{isPublic ? 'Public Account' : 'Private Account'}</p>
-                <p className="text-[11px] text-on-surface/40">{isPublic ? 'Anyone can see your profile and follow you' : 'Only approved followers can see your profile'}</p>
-              </div>
-              <button type="button" onClick={() => { setIsPublic(!isPublic); setVisibilityTouched(true); }}
-                aria-label={isPublic ? 'Make profile private' : 'Make profile public'}
-                className={`w-11 h-7 rounded-full relative transition-colors duration-200 flex-shrink-0 ${isPublic ? 'bg-primary' : 'bg-on-surface/15'}`}>
-                <div className={`absolute top-0.5 w-6 h-6 bg-white rounded-full shadow-md transition-all ${isPublic ? 'left-[18px]' : 'left-0.5'}`} />
-              </button>
-            </div>
-            {error && (
-              <motion.p initial={{ opacity: 0 }} animate={{ opacity: 1 }}
-                className="text-sm text-red-600 bg-red-50 px-4 py-2.5 rounded-xl">{error}</motion.p>
-            )}
-            <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}
-              type="submit" disabled={submitting}
-              className="group flex items-center justify-center gap-3 bg-primary text-on-primary px-8 py-3 rounded-2xl text-base font-semibold shadow-lg shadow-primary/25 mt-1 disabled:opacity-60">
-              {submitting ? <Loader2 size={18} className="animate-spin" /> : (
-                <>Continue <ArrowRight size={18} className="group-hover:translate-x-1 transition-transform" /></>
-              )}
-            </motion.button>
-            {/* Subtle, out-of-the-way verification entry — completes setup
-                first (the application row needs the profile to exist), then
-                opens the request form. */}
-            <button
-              type="button"
-              disabled={submitting}
-              onClick={() => void handleSubmitThenVerify()}
-              className="mt-1 inline-flex items-center justify-center gap-1.5 text-[12px] font-medium text-on-surface/45 hover:text-primary transition-colors disabled:opacity-50"
-            >
-              <VerifiedBadge size={13} />
-              Are you a chef, critic, or creator? Request verification
-            </button>
-          </form>
-        </div>
-      </AuthShell>
-    );
-  }
-
-  /* ── Mobile cream/terracotta wizard ──────────────────────────────────── */
-  // Questions the pre-auth flow already asked are not asked again: its
-  // answers arrived seeded into state above, and re-asking would read as
-  // the app forgetting them. OAuth users who skipped straight to signup
-  // (no pre-auth answers) still get the full set.
-  /* Answered pre-auth means answered — but PER QUESTION. The old single
-     flag used ||, so someone who picked cuisines and skipped the spend
-     screen was never asked about spend anywhere, and vice versa. */
   const hasPreauthCuisines = (preauth.answers?.cuisines?.length ?? 0) > 0;
   const hasPreauthPrices = (preauth.answers?.prices?.length ?? 0) > 0;
-  // Visibility is no longer its own step — it rides on 'handle' as a
-  // toggle. Asking a user with zero content who may see it is abstract,
-  // and it cost a whole screen at the point the flow can least afford one.
-  //
-  // Import sits AFTER the profile row persists (on leaving 'handle'), so a
-  // step that can run 60 seconds never risks the account, and the row
-  // exists before any rating publishes.
+  // Already-answered questions stay out of the way.
   const steps: StepKey[] = [
-    ...(seed.nameFromProvider ? [] : ['name' as const]),
     'handle' as const,
     // A known city from EITHER source skips the question. The old
     // predicate (`preauth.city && !profile?.home_city`) inverted the
@@ -414,19 +202,10 @@ export const ProfileSetup: React.FC = () => {
     ...(hasPreauthCuisines ? [] : ['cuisines' as const]),
     ...(hasPreauthPrices ? [] : ['prices' as const]),
     'dietary' as const,
-    'import' as const,
-    'follow' as const,
-    ...(skipRate ? [] : ['rate' as const]),
-    'summary' as const,
     ...(proOffered.current ? ['pro' as const] : []),
   ];
-  const provider = (user?.app_metadata?.provider as string) || 'email';
-  // Create-account was "step 1" for signups that went through it. Phone
-  // counts exactly like email — same identifier screen, same code screen,
-  // same choose-password screen — so leaving it out of this test made the
-  // progress header undercount by one for every phone signup. OAuth users
-  // skipped that stretch entirely, so they still start at 0.
-  const offset = provider === 'email' || provider === 'phone' ? 1 : 0;
+
+  const offset = 0;
   const total = offset + steps.length;
   const stepKey = steps[pStep];
   stepKeyRef.current = stepKey;
@@ -436,21 +215,20 @@ export const ProfileSetup: React.FC = () => {
   /** Save the taste answers. Runs on leaving 'prices' and again when
    *  the wizard ends — an upsert either way, so backing up and re-answering
    *  just refreshes the row. Empty answers write nothing. */
-  const persistTaste = useCallback(() => {
+  const persistTaste = useCallback(async () => {
     const prices = [pricePrimary, priceSecondary].filter((n): n is number => n !== undefined);
-    if (cuisineSel.length === 0 && prices.length === 0 && dietarySel.length === 0) return;
     // saveTasteQuiz is a FULL REPLACE (local mirror and DB row alike), so
     // every field the pre-auth flow wrote must ride along or it dies
     // here — which is exactly what used to happen: the primary/secondary
     // price split and the stated city were wiped seconds after signup,
     // the very fields that switch on the price-restricted queries and
     // seed city affinity in lib/recommendations.
-    void saveTasteQuiz(user?.id, {
+    await saveTasteQuiz(user?.id, {
       cuisines: cuisineSel,
       prices,
       pricePrimary,
       priceSecondary,
-      city: preauth.answers?.city ?? homeGeo?.label ?? (homeCity.trim() || undefined),
+      city: homeGeo?.label ?? (homeCity.trim() || undefined),
       atmosphere: preauth.answers?.atmosphere,
       avoidCuisines: preauth.answers?.avoidCuisines,
       dietary: dietarySel,
@@ -458,140 +236,74 @@ export const ProfileSetup: React.FC = () => {
     });
   }, [user?.id, cuisineSel, pricePrimary, priceSecondary, dietarySel, preauth.answers, homeGeo, homeCity]);
 
-  const finishThenVerify = async () => {
+  const saving = useRef(false);
+  const finishWizard = async () => {
+    if (saving.current) return;
+    saving.current = true;
     setSubmitting(true);
     setError('');
-    const res = await persistProfile();
-    setSubmitting(false);
-    if (res.ok) {
-      // The tour waits for a tab root (FeatureTour START_ROUTES), so arming
-      // here holds it until the verification form is left rather than
-      // interrupting it.
-      armFeatureTour();
-      navigate('/verify/apply');
-      void refreshProfile();
-    } else setError(friendlyError(res.error));
+    try {
+      const result = await persistProfile();
+      if (!result.ok) throw new Error(friendlyError(result.error));
+      await persistTaste();
+      setFinishing(true);
+      logOnboardingEvent('wizard_done', user?.id);
+      await refreshProfile();
+    } catch (err) {
+      setFinishing(false);
+      setError(err instanceof Error ? err.message : "Couldn't finish setup. Try again.");
+    } finally {
+      saving.current = false;
+      setSubmitting(false);
+    }
   };
 
-  // The wizard's end: arm the tour, refresh the profile, and App swaps
-  // this screen out. Reached from the last step's button and from the Pro
-  // intro's every exit (Maybe later, the ×, a purchase).
-  const finishWizard = () => {
-    persistTaste();
-    logOnboardingEvent('wizard_done', user?.id);
-    setFinishing(true);
-    setSubmitting(true);
-    // Queue the coachmark tour for the tab root they're about to land on
-    // (components/FeatureTour.tsx). It has to be armed BEFORE the refresh:
-    // profileComplete flips synchronously with it and App swaps the wizard
-    // out on the spot, so anything after this call runs on an unmounted
-    // component.
-    armFeatureTour();
-    void refreshProfile();
-  };
-
-  const next = () => {
+  const next = async () => {
+    if (saving.current || avatarBusy) return;
     setError('');
-    setDir(1);
     if (stepKey === 'handle') {
-      if (!username.trim()) { setError('Please choose a username'); return; }
-      if (!usernameValid) { setError('Username must be 3+ letters, numbers, or underscores'); return; }
+      if (!displayName.trim()) { setError('Enter your name'); return; }
+      if (!usernameValid) { setError('Use at least 3 letters, numbers, or underscores'); return; }
       if (availability === 'taken') { setError('That username is already taken'); return; }
     }
-    if (stepKey === 'import') {
-      // Someone who brought a ladder over doesn't need to be taught how to
-      // build one — branch past the manual rate step rather than stacking
-      // it. Only real ratings count: a wishlist-only import leaves them
-      // with no scores, and the rate step is what fixes that.
-      setSkipRate(importState.ratedCount > 0);
-      logOnboardingEvent(
-        importState.ratedCount > 0 ? 'wizard_import_done' : 'wizard_import_skipped',
-        user?.id,
-      );
+    if (isLast) { await finishWizard(); return; }
+    saving.current = true;
+    setSubmitting(true);
+    try {
+      // Save again after edits and after choosing a city. Refresh only at
+      // completion, so the app doesn't replace the wizard mid-step.
+      if (stepKey === 'handle' || stepKey === 'city') {
+        const result = await persistProfile();
+        if (!result.ok) throw new Error(friendlyError(result.error));
+      }
+      await persistTaste();
+      setDir(1);
+      setPStep(p => p + 1);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Couldn't save. Try again.");
+    } finally {
+      saving.current = false;
+      setSubmitting(false);
     }
-    // The profile row saves HERE, on leaving the identity step, not at the
-    // wizard's end: everything after is skippable, and someone who bails
-    // during import or the taste steps must still have a working account
-    // with a name and handle. (App keeps showing this wizard regardless —
-    // profileComplete only flips on the refreshProfile the done screen
-    // fires.)
-    if (stepKey === 'handle' && !profileSaved) {
-      void (async () => {
-        setSubmitting(true);
-        const res = await persistProfile();
-        setSubmitting(false);
-        if (res.ok) {
-          setProfileSaved(true);
-          // The row exists now — stamp pre-auth taste answers onto it
-          // immediately. When the taste steps run in-wizard this happens
-          // again on their Continue; saveTasteQuiz is an upsert either way.
-          persistTaste();
-          logOnboardingEvent('wizard_profile_saved', user?.id);
-          setPStep((p) => p + 1);
-        }
-        else setError(friendlyError(res.error));
-      })();
-      return;
-    }
-    if (stepKey === 'prices' || stepKey === 'dietary') persistTaste();
-    if (isLast) { finishWizard(); return; }
-    setPStep((p) => p + 1);
   };
 
   const back = () => {
+    if (saving.current || avatarBusy) return;
     setError('');
     if (pStep <= 0) { void signOut(); return; }
     setDir(-1);
     setPStep((p) => p - 1);
   };
 
-  // The primary button is always the LAST element in the footer: a footer
-  // is only as tall as what's in it, so a ghost link stacked BELOW the
-  // button would push the button up on exactly the steps that have one
-  // ('city', 'handle') — the same drifting-button bug the header/footer
-  // split above exists to prevent, one level down. The optional ghost link
-  // goes ABOVE the button instead, so the button's distance from the
-  // bottom edge never depends on which step is showing.
-  const footer = (
-    <>
-      {error && stepKey !== 'handle' && <div style={{ marginBottom: 12 }}><OB.ErrorRow>{error}</OB.ErrorRow></div>}
-      {stepKey === 'city' && (
-        <div style={{ marginBottom: 4 }}>
-          <OB.GhostButton onClick={() => { setHomeCity(''); setHomeGeo(null); setError(''); setDir(1); setPStep((p) => p + 1); }}>Skip for now</OB.GhostButton>
-        </div>
-      )}
-      {stepKey === 'handle' && (
-        <div style={{ marginBottom: 4 }}>
-          {/* Verification lives on the last PROFILE step — it saves the
-              row and opens the request form, skipping everything after. */}
-          <OB.GhostButton onClick={() => { void finishThenVerify(); }}>
-            Are you a chef, critic, or creator? Request verification
-          </OB.GhostButton>
-        </div>
-      )}
-      {(() => {
-        // The import step drives its own footer (its label and action
-        // change per phase); every other step shares the wizard's.
-        const f = stepKey === 'import'
-          ? importFooter(importState, next)
-          : {
-              label: isLast ? 'Start exploring' : stepKey === 'handle' ? 'Save & continue' : 'Continue',
-              onClick: next,
-              loading: submitting,
-              trailing: (isLast ? 'check' : 'arrow') as 'check' | 'arrow' | 'none',
-            };
-        return (
-          <OB.PrimaryButton onClick={f.onClick} loading={f.loading} trailing={f.trailing}>
-            {f.label}
-          </OB.PrimaryButton>
-        );
-      })()}
-    </>
-  );
+  const footer = <>
+    {error && <OB.ErrorRow>{error}</OB.ErrorRow>}
+    {stepKey !== 'handle' && <OB.GhostButton onClick={() => { void finishWizard(); }}>Finish setup</OB.GhostButton>}
+    <OB.PrimaryButton onClick={() => { void next(); }} loading={submitting} disabled={avatarBusy}>
+      {isLast ? 'Start exploring' : stepKey === 'dietary' ? 'Continue' : 'Save & continue'}
+    </OB.PrimaryButton>
+  </>;
 
-  // The Pro intro draws its own chrome (dots, close, dark ground), so it
-  // replaces the wizard's shell rather than sitting inside it.
-  if (stepKey === 'pro') return <ProIntroStep onDone={finishWizard} />;
+  if (stepKey === 'pro') return <ProIntroStep onDone={() => { void finishWizard(); }} finishing={submitting} error={error} />;
 
   return (
     <OB.OnboardingScreen
@@ -599,7 +311,7 @@ export const ProfileSetup: React.FC = () => {
       footer={footer}
     >
       <div className="flex flex-1 flex-col">
-        <AnimatePresence mode="wait" initial={false} custom={dir}>
+
           <motion.div
             key={stepKey}
             custom={dir}
@@ -612,18 +324,9 @@ export const ProfileSetup: React.FC = () => {
             transition={OB.SPRING}
             className="flex flex-1 flex-col"
           >
-            {stepKey === 'name' && (
-              <div className="flex flex-1 flex-col">
-                <OB.StepHeader title={<>What should we <em>call you?</em></>} subtitle="The name friends see on your profile." />
-                <OB.Reveal i={2} style={{ marginTop: 30 }}>
-                  <OB.Field value={displayName} onChange={setDisplayName} placeholder="Jane Doe" icon={<User size={17} strokeWidth={1.6} />} autoFocus autoComplete="name" autoCapitalize="words" onSubmit={next} />
-                </OB.Reveal>
-              </div>
-            )}
-
             {stepKey === 'handle' && (
               <div className="flex flex-1 flex-col">
-                <OB.StepHeader title={<>Set up <em>your profile</em></>} subtitle="Your @handle is how friends find you." />
+                <OB.StepHeader title={<>Set up <em>your profile</em></>} subtitle="A few details, then you’re in." />
                 {/* The photo, on the one step every signup sees (the name
                     step is skipped when Apple or Google already gave us
                     one). A social app whose new accounts are all
@@ -658,13 +361,14 @@ export const ProfileSetup: React.FC = () => {
                         {avatarUrl ? 'Change photo' : 'Add a profile photo'}
                       </span>
                       <span className="block" style={{ fontSize: 12, marginTop: 2, lineHeight: 1.35, color: 'var(--ob-label)' }}>
-                        {avatarUrl ? 'Looking good.' : 'Friends recognize a face before a handle.'}
+                        Optional
                       </span>
                     </span>
                   </button>
                 </OB.Reveal>
                 <OB.Reveal i={2} style={{ marginTop: 16 }}>
-                  <OB.Field value={username} onChange={(v) => { setUsername(v.replace(/\s/g, '').replace(/[^a-zA-Z0-9_]/g, '')); setError(''); }} placeholder="username" prefix="@" autoFocus autoComplete="username" autoCapitalize="off" onSubmit={next} />
+                  <div style={{ marginBottom: 12 }}><OB.Field value={displayName} onChange={setDisplayName} placeholder="Your name" name="name" autoComplete="name" autoCapitalize="words" /></div>
+                  <OB.Field value={username} onChange={(v) => { setUsername(v.replace(/\s/g, '').replace(/[^a-zA-Z0-9_]/g, '')); setError(''); }} placeholder="username" prefix="@" autoComplete="username" autoCapitalize="off" onSubmit={next} />
                   <div className="flex items-center justify-between" style={{ marginTop: 11 }}>
                     <div style={{ fontSize: 13.5, color: 'var(--ob-label)' }}>Your handle: <span style={{ color: OB.TERRA, fontWeight: 600 }}>{handle}</span></div>
                     {availability === 'checking' && (
@@ -684,7 +388,6 @@ export const ProfileSetup: React.FC = () => {
                       </span>
                     )}
                   </div>
-                  {error && <OB.ErrorRow>{error}</OB.ErrorRow>}
                 </OB.Reveal>
                 {/* Visibility used to be a whole screen of its own. Asking
                     someone with zero content who may see it is abstract, and
@@ -754,7 +457,7 @@ export const ProfileSetup: React.FC = () => {
 
             {stepKey === 'prices' && (
               <div className="flex flex-1 flex-col">
-                <OB.StepHeader title={<>What do you usually <em>spend?</em></>} subtitle="Your picks lean toward this, without ever excluding a great table." />
+                <OB.StepHeader title={<>What do you usually <em>spend?</em></>} subtitle="Your usual budget. Optional." />
                 <OB.Reveal i={2} style={{ marginTop: 26 }}>
                   <PriceStep
                     primary={pricePrimary}
@@ -777,89 +480,9 @@ export const ProfileSetup: React.FC = () => {
               </div>
             )}
 
-            {stepKey === 'import' && (
-              <div className="flex flex-1 flex-col">
-                <OB.StepHeader
-                  title="Already rank restaurants somewhere?"
-                  subtitle="Screenshot your Beli list — we'll read every place and every score."
-                />
-                <OB.Reveal i={2} style={{ marginTop: 26 }}>
-                  <ImportStep state={importState} />
-                </OB.Reveal>
-              </div>
-            )}
-
-            {stepKey === 'follow' && (
-              <div className="flex flex-1 flex-col">
-                <OB.StepHeader title={<>Find some <em>friends</em></>} subtitle="Their ratings and posts fill your feed from day one." />
-                {canUseNativeContacts() && (
-                  <OB.Reveal i={1} style={{ marginTop: 20 }}>
-                    {/* `auto`: arriving at this step IS the ask — the iOS
-                        contacts dialog fires on entry (the step header is
-                        the context), matches slide in above the taste
-                        rail, and a denial collapses to nothing rather
-                        than nagging mid-wizard. List-level renderer:
-                        matches become SuggestedProfile rows so they
-                        inherit SuggestedPeople's whole follow machine,
-                        with "Maya · in your contacts" as the subtitle via
-                        suggestionSubtitle's contactMatch. */}
-                    <ContactsSync
-                      mode="auto"
-                      lacksPhone={!user?.phone}
-                      onOpenSettings={() => { void openAppSettings(); }}
-                      renderPeople={(matches) => (
-                        <SuggestedPeople
-                          bare
-                          layout="list"
-                          userId={user?.id ?? null}
-                          people={matches.map((m) => ({
-                            ...m.profile,
-                            ratingCount: 0,
-                            followerCount: 0,
-                            matchScore: 0,
-                            matchReason: null,
-                            contactMatch: true,
-                            contactName: m.contactName || null,
-                          }))}
-                        />
-                      )}
-                    />
-                  </OB.Reveal>
-                )}
-                <OB.Reveal i={2} style={{ marginTop: 16 }}>
-                  <FollowRail />
-                </OB.Reveal>
-              </div>
-            )}
-
-            {stepKey === 'rate' && (
-              <div className="flex flex-1 flex-col">
-                <OB.StepHeader title={<>Rate places <em>you've been</em></>} subtitle="A few real ratings beat any quiz." />
-                <OB.Reveal i={2} style={{ marginTop: 20 }}>
-                  <RatePlacesStep cuisines={cuisineSel} prices={priceSel} homeGeo={homeGeo ?? preauth.city} />
-                </OB.Reveal>
-              </div>
-            )}
-
-            {stepKey === 'summary' && (
-              <div className="flex flex-1 flex-col">
-                <SummaryStep
-                  name={displayName}
-                  cuisines={cuisineSel}
-                  pricePrimary={pricePrimary}
-                  priceSecondary={priceSecondary}
-                  dietary={dietarySel}
-                  city={homeGeo ?? preauth.city}
-                />
-              </div>
-            )}
           </motion.div>
-        </AnimatePresence>
+
       </div>
-      {/* The rate step opens the app's real rating flow. App's own modal
-          instance isn't mounted while this wizard shows (ProfileSetup
-          renders before the main branch), so the wizard hosts one. */}
-      <RatingFlow />
     </OB.OnboardingScreen>
   );
 };

@@ -1,3 +1,5 @@
+import './LibraryDesign.css';
+import { homeHaptic } from '../lib/haptics';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence, useScroll, useTransform } from 'motion/react';
@@ -237,10 +239,9 @@ export const RecommendationsBrowser: React.FC<RecommendationsBrowserProps> = ({ 
   const [openNowOnly, setOpenNowOnly] = useState(() => preset?.openNow === true);
   const [sortBy, setSortBy] = useState<SortKey>('match');
   const [openFilter, setOpenFilter] = useState<'cuisine' | 'price' | 'michelin' | null>(null);
-  // Mobile chrome: all filters live in the shared bottom sheet; sort is a
-  // small anchored menu on the in-scroll control row.
+  // Filters use the shared sheet; sorting uses the platform picker.
   const [filterSheetOpen, setFilterSheetOpen] = useState(false);
-  const [sortMenuOpen, setSortMenuOpen] = useState(false);
+  const [failedPhotos, setFailedPhotos] = useState<Set<string>>(() => new Set());
 
   // Scroll-linked header collapse (mobile). The large serif hero scrolls
   // away with the list while the slim chrome bar frosts in and a compact
@@ -997,6 +998,8 @@ export const RecommendationsBrowser: React.FC<RecommendationsBrowserProps> = ({ 
   const rankedRow = (entry: (typeof visible)[number], rank: number) => {
     const p = entry.place;
     const wishlisted = isWishlisted(p.id);
+    const hasPhoto = !!p.photoUrl && !failedPhotos.has(p.photoUrl);
+    const isLead = hasPhoto && rank === 1 && sortBy === 'match';
     const priceText = p.priceLevel > 0 ? '$'.repeat(p.priceLevel) : '';
     const metaLine = [entry.cuisineLabel, priceText, Number.isFinite(entry.distanceMi) ? fmtMiles(entry.distanceMi) : '']
       .filter(Boolean)
@@ -1019,17 +1022,31 @@ export const RecommendationsBrowser: React.FC<RecommendationsBrowserProps> = ({ 
         // pushes on top and a back-swipe reveals the ranking again.
         onClick={() => { if (!isPage) onClose(); navigate(`/restaurant/${p.id}`); }}
         onKeyDown={(e) => {
+          if (e.target !== e.currentTarget) return;
           if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); if (!isPage) onClose(); navigate(`/restaurant/${p.id}`); }
         }}
         className={cn(
-          'group flex w-full cursor-pointer items-center gap-3 py-3.5 text-left transition-colors hover:bg-on-surface/[0.025] sm:gap-3.5',
+          'foryou-place group flex w-full cursor-pointer items-center gap-3 py-3.5 text-left transition-colors hover:bg-on-surface/[0.025] sm:gap-3.5',
           isMobile ? 'px-4' : 'px-5',
+          isLead && 'is-lead',
+          !hasPhoto && 'without-photo',
         )}
       >
+        {hasPhoto && (
+          <div className="foryou-photo">
+            <img
+              src={p.photoUrl!}
+              alt={p.name}
+              loading={isLead ? 'eager' : 'lazy'}
+              onError={() => setFailedPhotos(prev => new Set(prev).add(p.photoUrl!))}
+            />
+            <span>{isLead ? 'Top pick' : rank}</span>
+          </div>
+        )}
         {/* Rank — text-only rows: the number IS the visual anchor. */}
         <span
           className={cn(
-            'grid h-7 w-7 flex-shrink-0 place-items-center rounded-full text-[12.5px] font-bold tabular-nums',
+            'foryou-rank grid h-7 w-7 flex-shrink-0 place-items-center rounded-full text-[12.5px] font-bold tabular-nums',
             rank <= 3 ? 'bg-primary text-on-primary' : 'bg-on-surface/[0.05] text-on-surface/55',
           )}
         >
@@ -1040,7 +1057,7 @@ export const RecommendationsBrowser: React.FC<RecommendationsBrowserProps> = ({ 
             produced a ranked "why" for every place and the row threw it
             away, which left a numbered list with no argument for its own
             order. The strongest factor is one quiet line. */}
-        <div className="min-w-0 flex-1">
+        <div className="foryou-place-copy min-w-0 flex-1">
           <div className="flex items-center gap-[7px]">
             <span className="min-w-0 truncate text-on-surface" style={{ fontSize: '15px', fontWeight: 700, lineHeight: 1.15, letterSpacing: '-0.028em' }}>
               {p.name}
@@ -1076,13 +1093,11 @@ export const RecommendationsBrowser: React.FC<RecommendationsBrowserProps> = ({ 
                 {groupVerdict(gScore, (uid) => liveMembers.find((m) => m.userId === uid)?.name ?? 'Friend')}
               </span>
             </div>
-          ) : null}
+          ) : (p.tasteReasons?.[0] || p.reasons?.[0]) ? <p className="foryou-reason">{p.tasteReasons?.[0] || p.reasons?.[0]}</p> : null}
         </div>
 
-        {/* Actions + prediction — one horizontal cluster on BOTH layouts:
-            wishlist and rate sit to the LEFT of the score ring and are
-            always visible (no hover reveal). */}
-        <div className={cn('flex flex-shrink-0 items-center', isMobile ? 'gap-2' : 'gap-2.5')}>
+        {/* Keep the prediction and save action visible on every row. */}
+        <div className={cn('foryou-place-actions flex flex-shrink-0 items-center', isMobile ? 'gap-2' : 'gap-2.5')}>
           <div className={cn('flex items-center', isMobile ? 'gap-1' : 'gap-1.5')}>
             <button
               type="button"
@@ -1125,8 +1140,7 @@ export const RecommendationsBrowser: React.FC<RecommendationsBrowserProps> = ({ 
         {RECS_MIN_RATINGS - ratedCount} more {RECS_MIN_RATINGS - ratedCount === 1 ? 'rating' : 'ratings'} to unlock
       </p>
       <p className="mt-1.5 max-w-[290px] text-[13px] leading-snug text-on-surface/50">
-        Recommendations run on your own ratings — which cuisines you go back to, what you actually
-        spend, how you score. Under {RECS_MIN_RATINGS} that&rsquo;s a guess, so we don&rsquo;t show it.
+        Rate {RECS_MIN_RATINGS} places to get recommendations shaped by your taste.
       </p>
 
       <div className="mt-5 w-full max-w-[260px]">
@@ -1289,35 +1303,20 @@ export const RecommendationsBrowser: React.FC<RecommendationsBrowserProps> = ({ 
           a place to rate, and this page has no such picker — a button in
           the same red that did something else would be worse than its
           absence. Rating starts one tap back. */}
-      <div className="pointer-events-auto relative flex items-center gap-2.5 px-5 pb-2 pt-safe-2">
-        <GlassButton
-          id="foryou-back"
-          symbol="chevron.left"
-          label="Back"
-          onClick={onClose}
-          className="hit-44 flex-none w-11 h-11 rounded-full flex items-center justify-center text-on-surface active:scale-95 transition-transform"
-        >
-          <ChevronLeft size={18} strokeWidth={2.1} />
-        </GlassButton>
-        <div className="flex-1" />
-        <span
-          className="flex-none inline-flex h-10 items-center gap-1.5 rounded-full border border-primary/35 bg-primary/10 text-primary px-3.5"
-          style={{ fontSize: '12px', fontWeight: 700 }}
-        >
-          <Sparkles size={13} />
-          For you
-        </span>
+      <div className="foryou-topbar pointer-events-auto relative flex items-center gap-2.5 px-5 pb-2 pt-safe-2">
+        <GlassButton id="foryou-back" symbol="chevron.left" label="Back to lists" onClick={onClose} className="hit-44 w-11 h-11 rounded-full flex items-center justify-center text-on-surface"><ChevronLeft size={20}/></GlassButton>
+        <h1>For you</h1>
+        <button className="foryou-together" aria-label="Decide together" onClick={() => { homeHaptic(); if (!isPage) onClose(); navigate('/decide'); }}><Users size={17}/><span>Together</span></button>
       </div>
     </div>
   );
 
-  const sortLabel = SORTS.find((s) => s.key === sortBy)?.label ?? 'Best match';
   const mobileControlRow = (
     /* The city is the page's subject, so it is a line — accent pin, the
        place at heading weight, what it found beside it — and the controls
        are the pill row underneath. Both used to be equal-weight grey
        capsules sharing one row, which made "where" look like a setting. */
-    <div className="px-5 pb-3.5">
+    <div className="foryou-controls px-5 pb-3.5">
       <button
         type="button"
         onClick={() => setPickerOpen(true)}
@@ -1361,40 +1360,7 @@ export const RecommendationsBrowser: React.FC<RecommendationsBrowserProps> = ({ 
           </span>
         )}
       </button>
-      <div className="relative flex-shrink-0">
-        <button
-          type="button"
-          onClick={() => setSortMenuOpen((v) => !v)}
-          className="inline-flex items-center gap-1.5 rounded-full border border-on-surface/20 px-[13px] py-[9px] text-on-surface active:opacity-80 transition-colors whitespace-nowrap"
-          style={{ fontSize: '12px', fontWeight: 700 }}
-          aria-label="Sort"
-        >
-          <ArrowUpDown size={12} />
-          {sortLabel}
-          <ChevronDown size={12} className={cn('opacity-55 transition-transform', sortMenuOpen && 'rotate-180')} />
-        </button>
-        {sortMenuOpen && (
-          <>
-            <div className="fixed inset-0 z-10" onClick={() => setSortMenuOpen(false)} />
-            <div className="absolute right-0 top-full z-20 mt-1.5 w-40 overflow-hidden rounded-2xl border border-on-surface/[0.08] bg-white py-1 shadow-xl">
-              {SORTS.map(({ key, label }) => (
-                <button
-                  key={key}
-                  type="button"
-                  onClick={() => { setSortBy(key); setSortMenuOpen(false); }}
-                  className={cn(
-                    'flex w-full items-center justify-between px-3.5 py-2 text-left text-[13px] font-semibold transition-colors hover:bg-on-surface/[0.04]',
-                    key === sortBy ? 'text-primary' : 'text-on-surface/75',
-                  )}
-                >
-                  {label}
-                  {key === sortBy && <span className="h-1.5 w-1.5 rounded-full bg-primary" />}
-                </button>
-              ))}
-            </div>
-          </>
-        )}
-      </div>
+      <label className="foryou-sort"><ArrowUpDown size={13}/><select aria-label="Sort recommendations" value={sortBy} onChange={e => { setSortBy(e.target.value as typeof sortBy); homeHaptic(); }}>{SORTS.map(({key,label}) => <option key={key} value={key}>{label}</option>)}</select><ChevronDown size={12}/></label>
       </div>
       {coldNote && <div className="pt-2.5">{coldNote}</div>}
       {relaxedNote && <div className="pt-2.5">{relaxedNote}</div>}
@@ -1403,10 +1369,7 @@ export const RecommendationsBrowser: React.FC<RecommendationsBrowserProps> = ({ 
 
   const mobileScroll = (
     <div ref={scrollRef} className="flex-1 overflow-y-auto overscroll-contain pb-safe-5">
-      {/* No page title. "Recommended for you" at 26px over a subtitle
-          restating what the header already says, above a city line that is
-          the actual subject — three headings for one screen. The city line
-          is the heading now. */}
+      {/* Reserve space for the floating bar, including the device safe area. */}
       <div style={{ paddingTop: 'calc(max(0.5rem, env(safe-area-inset-top, 0px)) + 3.25rem)' }} />
       {/* City line, filters and sort are all controls over a ranking that
           doesn't exist yet while locked — the lock screen stands alone. */}
@@ -1515,7 +1478,7 @@ export const RecommendationsBrowser: React.FC<RecommendationsBrowserProps> = ({ 
          only the body crosses over, on a short curve with barely any
          travel. Moving the whole page announced a navigation the design
          never has. */
-      <div className="type-archivo relative flex h-[100dvh] flex-col bg-surface">
+      <div className="foryou-page type-archivo relative flex h-[100dvh] flex-col bg-surface">
         {mobileChrome}
         <motion.div
           initial={{ opacity: 0, y: 6 }}
@@ -1542,7 +1505,7 @@ export const RecommendationsBrowser: React.FC<RecommendationsBrowserProps> = ({ 
             animate={{ y: 0 }}
             exit={{ y: '100%' }}
             transition={{ type: 'spring' as const, damping: 28, stiffness: 300 }}
-            className="fixed inset-0 z-50 flex flex-col bg-surface"
+            className="foryou-page fixed inset-0 z-50 flex flex-col bg-surface"
           >
             {mobileLayout}
           </motion.div>
@@ -1561,7 +1524,7 @@ export const RecommendationsBrowser: React.FC<RecommendationsBrowserProps> = ({ 
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.97, y: -4 }}
               transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] as const }}
-              className="fixed left-1/2 top-[6vh] z-50 flex max-h-[86vh] w-full max-w-3xl -translate-x-1/2 flex-col overflow-hidden rounded-3xl bg-surface shadow-[0_30px_80px_-16px_rgba(28,24,22,0.42)] ring-1 ring-on-surface/[0.06]"
+              className="foryou-page fixed left-1/2 top-[6vh] z-50 flex max-h-[86vh] w-full max-w-3xl -translate-x-1/2 flex-col overflow-hidden rounded-3xl bg-surface shadow-[0_30px_80px_-16px_rgba(28,24,22,0.42)] ring-1 ring-on-surface/[0.06]"
             >
               <div className="flex flex-shrink-0 items-start justify-between gap-4 border-b border-on-surface/6 px-5 pb-4 pt-5">
                 <div className="min-w-0">
@@ -1574,6 +1537,7 @@ export const RecommendationsBrowser: React.FC<RecommendationsBrowserProps> = ({ 
                   <p className="mt-0.5 truncate text-[12.5px] font-medium text-on-surface/50">{subtitle}</p>
                 </div>
                 <div className="flex flex-shrink-0 items-center gap-2">
+                  <button className="foryou-together" onClick={() => { homeHaptic(); onClose(); navigate('/decide'); }}><Users size={16}/>Decide together</button>
                   {locationChip}
                   <button
                     type="button"

@@ -1,3 +1,4 @@
+import { usePageBack } from '../lib/usePageBack';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import mapboxgl from 'mapbox-gl';
@@ -86,6 +87,7 @@ import { useHeaderFade } from '../lib/useHeaderFade';
 import { FilterSheet as FilterSheetShell } from '../components/FilterSheet';
 import {
   FilterDrillSection,
+  FilterSortSection,
   FilterSection,
   HoursFilterSection,
   Pill,
@@ -383,6 +385,7 @@ const LOAD_MORE_MAX_ATTEMPTS = 6;
 export const LocationPage: React.FC = () => {
   const [params] = useSearchParams();
   const navigate = useNavigate();
+  const goBack = usePageBack('/');
   const label = params.get('label') || 'Location';
   const lat = Number(params.get('lat'));
   const lng = Number(params.get('lng'));
@@ -2280,7 +2283,7 @@ export const LocationPage: React.FC = () => {
             id="loc-back"
             symbol="chevron.left"
             label="Back"
-            onClick={() => navigate(-1)}
+            onClick={() => goBack()}
             className="hit-44 w-11 h-11 flex items-center justify-center rounded-full transition-transform active:scale-95"
             style={{ color: 'var(--ink)', background: 'rgba(var(--overlay-ink), 0.06)' }}
           >
@@ -2359,7 +2362,7 @@ export const LocationPage: React.FC = () => {
           <button
             type="button"
             className="fb-back"
-            onClick={() => navigate(-1)}
+            onClick={() => goBack()}
             aria-label="Back"
           >
             <ArrowLeft />
@@ -3346,7 +3349,7 @@ const FilterSheet: React.FC<FilterSheetProps> = ({
   return (
     <FilterSheetShell open={open} onClose={onClose} title="Filters" onReset={reset}>
       {/* ── Sort by ─────────────────────────────────────────── */}
-      <FilterSection label="Sort by">
+      <FilterSortSection>
         <PillRow>
           {SORT_OPTIONS.map((opt) => (
             <Pill key={opt.value} active={sortBy === opt.value} onClick={() => onSortChange(opt.value)}>
@@ -3354,7 +3357,7 @@ const FilterSheet: React.FC<FilterSheetProps> = ({
             </Pill>
           ))}
         </PillRow>
-      </FilterSection>
+      </FilterSortSection>
 
       {/* ── Price ───────────────────────────────────────────── */}
       <FilterSection label="Price">

@@ -14,19 +14,15 @@
  * On the web the CTA opens Stripe Checkout in a new tab and the sheet
  * turns into "Finish in your browser".
  */
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { X, Check, Loader2, MessageSquare, ChefHat, Fingerprint, Users, UserRound } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { useSettings } from '../../contexts/SettingsContext';
-import { useAuth } from '../../contexts/AuthContext';
-import { useToast } from '../../contexts/ToastContext';
-import { usePlan } from '../../contexts/PlanContext';
+import { usePurchase } from './usePurchase';
+import { Link } from 'react-router-dom';
 import { useBottomSheet } from '../../lib/useBottomSheet';
-import { isNativeRuntime } from '../../lib/native-oauth';
 import { openExternalUrl, TERMS_URL, PRIVACY_URL } from '../../lib/external-links';
-import { billingAvailable, getNativeOffers, purchaseNative, restoreNative, syncPlanWithServer, startWebCheckout, webOffers, type NativeOffer } from '../../lib/billing';
-import { logBillingEvent } from '../../lib/billing-events';
 import { benefitsFor, ctaFor, finePrintFor, DEFAULT_PLAN, type FeatureKey, type PlanOffer, type PlanKey, type BenefitKey } from '../../lib/entitlements';
 
 const BENEFIT_ICON: Record<BenefitKey, React.FC<{ size?: number }>> = {
@@ -75,75 +71,17 @@ export const ProSheet: React.FC<{
   onUnlocked: () => void;
 }> = ({ open, source, feature, reason, onClose, onUnlocked }) => {
   const { phoneMode } = useSettings();
-  const { user, isSignedIn } = useAuth();
-  const { showToast } = useToast();
-  const plan = usePlan();
-  const native = isNativeRuntime();
-  const [nativeOffers, setNativeOffers] = useState<NativeOffer[] | null>(null);
-  const [selected, setSelected] = useState<PlanKey>(DEFAULT_PLAN);
-  const [phase, setPhase] = useState<'pick' | 'busy' | 'success' | 'web-sent' | 'error'>('pick');
-  const [error, setError] = useState('');
+  const p = usePurchase(source, { enabled: open, feature, onSuccess: () => { if (open) onUnlocked(); } });
+  const { native, offers, offer, available, phase, error, buy, restore, loadingOffers } = p;
   const scrollRef = useRef<HTMLDivElement | null>(null);
-  const locked = phase === 'busy';
-  const { dragProps, sheetRef } = useBottomSheet(open && !locked, onClose, scrollRef);
-
-  useEffect(() => {
-    if (!open) return;
-    setPhase('pick'); setError(''); setSelected(DEFAULT_PLAN);
-    if (native) { setNativeOffers(null); void getNativeOffers().then(setNativeOffers); }
-  }, [open, native]);
-
-  const offers: PlanOffer[] = useMemo(() => {
-    if (native) return nativeOffers && nativeOffers.length ? nativeOffers : [];
-    return webOffers();
-  }, [native, nativeOffers]);
-  const offer = offers.find((o) => o.key === selected) ?? offers[0];
-  const available = billingAvailable() && (!native || (nativeOffers !== null && nativeOffers.length > 0));
+  const locked = p.busy;
+  const { dragProps, sheetRef } = useBottomSheet(open, () => { if (!locked) onClose(); }, scrollRef);
   const benefits = useMemo(() => benefitsFor(feature), [feature]);
-
-  const buy = async () => {
-    if (!offer || locked) return;
-    if (!isSignedIn) { showToast('Sign in to subscribe'); return; }
-    logBillingEvent('purchase_started', user?.id ?? null, { source, feature, plan: offer.key });
-    if (native) {
-      const pkg = (offer as NativeOffer).pkg;
-      setPhase('busy');
-      const res = await purchaseNative(pkg);
-      if (!res.ok) {
-        if (res.cancelled) { setPhase('pick'); return; }
-        setError(res.message); setPhase('error');
-        logBillingEvent('purchase_failed', user?.id ?? null, { source, feature, plan: offer.key, meta: { message: res.message } });
-        return;
-      }
-      await syncPlanWithServer();
-      await plan.refresh();
-      logBillingEvent('purchased', user?.id ?? null, { source, feature, plan: offer.key });
-      setPhase('success');
-      window.setTimeout(() => { onUnlocked(); showToast('Welcome to Pro'); }, 900);
-      return;
-    }
-    setPhase('busy');
-    const res = await startWebCheckout(offer.key);
-    if (!res.ok) { setError(res.message); setPhase('error'); return; }
-    setPhase('web-sent');
-  };
-
-  const restore = async () => {
-    if (locked) return;
-    setPhase('busy');
-    const res = await restoreNative();
-    if (!res.ok) { setPhase('pick'); if (!res.cancelled) showToast("Couldn't restore", { subtitle: res.message }); return; }
-    await syncPlanWithServer();
-    await plan.refresh();
-    if (res.entitlement.active) {
-      logBillingEvent('restored', user?.id ?? null, { source, feature });
-      setPhase('success');
-      window.setTimeout(() => { onUnlocked(); showToast('Welcome back to Pro'); }, 900);
-    } else {
-      setPhase('pick');
-      showToast('No purchases to restore', { subtitle: 'Nothing on this Apple ID unlocks Pro.' });
-    }
-  };
+  const wasOpen = useRef(false);
+  useEffect(() => {
+    if (open && !wasOpen.current) { p.reset(); void p.reloadOffers(); }
+    wasOpen.current = open;
+  }, [open, p.reset, p.reloadOffers]);
 
   return (
     <AnimatePresence>
@@ -177,10 +115,10 @@ export const ProSheet: React.FC<{
                   <p className="mt-4 font-serif font-bold text-on-surface" style={{ fontSize: '24px', letterSpacing: '-0.01em' }}>Welcome to Pro</p>
                   <p className="mt-1 text-on-surface/55" style={{ fontSize: '13.5px' }}>Your taste, deeper. Everything's unlocked.</p>
                 </div>
-              ) : phase === 'web-sent' ? (
+              ) : phase === 'web-sent' || phase === 'pending' ? (
                 <div className="py-14 flex flex-col items-center text-center">
-                  <p className="font-serif font-bold text-on-surface" style={{ fontSize: '22px', letterSpacing: '-0.01em' }}>Finish in your browser</p>
-                  <p className="mt-2 text-on-surface/55 max-w-[30ch]" style={{ fontSize: '13.5px', lineHeight: 1.5 }}>Checkout opened in a new tab. Pro turns on here the moment it’s done.</p>
+                  <p className="font-serif font-bold text-on-surface" style={{ fontSize: '22px', letterSpacing: '-0.01em' }}>{phase === 'pending' ? 'Confirming your upgrade' : 'Finish in your browser'}</p>
+                  <p className="mt-2 text-on-surface/55 max-w-[30ch]" style={{ fontSize: '13.5px', lineHeight: 1.5 }}>Your plan updates when your purchase is confirmed. You can keep exploring.</p>
                   <button type="button" onClick={onClose} className="mt-6 rounded-full border border-on-surface/15 px-5 h-11 text-on-surface" style={{ fontSize: '13.5px', fontWeight: 700 }}>Done</button>
                 </div>
               ) : (
@@ -205,28 +143,28 @@ export const ProSheet: React.FC<{
                       );
                     })}
                   </ul>
-                  <a href="/pro" className="inline-block mt-2.5 text-on-surface/55 underline-offset-2 hover:underline" style={{ fontSize: '12.5px', fontWeight: 600 }} onClick={onClose}>See everything in Pro</a>
+                  <Link to="/pro" className="inline-block mt-2.5 text-on-surface/55 underline-offset-2 hover:underline" style={{ fontSize: '12.5px', fontWeight: 600 }} onClick={onClose}>See everything in Pro</Link>
 
                   <div className="mt-5">
-                    {native && nativeOffers === null ? (
+                    {loadingOffers ? (
                       <div className="flex items-center gap-2 text-on-surface/45 py-3" style={{ fontSize: '13px' }}><Loader2 size={14} className="animate-spin" /> Loading plans…</div>
                     ) : offers.length === 0 ? (
                       <p className="rounded-2xl bg-on-surface/[0.05] px-4 py-3 text-on-surface/60" style={{ fontSize: '13px', lineHeight: 1.45 }}>
-                        Purchases aren’t set up in this build yet. Everything stays free until they are.
+                        Plans couldn’t load. Try again later or continue free.
                       </p>
                     ) : (
-                      <PlanPicker offers={offers} value={offer?.key ?? DEFAULT_PLAN} onChange={(k) => { setSelected(k); logBillingEvent('plan_selected', user?.id ?? null, { source, feature, plan: k }); }} disabled={locked} />
+                      <PlanPicker offers={offers} value={offer?.key ?? DEFAULT_PLAN} onChange={p.pick} disabled={locked} />
                     )}
                   </div>
 
                   {phase === 'error' && (
-                    <p className="mt-3 text-score-low-ink" style={{ fontSize: '12.5px', fontWeight: 600 }}>{error || 'The purchase didn’t go through. Nothing was charged.'}</p>
+                    <p className="mt-3 text-score-low-ink" style={{ fontSize: '12.5px', fontWeight: 600 }}>{error || 'We couldn’t complete the purchase. Please try again.'}</p>
                   )}
                 </>
               )}
             </div>
 
-            {phase !== 'success' && phase !== 'web-sent' && (
+            {phase !== 'success' && phase !== 'web-sent' && phase !== 'pending' && (
               <div className={cn('flex-shrink-0 border-t border-on-surface/[0.06]', phoneMode ? 'px-5 pt-3 pb-[max(14px,env(safe-area-inset-bottom))]' : 'px-7 py-4')}>
                 <button
                   type="button"

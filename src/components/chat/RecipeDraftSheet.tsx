@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { liftOverlayToTopLayer } from '../../lib/useBottomSheet';
 import { motion, AnimatePresence } from 'motion/react';
 import { X, ChefHat, Clock, Users, Flame, Sparkles, Lightbulb, CalendarClock, Repeat, BookOpenCheck, CheckCircle2, Trash2, ImagePlus, Camera, ArrowUp, Loader2, AlertCircle } from 'lucide-react';
 import { cn } from '../../lib/utils';
@@ -275,10 +276,28 @@ export const RecipeDraftSheet: React.FC<RecipeDraftSheetProps> = ({
   const cover = draft?.coverPhoto || '';
   const canEditCover = !publishedMealId;
 
+  // The sheet paints above a host that is itself in the browser top layer
+  // (the Add Recipe modal after its chooser) only if it is lifted there
+  // too — see liftOverlayToTopLayer. Claimed over a few frames because the
+  // markup below mounts in the same commit as `open` flips.
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (!open) return;
+    let raf = 0;
+    let tries = 0;
+    const claim = () => {
+      if (rootRef.current) { liftOverlayToTopLayer(rootRef.current); return; }
+      if (tries++ < 20) raf = requestAnimationFrame(claim);
+    };
+    claim();
+    return () => cancelAnimationFrame(raf);
+  }, [open]);
+
   return (
     <AnimatePresence>
       {open && draft && (
         <motion.div
+          ref={rootRef}
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
@@ -307,6 +326,7 @@ export const RecipeDraftSheet: React.FC<RecipeDraftSheetProps> = ({
             onClick={(e) => e.stopPropagation()}
             className={cn(
               'flex flex-col overflow-hidden bg-surface',
+              draft.recreatedFrom && 'dish-recipe-review',
               phoneMode
                 // Full-page on mobile — not a draggable bottom sheet.
                 ? 'fixed inset-0 h-full w-full'

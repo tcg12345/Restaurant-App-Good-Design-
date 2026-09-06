@@ -1,3 +1,5 @@
+import { useSocialDialog } from '../social/useSocialDialog';
+import '../social/SocialDesign.css';
 // The thread's ONE share surface — the overhaul of the old pair of
 // pickers. The composer's + opens this sheet: two tabs (Restaurant /
 // Recipe), one search, one list per tab with the tab's two sources
@@ -96,7 +98,7 @@ const ShareRow: React.FC<{
     )}
   >
     <span className="flex-1 min-w-0 block">
-      <span className="block font-serif font-bold text-[15px] leading-[1.2] tracking-[-0.015em] text-on-surface truncate">{name}</span>
+      <span className="block font-sans font-bold text-[15px] leading-[1.2] tracking-[-0.015em] text-on-surface truncate">{name}</span>
       {meta && <span className="block mt-[5px] text-[12px] leading-[1.2] text-on-surface/50 truncate">{meta}</span>}
     </span>
     {tag}
@@ -107,7 +109,7 @@ const ScoreTag: React.FC<{ score: number }> = ({ score }) => {
   const t = scoreTintStyle(score);
   return (
     <span
-      className="flex-none grid place-items-center rounded-full font-serif font-bold tabular-nums"
+      className="flex-none grid place-items-center rounded-full font-sans font-bold tabular-nums"
       style={{ width: 38, height: 38, fontSize: 13, color: t.color, background: t.background, boxShadow: `inset 0 0 0 1.5px ${t.ring}` }}
     >
       {score.toFixed(1)}
@@ -133,6 +135,7 @@ export const ShareSheet: React.FC<{
   onShareRestaurant: (restaurant: SharedRestaurant) => void;
   onShareRecipe: (recipe: SharedRecipe) => void;
 }> = ({ open, recipientName, selfName, onClose, onShareRestaurant, onShareRecipe }) => {
+  const dialogRef = useSocialDialog(open, onClose);
   const { ratings, homeMeals } = useLists();
   const { user } = useAuth();
   const { phoneMode } = useSettings();
@@ -260,13 +263,14 @@ export const ShareSheet: React.FC<{
           />
           <div className={cn('fixed inset-0 z-[90] pointer-events-none', phoneMode ? 'flex items-end' : 'grid place-items-center p-6')}>
             <motion.div
+              ref={dialogRef} role="dialog" aria-modal="true" aria-label="Share to conversation"
               initial={phoneMode ? { y: '100%' } : { opacity: 0, y: 10, scale: 0.985 }}
               animate={phoneMode ? { y: 0 } : { opacity: 1, y: 0, scale: 1 }}
               exit={phoneMode ? { y: '100%' } : { opacity: 0, y: 10, scale: 0.985 }}
               transition={{ type: 'spring', damping: 30, stiffness: 320 }}
               onClick={(e) => e.stopPropagation()}
               className={cn(
-                'pointer-events-auto flex flex-col bg-surface overflow-hidden',
+                'social-design social-share-sheet pointer-events-auto flex flex-col bg-surface overflow-hidden',
                 phoneMode
                   ? 'w-full h-[76vh] rounded-t-[28px] shadow-[0_-14px_40px_rgba(0,0,0,0.25)]'
                   : 'w-full max-w-xl max-h-[80vh] rounded-[28px] border border-on-surface/10 shadow-2xl',
@@ -278,7 +282,7 @@ export const ShareSheet: React.FC<{
 
               {/* Title */}
               <div className="flex-shrink-0 px-5 pt-3.5 flex items-center gap-3">
-                <h2 className="flex-1 min-w-0 font-serif font-bold text-[22px] leading-[1.1] tracking-[-0.02em] truncate">
+                <h2 className="flex-1 min-w-0 font-sans font-bold text-[22px] leading-[1.1] tracking-[-0.02em] truncate">
                   Share to {first}
                 </h2>
                 <button

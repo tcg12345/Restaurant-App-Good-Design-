@@ -1,3 +1,4 @@
+import { usePageBack } from '../lib/usePageBack';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Map as MapIcon, ChevronRight, ChevronLeft, X, MapPin, Navigation, Loader2 } from 'lucide-react';
@@ -41,6 +42,7 @@ const TABS: ReadonlyArray<readonly [SearchTab, string]> = [
    this page's chrome instead of its own. */
 
 const PhoneSearch: React.FC = () => {
+  const goBack = usePageBack('/pantry');
   const navigate = useNavigate();
   const routerLocation = useLocation();
   const [tab, setTab] = useState<SearchTab>('discover');
@@ -86,7 +88,7 @@ const PhoneSearch: React.FC = () => {
   };
   const backToIdeas = () => {
     setFromIdeas(false);
-    navigate(-1);
+    goBack();
     openHomeMealModal(undefined, { initialMethod: 'ai', initialAiView: 'ideas' });
   };
   useEffect(() => { if (onRecipes) setRecipesOpened(true); }, [onRecipes]);

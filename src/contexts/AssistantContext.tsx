@@ -92,6 +92,8 @@ export interface AssistantAttachment {
 }
 
 interface AssistantContextValue {
+  homeFeedVisible: boolean;
+  setHomeFeedVisible: (visible: boolean) => void;
   /** Current page context — null when no page has published. */
   pageContext: AssistantPageContext | null;
   /** Called by pages to publish their rich context. Returns a teardown
@@ -110,13 +112,14 @@ interface AssistantContextValue {
 const AssistantContext = createContext<AssistantContextValue | null>(null);
 
 export const AssistantProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
+  const [homeFeedVisible, setHomeFeedVisible] = useState(false);
   const [pageContext, setPageContext] = useState<AssistantPageContext | null>(null);
   const [attachment, setAttachment] = useState<AssistantAttachment | null>(null);
   const [openRequest, setOpenRequest] = useState(0);
   const requestOpen = useCallback(() => setOpenRequest((n) => n + 1), []);
   const value = useMemo<AssistantContextValue>(
-    () => ({ pageContext, setPageContext, attachment, setAttachment, openRequest, requestOpen }),
-    [pageContext, attachment, openRequest, requestOpen],
+    () => ({ homeFeedVisible, setHomeFeedVisible, pageContext, setPageContext, attachment, setAttachment, openRequest, requestOpen }),
+    [homeFeedVisible, pageContext, attachment, openRequest, requestOpen],
   );
   return (
     <AssistantContext.Provider value={value}>
@@ -131,6 +134,8 @@ export function useAssistantContext(): AssistantContextValue {
     // No provider — return inert defaults so callers don't crash
     // (most relevant for tests / standalone rendering).
     return {
+      homeFeedVisible: false,
+      setHomeFeedVisible: () => {},
       pageContext: null,
       setPageContext: () => {},
       attachment: null,

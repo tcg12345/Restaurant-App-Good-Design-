@@ -32,7 +32,7 @@ import { usePlan } from '../contexts/PlanContext';
 import { ProTag } from '../components/pro/ProMark';
 import { NutritionPanel } from '../components/recipe/NutritionPanel';
 import type { RecipeNutrition } from '../lib/nutrition';
-import { useLists, recipeToHomeMeal, DEFAULT_COOKED_ID, type HomeMeal, type LinkedRecipeRef, type PhotoItem, type CombinedFromRef} from '../contexts/ListsContext';
+import { useLists, recipeToHomeMeal, DEFAULT_COOKED_ID, type HomeMeal, type LinkedRecipeRef, type PhotoItem, type CombinedFromRef, type RecreatedFromRef} from '../contexts/ListsContext';
 import { compressImage } from '../lib/media-compress';
 import { useRecipes, type Recipe, type RecipeIngredient, type RecipeReview } from '../contexts/RecipesContext';
 import {
@@ -62,6 +62,12 @@ import {
 } from '../lib/build-recipe-client';
 import type { SharedRecipe } from '../contexts/ChatContext';
 import './RecipePage.css';
+import './RecipeExperience.css';
+import { homeHaptic } from '../lib/haptics';
+import { usePageBack } from '../lib/usePageBack';
+import { pushOverlay } from '../lib/overlay-registry';
+import { liftOverlayToTopLayer } from '../lib/useBottomSheet';
+import { useSocialDialog } from '../components/social/useSocialDialog';
 import { avatarHue } from '../lib/avatar';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -354,12 +360,22 @@ type UnifiedRecipe = {
   /** Combine provenance — the parents this recipe was AI-merged from.
    *  Outranks both the Imported and AI notes. */
   combinedFrom?: CombinedFromRef[];
+  /** "Recreate a dish" provenance — the photo (and restaurant) the AI
+   *  worked from. Shown below Imported, above the plain AI note. */
+  recreatedFrom?: RecreatedFromRef;
   /** Per-serving nutrition (Pro), when anyone has worked it out. */
   nutrition?: RecipeNutrition;
   raw: Recipe | FriendHomeMeal;
 };
 
 /** Human copy for the imported-recipe note. URL sources link out. */
+/** "Recreated from a photo at Kawa Ni" — the provenance note for recipes
+ *  the AI reverse-engineered from a dish photo. Sits between the Imported
+ *  note and the plain AI note (such recipes also carry createdWithAi). */
+function recreatedNote(r: RecreatedFromRef): string {
+  return r.restaurantName ? `Recreated from a photo at ${r.restaurantName}` : 'Recreated from a photo';
+}
+
 function importedNote(raw: string): { label: string; href?: string } {
   if (raw === 'photo') return { label: 'Imported from a photo' };
   if (raw === 'text') return { label: 'Imported' };
@@ -483,6 +499,7 @@ function adaptHomeMeal(m: FriendHomeMeal): UnifiedRecipe {
     linkedRecipes?: LinkedRecipeRef[];
     createdWithAi?: boolean;
     importedFrom?: string;
+    recreatedFrom?: RecreatedFromRef;
   };
   // If this meal was saved from another user, the original author owns
   // the recipe view — not the user who copied it. Attributing ownerId
@@ -528,6 +545,7 @@ function adaptHomeMeal(m: FriendHomeMeal): UnifiedRecipe {
     createdWithAi: adv.createdWithAi,
     importedFrom: adv.importedFrom,
     combinedFrom: adv.combinedFrom,
+    recreatedFrom: adv.recreatedFrom,
     sourceAuthorName: m.sourceAuthorName,
     sourceAuthorUsername: m.sourceAuthorUsername,
     raw: m,
@@ -603,10 +621,15 @@ function useCookPhotos(recipeId: string) {
 const CookPhotosModal: React.FC<{ open: boolean; recipeId: string; onClose: () => void }> = ({ open, recipeId, onClose }) => {
   const { photos, onAdd, onRemove, adding } = useCookPhotos(recipeId);
   const inputRef = useRef<HTMLInputElement | null>(null);
+  const dialog = useSocialDialog(open, onClose);
+  useEffect(() => {
+    if (!open) return;
+    const release = pushOverlay(); liftOverlayToTopLayer(dialog.current?.parentElement ?? null); return release;
+  }, [open]);
   if (!open) return null;
   return createPortal(
-    <div className="rd-cpm-overlay" onClick={onClose}>
-      <div className="rd-cpm" onClick={(e) => e.stopPropagation()}>
+    <div className="rd-cpm-overlay recipe-overlay-theme" onClick={onClose}>
+      <div ref={dialog} role="dialog" aria-modal="true" aria-label="Your cook photos" className="rd-cpm" onClick={(e) => e.stopPropagation()}>
         <div className="rd-cpm-head">
           <div>
             <h2 className="rd-cpm-title">Your cook photos</h2>
@@ -701,7 +724,7 @@ const HeroGallery: React.FC<{ photos: string[]; alt: string; onEditPhotos?: () =
 const UncookConfirmDialog: React.FC<{ open: boolean; photoCount: number; onCancel: () => void; onConfirm: () => void }> = ({ open, photoCount, onCancel, onConfirm }) => {
   if (!open) return null;
   return createPortal(
-    <div className="rd-confirm-overlay" onClick={onCancel}>
+    <div className="rd-confirm-overlay recipe-overlay-theme" onClick={onCancel}>
       <div className="rd-confirm" onClick={(e) => e.stopPropagation()}>
         <h3 className="rd-confirm-title">Remove from Cooked?</h3>
         <p className="rd-confirm-text">
@@ -723,6 +746,7 @@ export const RecipePage: React.FC = () => {
   const resolvedId = params.id || params.mealId || '';
 
   const navigate = useNavigate();
+  const goBack = usePageBack('/pantry');
   const { user } = useAuth();
   const currentUserId = user?.id ?? null;
   const { phoneMode } = useSettings();
@@ -866,15 +890,17 @@ export const RecipePage: React.FC = () => {
     if (ownMeal) { setData(adaptHomeMeal({ ...ownMeal, userId: ownerId })); }
   }, [myRecipes, myHomeMeals, resolvedId, ownerId, currentUserId]);
 
+  // Updates to a saved recipe must not clear an in-progress cooking session.
+  useEffect(() => {
+    if (!data) return;
+    setServings(data.servings > 0 ? data.servings : 4);
+    setChecked(new Set()); setDoneSteps(new Set());
+  }, [data?.id, data?.ownerId]);
+
   // ── Reviews + author profile + related recipes ──
   useEffect(() => {
     if (!data) return;
     let cancelled = false;
-
-    // Seed the servings stepper from the recipe's base each time data changes.
-    setServings(data.servings > 0 ? data.servings : 4);
-    setChecked(new Set());
-    setDoneSteps(new Set());
 
     (async () => {
       const profileMap = await getProfilesByIds([data.ownerId]);
@@ -1047,6 +1073,7 @@ export const RecipePage: React.FC = () => {
       createdWithAi: data.createdWithAi || undefined,
       importedFrom: data.importedFrom || undefined,
       combinedFrom: data.combinedFrom,
+      recreatedFrom: data.recreatedFrom,
       builderVersion: data.ingredientGroups || data.stepDetails ? 'advanced' : 'basic',
       ...(isAnotherUsers ? {
         sourceAuthorId: data.ownerId,
@@ -1371,7 +1398,7 @@ export const RecipePage: React.FC = () => {
           <ChefHat size={36} className="icon" />
           <p className="title">Recipe not found</p>
           <p className="sub">It may have been deleted or made private.</p>
-          <button type="button" className="back-link" onClick={() => navigate(-1)}>
+          <button type="button" className="back-link" onClick={() => goBack()}>
             <ArrowLeft /> Back
           </button>
         </div>
@@ -1419,6 +1446,7 @@ export const RecipePage: React.FC = () => {
     return (
       <div className="recipe-detail-page">
         <MobileRecipeView
+          nutritionPanel={<NutritionPanel nutrition={data.nutrition} canEstimate={isOwner} estimating={nutriBusy} error={nutriError} onEstimate={() => { void handleEstimateNutrition(); }} />}
           onAskAssistant={askAboutThisRecipe}
           data={data}
           authorProfile={authorProfile}
@@ -1539,7 +1567,7 @@ export const RecipePage: React.FC = () => {
       <nav className={cn('rd-nav', scrolled && 'scrolled')}>
         <div className="rd-nav-inner">
           <div className="rd-nav-left">
-            <button type="button" className="rd-nav-back" onClick={() => navigate(-1)} aria-label="Back">
+            <button type="button" className="rd-nav-back" onClick={() => goBack()} aria-label="Back">
               <ArrowLeft />
             </button>
             <span className="crumbs">
@@ -1568,7 +1596,7 @@ export const RecipePage: React.FC = () => {
       </nav>
 
       {/* ── Hero ──────────────────────────────────────────────────── */}
-      <header className="rd-hero">
+      <header className={cn('rd-hero', !heroPhotos.length && 'rd-hero-no-photo')}>
         <div className="rd-hero-text">
           <div className="rd-hero-eyebrow">
             {data.cuisine && <span>{data.cuisine}</span>}
@@ -1648,7 +1676,12 @@ export const RecipePage: React.FC = () => {
                 <span>{note.label}</span>
               </div>
             );
-          })() : data.createdWithAi ? (
+          })() : data.recreatedFrom ? (
+            <div className="rd-ai-note" role="note">
+              <Camera />
+              <span>{recreatedNote(data.recreatedFrom)}</span>
+            </div>
+          ) : data.createdWithAi ? (
             <div className="rd-ai-note" role="note">
               <Sparkles />
               <span>Created with AI</span>
@@ -1769,7 +1802,7 @@ export const RecipePage: React.FC = () => {
                 <div className="rd-servings-stepper">
                   <button type="button" onClick={() => setServings((s) => Math.max(1, s - 1))} disabled={servings <= 1} aria-label="Decrease servings">–</button>
                   <span className="value">{servings}</span>
-                  <button type="button" onClick={() => setServings((s) => Math.min(24, s + 1))} aria-label="Increase servings">+</button>
+                  <button type="button" onClick={() => setServings((s) => Math.min(Math.max(100, baseServings), s + 1))} aria-label="Increase servings">+</button>
                 </div>
               </div>
               {renderGroups.map((group, gi) => (
@@ -2563,31 +2596,34 @@ const CookMode: React.FC<{ recipe: UnifiedRecipe; onClose: () => void }> = ({ re
 };
 
 const ReviewModal: React.FC<{
+  initialRating?: number;
   recipe: UnifiedRecipe;
   authorName: string;
   currentUserName: string;
   onClose: () => void;
   onSubmit: (form: { rating: number; title: string; body: string; cookedIt: boolean }) => void;
-}> = ({ recipe, currentUserName, onClose, onSubmit }) => {
-  const [rating, setRating] = useState(0);
+}> = ({ recipe, currentUserName, onClose, onSubmit, initialRating = 0 }) => {
+  const [rating, setRating] = useState(initialRating);
   const [hover, setHover] = useState(0);
   const [title, setTitle] = useState('');
   const [body, setBody] = useState('');
   const [cookedIt, setCookedIt] = useState(true);
   const [submitting, setSubmitting] = useState(false);
 
+  const dialog = useSocialDialog(true, () => { if (!submitting) onClose(); });
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
-    window.addEventListener('keydown', onKey);
+    const release = pushOverlay();
+    const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
-    return () => { window.removeEventListener('keydown', onKey); document.body.style.overflow = ''; };
-  }, [onClose]);
+    liftOverlayToTopLayer(dialog.current);
+    return () => { release(); document.body.style.overflow = previousOverflow; };
+  }, []);
 
   const labels = ['', 'Did not like it', 'Just okay', 'Pretty good', 'Really good', 'Loved it'];
   const canSubmit = rating > 0 && body.trim().length >= 10 && !submitting;
 
   return (
-    <div className="rd-modal-overlay" onClick={onClose}>
+    <div ref={dialog} role="dialog" aria-modal="true" aria-label="Write a review" className="rd-modal-overlay" onClick={() => { if (!submitting) onClose(); }}>
       <form
         className="rd-modal"
         onClick={(e) => e.stopPropagation()}
@@ -2721,23 +2757,12 @@ const ReviewCard: React.FC<{
   );
 };
 
-/* ── Mobile render tree ─────────────────────────────────────────────
-   Renders a phone-shaped recipe detail view that mirrors the supplied
-   mock-up. Receives all the parent state + handlers as props so the
-   data hooks aren't duplicated between layouts. Keeps a sticky header
-   with a Back + heart + share, a 4:3 hero image, a title block with
-   eyebrow/title/byline/rating/author/3×2 stats/3 action buttons, then
-   tags, an ingredients section, a directions
-   section, notes, nutrition (hidden), author bio, reviews, and a
-   horizontal "you might also like" rail. A black FAB pinned to the
-   bottom-right launches Cook mode.
-   ──────────────────────────────────────────────────────────────────── */
+/** Phone layout shares recipe state with desktop, with section navigation and a cooking dock. */
 
 interface MobileViewProps {
-  /** Pin the chat to this recipe and open it. Built by the page (which
-   *  holds the recipe) rather than here — this view is an expression-bodied
-   *  component, so it can't call hooks. */
+  /** Open the assistant with this recipe as context. */
   onAskAssistant: () => void;
+  nutritionPanel: React.ReactNode;
   data: UnifiedRecipe;
   authorProfile: UserProfile | null;
   reviews: UnifiedReview[];
@@ -2794,9 +2819,46 @@ const MobileRecipeView: React.FC<MobileViewProps> = ({
   saved, cooked, heroPhotos, cookPhotoCount, openCookPhotos, isOwner, cookMode, setCookMode, reviewOpen, setReviewOpen,
   handleSave, handleCooked, handleShare, handleCombine, handleEdit, submitReview,
   renderStars, authorName, authorRole, authorInitial, authorInitials, authorBg,
-  authorUsername, currentUserId, currentUserName, navigate, onAskAssistant,
-}) => (
-  <div className="rdm">
+  authorUsername, currentUserId, currentUserName, navigate, onAskAssistant, nutritionPanel,
+}) => {
+  const back = usePageBack('/pantry');
+  const { keyboardOpen } = useSettings();
+  const root = useRef<HTMLDivElement>(null);
+  const [section, setSection] = useState('ingredients');
+  const [cookIndex, setCookIndex] = useState(0);
+  const [initialRating, setInitialRating] = useState(0);
+  const { showToast } = useToast();
+  const steps = useMemo(() => cookStepsFor(data), [data]);
+  const groups = data.ingredientGroups?.length ? data.ingredientGroups : [{ name: '', ingredients: data.ingredients }];
+  const itemCount = groups.reduce((sum, g) => sum + g.ingredients.length, 0);
+  const jump = (id: string) => {
+    homeHaptic(); setSection(id);
+    root.current?.querySelector(`[data-recipe-section="${id}"]`)?.scrollIntoView({ behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth', block: 'start' });
+  };
+  useEffect(() => {
+    const update = () => {
+      const sections: HTMLElement[] = Array.from(root.current?.querySelectorAll<HTMLElement>('[data-recipe-section]') ?? []);
+      let active = sections[0];
+      for (const el of sections) if (el.getBoundingClientRect().top <= 165) active = el;
+      if (active) setSection(active.dataset.recipeSection!);
+    };
+    window.addEventListener('scroll', update, true);
+    return () => window.removeEventListener('scroll', update, true);
+  }, []);
+  const startCooking = () => {
+    homeHaptic();
+    if (doneSteps.size === steps.length) { [...doneSteps].forEach(toggleStep); setCookIndex(0); }
+    else if (cookIndex === 0 && doneSteps.has(0)) setCookIndex(Math.max(0, steps.findIndex((_, i) => !doneSteps.has(i))));
+    setCookMode(true);
+  };
+  const copyIngredients = async () => {
+    try {
+      await navigator.clipboard.writeText(`${data.title} · ${servings} servings\n\n` + groups.map(g => [g.name, ...g.ingredients.map(i => [formatQty(i.amount, scale), i.unit, i.name].filter(Boolean).join(' '))].filter(Boolean).join('\n')).join('\n\n'));
+      showToast('Ingredient list copied');
+    } catch { showToast('Couldn’t copy the list. Please try again.'); }
+  };
+  return (
+  <div className="rdm" ref={root}>
     {/* ── Floating chrome ──
         The same controls the restaurant page floats over its hero, built from
         the same components, so they get the same real material: back as a
@@ -2810,9 +2872,10 @@ const MobileRecipeView: React.FC<MobileViewProps> = ({
       <div className="absolute top-0 inset-x-0 px-4 pt-safe-4 flex items-center justify-between pointer-events-none">
         <GlassButton
           id="recipe-back"
+          suspended={cookMode || reviewOpen}
           symbol="arrow.left"
           label="Back"
-          onClick={() => navigate(-1)}
+          onClick={back}
           className="hit-44 pointer-events-auto w-11 h-11 rounded-full flex items-center justify-center text-ink-2 active:scale-95 transition-transform"
         >
           <ArrowLeft size={18} />
@@ -2820,6 +2883,7 @@ const MobileRecipeView: React.FC<MobileViewProps> = ({
         <div className="pointer-events-auto">
           <GlassGroup
             id="recipe-actions"
+            suspended={cookMode || reviewOpen}
             className="flex items-center rounded-full"
             itemClassName="relative w-11 h-11 flex items-center justify-center text-ink-2"
             items={[
@@ -2839,13 +2903,6 @@ const MobileRecipeView: React.FC<MobileViewProps> = ({
                 icon: <ShareIcon size={16} />,
               },
               {
-                id: 'combine',
-                symbol: 'arrow.triangle.merge',
-                label: 'Combine with another recipe',
-                onClick: handleCombine,
-                icon: <GitMerge size={16} />,
-              },
-              {
                 id: 'ask',
                 symbol: 'sparkles',
                 label: `Ask about ${data.title || 'this recipe'}`,
@@ -2862,10 +2919,10 @@ const MobileRecipeView: React.FC<MobileViewProps> = ({
       {/* Hero — cook photos (swipeable) when added, else the original. Shown
           when there are photos OR the recipe is cooked (so the add-photos
           button is reachable even before any are added). */}
-      {!(heroPhotos.length > 0 || cooked) && (
+      {!(heroPhotos.length > 0) && (
         <div style={{ height: 'calc(env(safe-area-inset-top, 0px) + 60px)' }} aria-hidden />
       )}
-      {(heroPhotos.length > 0 || cooked) && (
+      {(heroPhotos.length > 0) && (
         <div className="rdm-hero-img">
           <HeroGallery
             photos={heroPhotos}
@@ -2931,7 +2988,12 @@ const MobileRecipeView: React.FC<MobileViewProps> = ({
               <span>{note.label}</span>
             </div>
           );
-        })() : data.createdWithAi ? (
+        })() : data.recreatedFrom ? (
+          <div className="rdm-ai-note" role="note">
+            <Camera />
+            <span>{recreatedNote(data.recreatedFrom)}</span>
+          </div>
+        ) : data.createdWithAi ? (
           <div className="rdm-ai-note" role="note">
             <Sparkles />
             <span>Created with AI</span>
@@ -2941,52 +3003,26 @@ const MobileRecipeView: React.FC<MobileViewProps> = ({
         {/* Label-and-value rows, not a grid of tiles. The total is the
             number you act on; the split that makes it up is an aside on the
             same line rather than a column of its own. */}
-        <div className="rdm-stats">
-          <div className="rdm-stat">
-            <div className="l">Time</div>
-            <div className="v">
-              {renderTimeValue(totalMinutes)}
-              {/* Only worth breaking down when there is a break to show. With
-                  no prep time the split was "25 min · 25 cook" — the same
-                  number said twice. */}
-              {data.prepMinutes > 0 && data.cookMinutes > 0 && (
-                <span className="detail">
-                  {data.prepMinutes} prep, {data.cookMinutes} cook
-                </span>
-              )}
-            </div>
-          </div>
-          {data.servings > 0 && (
-            <div className="rdm-stat">
-              <div className="l">Serves</div>
-              <div className="v">{data.servings}</div>
-            </div>
-          )}
-          {data.difficulty && (
-            <div className="rdm-stat">
-              <div className="l">Level</div>
-              <div className="v">{DIFFICULTY_LABEL[data.difficulty]}</div>
-            </div>
-          )}
+        <div className="rdm-facts">
+          <div><Clock size={17} /><strong>{totalMinutes ? formatMinutes(totalMinutes) : '—'}</strong><span>Total time</span></div>
+          <div><Users size={17} /><strong>{baseServings}</strong><span>Servings</span></div>
+          <div><ChefHat size={17} /><strong>{data.difficulty ? DIFFICULTY_LABEL[data.difficulty] : '—'}</strong><span>Skill level</span></div>
         </div>
+        {(data.prepMinutes > 0 || data.cookMinutes > 0 || data.chillMinutes) ? <p className="rdm-time-breakdown">{[data.prepMinutes > 0 && `${data.prepMinutes} min prep`, data.cookMinutes > 0 && `${data.cookMinutes} min cooking`, !!data.chillMinutes && `${data.chillMinutes} min resting`].filter(Boolean).join(' · ')}</p> : null}
 
         <div className="rdm-actions">
-          <button type="button" className={cn('rdm-act', saved && 'saved')} onClick={handleSave}>
-            <Bookmark fill={saved ? 'currentColor' : 'none'} />
-            {saved ? 'Saved' : 'Save'}
-          </button>
+          <button type="button" className="rdm-act rdm-start" disabled={!steps.length} onClick={startCooking}><Play size={17} fill="currentColor" />{doneSteps.size && doneSteps.size < steps.length ? 'Continue cooking' : 'Start cooking'}</button>
           <button type="button" className={cn('rdm-act', cooked && 'cooked-state')} onClick={handleCooked}>
             {cooked ? <Check /> : <ChefHat />}
             {cooked ? 'Cooked' : 'Cooked it'}
           </button>
-          <button type="button" className="rdm-act" onClick={() => window.print()}>
-            <Printer /> Print
-          </button>
         </div>
+        {cooked && !heroPhotos.length && <button className="rdm-inline-action" onClick={openCookPhotos}>Add your cook photos</button>}
       </section>
 
+      <nav className="rdm-section-nav" aria-label="Recipe sections">{[['ingredients','Ingredients'], ['method','Method'], ['details','Details'], ['reviews','Reviews']].map(([id,label]) => <button key={id} type="button" aria-current={section === id ? 'location' : undefined} onClick={() => jump(id)}>{label}</button>)}</nav>
       {/* Ingredients */}
-      <section className="rdm-section">
+      <section className="rdm-section" data-recipe-section="ingredients">
         {(() => {
           // Mirror the desktop: render explicit ingredient groups (Sauce /
           // Dough / "For the beef", …) with their section headings when the
@@ -2999,7 +3035,7 @@ const MobileRecipeView: React.FC<MobileViewProps> = ({
             <>
               <h2 className="rdm-section-title">
                 Ingredients
-                <span className="count">{totalItems} item{totalItems === 1 ? '' : 's'}</span>
+                <span className="count">{checked.size ? `${checked.size} / ${totalItems} ready` : `${totalItems} items`}</span>
               </h2>
               {totalItems === 0 ? (
                 <p style={{ fontFamily: 'var(--serif)', fontStyle: 'italic', fontSize: 14, color: 'var(--muted)' }}>
@@ -3010,12 +3046,12 @@ const MobileRecipeView: React.FC<MobileViewProps> = ({
                   <div className="rdm-servings">
                     <div>
                       <div className="lbl">Servings</div>
-                      <div className="sub">Scaled from {baseServings}</div>
+                      <div className="sub">{servings !== baseServings ? <button className="rdm-inline-action" onClick={() => setServings(baseServings)}>Reset to {baseServings}</button> : 'Adjust quantities'}</div>
                     </div>
                     <div className="rdm-stepper">
                       <button type="button" onClick={() => setServings((s) => Math.max(1, s - 1))} disabled={servings <= 1} aria-label="Decrease servings">–</button>
                       <span className="v">{servings}</span>
-                      <button type="button" onClick={() => setServings((s) => Math.min(24, s + 1))} aria-label="Increase servings">+</button>
+                      <button type="button" onClick={() => setServings((s) => Math.min(Math.max(100, baseServings), s + 1))} disabled={servings >= Math.max(100, baseServings)} aria-label="Increase servings">+</button>
                     </div>
                   </div>
                   {renderGroups.map((group, gi) => (
@@ -3031,6 +3067,7 @@ const MobileRecipeView: React.FC<MobileViewProps> = ({
                           <button
                             key={key}
                             type="button"
+                            role="checkbox" aria-checked={isChecked}
                             className={cn('rdm-ingr-item', isChecked && 'checked')}
                             onClick={() => toggleCheck(key)}
                           >
@@ -3050,14 +3087,15 @@ const MobileRecipeView: React.FC<MobileViewProps> = ({
             </>
           );
         })()}
+        <div className="rdm-list-tools"><button onClick={() => void copyIngredients()} disabled={!itemCount}>Copy ingredients</button>{checked.size > 0 && <button onClick={() => [...checked].forEach(toggleCheck)}>Clear checks</button>}</div>
         <LinkedRecipeCards refs={(data.linkedRecipes || []).filter((r) => r.inIngredients)} />
       </section>
 
       {/* Directions */}
-      <section className="rdm-section">
+      <section className="rdm-section" data-recipe-section="method">
         <h2 className="rdm-section-title">
-          Directions
-          <span className="count">{data.steps.length} step{data.steps.length === 1 ? '' : 's'}</span>
+          Method
+          <span className="count">{doneSteps.size ? `${doneSteps.size} / ${steps.length} done` : `${steps.length} steps`}</span>
         </h2>
         {/* Equipment card — sits between the Directions title and the
             first step on phone too, but stacked vertically to fit. */}
@@ -3072,96 +3110,27 @@ const MobileRecipeView: React.FC<MobileViewProps> = ({
           </div>
         )}
         <LinkedRecipeCards refs={(data.linkedRecipes || []).filter((r) => r.inMethod)} />
-        {(() => {
-          // One phone step row, keyed/numbered by GLOBAL index.
-          const renderRow = (
-            i: number,
-            title: string | undefined,
-            body: string,
-            timerNode: React.ReactNode,
-          ) => {
-            const isDone = doneSteps.has(i);
-            return (
-              <li key={i} className={cn('rdm-step', isDone && 'done')}>
-                {/* One control on the left, the number inline with the title.
-                    The old card stacked a filled black 36px numeral above a
-                    second empty circle — two heavy marks in the margin for
-                    what is one step and one checkbox. */}
-                <button
-                  type="button"
-                  className="rdm-step-check"
-                  onClick={() => toggleStep(i)}
-                  aria-label={isDone ? 'Mark as not done' : 'Mark as done'}
-                >
-                  <Check />
-                </button>
-                <div>
-                  <div className="rdm-step-head">
-                    <span className="rdm-step-num">Step {String(i + 1).padStart(2, '0')}</span>
-                    {title && <h3 className="rdm-step-title">{title}</h3>}
-                  </div>
-                  <p className="rdm-step-body">{body}</p>
-                  {timerNode}
-                </div>
-              </li>
-            );
-          };
+        {steps.length ? <ol className="rdm-method-list">{steps.map((step, i) => {
+          const timer = cookStepTimer(step); const done = doneSteps.has(i);
+          return <React.Fragment key={i}>{step.section && step.section !== steps[i - 1]?.section && <li className="rdm-steps-group-title">{step.section}</li>}<li className={cn('rdm-step', done && 'done')}>
+            <button className="rdm-step-check" aria-label={`Step ${i+1} completed`} aria-pressed={done} onClick={() => { homeHaptic(); toggleStep(i); }}>{done ? <Check /> : i+1}</button>
+            <div><div className="rdm-step-head">{step.title && <h3 className="rdm-step-title">{step.title}</h3>}</div><p className="rdm-step-body">{step.body}</p>{step.tip && <p className="rdm-step-tip">{step.tip}</p>}{timer && <div className="rdm-step-meta"><MobileStepTimer label={timer.label} durationMs={timer.ms} /></div>}</div>
+          </li></React.Fragment>;
+        })}</ol> : <p className="rdm-empty">No method added yet.</p>}
+        {doneSteps.size > 0 && <button className="rdm-inline-action" onClick={() => [...doneSteps].forEach(toggleStep)}>Reset step progress</button>}
 
-          // Grouped method (multi-component dishes): section subheadings
-          // with steps numbered continuously across them.
-          const sections = methodSections(data);
-          if (sections) {
-            return (
-              <div className="rdm-steps-sections">
-                {sections.map((sec, si) => (
-                  <div className="rdm-steps-group" key={si}>
-                    {sec.name && <h3 className="rdm-steps-group-title">{sec.name}</h3>}
-                    <ol style={{ margin: 0, padding: 0, listStyle: 'none' }}>
-                      {sec.steps.map(({ detail, index }) => renderRow(
-                        index,
-                        detail.title || undefined,
-                        detail.body,
-                        detail.durationMin && detail.durationMin > 0 ? (
-                          <div className="rdm-step-meta">
-                            <MobileStepTimer label={`${detail.durationMin} min`} durationMs={detail.durationMin * 60_000} />
-                          </div>
-                        ) : null,
-                      ))}
-                    </ol>
-                  </div>
-                ))}
-              </div>
-            );
-          }
-
-          if (data.steps.length === 0) {
-            return (
-              <p style={{ fontFamily: 'var(--serif)', fontStyle: 'italic', fontSize: 14, color: 'var(--muted)' }}>
-                No directions yet.
-              </p>
-            );
-          }
-          return (
-            <ol style={{ margin: 0, padding: 0, listStyle: 'none' }}>
-              {data.steps.map((step, i) => {
-                const split = splitStep(step);
-                const timer = extractStepMs(step);
-                return renderRow(
-                  i,
-                  split.title || undefined,
-                  split.body || step,
-                  timer ? (
-                    <div className="rdm-step-meta">
-                      <MobileStepTimer label={timer.label} durationMs={timer.ms} />
-                    </div>
-                  ) : null,
-                );
-              })}
-            </ol>
-          );
-        })()}
       </section>
 
+
+      <section className="rdm-section" data-recipe-section="details">
+        <h2 className="rdm-section-title">Recipe details</h2>
+        {(data.description || data.introParagraph) && <details className="rdm-note"><summary>About this recipe</summary><p>{data.introParagraph || data.description}</p></details>}
+        {data.yieldDescription && <p className="rdm-yield">Makes {data.yieldDescription}</p>}
+        {data.notes?.map((note, i) => <details className="rdm-note" key={i}><summary>{note.type === 'makeAhead' ? 'Make ahead' : note.type === 'substitution' ? 'Substitutions' : note.type === 'tip' ? 'Cooking tip' : 'Notes'}</summary><p>{note.text}</p></details>)}
+        {data.tags?.length ? <div className="rdm-tags">{data.tags.map(tag => <span key={tag}>{tag}</span>)}</div> : null}
+        <div className="rdm-tools"><button onClick={onAskAssistant}><Sparkles size={18} /><span>Ask about this recipe<small>Substitutions, techniques and ideas</small></span><ChevronRight size={16} /></button><button onClick={handleCombine}><GitMerge size={18} /><span>Combine with another recipe</span><ChevronRight size={16} /></button><button onClick={() => window.print()}><Printer size={18} /><span>Print recipe</span><ChevronRight size={16} /></button>{isOwner && <button onClick={handleEdit}><Edit3 size={18} /><span>Edit recipe</span><ChevronRight size={16} /></button>}</div>
+<details className="rdm-note rdm-nutrition-disclosure"><summary>Nutrition <span>Per serving</span></summary>{nutritionPanel}</details>
+      </section>
 
       {/* Recipe by — down here rather than under the title. At the top it
           sat between the dish and the facts you came for; down here it reads
@@ -3189,9 +3158,9 @@ const MobileRecipeView: React.FC<MobileViewProps> = ({
           "Comments" block: five controls for what is really one act. Now the
           stars are the control — tap one to open the review sheet — and the
           count moves to the header where it stays out of the way. */}
-      <section className="rdm-section">
+      <section className="rdm-section" data-recipe-section="reviews">
         <h2 className="rdm-section-title">
-          Rate &amp; comment
+          Reviews
           <span className="count">
             {myReview
               ? `${Math.round(myReview.rating)} of 5`
@@ -3207,7 +3176,7 @@ const MobileRecipeView: React.FC<MobileViewProps> = ({
               type="button"
               aria-label={`Rate ${n} of 5`}
               className={cn('rdm-rate-star', (myReview ? Math.round(myReview.rating) : 0) >= n && 'on')}
-              onClick={() => setReviewOpen(true)}
+              onClick={() => { setInitialRating(n); setReviewOpen(true); }}
             >
               <Star fill="currentColor" />
             </button>
@@ -3293,36 +3262,20 @@ const MobileRecipeView: React.FC<MobileViewProps> = ({
         </section>
       )}
 
-      {/* Owner edit (small inline link, since the design lacks an edit affordance) */}
-      {isOwner && (
-        <section className="rdm-section" style={{ paddingBottom: 40 }}>
-          <button
-            type="button"
-            className="rdm-act"
-            onClick={handleEdit}
-            style={{ flex: 'none', width: '100%' }}
-          >
-            <Edit3 /> Edit this recipe
-          </button>
-        </section>
-      )}
+
     </div>
 
-    {/* Cook mode FAB (hidden when overlay open) */}
-    {!cookMode && data.steps.length > 0 && (
-      <button type="button" className="rdm-cookmode-fab" onClick={() => setCookMode(true)}>
-        <Play fill="currentColor" /> Cook mode
-      </button>
-    )}
+    {!cookMode && !reviewOpen && !keyboardOpen && steps.length > 0 && <div className="rdm-cook-dock"><button className="rdm-dock-jump" onClick={() => jump(section === 'method' ? 'ingredients' : 'method')}><span>{section === 'method' ? 'Ingredients' : 'Jump to method'}</span><small>{doneSteps.size} of {steps.length} steps done</small></button><button className="rdm-dock-cook" onClick={startCooking}><Play size={15} fill="currentColor" />Cook</button></div>}
 
     {/* Cook mode overlay */}
     {cookMode && (
-      <MobileCookMode recipe={data} onClose={() => setCookMode(false)} />
+      <MobileCookMode recipe={data} step={cookIndex} setStep={setCookIndex} scale={scale} servings={servings} checked={checked} toggleCheck={toggleCheck} onCompleteStep={i => { if (!doneSteps.has(i)) toggleStep(i); }} onClose={() => setCookMode(false)} />
     )}
 
     {/* Review modal */}
     {reviewOpen && (
       <ReviewModal
+        initialRating={initialRating}
         recipe={data}
         authorName={authorName}
         currentUserName={currentUserName}
@@ -3336,6 +3289,7 @@ const MobileRecipeView: React.FC<MobileViewProps> = ({
 
   </div>
 );
+};
 
 const MobileStepTimer: React.FC<{ label: string; durationMs: number }> = ({ label, durationMs }) => {
   const [running, setRunning] = useState(false);
@@ -3423,75 +3377,47 @@ const MobileReviewCard: React.FC<{
   );
 };
 
-const MobileCookMode: React.FC<{ recipe: UnifiedRecipe; onClose: () => void }> = ({ recipe, onClose }) => {
-  const [step, setStep] = useState(0);
+const MobileCookMode: React.FC<{
+  recipe: UnifiedRecipe; onClose: () => void; step: number;
+  setStep: React.Dispatch<React.SetStateAction<number>>; scale: number; servings: number;
+  checked: Set<string>; toggleCheck: (key: string) => void; onCompleteStep: (step: number) => void;
+}> = ({ recipe, onClose, step, setStep, scale, servings, checked, toggleCheck, onCompleteStep }) => {
+  const [ingredientsOpen, setIngredientsOpen] = useState(false);
   const cookSteps = useMemo(() => cookStepsFor(recipe), [recipe]);
   const total = cookSteps.length;
   const current = cookSteps[step] ?? { body: '' };
-  const timer = cookStepTimer(current);
-
+  const groups = recipe.ingredientGroups?.length ? recipe.ingredientGroups : [{ name: '', ingredients: recipe.ingredients }];
+  const dialog = useSocialDialog(true, onClose);
+  const body = useRef<HTMLDivElement>(null);
+  const { showToast } = useToast();
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
-      if (e.key === 'ArrowRight') setStep((s) => Math.min(total - 1, s + 1));
-      if (e.key === 'ArrowLeft') setStep((s) => Math.max(0, s - 1));
-    };
-    window.addEventListener('keydown', onKey);
+    const release = pushOverlay();
+    const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
-    return () => {
-      window.removeEventListener('keydown', onKey);
-      document.body.style.overflow = '';
-    };
-  }, [total, onClose]);
-
-  return (
-    <div className="rdm-cookmode">
-      <div className="rdm-cm-nav">
-        <button type="button" className="rdm-cm-close" onClick={onClose} aria-label="Exit"><X /></button>
-        <div className="rdm-cm-title">Cook mode</div>
-        <div style={{ width: 36 }} />
-      </div>
-      <div className="rdm-cm-progress">
-        {cookSteps.map((_, i) => (
-          <div key={i} className={cn('rdm-cm-dot', i < step && 'done', i === step && 'current')} />
-        ))}
-      </div>
-      <div className="rdm-cm-body">
-        <div className="rdm-cm-stepmeta">
-          Step {step + 1} of {total}
-          {current.section ? ` · ${current.section}` : ''}
+    liftOverlayToTopLayer(dialog.current);
+    return () => { release(); document.body.style.overflow = previousOverflow; };
+  }, []);
+  useEffect(() => { body.current?.scrollTo({ top: 0 }); }, [step, ingredientsOpen]);
+  const next = () => {
+    homeHaptic(); onCompleteStep(step);
+    if (step >= total - 1) { setStep(0); onClose(); showToast('Method complete. Enjoy your meal!'); }
+    else setStep(s => s + 1);
+  };
+  return <div ref={dialog} className="rdm-cookmode" role="dialog" aria-modal="true" aria-label="Cook mode">
+    <div className="rdm-cm-nav"><button className="rdm-cm-close" onClick={onClose} aria-label="Exit cook mode"><X size={20} /></button><div className="rdm-cm-title">{recipe.title}</div></div>
+    <div className="rdm-cm-progress" aria-label={`Step ${step + 1} of ${total}`}>{cookSteps.map((_, i) => <button key={i} aria-label={`Go to step ${i + 1}`} aria-current={i === step ? 'step' : undefined} className={cn('rdm-cm-dot', i < step && 'done', i === step && 'current')} onClick={() => { setStep(i); setIngredientsOpen(false); }} />)}</div>
+    <div className="rdm-cm-tabs"><button aria-pressed={!ingredientsOpen} onClick={() => setIngredientsOpen(false)}>Method</button><button aria-pressed={ingredientsOpen} onClick={() => setIngredientsOpen(true)}>Ingredients · {servings} servings</button></div>
+    <div className="rdm-cm-body" ref={body}>
+      <div hidden={ingredientsOpen}>
+        <div className="rdm-cm-step-content" key={step}>
+          <p className="rdm-cm-stepmeta">Step {step + 1} of {total}{current.section ? ` · ${current.section}` : ''}</p>
+          <h2 className="rdm-cm-step-title">{current.title || `Step ${step + 1}`}</h2><p className="rdm-cm-step-body">{current.body}</p>
+          {current.tip && <p className="rdm-cm-tip">{current.tip}</p>}
         </div>
-        <div className="rdm-cm-num">{String(step + 1).padStart(2, '0')}</div>
-        {current.title && <h2 className="rdm-cm-step-title">{current.title}</h2>}
-        <p className="rdm-cm-step-body">{current.body}</p>
-        {current.tip && (
-          <p className="rdm-cm-step-body" style={{ marginTop: 14, opacity: 0.65, fontStyle: 'italic' }}>
-            Tip: {current.tip}
-          </p>
-        )}
-        {timer && (
-          <div style={{ marginTop: 18 }}>
-            <CookModeTimer key={step} durationMs={timer.ms} label={timer.label} />
-          </div>
-        )}
+        {cookSteps.map((item, i) => { const timer = cookStepTimer(item); return timer ? <div hidden={step !== i} key={i} className="rdm-cm-timer-wrap"><CookModeTimer durationMs={timer.ms} label={timer.label} /></div> : null; })}
       </div>
-      <div className="rdm-cm-controls">
-        <button
-          type="button"
-          className="rdm-cm-btn"
-          onClick={() => setStep((s) => Math.max(0, s - 1))}
-          disabled={step === 0}
-        >
-          <ChevronLeft /> Back
-        </button>
-        <button
-          type="button"
-          className="rdm-cm-btn primary"
-          onClick={() => { if (step >= total - 1) onClose(); else setStep(step + 1); }}
-        >
-          {step >= total - 1 ? 'Finish' : 'Next'} <ChevronRight />
-        </button>
-      </div>
+      {ingredientsOpen && <div className="rdm-cm-ingredients"><h2>Ingredients</h2>{groups.map((g, gi) => <div key={gi}>{g.name && <h3>{g.name}</h3>}{g.ingredients.map((ing, ii) => { const key = `g-${gi}-i-${ii}`; return <button key={key} role="checkbox" aria-checked={checked.has(key)} onClick={() => toggleCheck(key)}><span className="rdm-cm-checkbox">{checked.has(key) && <Check size={15} />}</span><span>{[formatQty(ing.amount, scale), ing.unit, ing.name].filter(Boolean).join(' ')}</span></button>; })}</div>)}</div>}
     </div>
-  );
+    <div className="rdm-cm-controls"><button className="rdm-cm-btn" disabled={step === 0} onClick={() => { setStep(s => Math.max(0, s - 1)); setIngredientsOpen(false); }}><ChevronLeft />Back</button><button className="rdm-cm-btn primary" onClick={() => { setIngredientsOpen(false); next(); }}>{step === total - 1 ? 'Finish cooking' : 'Next step'}<ChevronRight /></button></div>
+  </div>;
 };
