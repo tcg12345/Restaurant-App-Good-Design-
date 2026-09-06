@@ -15,7 +15,7 @@
  * no native runtime, or a database that hasn't run 087 — the callers get a
  * clear "not available" instead of a crash, and the gates stay off anyway.
  */
-import { Purchases, LOG_LEVEL, type PurchasesPackage, type CustomerInfo, type PurchasesStoreProduct } from '@revenuecat/purchases-capacitor';
+import { Purchases, LOG_LEVEL, INTRO_ELIGIBILITY_STATUS, type PurchasesPackage, type CustomerInfo, type PurchasesStoreProduct } from '@revenuecat/purchases-capacitor';
 import { isNativeRuntime } from './native-oauth';
 import { openExternalUrl } from './external-links';
 import { apiUrl, apiHeaders } from './api-base';
@@ -31,10 +31,16 @@ export const billingAvailable = (): boolean => isNativeRuntime() ? !!REVENUECAT_
 /* ── SDK lifecycle ────────────────────────────────────────────────── */
 let configured = false;
 let configuredFor: string | null = null;
+let configuration: Promise<void> = Promise.resolve();
 
 /** Configure once, then keep the SDK's user in step with ours. Safe to call
  *  on every auth change; a no-op on the web or without a key. */
-export async function configureBilling(userId: string | null): Promise<void> {
+export function configureBilling(userId: string | null): Promise<void> {
+  configuration = configuration.then(() => configureForUser(userId));
+  return configuration;
+}
+
+async function configureForUser(userId: string | null): Promise<void> {
   if (!isNativeRuntime() || !REVENUECAT_IOS_KEY) return;
   try {
     if (!configured) {
@@ -61,8 +67,12 @@ export async function configureBilling(userId: string | null): Promise<void> {
 export function onCustomerInfo(cb: (info: CustomerInfo) => void): () => void {
   if (!isNativeRuntime() || !REVENUECAT_IOS_KEY) return () => {};
   let id: string | null = null;
-  void Purchases.addCustomerInfoUpdateListener((info) => cb(info)).then((handle) => { id = handle; }).catch(() => {});
-  return () => { if (id) void Purchases.removeCustomerInfoUpdateListener({ listenerToRemove: id }).catch(() => {}); };
+  let disposed = false;
+  void Purchases.addCustomerInfoUpdateListener((info) => { if (!disposed) cb(info); }).then((handle) => {
+    if (disposed) void Purchases.removeCustomerInfoUpdateListener({ listenerToRemove: handle }).catch(() => {});
+    else id = handle;
+  }).catch(() => {});
+  return () => { disposed = true; if (id) void Purchases.removeCustomerInfoUpdateListener({ listenerToRemove: id }).catch(() => {}); };
 }
 
 export interface EntitlementState {
@@ -78,6 +88,8 @@ export function entitlementOf(info: CustomerInfo | null | undefined): Entitlemen
   if (!e) return { active: false, expirationDate: null, willRenew: false, store: null, productIdentifier: null };
   return { active: !!e.isActive, expirationDate: e.expirationDate ?? null, willRenew: !!e.willRenew, store: String(e.store ?? ''), productIdentifier: e.productIdentifier ?? null };
 }
+
+export const billingReadyFor = (userId: string): boolean => configured && configuredFor === userId;
 
 /* ── Offers ───────────────────────────────────────────────────────── */
 export interface NativeOffer extends PlanOffer { pkg: PurchasesPackage }
@@ -98,11 +110,14 @@ function trialDaysOf(p: PurchasesStoreProduct): number {
 
 /** The store's own prices for the plans the RevenueCat offering carries. */
 export async function getNativeOffers(): Promise<NativeOffer[]> {
+  await configuration;
   if (!isNativeRuntime() || !REVENUECAT_IOS_KEY || !configured) return [];
   try {
     const offerings = await Purchases.getOfferings();
     const cur = offerings.current;
     if (!cur) return [];
+    const products = [cur.annual, cur.monthly, cur.lifetime].filter(Boolean).map(pkg => pkg!.product.identifier);
+    const eligibility = await Purchases.checkTrialOrIntroductoryPriceEligibility({ productIdentifiers: products }).catch(() => ({}));
     const out: NativeOffer[] = [];
     const add = (key: PlanKey, pkg: PurchasesPackage | null, title: string, tag: string | null) => {
       if (!pkg) return;
@@ -112,10 +127,10 @@ export async function getNativeOffers(): Promise<NativeOffer[]> {
         key, title, pkg, tag,
         priceLine: period ? `${p.priceString} / ${period}` : `${p.priceString} once`,
         perMonthLine: key === 'annual' && p.price > 0 ? `${money(p.price / 12, p.currencyCode)} a month` : null,
-        trialDays: trialDaysOf(p),
+        trialDays: eligibility[p.identifier]?.status === INTRO_ELIGIBILITY_STATUS.INTRO_ELIGIBILITY_STATUS_ELIGIBLE ? trialDaysOf(p) : 0,
       });
     };
-    add('annual', cur.annual, 'Annual', 'Best value');
+    add('annual', cur.annual, 'Annual', cur.annual && cur.monthly && cur.annual.product.price < cur.monthly.product.price * 12 ? 'Best value' : null);
     add('monthly', cur.monthly, 'Monthly', null);
     add('lifetime', cur.lifetime, 'Lifetime', null);
     return out;
@@ -125,7 +140,8 @@ export async function getNativeOffers(): Promise<NativeOffer[]> {
   }
 }
 
-export const webOffers = (): PlanOffer[] => DEFAULT_OFFERS;
+// Web checkout confirms trial eligibility; never promise one from static defaults.
+export const webOffers = (): PlanOffer[] => DEFAULT_OFFERS.map(offer => ({ ...offer, trialDays: 0 }));
 
 /* ── Purchase / restore ───────────────────────────────────────────── */
 /** One flat shape for both rails, so callers never have to narrow. */
@@ -143,7 +159,7 @@ const NO_ENTITLEMENT: EntitlementState = { active: false, expirationDate: null, 
 function failed(err: unknown): PurchaseOutcome {
   const e = err as { userCancelled?: boolean | null; code?: unknown; message?: string } | null;
   const cancelled = !!e?.userCancelled || String(e?.code ?? '') === '1' || /cancel/i.test(e?.message ?? '');
-  return { ok: false, cancelled, message: cancelled ? '' : (e?.message || 'The purchase didn’t go through. Nothing was charged.'), entitlement: NO_ENTITLEMENT };
+  return { ok: false, cancelled, message: cancelled ? '' : (e?.message || 'We couldn’t complete the purchase. Please try again.'), entitlement: NO_ENTITLEMENT };
 }
 
 export async function purchaseNative(pkg: PurchasesPackage): Promise<PurchaseOutcome> {
@@ -179,6 +195,10 @@ export async function syncPlanWithServer(): Promise<{ plan: 'free' | 'pro'; proU
 
 /* ── Web ──────────────────────────────────────────────────────────── */
 export async function startWebCheckout(plan: PlanKey): Promise<{ ok: boolean; message: string }> {
+  // Reserve the tab during the click, before awaiting the checkout URL.
+  const checkout = window.open('about:blank', '_blank');
+  if (!checkout) return { ok: false, message: 'Allow pop-ups to open secure checkout, then try again.' };
+  checkout.opener = null;
   try {
     const origin = window.location.origin;
     const res = await fetch(apiUrl('billing-checkout'), {
@@ -187,10 +207,13 @@ export async function startWebCheckout(plan: PlanKey): Promise<{ ok: boolean; me
       body: JSON.stringify({ plan, successUrl: `${origin}/pro/welcome`, cancelUrl: `${origin}/pro` }),
     });
     const data = (await res.json().catch(() => ({}))) as { url?: string; error?: string };
-    if (!res.ok || !data.url) return { ok: false, message: data.error || 'Checkout isn’t available right now.' };
-    await openExternalUrl(data.url);
+    if (!res.ok || !data.url) { checkout.close(); return { ok: false, message: data.error || 'Checkout isn’t available right now.' }; }
+    const url = new URL(data.url);
+    if (url.protocol !== 'https:') throw new Error('Invalid checkout URL');
+    checkout.location.replace(url.href);
     return { ok: true, message: '' };
   } catch {
+    checkout.close();
     return { ok: false, message: 'Checkout isn’t available right now.' };
   }
 }

@@ -1,118 +1,81 @@
-import { useEffect, useLayoutEffect, type FC } from 'react';
+import { useEffect, useLayoutEffect, useRef, type FC } from 'react';
 import { useLocation, useNavigationType } from 'react-router-dom';
-import { getPrimaryScroller, setPageScroll, maxPageScroll } from '../lib/page-scroll';
+import { getPrimaryScroller, setPageScroll, maxPageScroll, isOffscreenScrollTarget } from '../lib/page-scroll';
 import { isKeepAlivePath } from '../lib/keep-alive';
-
-/**
- * Per-history-entry scroll restoration.
- *
- * Routes remount on navigation (the route motion.div is keyed by pathname), so
- * without this, going back lands you at the top of a freshly-mounted page. We
- * remember each entry's scroll offset (keyed by the history index) and restore
- * it on back/forward (POP); a fresh push starts at the top.
- *
- * The app is inconsistent about *what* scrolls (window vs. an inner container),
- * so we save via a capture-phase scroll listener (inner-container scroll events
- * don't bubble to window) and restore through getPrimaryScroller(). The retry
- * loop re-applies while an async page is still filling in.
- */
+import { isOverlayOpen } from '../lib/overlay-registry';
 
 const positions = new Map<number, number>();
-// Window scroll only, tracked separately: keep-alive pages preserve their
-// inner scrollers while hidden, but the WINDOW is shared with every other
-// page (a pushed detail page scrolls it to the top), so returning to a
-// window-scrolled keep-alive page needs this component restored explicitly.
 const windowPositions = new Map<number, number>();
-const histIdx = () => (typeof window.history.state?.idx === 'number' ? window.history.state.idx : 0);
+const histIdx = () => typeof window.history.state?.idx === 'number' ? window.history.state.idx : 0;
+export function savedScrollFor(idx: number): number { return positions.get(idx) ?? 0; }
 
-/** Saved offset for an entry — also read by the swipe-back gesture. */
-export function savedScrollFor(idx: number): number {
-  return positions.get(idx) ?? 0;
-}
-
+/** Restore the presenting screen before revealing it. Ignore cloned pages,
+ * closing routes and modal scrollers; none owns the active history entry. */
 export const ScrollRestoration: FC = () => {
   const location = useLocation();
-  const navType = useNavigationType(); // 'POP' | 'PUSH' | 'REPLACE'
-
+  const navType = useNavigationType();
+  const restoring = useRef(false);
+  const primary = useRef<HTMLElement | null>(null);
   useEffect(() => {
-    if (!('scrollRestoration' in window.history)) return;
-    const prev = window.history.scrollRestoration;
+    const previous = window.history.scrollRestoration;
     window.history.scrollRestoration = 'manual';
-    return () => { window.history.scrollRestoration = prev; };
-  }, []);
-
-  // Remember the current entry's scroll. Capture phase catches inner-container
-  // scroll (which doesn't bubble); we only track vertical scrollers. Saved
-  // synchronously (a Map.set is trivial) so it's never lost to rAF throttling.
-  useEffect(() => {
-    const onScroll = (e: Event) => {
-      const t = e.target as Document | HTMLElement;
-      let y: number | null = null;
-      if (t === document || t === document.documentElement || t === document.body) {
-        y = window.scrollY;
-        windowPositions.set(histIdx(), y);
+    const save = (event: Event) => {
+      if (restoring.current || isOverlayOpen() || isOffscreenScrollTarget(event.target)) return;
+      const target = event.target;
+      const idx = histIdx();
+      if (target === document || target === document.documentElement || target === document.body) {
+        windowPositions.set(idx, window.scrollY);
+        if (!primary.current) positions.set(idx, window.scrollY);
+      } else if (target instanceof HTMLElement) {
+        if (!primary.current?.isConnected) primary.current = getPrimaryScroller();
+        if (target === primary.current) positions.set(idx, target.scrollTop);
       }
-      else if (t instanceof HTMLElement && t.scrollHeight > t.clientHeight + 8) {
-        // Replaying scroll onto the swipe-back reveal's page clone fires real
-        // scroll events — those are the destination's offset, not this page's.
-        if (t.closest('[data-swipe-reveal]')) return;
-        // Scroll events fired inside an EXITING route wrapper during a
-        // transition belong to the dying page — the history index has
-        // already moved, so stamping them would clobber the DESTINATION's
-        // saved offset. Only accept inner-scroller events from the wrapper
-        // matching the current path.
-        const stack = t.closest<HTMLElement>('[data-route-stack]');
-        if (stack && stack.getAttribute('data-route-stack') !== window.location.pathname) return;
-        y = t.scrollTop;
-      }
-      if (y == null) return;
-      positions.set(histIdx(), y);
+      for (const store of [positions, windowPositions]) if (store.size > 150) store.delete(store.keys().next().value!);
     };
-    document.addEventListener('scroll', onScroll, { capture: true, passive: true });
-    return () => document.removeEventListener('scroll', onScroll, { capture: true } as EventListenerOptions);
+    document.addEventListener('scroll', save, { capture: true, passive: true });
+    return () => {
+      window.history.scrollRestoration = previous;
+      document.removeEventListener('scroll', save, true);
+    };
   }, []);
 
   useLayoutEffect(() => {
-    // Keep-alive tabs keep their INNER scrollers (they're not remounted) —
-    // never touch those. But window-scrolled keep-alive pages (e.g. a pantry
-    // list) had their position destroyed by the pushed page's scroll-to-top,
-    // since the window is shared — restore that component on the way back.
+    let timer = 0, frame = 0, stopped = false;
+    restoring.current = true;
+    primary.current = null;
+    const finish = () => { stopped = true; clearTimeout(timer); cancelAnimationFrame(frame); restoring.current = false; };
+    // Never pull the reader back after they have started interacting.
+    for (const event of ['touchstart', 'pointerdown', 'wheel']) document.addEventListener(event, finish, { passive: true, capture: true });
+    const release = () => { frame = requestAnimationFrame(() => { frame = requestAnimationFrame(finish); }); };
+    const idx = histIdx();
+    const target = positions.get(idx) ?? 0;
     if (isKeepAlivePath(location.pathname)) {
-      if (navType === 'POP') window.scrollTo(0, windowPositions.get(histIdx()) ?? 0);
-      return;
+      if (navType === 'POP') window.scrollTo(0, windowPositions.get(idx) ?? 0);
+      release();
+    } else if (navType !== 'POP') {
+      window.scrollTo(0, 0);
+      positions.set(idx, 0); windowPositions.set(idx, 0);
+      release();
+    } else {
+      let attempts = 0;
+      const apply = () => {
+        if (stopped) return;
+        const wrapper = document.querySelector<HTMLElement>(`[data-route-entry="${CSS.escape(location.key)}"]`);
+        if (wrapper) {
+          const available = maxPageScroll(wrapper);
+          setPageScroll(Math.min(target, available), wrapper);
+          if (available >= target - 1) { release(); return; }
+        }
+        if (++attempts < 24) timer = window.setTimeout(apply, 80);
+        else release();
+      };
+      apply();
     }
-    // New page (push) → window stays put only matters for window-scroll pages;
-    // inner scrollers mount at the top on their own.
-    if (navType !== 'POP') { window.scrollTo(0, 0); return; }
-    const target = positions.get(histIdx()) ?? 0;
-    const destPath = location.pathname;
-    // With AnimatePresence mode="wait" the DESTINATION isn't mounted when
-    // this effect runs — the exiting page still owns the DOM, so an
-    // unscoped getPrimaryScroller() picked the DYING page's scroller: the
-    // first apply() saw a satisfiable maxPageScroll, wrote the offset into
-    // the exiting page, and stopped, leaving the incoming page at 0. Wait
-    // for the wrapper carrying the destination's own pathname (the same
-    // handshake SwipeBackContainer uses) and scope every read/write to it.
-    // The retry loop doubles as the "page still filling in" wait as before.
-    let timer = 0, tries = 0;
-    const apply = () => {
-      const wrapper = document.querySelector<HTMLElement>(`[data-route-stack="${CSS.escape(destPath)}"]`);
-      if (wrapper) {
-        if (target <= 0) { setPageScroll(0, wrapper); return; }
-        if (maxPageScroll(wrapper) >= target - 1) { setPageScroll(target, wrapper); return; }
-      }
-      // If the wrapper never appears (a non-stack destination) or never gets
-      // tall enough (lazy feed scrolled deep), leave the page at the top —
-      // never worse than before, and no jarring auto-scroll.
-      if (tries++ < 12) timer = window.setTimeout(apply, 90);
+    return () => {
+      finish();
+      for (const event of ['touchstart', 'pointerdown', 'wheel']) document.removeEventListener(event, finish, true);
     };
-    apply();
-    return () => { if (timer) window.clearTimeout(timer); };
-    // location.key is unique per entry; navType distinguishes PUSH vs POP.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [location.key]);
-
+  }, [location.key, location.pathname, navType]);
   return null;
 };
-
 export { getPrimaryScroller };

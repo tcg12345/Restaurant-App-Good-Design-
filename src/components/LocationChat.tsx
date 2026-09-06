@@ -8,7 +8,10 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { motion, AnimatePresence } from 'motion/react';
+import { motion, AnimatePresence, useReducedMotion } from 'motion/react';
+import { AssistantWelcome, AssistantOrb, type AssistantFeature } from './chat/AssistantWelcome';
+import { homeHaptic } from '../lib/haptics';
+import './chat/AssistantDesign.css';
 import {
   ArrowDown,
   ArrowLeft,
@@ -37,7 +40,6 @@ import {
   Users,
   Moon,
   Coffee,
-  Info,
   CircleDollarSign,
   ThumbsUp,
   ThumbsDown,
@@ -166,18 +168,19 @@ export interface ActionResult {
 }
 
 /* ── Model picker ────────────────────────────────────────────────
-   The chat can run on Sonnet 4.6, Opus 4.8, or 'auto' (server-side
+   The chat can run on Sonnet 5, Opus 5, or 'auto' (server-side
    heuristic chooses per turn). Stored as a literal string so it
    round-trips through localStorage and over the wire untouched.
-   The legacy 'claude-opus-4-7' pref is accepted on load and migrated
-   to 4.8 so a persisted choice from before the bump still resolves. */
-export type ChatModelPref = 'auto' | 'claude-sonnet-4-6' | 'claude-opus-4-8';
+   Legacy Opus and Sonnet preferences migrate to the current model
+   so saved selections survive the upgrade. */
+export type ChatModelPref = 'auto' | 'claude-sonnet-5' | 'claude-opus-5';
 const CHAT_MODEL_STORAGE_KEY = 'goodeats-chat-model';
-const VALID_MODEL_PREFS: readonly ChatModelPref[] = ['auto', 'claude-sonnet-4-6', 'claude-opus-4-8'];
+const VALID_MODEL_PREFS: readonly ChatModelPref[] = ['auto', 'claude-sonnet-5', 'claude-opus-5'];
 function loadModelPref(): ChatModelPref {
   try {
     const raw = localStorage.getItem(CHAT_MODEL_STORAGE_KEY);
-    if (raw === 'claude-opus-4-7') return 'claude-opus-4-8'; // migrate retired id
+    if (raw === 'claude-opus-4-7' || raw === 'claude-opus-4-8') return 'claude-opus-5';
+    if (raw === 'claude-sonnet-4-6') return 'claude-sonnet-5';
     if (raw && (VALID_MODEL_PREFS as readonly string[]).includes(raw)) return raw as ChatModelPref;
   } catch { /* private mode / quota — fall through */ }
   return 'auto';
@@ -187,16 +190,17 @@ function saveModelPref(pref: ChatModelPref) {
 }
 const MODEL_LABELS: Record<ChatModelPref, string> = {
   auto: 'Auto',
-  'claude-sonnet-4-6': 'Sonnet 4.6',
-  'claude-opus-4-8': 'Opus 4.8',
+  'claude-sonnet-5': 'Sonnet 5',
+  'claude-opus-5': 'Opus 5',
 };
 const MODEL_SUBLABELS: Record<ChatModelPref, string> = {
-  auto: 'Picks per turn',
-  'claude-sonnet-4-6': 'Fast, low cost',
-  'claude-opus-4-8': 'Deepest reasoning',
+  auto: 'Chooses for your request',
+  'claude-sonnet-5': 'Quick answers',
+  'claude-opus-5': 'More detailed answers',
 };
 
 interface LocationChatProps {
+  onExploreFeature?: (feature: AssistantFeature) => void;
   /** Drop the floating launcher, keeping the chat itself mountable. For
    *  pages with their own way in (a detail page's glass capsule). */
   hideLauncher?: boolean;
@@ -1098,6 +1102,7 @@ let handledOpenRequest = 0;
 let handledAttachment: unknown = null;
 
 export const LocationChat: React.FC<LocationChatProps> = ({
+  onExploreFeature,
   visible,
   restaurantMeta,
   cityDisplay,
@@ -1143,6 +1148,7 @@ export const LocationChat: React.FC<LocationChatProps> = ({
 }) => {
   const navigate = useNavigate();
   const { phoneMode, setHideBottomNav } = useSettings();
+  const reducedMotion = useReducedMotion();
   const { user: authUser } = useAuth();
   const { showToast } = useToast();
 
@@ -1196,9 +1202,7 @@ export const LocationChat: React.FC<LocationChatProps> = ({
   const [messages, setMessages] = useState<UiMessage[]>([]);
   const [input, setInput] = useState('');
   const [streaming, setStreaming] = useState(false);
-  // Elapsed seconds since the current streaming turn started. Drives
-  // the "Thinking… 5s" label so the user has visible feedback that
-  // the AI is still actively working during long recipe builds.
+  // Elapsed time changes the status copy during longer responses.
   const [streamElapsed, setStreamElapsed] = useState(0);
   const [error, setError] = useState<string | null>(null);
 
@@ -1488,14 +1492,15 @@ export const LocationChat: React.FC<LocationChatProps> = ({
     }
   }, [currentChatId, deleteChat]);
 
-  // Compute the initial desktop position when the chat first opens —
-  // bottom-right with a 24px gutter, sized to match the CSS defaults
-  // (400 × 560). Once positioned, drag is in charge.
+  // Measure the actual panel so responsive sizing and future design changes
+  // cannot place the composer or close control beyond the desktop viewport.
   useEffect(() => {
     if (!open || phoneMode || pos) return;
+    const panel = scrollRef.current?.closest<HTMLElement>('.lp-chat-island');
+    if (!panel) return;
     setPos({
-      left: Math.max(16, window.innerWidth - 400 - 24),
-      top: Math.max(16, window.innerHeight - 560 - 24),
+      left: Math.max(16, window.innerWidth - panel.offsetWidth - 24),
+      top: Math.max(16, window.innerHeight - panel.offsetHeight - 24),
     });
   }, [open, phoneMode, pos]);
 
@@ -2891,6 +2896,7 @@ export const LocationChat: React.FC<LocationChatProps> = ({
     if (streaming) return;
     const text = input.trim();
     if (!text) return;
+    homeHaptic();
     setInput('');
     void sendTurn(text);
     // The user's OWN send always comes into view, even if they'd scrolled
@@ -2938,6 +2944,7 @@ export const LocationChat: React.FC<LocationChatProps> = ({
   // swallow the AbortError and its finally clear `streaming`; whatever text
   // already streamed in stays in the conversation.
   const handleStop = useCallback(() => {
+    homeHaptic();
     abortRef.current?.abort();
   }, []);
 
@@ -3000,7 +3007,7 @@ export const LocationChat: React.FC<LocationChatProps> = ({
           <motion.div
             key="island"
             ref={islandRef}
-            className={cn('lp-chat-island', phoneMode && 'is-phone')}
+            className={cn('lp-chat-island ai-chat', phoneMode && 'is-phone', streaming && 'is-streaming')}
             // Phone: opacity-only fade. A transform (scale/translate) on a
             // position:fixed full-screen panel breaks iOS keyboard handling
             // (the panel gets shoved up / mis-positioned when the keyboard
@@ -3008,7 +3015,7 @@ export const LocationChat: React.FC<LocationChatProps> = ({
             initial={phoneMode ? { opacity: 0 } : { opacity: 0, scale: 0.94, y: 16 }}
             animate={phoneMode ? { opacity: 1 } : { opacity: 1, scale: 1, y: 0 }}
             exit={phoneMode ? { opacity: 0 } : { opacity: 0, scale: 0.96, y: 12 }}
-            transition={phoneMode
+            transition={reducedMotion ? { duration: 0 } : phoneMode
               ? { duration: 0.2, ease: [0.22, 1, 0.36, 1] }
               : { duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
             style={!phoneMode && pos
@@ -3020,7 +3027,7 @@ export const LocationChat: React.FC<LocationChatProps> = ({
                 }
               : undefined}
             role="dialog"
-            aria-label="Restaurant assistant"
+            aria-label="GoodEats AI"
           >
 
             <header
@@ -3040,7 +3047,7 @@ export const LocationChat: React.FC<LocationChatProps> = ({
                 </GlassButton>
               ) : (
                 <div className="lp-chat-head-icon" aria-hidden="true">
-                  <Sparkles />
+                  <AssistantOrb small />
                 </div>
               )}
               <div className="lp-chat-head-text">
@@ -3053,7 +3060,7 @@ export const LocationChat: React.FC<LocationChatProps> = ({
                   </>
                 ) : (
                   <>
-                    <h3>Ask a local</h3>
+                    <h3>GoodEats AI</h3>
                     <div className="lp-chat-head-model" ref={modelMenuRef}>
                       <button
                         type="button"
@@ -3062,14 +3069,15 @@ export const LocationChat: React.FC<LocationChatProps> = ({
                         aria-haspopup="listbox"
                         aria-expanded={modelMenuOpen}
                         title="Change model"
+                        aria-label={`AI model: ${MODEL_LABELS[model]}`}
                       >
                         <span className="lp-chat-model-dot" aria-hidden="true" />
-                        <span>{MODEL_LABELS[model]} · {MODEL_SUBLABELS[model].toLowerCase()}</span>
+                        <span>{MODEL_LABELS[model]}</span>
                         <ChevronDown size={11} strokeWidth={2.4} />
                       </button>
                       {modelMenuOpen && (
                         <div className="lp-chat-model-menu" role="listbox">
-                          {(['auto', 'claude-sonnet-4-6', 'claude-opus-4-8'] as ChatModelPref[]).map((opt) => (
+                          {(['auto', 'claude-sonnet-5', 'claude-opus-5'] as ChatModelPref[]).map((opt) => (
                             <button
                               key={opt}
                               type="button"
@@ -3078,7 +3086,7 @@ export const LocationChat: React.FC<LocationChatProps> = ({
                               className={cn('lp-chat-model-opt', model === opt && 'is-selected')}
                               onClick={() => {
                                 setModelMenuOpen(false);
-                                if (opt === 'claude-opus-4-8' && opusLocked) { openPaywall('gate:assistant-opus', 'assistant-opus'); return; }
+                                if (opt === 'claude-opus-5' && opusLocked) { openPaywall('gate:assistant-opus', 'assistant-opus'); return; }
                                 setModel(opt);
                               }}
                             >
@@ -3086,7 +3094,7 @@ export const LocationChat: React.FC<LocationChatProps> = ({
                                 <div className="lp-chat-model-opt-label">
                                   {opt === 'auto' && <Zap size={11} strokeWidth={2.4} />}
                                   <span>{MODEL_LABELS[opt]}</span>
-                                  {opt === 'claude-opus-4-8' && opusLocked && <ProTag locked />}
+                                  {opt === 'claude-opus-5' && opusLocked && <ProTag locked />}
                                 </div>
                                 <div className="lp-chat-model-opt-sub">{MODEL_SUBLABELS[opt]}</div>
                               </div>
@@ -3105,7 +3113,7 @@ export const LocationChat: React.FC<LocationChatProps> = ({
                     id="ai-new"
                     symbol="plus"
                     label="New chat"
-                    onClick={handleNewChat}
+                    onClick={() => { homeHaptic(); handleNewChat(); }}
                     className="lp-chat-glass-btn"
                   >
                     <Plus size={16} />
@@ -3211,37 +3219,13 @@ export const LocationChat: React.FC<LocationChatProps> = ({
               ) : (
               <>
               {messages.length === 0 && (
-                <div className="lp-chat-empty">
-                  <div className="lp-chat-empty-mark" aria-hidden="true">
-                    <Sparkles size={26} />
-                  </div>
-                  <h2 className="lp-chat-empty-lead">
-                    What should I eat in {shortCityName}?
-                  </h2>
-                  <p className="lp-chat-empty-sub">
-                    {ratingsCount && ratingsCount > 0
-                      ? `I know your ${ratingsCount} rating${ratingsCount === 1 ? '' : 's'}, your saves and who you follow. Ask like you'd ask a friend who lives here.`
-                      : "I know your saves and who you follow. Ask like you'd ask a friend who lives here."}
-                  </p>
-                  <div className="lp-chat-starters">
-                    {suggestions.map((sg, i) => (
-                      <button
-                        key={`${sg.title}-${i}`}
-                        type="button"
-                        className="lp-chat-starter"
-                        onClick={() => handleSuggestion(sg.prompt)}
-                      >
-                        <span className="icon" aria-hidden="true">{sg.icon}</span>
-                        <span className="title">{sg.title}</span>
-                        <span className="sub">{sg.subtitle}</span>
-                      </button>
-                    ))}
-                  </div>
-                  <p className="lp-chat-empty-note">
-                    <Info size={13} strokeWidth={1.9} />
-                    Answers draw on your ratings, your circle and live search.
-                  </p>
-                </div>
+                <AssistantWelcome
+                  city={shortCityName}
+                  suggestions={suggestions}
+                  onPrompt={handleSuggestion}
+                  onShuffle={() => setStarterSeed(nextStarterSeed())}
+                  onFeature={onExploreFeature ? (feature) => { flushSave(); setOpen(false); onExploreFeature(feature); } : undefined}
+                />
               )}
 
               {/* Each turn is a memoized ChatTurn (defined above) — only
@@ -3292,28 +3276,22 @@ export const LocationChat: React.FC<LocationChatProps> = ({
                   naturally; auto-scroll keeps it in view because
                   the existing scroll effect re-fires on `streaming`. */}
               {streaming && (
-                <div className="lp-chat-msg is-assistant lp-chat-streaming-indicator">
+                <div className="lp-chat-msg is-assistant lp-chat-streaming-indicator" role="status" aria-label="AI is responding">
                   <div className="lp-chat-bubble lp-chat-thinking">
-                    <span className="lp-chat-thinking-mark" aria-hidden="true"><Sparkles size={11} /></span>
-                    <span className="lp-chat-typing" aria-label="Assistant is responding">
-                      <span /><span /><span />
-                    </span>
+                    <AssistantOrb small />
                     <span className="lp-chat-thinking-label">
                       {streamElapsed >= 20
-                        ? 'Still working on it…'
+                        ? 'Taking a little longer…'
                         : streamElapsed >= 8
                           ? 'Working on it…'
                           : 'Thinking…'}
                     </span>
-                    {streamElapsed >= 4 && (
-                      <span className="lp-chat-thinking-elapsed">{streamElapsed}s</span>
-                    )}
                   </div>
                 </div>
               )}
 
               {error && (
-                <div className="lp-chat-error">
+                <div className="lp-chat-error" role="alert">
                   <span>{error}</span>
                   <button type="button" onClick={handleRetry} className="lp-chat-error-retry">
                     <RotateCw size={12} /> Try again
@@ -3378,7 +3356,7 @@ export const LocationChat: React.FC<LocationChatProps> = ({
                     its room. */}
                 <button
                   type="button"
-                  onClick={openFindAPlace}
+                  onClick={() => { homeHaptic(); setOpen(false); openFindAPlace(); }}
                   className="lp-chat-recs"
                   aria-label="Find a place"
                   title="Find a place"
@@ -3393,6 +3371,7 @@ export const LocationChat: React.FC<LocationChatProps> = ({
                 <textarea
                   ref={inputRef}
                   className="lp-chat-input"
+                  aria-label="Message GoodEats AI"
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
                   onKeyDown={(e) => {
@@ -3404,7 +3383,7 @@ export const LocationChat: React.FC<LocationChatProps> = ({
                   rows={1}
                   placeholder={
                     messages.length === 0
-                      ? 'Ask for a recommendation…'
+                      ? 'Ask anything about food…'
                       : 'Ask a follow-up…'
                   }
                 />

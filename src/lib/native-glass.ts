@@ -42,6 +42,8 @@ export interface GlassTabItem {
 export type GlassUnsupportedReason = '' | 'requiresIOS26' | 'reduceTransparency' | 'notNative';
 
 interface LiquidGlassPlugin {
+  confirmDestructive(options: { title: string; message: string; confirmLabel: string }): Promise<{ confirmed: boolean }>;
+  selectionHaptic(): Promise<void>;
   isSupported(): Promise<{ supported: boolean; reason: GlassUnsupportedReason }>;
   configureTabBar(options: {
     items: GlassTabItem[];
@@ -107,6 +109,7 @@ export const LiquidGlass = registerPlugin<LiquidGlassPlugin>('LiquidGlass', {
     async isSupported() {
       return { supported: false, reason: 'notNative' as const };
     },
+    async selectionHaptic() { /* no native feedback in the browser */ },
     async configureTabBar() { /* no native bar off-device */ },
     async setActiveTab() { /* no-op */ },
     async setMinimized() { /* no-op */ },

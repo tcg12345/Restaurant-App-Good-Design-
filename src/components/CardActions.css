@@ -1,0 +1,24 @@
+.card-swipe-tray { position:absolute; inset:0 0 0 auto; display:flex; align-items:center; justify-content:flex-end; gap:6px; padding:6px 0 6px 6px; }
+.card-swipe-tray button { flex:1; min-width:0; min-height:64px; max-height:82px; height:calc(100% - 12px); display:flex; flex-direction:column; align-items:center; justify-content:center; gap:7px; border-radius:21px; background:color-mix(in srgb,var(--color-on-surface) 9%,var(--color-surface)); color:var(--color-on-surface); font-size:11px; font-weight:600; letter-spacing:0; transition:transform .18s,filter .18s; }
+.card-swipe-tray button.is-danger { background:#d9473e; color:#fff; }
+.card-swipe-tray button:active { transform:scale(.93); filter:brightness(.95); }
+.card-swipe-tray svg { width:21px; height:21px; stroke-width:1.8; }
+.card-menu-layer,.card-confirm-layer { position:fixed; inset:0; z-index:350; margin:0; padding:0; border:0; max-width:none; max-height:none; width:100%; height:100%; background:#0003; }
+.card-menu-layer { backdrop-filter:blur(3px); -webkit-backdrop-filter:blur(3px); }
+.card-action-menu { padding:5px; border-radius:23px; background:color-mix(in srgb,var(--color-surface) 93%,transparent); color:var(--color-on-surface); border:1px solid color-mix(in srgb,var(--color-on-surface) 10%,transparent); box-shadow:0 16px 55px #0003,inset 0 1px 0 #ffffff3d; backdrop-filter:blur(28px) saturate(1.4); -webkit-backdrop-filter:blur(28px) saturate(1.4); overflow:hidden; }
+.card-action-menu button { width:100%; min-height:48px; display:flex; align-items:center; justify-content:space-between; gap:18px; border-radius:15px; padding:11px 13px; text-align:left; font-size:15px; font-weight:500; }
+.card-action-menu button + button { border-top:1px solid color-mix(in srgb,var(--color-on-surface) 7%,transparent); }
+.card-action-menu button:active,.card-action-menu button:focus-visible { background:color-mix(in srgb,var(--color-on-surface) 7%,transparent); outline:none; }
+.card-action-menu .is-danger,.card-confirm .is-danger { color:#cd382f; }
+.dark .card-action-menu .is-danger,.dark .card-confirm .is-danger { color:#ff827a; }
+.card-confirm-layer { display:grid; place-items:center; padding:24px; background:#0006; }
+.card-confirm { width:min(100%,300px); border-radius:25px; background:var(--color-surface); color:var(--color-on-surface); text-align:center; box-shadow:0 24px 80px #0004; overflow:hidden; animation:card-alert-in .2s ease-out; }
+.card-confirm h2 { padding:23px 22px 0; font:600 17px/1.3 -apple-system,BlinkMacSystemFont,sans-serif; overflow-wrap:anywhere; }
+.card-confirm p { padding:8px 22px 23px; font-size:13px; line-height:1.45; opacity:.7; }
+.card-confirm > div { display:flex; border-top:1px solid color-mix(in srgb,var(--color-on-surface) 12%,transparent); }
+.card-confirm button { flex:1; min-height:51px; font-size:16px; font-weight:600; }
+.card-confirm button + button { border-left:1px solid color-mix(in srgb,var(--color-on-surface) 12%,transparent); }
+@keyframes card-alert-in { from { opacity:0; transform:scale(.94); } to { opacity:1; transform:scale(1); } }
+@media(prefers-reduced-motion:reduce) { .card-confirm,.card-swipe-tray button { animation:none; transition:none; } }
+
+@media(prefers-reduced-motion:reduce) { [data-card-swipe] { transition:none !important; } }

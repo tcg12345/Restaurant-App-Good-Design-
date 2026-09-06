@@ -2,6 +2,7 @@ import React, { useCallback, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Check, Loader2, UserPlus } from 'lucide-react';
 import { cn } from '../lib/utils';
+import { useToast } from '../contexts/ToastContext';
 import { Avatar } from './Avatar';
 import { VerifiedBadge } from './VerifiedBadge';
 import { avatarHue } from '../lib/avatar';
@@ -38,7 +39,7 @@ const FollowButton: React.FC<{
       type="button"
       onClick={onFollow}
       disabled={busy || done}
-      aria-label={done ? `Following ${name}` : `Follow ${name}`}
+      aria-label={state === 'requested' ? `Requested to follow ${name}` : done ? `Following ${name}` : `Follow ${name}`}
       className={cn(
         'rounded-full inline-flex items-center justify-center gap-1 transition-opacity active:opacity-80 disabled:opacity-100',
         done ? 'bg-on-surface/[0.06] text-on-surface/55' : 'bg-primary text-on-primary',
@@ -63,7 +64,7 @@ const PersonCard: React.FC<{
   const hue = avatarHue(profile.user_id);
 
   return (
-    <div className="flex-none w-[148px] snap-start rounded-[22px] border border-on-surface/[0.09] bg-paper px-3.5 pt-4 pb-3.5 flex flex-col items-center text-center">
+    <div className="social-suggested-person flex-none w-[148px] snap-start rounded-[22px] border border-on-surface/[0.09] bg-paper px-3.5 pt-4 pb-3.5 flex flex-col items-center text-center">
       <Link to={`/user/${profile.username || ''}`} className="active:opacity-75 transition-opacity">
         <Avatar
           src={profile.avatar_url}
@@ -149,6 +150,7 @@ export const SuggestedPeople: React.FC<{
   layout?: 'rail' | 'list';
 }> = ({ people, userId, onRequireSignIn, onFollowed, loading, bare, layout = 'rail' }) => {
   const [states, setStates] = useState<Record<string, FollowState>>({});
+  const { showToast } = useToast();
 
   const handleFollow = useCallback(async (p: SuggestedProfile) => {
     if (!userId) { onRequireSignIn?.(); return; }
@@ -167,8 +169,10 @@ export const SuggestedPeople: React.FC<{
     }));
     // Only an accepted follow changes what the feed can show; a request to a
     // private account changes nothing until they approve it.
+    if (ok) window.dispatchEvent(new Event('follows:changed'));
+    else showToast("Couldn’t follow. Please try again.");
     if (ok && p.is_public) onFollowed?.();
-  }, [userId, states, onRequireSignIn, onFollowed]);
+  }, [userId, states, onRequireSignIn, onFollowed, showToast]);
 
   const header = bare ? null : (
     <div className="px-5">

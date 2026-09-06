@@ -1,3 +1,4 @@
+import { DeleteConfirmation } from '../DeleteConfirmation';
 /**
  * A shared list on screen — the Pantry renders this in place of the
  * personal list view when the selected list is one several people keep.
@@ -150,6 +151,7 @@ export const SharedListView: React.FC<{
   const [addOpen, setAddOpen] = useState(false);
   const [membersOpen, setMembersOpen] = useState(false);
   const [scoring, setScoring] = useState<SharedListEntry | null>(null);
+  const [removingId, setRemovingId] = useState<string | null>(null);
   const [menu, setMenu] = useState<{ entry: SharedListEntry; rect: DOMRect } | null>(null);
   const press = useCardLongPress<SharedListEntry>((entry, target) => setMenu({ entry, rect: target.getBoundingClientRect() }));
 
@@ -308,6 +310,7 @@ export const SharedListView: React.FC<{
         </ul>
       )}
 
+      {removingId && <DeleteConfirmation title="Remove this place?" message="It will be removed from this shared list. Your rating is kept." confirmLabel="Remove" onCancel={() => setRemovingId(null)} onConfirm={() => { void removePlace(list.id, removingId); setRemovingId(null); }} />}
       {menu && (
         <CardActionMenu
           rect={menu.rect}
@@ -316,7 +319,7 @@ export const SharedListView: React.FC<{
             list.ratingMode === 'group'
               ? { label: menu.entry.groupScore != null ? 'Edit group score' : 'Score as a group', icon: <Users size={16} />, onClick: () => setScoring(menu.entry) }
               : { label: 'Rate it yourself', icon: <Star size={16} />, onClick: () => openAddRestaurantModal(toMeta(menu.entry)) },
-            { label: 'Remove from list', icon: <Trash2 size={16} />, onClick: () => { void removePlace(list.id, menu.entry.restaurantId); }, danger: true },
+            { label: 'Remove from list', icon: <Trash2 size={16} />, onClick: () => setRemovingId(menu.entry.restaurantId), danger: true },
           ] as CardAction[]}
         />
       )}

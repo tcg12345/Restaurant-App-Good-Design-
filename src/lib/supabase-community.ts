@@ -419,7 +419,7 @@ export async function publishCommunityPhotos(
 /**
  * Get community photos for a restaurant.
  */
-export async function getCommunityPhotos(restaurantId: string, limit?: number, offset?: number): Promise<CommunityPhoto[]> {
+export async function getCommunityPhotos(restaurantId: string, limit?: number, offset?: number, options?: { throwOnError?: boolean }): Promise<CommunityPhoto[]> {
   if (!supabaseConfigured) return [];
   try {
     // Favourite first, then most-recent — so a `limit: 1` cover fetch returns
@@ -434,9 +434,9 @@ export async function getCommunityPhotos(restaurantId: string, limit?: number, o
     if (offset != null && limit && limit > 0) q = q.range(offset, offset + limit - 1);
     else if (limit && limit > 0) q = q.limit(limit);
     const { data, error } = await q;
-    if (error) { console.error('[Community] getPhotos error:', error); return []; }
+    if (error) { if (options?.throwOnError) throw error; console.error('[Community] getPhotos error:', error); return []; }
     return (data || []) as CommunityPhoto[];
-  } catch (err) { console.error('[Community] getPhotos exception:', err); return []; }
+  } catch (err) { if (options?.throwOnError) throw err; console.error('[Community] getPhotos exception:', err); return []; }
 }
 
 /**

@@ -90,3 +90,12 @@ export function hostedCoverUrl(origin: DishPhotoOrigin): string | null {
   }
   return null;
 }
+
+/** Keep the cook's explicit request first: the server caps hints at 600
+ * characters. Restaurant context fills only the remaining space. */
+export function dishPhotoHint(hint: string, origin: DishPhotoOrigin): string | undefined {
+  const context = origin.kind === 'rating' || origin.kind === 'community'
+    ? [origin.restaurantName && `Restaurant: ${origin.restaurantName}`, origin.caption && `Photo caption: ${origin.caption}`]
+    : [];
+  return [hint.trim(), ...context].filter(Boolean).join('\n').slice(0, 600) || undefined;
+}

@@ -1,0 +1,81 @@
+.discover-sheet {
+  --ds-ink: var(--color-on-surface);
+  --ds-muted: color-mix(in srgb, var(--ds-ink) 64%, var(--color-surface));
+  --ds-line: color-mix(in srgb, var(--ds-ink) 9%, transparent);
+  --ds-panel: color-mix(in srgb, var(--ds-ink) 5%, var(--color-surface));
+  --ds-accent: #3f6555;
+  color: var(--ds-ink); font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'Manrope', sans-serif;
+  overflow: hidden; border: 1px solid var(--ds-line); border-bottom: 0;
+}
+.dark .discover-sheet { --ds-accent: #b2d3c0; }
+.discover-sheet :is(h2,h3) { font-family: inherit; }
+.discover-sheet button { -webkit-tap-highlight-color: transparent; }
+.discover-sheet button:focus-visible, .ds-grab:focus-visible { outline: 2px solid var(--ds-accent); outline-offset: -2px; }
+.ds-grab { user-select: none; }
+.ds-peek-title { display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; padding: 12px 23px 0; color: var(--ds-ink); font-size: 14px; font-weight: 650; }
+.discover-sheet .ds-header { padding: 0 20px 11px; border-bottom: 1px solid var(--ds-line); }
+.ds-heading { display: flex; flex-direction: column; align-items: stretch; gap: 0; }
+.ds-summary { overflow: hidden; pointer-events: none; will-change: height, opacity; }
+.ds-summary p { display: flex; align-items: center; gap: 6px; color: var(--ds-muted); font-size: 12px; font-weight: 550; line-height: 20px; margin: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ds-summary p>svg { flex-shrink: 0; }
+.ds-map-toggle { display: flex; align-items: center; justify-content: center; gap: 5px; min-height: 44px; padding: 0 12px; border-radius: 23px; background: var(--ds-panel); color: var(--ds-ink); font-size: 11px; font-weight: 650; }
+.ds-source-controls { display: flex; gap: 8px; align-items: center; }
+.ds-source-controls>button:not(.ds-map-toggle), .ds-source-controls>div>button { min-height: 44px; height: auto; padding: 0 16px; border: 1px solid var(--ds-line); background: transparent; color: var(--ds-ink); font-size: 12px; font-weight: 600; }
+.ds-source-controls>div>button { background: var(--ds-panel); }
+.ds-source-controls>div>div button { min-height: 44px; }
+.discover-sheet .ds-results { padding: 0 20px calc(env(safe-area-inset-bottom, 0px) + 92px); overscroll-behavior-y: contain; scroll-padding-bottom: 100px; overflow-anchor: none; }
+.ds-place { position: relative; padding: 6px 0; border-bottom: 1px solid var(--ds-line); transition: background-color .2s ease; }
+.ds-place:last-child { border-bottom: 0; }
+.ds-place.is-selected { background: color-mix(in srgb, var(--ds-accent) 6%, transparent); }
+.ds-place-open { display: flex; align-items: center; gap: 14px; width: calc(100% - 42px); text-align: left; color: var(--ds-ink); min-height: 96px; }
+.ds-place-copy { flex: 1; min-width: 0; }
+.ds-place-copy h3 { font-size: 15px; font-weight: 700; line-height: 1.25; letter-spacing: -.35px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.ds-place-copy p { font-size: 11px; color: var(--ds-muted); line-height: 1.5; margin-top: 5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ds-place-copy .ds-place-location { display: flex; align-items: center; gap: 3px; margin-top: 2px; }
+.ds-place-location svg { flex-shrink: 0; }
+.ds-place-rating { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.ds-place-rating small { color: var(--ds-muted); font-size: 11px; font-weight: 500; }
+.ds-place-actions { display: flex; flex-direction: column; position: absolute; top: 6px; right: -5px; gap: 0; }
+.ds-place-actions button { width: 44px; height: 44px; display: grid; place-items: center; border-radius: 50%; color: var(--ds-muted); transition: background-color .18s ease, transform .18s ease; }
+.ds-place-actions button[aria-pressed=true] { color: var(--ds-accent); background: var(--ds-panel); }
+.ds-place-actions button:active { transform: scale(.92); background: var(--ds-panel); }
+.ds-place-context { padding: 10px 0 0; font-size: 10px; line-height: 1.5; }
+.ds-empty { display: flex; flex-direction: column; align-items: center; text-align: center; padding: 36px 16px; }
+.ds-empty>svg { color: var(--ds-accent); margin-bottom: 15px; }
+.ds-empty h3 { font-size: 18px; font-weight: 650; letter-spacing: -.4px; }
+.ds-empty p { font-size: 12px; color: var(--ds-muted); margin-top: 8px; max-width: 240px; line-height: 1.6; }
+.ds-empty button { margin-top: 16px; min-height: 44px; padding: 0 17px; border-radius: 23px; background: var(--ds-ink); color: var(--color-surface); display: flex; align-items: center; gap: 9px; font-size: 12px; font-weight: 600; }
+@media (max-width: 350px) {
+  .discover-sheet .ds-header { padding-left: 16px; padding-right: 16px; }
+  .discover-sheet .ds-results { padding-left: 16px; padding-right: 16px; }
+  .ds-place-open { gap: 10px; }
+  .ds-place-copy h3 { font-size: 14px; }
+  .ds-place-context { padding-left: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .discover-sheet *, .discover-sheet { transition: none !important; }
+}
+.ds-source-options { display: flex; flex-direction: column; gap: 6px; }
+.ds-source-option { display: flex; align-items: center; gap: 12px; width: 100%; min-height: 54px; padding: 0 17px; text-align: left; border-radius: 17px; color: var(--color-on-surface); }
+.ds-source-option.is-selected { background: color-mix(in srgb, var(--color-on-surface) 6%, transparent); }
+.ds-place-copy h3 { font-size: 18px; letter-spacing: -.45px; }
+.ds-place-copy p { font-size: 12px; }
+
+.ds-place-open { min-height: 88px; }
+.ds-place-rating { margin-top: 5px; gap: 9px; }
+@media (max-width: 350px) { .ds-place-copy h3 { font-size: 16px; } }
+
+.ds-source-controls .ds-map-toggle { margin-left: auto; flex-shrink: 0; }
+@media (max-width: 350px) {
+  .ds-source-controls { gap: 6px; }
+  .ds-source-controls>button:not(.ds-map-toggle), .ds-source-controls>div>button { padding: 0 11px; font-size: 11px; }
+  .ds-map-toggle { padding: 0 10px; font-size: 11px; }
+}
+.ds-source-controls>button { flex-shrink: 0; }
+.ds-source-controls>.relative { min-width: 0; }
+.ds-source-controls>.relative>button { max-width: 100%; }
+
+.ds-place-copy .ds-place-facts { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 10px; white-space: normal; overflow: visible; }
+.ds-place-facts>span { max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ds-place-facts .ds-place-distance { display: inline-flex; align-items: center; gap: 3px; }
+.ds-place-distance svg { flex-shrink: 0; }

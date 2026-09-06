@@ -7,7 +7,6 @@ import { Logo } from './Logo';
 import { useAuth } from '../contexts/AuthContext';
 import { useLists } from '../contexts/ListsContext';
 import { useChat } from '../contexts/ChatContext';
-import { useNotifications } from '../contexts/NotificationsContext';
 import { useCirclePanel } from '../contexts/CirclePanelContext';
 import { useGuideCreator } from '../contexts/GuideCreatorContext';
 import { usePageAddAction } from '../contexts/PageAddActionContext';
@@ -41,10 +40,8 @@ export const Sidebar: React.FC = () => {
   const { profile, pendingRequestCount } = useAuth();
   const { ratings, openHomeMealModal } = useLists();
   const { unreadCount } = useChat();
-  // Friend requests and alerts both live behind the Circle button, so the
-  // badge on it has to speak for both.
-  const { unreadCount: alertCount } = useNotifications();
-  const circleBadge = pendingRequestCount + alertCount;
+  // The Friends badge represents pending follow requests.
+  const circleBadge = pendingRequestCount;
   // One "Post" entry covers photos AND video — the user picks media
   // first (Instagram-style) and the selection routes itself: a single
   // video continues as a reel, everything else as a post.

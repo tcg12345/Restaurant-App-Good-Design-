@@ -1,10 +1,10 @@
-import React, { createContext, useEffect, useRef, useState } from 'react';
+import React, { createContext, useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { motion, AnimatePresence } from 'motion/react';
+import { motion, AnimatePresence, MotionConfig } from 'motion/react';
 import { ChevronLeft, X } from 'lucide-react';
 import { useSettings } from '../contexts/SettingsContext';
 import { GlassButton } from '../lib/glass-buttons';
-import { useBottomSheet } from '../lib/useBottomSheet';
+import { useBottomSheet, mergeRefs, liftOverlayToTopLayer } from '../lib/useBottomSheet';
 import { cn } from '../lib/utils';
 import './filterSheet.css';
 
@@ -99,12 +99,17 @@ export const FilterSheet: React.FC<FilterSheetProps> = ({
   // Drag-anywhere dismissal — a downward pull with the list at its top
   // takes the whole sheet; scrolled content, or a drill-in subpage, keeps
   // the drag native to whatever's under the finger.
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const titleId = useId();
+  const contentRef = useRef<HTMLDivElement>(null);
+  const [preferredHeight, setPreferredHeight] = useState(700);
+  const activeScrollRef = useRef<HTMLDivElement | null>(null);
   const sheetScrollRef = useRef<HTMLDivElement | null>(null);
   // The glass ✕ and Clear all live IN the sheet's header. While the sheet
   // rides a finger they stand down to their CSS look — a native control
   // can't track a finger-driven transform — and come back at rest.
   const [glassSuspended, setGlassSuspended] = useState(false);
-  const { dragProps, sheetRef } = useBottomSheet(open, onClose, sheetScrollRef, setGlassSuspended);
+  const { dragProps, sheetRef } = useBottomSheet(open, onClose, activeScrollRef, setGlassSuspended);
   const handleApply = onApply ?? onClose;
 
   // ── Drill sub-page state ──
@@ -131,10 +136,82 @@ export const FilterSheet: React.FC<FilterSheetProps> = ({
     return () => cancelAnimationFrame(raf);
   }, [open]);
 
+  useEffect(() => {
+    activeScrollRef.current = page ? subContainer : sheetScrollRef.current;
+  }, [page, subContainer, open]);
+
+  // Keep the sheet sized to its overview while drilling into lists. Short
+  // recipe filters need less space, and navigation should not resize the sheet.
+  useLayoutEffect(() => {
+    if (!open || !contentRef.current || !dialogRef.current) return;
+    const measure = () => {
+      const root = dialogRef.current;
+      if (!root || !contentRef.current) return;
+      const chrome = ['.fs-head', '.fs-foot', '.fs-drag-handle'].reduce((height, selector) =>
+        height + (root.querySelector<HTMLElement>(selector)?.offsetHeight ?? 0), 0);
+      setPreferredHeight(Math.max(440, contentRef.current.offsetHeight + chrome + 14));
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(contentRef.current);
+    return () => observer.disconnect();
+  }, [open, phoneMode]);
+
+  const closeCurrent = useRef(() => {});
+  closeCurrent.current = () => page ? setPage(null) : onClose();
+  useEffect(() => {
+    if (!open) return;
+    const previous = document.activeElement as HTMLElement | null;
+    const frame = requestAnimationFrame(() => {
+      liftOverlayToTopLayer(dialogRef.current);
+      dialogRef.current?.focus({ preventScroll: true });
+    });
+    const keydown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault(); event.stopPropagation(); closeCurrent.current();
+      }
+      if (event.key !== 'Tab') return;
+      const targets = Array.from<HTMLElement>(dialogRef.current?.querySelectorAll<HTMLElement>(
+        'button:not(:disabled), input:not(:disabled), a[href], [tabindex="0"]',
+      ) ?? []).filter(el => !el.closest('[inert]') && el.getClientRects().length > 0);
+      const first = targets[0], last = targets.at(-1);
+      if (!first) { event.preventDefault(); return; }
+      const active = document.activeElement as HTMLElement;
+      if (event.shiftKey && (active === first || !targets.includes(active))) {
+        event.preventDefault(); last?.focus({ preventScroll: true });
+      } else if (!event.shiftKey && (active === last || !targets.includes(active))) {
+        event.preventDefault(); first.focus({ preventScroll: true });
+      }
+    };
+    document.addEventListener('keydown', keydown, true);
+    return () => {
+      cancelAnimationFrame(frame);
+      document.removeEventListener('keydown', keydown, true);
+      if (previous?.isConnected) previous.focus({ preventScroll: true });
+    };
+  }, [open]);
+  const previousPage = useRef<string | null>(null);
+  useEffect(() => {
+    if (!open) return;
+    const from = previousPage.current;
+    previousPage.current = page?.id ?? null;
+    const frame = requestAnimationFrame(() => {
+      if (page) dialogRef.current?.querySelector<HTMLElement>('.fs-title')?.focus({ preventScroll: true });
+      else if (from) {
+        const row = Array.from<HTMLElement>(dialogRef.current?.querySelectorAll<HTMLElement>('[data-filter-page]') ?? [])
+          .find(el => el.dataset.filterPage === from);
+        row?.focus({ preventScroll: true });
+      }
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [page?.id, open]);
+  const openPage = useCallback<FilterSheetNav['openPage']>((id, pageTitle, meta) =>
+    setPage({ id, title: pageTitle, ...meta }), []);
+  const closePage = useCallback(() => setPage(null), []);
   const nav: FilterSheetNav = {
     activeId: page?.id ?? null,
-    openPage: (id, pageTitle, meta) => setPage({ id, title: pageTitle, ...meta }),
-    closePage: () => setPage(null),
+    openPage,
+    closePage,
     container: subContainer,
   };
 
@@ -144,6 +221,7 @@ export const FilterSheet: React.FC<FilterSheetProps> = ({
   // overlay rendered in place would be fenced UNDER the page's floating
   // glass chrome, which then hangs over the open sheet.
   return createPortal(
+    <MotionConfig reducedMotion="user">
     <AnimatePresence>
       {open && (
         <motion.div
@@ -156,7 +234,12 @@ export const FilterSheet: React.FC<FilterSheetProps> = ({
           onClick={onClose}
         >
           <motion.div
-            ref={phoneMode ? (sheetRef as React.RefObject<HTMLDivElement>) : undefined}
+            ref={mergeRefs(dialogRef, phoneMode ? sheetRef : undefined)}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby={titleId}
+            style={{ '--fs-preferred-height': `${preferredHeight}px` } as React.CSSProperties}
+            tabIndex={-1}
             {...(phoneMode
               ? {
                   initial: { y: '100%' },
@@ -191,7 +274,7 @@ export const FilterSheet: React.FC<FilterSheetProps> = ({
                     <ChevronLeft size={17} />
                   </button>
                   <div className="fs-head-text">
-                    <h3 className="fs-title is-sub">{page.title}</h3>
+                    <h3 id={titleId} tabIndex={-1} className="fs-title is-sub">{page.title}</h3>
                     {/* The rule, stated. "Cuisine" alone doesn't say whether
                         tapping a second one replaces the first. */}
                     {page.subtitle && <p className="fs-subtitle">{page.subtitle}</p>}
@@ -201,7 +284,7 @@ export const FilterSheet: React.FC<FilterSheetProps> = ({
                 <div className="fs-head-main">
                   {titleIcon && <span className="fs-title-icon">{titleIcon}</span>}
                   <div className="fs-head-text">
-                    <h3 className="fs-title">{title}</h3>
+                    <h3 id={titleId} tabIndex={-1} className="fs-title">{title}</h3>
                     {subtitle && <p className="fs-subtitle">{subtitle}</p>}
                   </div>
                 </div>
@@ -236,9 +319,10 @@ export const FilterSheet: React.FC<FilterSheetProps> = ({
                   </GlassButton>
                 </div>
               ) : (
-                <button type="button" onClick={onClose} className="fs-close" aria-label="Close filters">
-                  <X size={16} />
-                </button>
+                <GlassButton id="filters-close" symbol="xmark" label="Close filters"
+                  onClick={onClose} suspended={glassSuspended} className="fs-close">
+                  <X size={19} />
+                </GlassButton>
               )}
             </div>
 
@@ -254,8 +338,9 @@ export const FilterSheet: React.FC<FilterSheetProps> = ({
                   transition={{ duration: 0.4, ease: [0.32, 0.72, 0, 1] }}
                   style={{ transformOrigin: 'center left' }}
                   aria-hidden={!!page || undefined}
+                  inert={!!page}
                 >
-                  {children}
+                  <div ref={contentRef} className="fs-body-content">{children}</div>
                 </motion.div>
                 <AnimatePresence>
                   {page && (
@@ -297,7 +382,8 @@ export const FilterSheet: React.FC<FilterSheetProps> = ({
           </motion.div>
         </motion.div>
       )}
-    </AnimatePresence>,
+    </AnimatePresence>
+    </MotionConfig>,
     document.body,
   );
 };

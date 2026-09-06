@@ -14,10 +14,10 @@
 // hydrate losslessly (flat ingredients/steps become a single section;
 // photos / dishes / dates pass through untouched on update).
 
-import React, { useState, useEffect } from 'react';
+import React, { useRef, useLayoutEffect, useState, useEffect } from 'react';
 import { GlassButton } from '../lib/glass-buttons';
 import { useNavigate } from 'react-router-dom';
-import { motion, AnimatePresence } from 'motion/react';
+import { motion, AnimatePresence, MotionConfig } from 'motion/react';
 import { Sparkles, Link2, Camera, ScanLine, PenLine, ClipboardType, ChevronLeft, ChevronRight, X } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useLists, type HomeMeal, type HomeMealMethod, type DishPhotoRef } from '../contexts/ListsContext';
@@ -27,7 +27,7 @@ import { useToast } from '../contexts/ToastContext';
 import { usePaywall } from '../contexts/PaywallContext';
 import { usePlan } from '../contexts/PlanContext';
 import { ProTag } from './pro/ProMark';
-import { useBottomSheet, acquireHardScrollLock } from '../lib/useBottomSheet';
+import { useBottomSheet, acquireHardScrollLock, liftOverlayToTopLayer } from '../lib/useBottomSheet';
 import { pushOverlay } from '../lib/overlay-registry';
 import { wakeGlassButtons } from '../lib/glass-buttons';
 import { ImportRecipePanel } from './ImportRecipePanel';
@@ -39,10 +39,12 @@ import { refineRecipe, editRecipeIngredient, type IngredientEdit, type Ingredien
 import { generateRecipeImage } from '../lib/generate-recipe-image-client';
 import { hostedCoverUrl, mayUseAsCover, recreatedFromOf } from '../lib/dish-photo';
 import { processDataUrl } from '../lib/images';
+import { withRecipeCover } from '../lib/recipe-from-ai';
 import type { FeatureKey } from '../lib/entitlements';
 import { useAiChatHistory } from '../contexts/AiChatHistoryContext';
 import { peekPendingResumeDraftId } from '../lib/recipe-drafts';
 import './RecipeBuilder.css';
+import './DishRecreation.css';
 
 type BuilderMode = 'import' | 'advanced' | 'ai' | 'dish';
 type Stage = 'choose' | 'flow';
@@ -76,14 +78,11 @@ const MethodChooser: React.FC<{
   const planCtx = usePlan();
   const locked = planCtx.checked && !planCtx.isPro ? PRO_METHODS : new Set<Method>();
   return (
-  <div className="rcx-choose">
-    {phoneMode ? (
-      <div className="rcx-choose-handle" aria-hidden />
-    ) : (
-      <button type="button" className="rcx-choose-close" onClick={onClose} aria-label="Close">
-        <X size={14} />
-      </button>
-    )}
+  <div className="rcx-choose dish-methods">
+    {phoneMode && <div className="rcx-choose-handle" aria-hidden />}
+    <button type="button" className="rcx-choose-close" onClick={onClose} aria-label="Close">
+      <X size={16} />
+    </button>
     <h2 className="rcx-choose-title">Add a recipe</h2>
     <p className="rcx-choose-sub">How do you want to start?</p>
     {phoneMode ? (
@@ -129,6 +128,8 @@ export const AddHomeMealModal: React.FC = () => {
   const userId = auth.user?.id || null;
 
   const existing = homeMealModalData;
+  const overlayRef = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => { if (homeMealModalOpen) liftOverlayToTopLayer(overlayRef.current); }, [homeMealModalOpen]);
 
   const [stage, setStage] = useState<Stage>('choose');
   const [mode, setMode] = useState<BuilderMode>('advanced');
@@ -384,24 +385,14 @@ export const AddHomeMealModal: React.FC = () => {
   //    openHomeMealModal(..., { onBackToDraft }); close this modal and
   //    fire it to re-surface the chat's draft sheet.
   const backToDraft = seed && seedKind === 'ai'
-    ? () => { setAiDraft(seed); setSeed(null); setMode('ai'); }
+    ? () => { setAiDraft(seed); setSeed(null); setMode(seed.recreatedFrom ? 'dish' : 'ai'); }
     : homeMealModalBackToDraft
       ? () => { const cb = homeMealModalBackToDraft; closeHomeMealModal(); cb(); }
       : undefined;
 
   // Attach / clear a cover photo on the in-preview AI draft.
   const handleAiCoverChange = (dataUrl: string | null) => {
-    setAiDraft((prev) =>
-      prev
-        ? {
-            ...prev,
-            coverPhoto: dataUrl || undefined,
-            photos: dataUrl
-              ? Array.from(new Set([dataUrl, ...(prev.photos || [])]))
-              : (prev.photos || []).filter((p) => p !== prev.coverPhoto),
-          }
-        : prev,
-    );
+    setAiDraft((prev) => prev ? withRecipeCover(prev, dataUrl) : prev);
   };
 
   // Generate an AI hero photo of the finished dish. The sheet compresses
@@ -437,11 +428,12 @@ export const AddHomeMealModal: React.FC = () => {
   ) : undefined;
 
   return (
-    <>
+    <MotionConfig reducedMotion="user">
       <AnimatePresence>
         {homeMealModalOpen && (
           <motion.div
             initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            ref={overlayRef}
             className={cn('fixed inset-0 bg-black/60 backdrop-blur-sm z-[100] flex justify-center',
               phoneMode ? 'items-end' : 'items-end sm:items-center'
             )}
@@ -548,6 +540,6 @@ export const AddHomeMealModal: React.FC = () => {
         zClass="z-[210]"
         publishLabel="Publish recipe"
       />
-    </>
+    </MotionConfig>
   );
 };

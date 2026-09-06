@@ -120,7 +120,7 @@ export const NightPurchaseFooter: React.FC<{ p: Purchase; ctaLabel?: string }> =
       )}
     </motion.button>
     {p.phase === 'error' && (
-      <p style={{ marginTop: 10, textAlign: 'center', fontSize: '12.5px', fontWeight: 600, color: '#e08273' }}>{p.error || 'The purchase didn’t go through. Nothing was charged.'}</p>
+      <p style={{ marginTop: 10, textAlign: 'center', fontSize: '12.5px', fontWeight: 600, color: '#e08273' }}>{p.error || 'We couldn’t complete the purchase. Please try again.'}</p>
     )}
     {p.offer && p.phase !== 'error' && (
       <p style={{ marginTop: 8, textAlign: 'center', fontSize: '11.5px', color: NIGHT_INK_FAINT }}>{finePrintFor(p.offer)}</p>
@@ -138,7 +138,7 @@ export const NightLegal: React.FC<{ p: Purchase }> = ({ p }) => (
 );
 
 /** The states after a purchase attempt: the check, or "finish in your browser". */
-export const NightOutcome: React.FC<{ phase: 'success' | 'web-sent'; onDone: () => void }> = ({ phase, onDone }) => (
+export const NightOutcome: React.FC<{ phase: 'success' | 'web-sent' | 'pending'; onDone: () => void }> = ({ phase, onDone }) => (
   <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5, ease: EASE }} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', padding: '40px 0' }}>
     {phase === 'success' ? (
       <>
@@ -148,8 +148,8 @@ export const NightOutcome: React.FC<{ phase: 'success' | 'web-sent'; onDone: () 
       </>
     ) : (
       <>
-        <p style={{ fontFamily: 'var(--font-display)', fontWeight: 300, fontSize: '26px', color: NIGHT_INK, letterSpacing: '-0.02em' }}>Finish in <em style={{ fontStyle: 'italic' }}>your browser.</em></p>
-        <p style={{ marginTop: 8, fontSize: '13.5px', color: NIGHT_INK_SOFT, maxWidth: '30ch', lineHeight: 1.5 }}>Checkout opened in a new tab. Pro turns on here the moment it's done.</p>
+        <p style={{ fontFamily: 'var(--font-display)', fontWeight: 300, fontSize: '26px', color: NIGHT_INK, letterSpacing: '-0.02em' }}>{phase === 'pending' ? 'Confirming your upgrade.' : 'Finish in your browser.'}</p>
+        <p style={{ marginTop: 8, fontSize: '13.5px', color: NIGHT_INK_SOFT, maxWidth: '30ch', lineHeight: 1.5 }}>{phase === 'pending' ? 'Your purchase is being confirmed. Your plan will update when it’s ready.' : 'Checkout opened in a new tab. Your plan updates after payment is confirmed.'}</p>
         <button type="button" onClick={onDone} className="mt-6 rounded-full px-5 h-11" style={{ border: '1px solid rgba(255,255,255,0.2)', color: NIGHT_INK, fontSize: '13.5px', fontWeight: 700 }}>Done</button>
       </>
     )}

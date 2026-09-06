@@ -1,0 +1,488 @@
+/* Flat, photo-led library surfaces. Controls carry the hierarchy, not card frames. */
+
+.library-page,.library-page h1,.library-page h2,.library-page h3,.library-page button,.library-page input,.library-page select,.library-drawer,.foryou-page,.foryou-page h1,.foryou-page h3,.foryou-page button,.foryou-page select {
+  font-family: -apple-system,BlinkMacSystemFont,'Inter',sans-serif;
+}
+
+.library-page.type-archivo .font-serif,.library-drawer .font-serif,.foryou-page.type-archivo .font-serif {
+  font-family: -apple-system,BlinkMacSystemFont,'Inter',sans-serif;
+}
+
+.library-header {
+  padding: 0 7px;
+}
+
+.library-topbar {
+  gap: 7px;
+  padding-bottom: 4px;
+}
+
+.library-tabs {
+  /* UIKit divides the glass selector into equal halves. Reserve enough
+     width for its magnified Restaurants label, rather than sizing to the
+     smaller web fallback text. */
+  flex: 1 1 0;
+  max-width: 236px;
+  min-width: 0;
+  margin-right: auto;
+  box-shadow: 0 2px 10px #00000005 !important;
+}
+
+.library-tabs button {
+  flex: 1 1 0;
+  justify-content: center;
+  min-width: 0;
+  white-space: nowrap;
+  font-size: 13px;
+  height: 38px;
+  padding: 0 12px;
+  font-weight: 600;
+  box-shadow: none !important;
+}
+
+.library-tabs button[aria-pressed=true]:not([aria-hidden=true]) {
+  background: var(--color-on-surface);
+  color: var(--color-surface);
+}
+
+.library-title-row {
+  padding-top: 14px;
+  display: flex;
+  align-items: flex-start;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.library-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: 100%;
+  text-align: left;
+  min-height: 38px;
+}
+
+.library-title h1 {
+  font-size: 30px;
+  font-weight: 650;
+  letter-spacing: -1.1px;
+  line-height: 1.1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.library-title>svg {
+  flex-shrink: 0;
+  opacity: .45;
+  transition: transform .25s;
+}
+
+.library-count {
+  font-size: 12px;
+  color: color-mix(in srgb,var(--color-on-surface) 48%,transparent);
+  font-variant-numeric: tabular-nums;
+}
+
+.library-discovery {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  margin: 4px 0 9px;
+  border-bottom: 1px solid color-mix(in srgb,var(--color-on-surface) 7%,transparent);
+  padding-bottom: 5px;
+}
+
+.library-discovery button {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 44px;
+  font-size: 13px;
+  font-weight: 550;
+  color: color-mix(in srgb,var(--color-on-surface) 75%,transparent);
+  white-space: nowrap;
+  background: none;
+  border: 0;
+}
+
+.library-discovery button:last-child:not(:first-child) {
+  margin-left: auto;
+}
+
+.library-discovery button>svg:last-child {
+  opacity: .38;
+}
+
+.library-discovery button:active {
+  opacity: .6;
+}
+
+.library-page .library-filter {
+  border: 0;
+  min-height: 44px;
+  background: color-mix(in srgb,var(--color-on-surface) 4%,transparent);
+  padding: 9px 12px;
+  font-size: 12px !important;
+  font-weight: 550 !important;
+}
+
+.library-page .library-filter.bg-on-surface {
+  background: var(--color-on-surface);
+  color: var(--color-surface);
+}
+
+.library-page .library-filter svg {
+  opacity: .65;
+}
+
+.library-restaurant-row h3 {
+  font-size: 19px;
+  font-weight: 600;
+  letter-spacing: -.5px;
+  line-height: 1.2;
+}
+
+.library-restaurant-row h3>span {
+  font-size: 13px;
+  font-weight: 500;
+  opacity: .65;
+  margin-right: 5px;
+}
+
+.library-restaurant-row>div>a {
+  padding: 21px 7px;
+}
+
+.library-restaurant-row p {
+  font-weight: 400;
+}
+
+.library-restaurant-row h3+p {
+  font-size: 12px;
+  opacity: .8;
+}
+
+.library-restaurant-row .card-surface,.library-recipe-row .card-surface,.library-page .card-surface {
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  border-radius: 0;
+}
+
+.library-restaurant-row .card-surface,.library-recipe-row .card-surface {
+  border-bottom: 1px solid color-mix(in srgb,var(--color-on-surface) 7%,transparent);
+}
+
+.library-recipe-row h3 {
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: -.45px;
+  line-height: 1.25;
+}
+
+.library-recipe-row>[data-card-swipe]>button {
+  padding: 20px 7px;
+  gap: 15px;
+}
+
+.library-recipe-row img {
+  border-radius: 17px;
+}
+
+.library-recipe-row .rounded-full {
+  box-shadow: none;
+}
+
+.library-page .space-y-2\.5>.library-restaurant-row,.library-page .space-y-2\.5>.library-recipe-row {
+  margin-top: 0;
+}
+
+.library-drawer h2 {
+  font-family: inherit;
+  font-size: 22px;
+  letter-spacing: -.65px;
+}
+
+.library-drawer button {
+  font-family: inherit;
+}
+
+.library-drawer .bg-primary\/\[0\.06\] {
+  background: color-mix(in srgb,var(--color-on-surface) 5%,transparent);
+}
+
+.foryou-topbar {
+  min-height: 64px;
+  gap: 12px;
+}
+
+.foryou-topbar h1 {
+  font-size: 21px;
+  font-weight: 650;
+  letter-spacing: -.6px;
+  flex: 1;
+}
+
+.foryou-together {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 42px;
+  padding: 0 13px;
+  border-radius: 24px;
+  background: color-mix(in srgb,var(--color-on-surface) 5%,transparent);
+  border: 1px solid color-mix(in srgb,var(--color-on-surface) 8%,transparent);
+  font-size: 12px;
+  font-weight: 550;
+  white-space: nowrap;
+  color: var(--color-on-surface);
+  backdrop-filter: blur(16px);
+}
+
+.foryou-controls {
+  padding-top: 20px;
+  padding-bottom: 20px;
+}
+
+.foryou-controls>button {
+  padding-bottom: 17px;
+}
+
+.foryou-controls>button>span:first-of-type {
+  font-size: 23px !important;
+  font-weight: 600 !important;
+  letter-spacing: -.75px !important;
+  line-height: 1.2 !important;
+}
+
+.foryou-controls>div>button {
+  border-color: transparent;
+  background: color-mix(in srgb,var(--color-on-surface) 4%,transparent);
+  min-height: 40px;
+  font-weight: 500 !important;
+}
+
+.foryou-sort {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  border-radius: 24px;
+  min-height: 40px;
+  padding: 0 11px;
+  background: color-mix(in srgb,var(--color-on-surface) 4%,transparent);
+  font-size: 12px;
+  color: var(--color-on-surface);
+}
+
+.foryou-sort select {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  outline: 0;
+  font: inherit;
+  max-width: 100px;
+}
+
+.foryou-sort option {
+  background: var(--color-surface);
+  color: var(--color-on-surface);
+}
+
+.foryou-place {
+  display: grid;
+  grid-template-columns: 70px minmax(0,1fr) 46px;
+  gap: 14px;
+  padding: 22px 20px;
+  align-items: center;
+  border: 0;
+  background: transparent !important;
+  box-shadow: none;
+}
+
+.foryou-photo {
+  position: relative;
+  width: 70px;
+  height: 88px;
+  background: color-mix(in srgb,var(--color-on-surface) 5%,transparent);
+  border-radius: 14px;
+  overflow: hidden;
+}
+
+.foryou-photo img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: transform .5s;
+}
+
+.foryou-photo>span {
+  position: absolute;
+  left: 5px;
+  bottom: 5px;
+  background: #0007;
+  backdrop-filter: blur(12px);
+  border-radius: 8px;
+  padding: 3px 6px;
+  font-size: 10px;
+  font-weight: 550;
+  color: white;
+}
+
+.foryou-place .foryou-rank {
+  display: none;
+}
+
+.foryou-place.without-photo {
+  grid-template-columns: 22px minmax(0,1fr) 46px;
+}
+
+.foryou-place.without-photo .foryou-rank {
+  display: block;
+  width: auto;
+  height: auto;
+  background: none;
+  color: color-mix(in srgb,var(--color-on-surface) 40%,transparent);
+  font-size: 12px;
+}
+
+.foryou-place-copy>div:first-child>span:first-child {
+  font-size: 17px !important;
+  line-height: 1.22 !important;
+  font-weight: 600 !important;
+  letter-spacing: -.45px !important;
+  white-space: normal;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+.foryou-place-copy>p {
+  font-size: 12px !important;
+  line-height: 1.5 !important;
+}
+
+.foryou-reason {
+  color: color-mix(in srgb,var(--color-on-surface) 65%,transparent);
+  margin-top: 7px;
+}
+
+.foryou-place-actions {
+  flex-direction: column-reverse;
+  gap: 7px !important;
+  align-self: center;
+}
+
+.foryou-place-actions button {
+  min-width: 44px;
+  min-height: 44px;
+  border: 0;
+  background: transparent;
+}
+
+.foryou-place-actions>div>p {
+  font-size: 8px !important;
+  font-weight: 500 !important;
+  letter-spacing: .04em !important;
+}
+
+.foryou-place.is-lead {
+  grid-template-columns: minmax(0,1fr) 46px;
+  padding-top: 5px;
+  padding-bottom: 24px;
+  row-gap: 17px;
+}
+
+.foryou-place.is-lead .foryou-photo {
+  grid-column: 1/-1;
+  height: 230px;
+  width: 100%;
+  border-radius: 21px;
+}
+
+.foryou-place.is-lead .foryou-photo>span {
+  left: 14px;
+  top: 14px;
+  bottom: auto;
+  padding: 7px 11px;
+  border-radius: 18px;
+  font-size: 11px;
+}
+
+.foryou-place.is-lead .foryou-place-copy>div:first-child>span:first-child {
+  font-size: 23px !important;
+  letter-spacing: -.65px !important;
+}
+
+.foryou-page:has(.foryou-place) .divide-y> :not(:last-child) {
+  border-color: color-mix(in srgb,var(--color-on-surface) 6%,transparent);
+}
+
+.library-page button:focus-visible,.foryou-page button:focus-visible,.library-title:focus-visible,.foryou-sort:focus-within {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 3px;
+}
+
+.foryou-place:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: -4px;
+}
+
+.library-page button,.foryou-page button {
+  transition: opacity .18s,background .18s,transform .18s;
+}
+
+@media (min-width:768px) {
+  .library-page {
+    max-width: 1200px;
+    margin: auto;
+  }
+  .library-restaurant-row .card-surface {
+    padding: 22px 16px;
+  }
+  .foryou-place.is-lead .foryou-photo {
+    height: 260px;
+  }
+  .foryou-place {
+    padding-left: 25px;
+    padding-right: 25px;
+  }
+  .library-recipe-row .card-surface {
+    padding: 22px 16px;
+  }
+}
+
+@media (max-width:370px) {
+  .library-tabs button {
+    padding: 0 11px;
+    font-size: 11px;
+  }
+  .library-title h1 {
+    font-size: 27px;
+  }
+  .library-discovery {
+    gap: 12px;
+  }
+  .library-discovery button {
+    font-size: 11px;
+  }
+  .foryou-together {
+    padding: 0 10px;
+    font-size: 11px;
+  }
+}
+
+@media (prefers-reduced-motion:reduce) {
+  .library-page *,.foryou-page *,.library-drawer * {
+    animation: none !important;
+    transition: none !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+.foryou-controls>div>button.bg-on-surface {
+  background: var(--color-on-surface);
+  color: var(--color-surface);
+}

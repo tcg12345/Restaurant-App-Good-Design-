@@ -1,7 +1,11 @@
-import React, { useRef } from 'react';
+import React, { useEffect, useLayoutEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { motion } from 'motion/react';
-import { cn } from '../lib/utils';
+import { motion, useReducedMotion } from 'motion/react';
+import { liftOverlayToTopLayer, acquireHardScrollLock } from '../lib/useBottomSheet';
+import { pushOverlay } from '../lib/overlay-registry';
+import { useSocialDialog } from './social/useSocialDialog';
+import { homeHaptic } from '../lib/haptics';
+import './CardActions.css';
 
 /**
  * Long-press (touch) / right-click (desktop) detector for grid tiles. Because
@@ -25,14 +29,19 @@ export function useCardLongPress<T>(
     startPos.current = null;
   };
 
+  useEffect(() => clear, []);
+
   const getHandlers = (item: T) => ({
     onPointerDown: (e: React.PointerEvent<HTMLElement>) => {
+      clear();
       suppressClickRef.current = false;
       if (e.pointerType === 'mouse') return; // desktop uses right-click instead
       const target = e.currentTarget;
       startPos.current = { x: e.clientX, y: e.clientY };
       timer.current = window.setTimeout(() => {
+        timer.current = null;
         suppressClickRef.current = true;
+        homeHaptic();
         onLongPress(item, target);
       }, delay);
     },
@@ -42,9 +51,15 @@ export function useCardLongPress<T>(
           Math.abs(e.clientY - startPos.current.y) > moveTolerance) clear();
     },
     onPointerUp: clear,
+    onPointerCancel: clear,
     onPointerLeave: clear,
+    onKeyDown: (e: React.KeyboardEvent<HTMLElement>) => {
+      if (e.key !== 'ContextMenu' && !(e.shiftKey && e.key === 'F10')) return;
+      e.preventDefault(); clear(); onLongPress(item, e.currentTarget);
+    },
     onContextMenu: (e: React.MouseEvent<HTMLElement>) => {
       e.preventDefault();
+      clear();
       suppressClickRef.current = true;
       onLongPress(item, e.currentTarget);
     },
@@ -70,51 +85,32 @@ export const CardActionMenu: React.FC<{
   actions: CardAction[];
   onClose: () => void;
 }> = ({ rect, actions, onClose }) => {
-  const MENU_W = 212;
-  const ITEM_H = 46;
-  const PAD = 8;
-  const menuH = actions.length * ITEM_H + PAD * 2;
-
-  // Bottom clearance respects the iOS home indicator, not just a flat
-  // 10px — --sat-bottom mirrors env(safe-area-inset-bottom) on :root
-  // (index.css) so it's readable from JS.
-  const safeBottom = typeof window !== 'undefined'
-    ? (parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--sat-bottom')) || 0)
-    : 0;
-  const bottomPad = Math.max(10, safeBottom);
-  let left = rect.left + rect.width / 2 - MENU_W / 2;
-  left = Math.max(10, Math.min(left, window.innerWidth - MENU_W - 10));
-  let top = rect.bottom + 8;
-  if (top + menuH > window.innerHeight - bottomPad) top = rect.top - menuH - 8;
-  top = Math.max(10, top);
-
+  const reduced = useReducedMotion();
+  const ref = useSocialDialog(true, onClose);
+  useLayoutEffect(() => { liftOverlayToTopLayer(ref.current); const releaseOverlay = pushOverlay(), releaseLock = acquireHardScrollLock(); return () => { releaseOverlay(); releaseLock(); }; }, []);
+  const MENU_W = Math.min(252, window.innerWidth - 24);
+  const menuH = actions.length * 49 + 10;
+  const left = Math.max(12, Math.min(rect.left + rect.width / 2 - MENU_W / 2, window.innerWidth - MENU_W - 12));
+  const availableBottom = window.visualViewport ? window.visualViewport.height + window.visualViewport.offsetTop : window.innerHeight;
+  const below = rect.bottom + 8 + menuH < availableBottom - 24;
+  const top = Math.max(16, Math.min(below ? rect.bottom + 8 : rect.top - menuH - 8, availableBottom - menuH - 24));
   return createPortal(
-    <div className="fixed inset-0 z-[100]" onClick={onClose} onContextMenu={(e) => { e.preventDefault(); onClose(); }}>
-      <div className="absolute inset-0 bg-black/30 backdrop-blur-[2px]" />
-      <motion.div
-        initial={{ opacity: 0, scale: 0.9 }}
-        animate={{ opacity: 1, scale: 1 }}
-        transition={{ duration: 0.14, ease: 'easeOut' }}
-        style={{ position: 'fixed', left, top, width: MENU_W, transformOrigin: 'top center' }}
-        onClick={(e) => e.stopPropagation()}
-        className="rounded-2xl bg-surface border border-on-surface/10 shadow-2xl shadow-black/30 overflow-hidden p-1"
-      >
-        {actions.map((a, i) => (
-          <button
-            key={i}
-            type="button"
-            onClick={() => { a.onClick(); onClose(); }}
-            className={cn(
-              'w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-[14px] font-semibold text-left transition-colors',
-              a.danger ? 'text-rose-600 hover:bg-rose-500/10' : 'text-on-surface hover:bg-on-surface/[0.06]',
-            )}
-          >
-            <span className={cn('shrink-0', a.danger ? 'text-rose-600' : 'text-on-surface/70')}>{a.icon}</span>
-            {a.label}
-          </button>
-        ))}
+    <div ref={ref} className="card-menu-layer" onClick={onClose} onContextMenu={e => { e.preventDefault(); onClose(); }}>
+      <motion.div role="menu" aria-label="Card actions" className="card-action-menu"
+        initial={{ opacity: 0, scale: reduced ? 1 : .94, y: reduced ? 0 : below ? -5 : 5 }} animate={{ opacity: 1, scale: 1, y: 0 }}
+        transition={{ type: 'spring', stiffness: 480, damping: 35 }}
+        style={{ position: 'fixed', left, top, width: MENU_W, transformOrigin: below ? 'top center' : 'bottom center' }}
+        onClick={e => e.stopPropagation()}
+        onKeyDown={e => {
+          if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(e.key)) return;
+          e.preventDefault(); const buttons = Array.from((e.currentTarget as HTMLElement).querySelectorAll('button')) as HTMLButtonElement[];
+          const current = buttons.indexOf(document.activeElement as HTMLButtonElement);
+          const next = e.key === 'Home' ? 0 : e.key === 'End' ? buttons.length - 1 : (current + (e.key === 'ArrowDown' ? 1 : -1) + buttons.length) % buttons.length;
+          buttons[next]?.focus();
+        }}>
+        {actions.map((action, index) => <button key={index} type="button" role="menuitem" className={action.danger ? 'is-danger' : ''}
+          onClick={() => { onClose(); action.onClick(); }}><span>{action.label}</span>{action.icon}</button>)}
       </motion.div>
-    </div>,
-    document.body,
+    </div>, document.body,
   );
 };

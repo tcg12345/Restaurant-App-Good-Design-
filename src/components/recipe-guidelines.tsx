@@ -10,6 +10,7 @@ import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import { ChevronDown, Check, Minus, Plus } from 'lucide-react';
 import { cn } from '../lib/utils';
+import { liftOverlayToTopLayer } from '../lib/useBottomSheet';
 import type { RecipeConstraints } from '../lib/build-recipe-client';
 import { formatRemaining } from '../lib/gen-progress';
 import './RecipeBuilder.css';
@@ -83,18 +84,60 @@ export const GuidelineMenu: React.FC<{
   children: React.ReactNode;
 }> = ({ label, active, open, onToggle, onClose, children }) => {
   const triggerRef = useRef<HTMLButtonElement | null>(null);
-  const [anchor, setAnchor] = useState<{ left: number; bottom: number } | null>(null);
+  const layerRef = useRef<HTMLDivElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const [anchor, setAnchor] = useState<{ left: number; top: number; maxHeight: number } | null>(null);
 
   useLayoutEffect(() => {
     if (!open) return;
-    const r = triggerRef.current?.getBoundingClientRect();
-    if (!r) return;
-    setAnchor({
-      // Keep the panel on-screen when the pill sits near the right edge.
-      left: Math.max(8, Math.min(r.left, window.innerWidth - 212)),
-      bottom: window.innerHeight - r.top + 8,
-    });
+    const position = () => {
+      const r = triggerRef.current?.getBoundingClientRect();
+      if (!r) return;
+      const viewport = window.visualViewport;
+      const topEdge = (viewport?.offsetTop ?? 0) + 12;
+      const bottomEdge = (viewport?.offsetTop ?? 0) + (viewport?.height ?? window.innerHeight) - 12;
+      const above = r.top - topEdge - 8;
+      const below = bottomEdge - r.bottom - 8;
+      const height = Math.min(300, menuRef.current?.scrollHeight ?? 300);
+      const up = above >= height || above > below;
+      const maxHeight = Math.max(44, up ? above : below);
+      setAnchor({ left: Math.max(12, Math.min(r.left, window.innerWidth - 224)), top: up ? Math.max(topEdge, r.top - Math.min(height, maxHeight) - 8) : r.bottom + 8, maxHeight });
+    };
+    position();
+    window.addEventListener('resize', position);
+    window.visualViewport?.addEventListener('resize', position);
+    return () => {
+      window.removeEventListener('resize', position);
+      window.visualViewport?.removeEventListener('resize', position);
+    };
   }, [open]);
+
+  useLayoutEffect(() => {
+    if (!open || !anchor) return;
+    liftOverlayToTopLayer(layerRef.current);
+    const menu = menuRef.current;
+    if (menu && anchor.top < (triggerRef.current?.getBoundingClientRect().top ?? 0)) {
+      const r = triggerRef.current!.getBoundingClientRect();
+      setAnchor((current) => current ? { ...current, top: Math.max((window.visualViewport?.offsetTop ?? 0) + 12, r.top - Math.min(menu.scrollHeight + 2, current.maxHeight) - 8) } : current);
+    }
+    const first = menu?.querySelector<HTMLButtonElement>('button:not(:disabled)');
+    first?.focus({ preventScroll: true });
+    const keyboard = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); onClose(); return; }
+      if (!['ArrowDown', 'ArrowUp', 'Tab'].includes(event.key)) return;
+      const buttons: HTMLButtonElement[] = menu ? Array.from(menu.querySelectorAll<HTMLButtonElement>('button:not(:disabled)')) : [];
+      if (!buttons.length) return;
+      event.preventDefault();
+      const index = buttons.indexOf(document.activeElement as HTMLButtonElement);
+      const delta = event.key === 'ArrowUp' || (event.key === 'Tab' && event.shiftKey) ? -1 : 1;
+      buttons[(index + delta + buttons.length) % buttons.length].focus();
+    };
+    const layer = layerRef.current;
+    layer?.addEventListener('keydown', keyboard);
+    return () => { layer?.removeEventListener('keydown', keyboard); };
+    // The close callback is recreated by the pill row; keep focus stable during selection.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, !!anchor]);
 
   return (
     <div className="rcxa-pill-wrap">
@@ -105,26 +148,27 @@ export const GuidelineMenu: React.FC<{
         onClick={onToggle}
         aria-expanded={open}
       >
-        {label}
+        <span className="rcxa-pill-label">{label}</span>
         <ChevronDown size={13} strokeWidth={2.4} className="rcxa-pill-caret" />
       </button>
       {createPortal(
-        <AnimatePresence>
+        <AnimatePresence onExitComplete={() => triggerRef.current?.focus({ preventScroll: true })}>
           {open && anchor && (
-            <>
+            <div ref={layerRef} className="rcxa-menu-layer" style={{ position: 'fixed', inset: 0, zIndex: 260 }} onClick={(e) => e.stopPropagation()}>
               <div className="rcxa-menu-backdrop" onClick={onClose} />
               <motion.div
+                ref={menuRef}
                 initial={{ opacity: 0, y: 8, scale: 0.97 }}
                 animate={{ opacity: 1, y: 0, scale: 1 }}
                 exit={{ opacity: 0, y: 6, scale: 0.98 }}
                 transition={{ duration: 0.16, ease: [0.22, 1, 0.36, 1] }}
                 className="rcxa-menu"
-                style={{ left: anchor.left, bottom: anchor.bottom }}
-                role="listbox"
+                style={{ left: anchor.left, top: anchor.top, maxHeight: anchor.maxHeight }}
+                role="group" aria-label={label}
               >
                 {children}
               </motion.div>
-            </>
+            </div>
           )}
         </AnimatePresence>,
         document.body,
@@ -142,8 +186,7 @@ export const MenuOption: React.FC<{ label: string; selected: boolean; onSelect: 
     type="button"
     className={cn('rcxa-opt', selected && 'is-on')}
     onClick={onSelect}
-    role="option"
-    aria-selected={selected}
+    aria-pressed={selected}
   >
     <span>{label}</span>
     {selected && <Check size={14} strokeWidth={2.6} />}

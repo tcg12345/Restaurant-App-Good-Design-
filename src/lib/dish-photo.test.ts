@@ -7,7 +7,7 @@ vi.mock('./images', () => ({
   dataUrlToBlob: () => new Blob(),
 }));
 
-import { hostedCoverUrl, isOwnDishPhoto, mayUseAsCover, recreatedFromOf, type DishPhotoOrigin } from './dish-photo';
+import { dishPhotoHint, hostedCoverUrl, isOwnDishPhoto, mayUseAsCover, recreatedFromOf, type DishPhotoOrigin } from './dish-photo';
 
 const ME = 'user-me';
 const rating: DishPhotoOrigin = { kind: 'rating', restaurantId: 'r1', restaurantName: 'Kawa Ni', caption: 'Ramen', url: 'https://x.supabase.co/storage/v1/object/public/photos/me/1.jpg' };
@@ -53,5 +53,18 @@ describe('cover rule', () => {
     expect(hostedCoverUrl(rating)).toBe(rating.url);
     expect(hostedCoverUrl({ kind: 'camera' })).toBeNull();
     expect(hostedCoverUrl({ ...rating, url: 'data:image/jpeg;base64,AAAA' } as DishPhotoOrigin)).toBeNull();
+  });
+});
+
+describe('photo request context', () => {
+  it('includes the restaurant and dish caption alongside the user request', () => {
+    expect(dishPhotoHint('  Make it vegetarian  ', rating)).toBe('Make it vegetarian\nRestaurant: Kawa Ni\nPhoto caption: Ramen');
+  });
+  it('preserves the entire explicit request when context exceeds the server limit', () => {
+    const hint = 'x'.repeat(600);
+    expect(dishPhotoHint(hint, rating)).toBe(hint);
+  });
+  it('omits context for a library photo without a hint', () => {
+    expect(dishPhotoHint('   ', { kind: 'library' })).toBeUndefined();
   });
 });

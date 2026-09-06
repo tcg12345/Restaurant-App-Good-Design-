@@ -1,3 +1,5 @@
+import { DeleteConfirmation } from '../components/DeleteConfirmation';
+import { usePageBack } from '../lib/usePageBack';
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useLocation, useParams, Link } from 'react-router-dom';
 import { Heart, MessageCircle, Bookmark, Volume1, Volume2, VolumeX, ChefHat, ChevronRight, ChevronDown, Plus, Trash2, Loader2, X, MoreHorizontal, Play, Pause, ArrowLeft, ArrowUp, MapPin, RefreshCw } from 'lucide-react';
@@ -26,6 +28,8 @@ import { useBottomSheet } from '../lib/useBottomSheet';
 import { keyboardLiftSheetStyle } from '../lib/keyboard-sheet';
 import { addScrollSettleListener } from '../lib/scroll-settle';
 import { Collapse } from '../components/Collapse';
+import { ReelAttachment, ReelCaption, ReelCreateSheet, ReelPlaybackStatus, useReelPlaybackFocus } from '../components/ReelExperience';
+import { isOverlayOpen } from '../lib/overlay-registry';
 import { GlassButton } from '../lib/glass-buttons';
 
 /**
@@ -83,10 +87,10 @@ const ActionRail: React.FC<ActionRailProps> = ({ reel, onLike, onSave, onComment
     // z-30 so the Share button (bottom-most in the rail) sits above the
     // collapsible details overlay below, which spans inset-x-0 at z-20
     // and would otherwise eat the tap and toggle the caption open/closed.
-    <div className="absolute right-3 bottom-[calc(100px+env(safe-area-inset-bottom))] z-30 flex flex-col items-center gap-5 select-none">
-      <button type="button" onClick={onLike} className="flex flex-col items-center gap-1 group" aria-label="Like">
+    <div className="reel-action-rail">
+      <button type="button" onClick={onLike} className="flex flex-col items-center gap-1 group" aria-label={reel.liked ? 'Unlike reel' : 'Like reel'} aria-pressed={reel.liked}>
         <motion.span
-          whileTap={{ scale: 0.8 }}
+          whileTap={{ scale: 0.94 }}
           className={cn(
             'w-11 h-11 rounded-full flex items-center justify-center transition-colors',
             reel.liked ? 'text-rose-500' : 'text-white group-hover:text-white/80',
@@ -104,9 +108,9 @@ const ActionRail: React.FC<ActionRailProps> = ({ reel, onLike, onSave, onComment
         <span className="text-white text-[12px] font-bold tabular-nums drop-shadow">{formatCount(reel.comments)}</span>
       </button>
 
-      <button type="button" onClick={onSave} className="flex flex-col items-center gap-1 group" aria-label="Save">
+      <button type="button" onClick={onSave} className="flex flex-col items-center gap-1 group" aria-label={reel.saved ? 'Unsave reel' : 'Save reel'} aria-pressed={reel.saved}>
         <motion.span
-          whileTap={{ scale: 0.8 }}
+          whileTap={{ scale: 0.94 }}
           className={cn(
             'w-11 h-11 rounded-full flex items-center justify-center transition-colors',
             reel.saved ? 'text-amber-300' : 'text-white group-hover:text-white/80',
@@ -131,70 +135,11 @@ const ActionRail: React.FC<ActionRailProps> = ({ reel, onLike, onSave, onComment
 
 const RestaurantCard: React.FC<{ reel: Reel; onClick: () => void }> = ({ reel, onClick }) => {
   const r = reel.restaurant!;
-  const { phoneMode } = useSettings();
-  const score = r.score ?? 0;
-  const distance = r.distanceMi != null ? `${r.distanceMi.toFixed(1)}mi` : '';
-  // Phone: translucent glass over the reel video — white text on a
-  // dark blur. Desktop side panel: opaque white card on the app surface.
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={cn(
-        'w-full flex items-center gap-3 rounded-2xl px-3.5 py-2 text-left transition-colors',
-        phoneMode
-          ? 'bg-black/30 backdrop-blur-md border border-white/[0.08] hover:bg-black/40'
-          : 'bg-white/95 backdrop-blur shadow-lg hover:bg-white',
-      )}
-    >
-      <div className="flex-1 min-w-0">
-        <p className={cn('text-[9px] font-semibold uppercase tracking-[0.13em]', phoneMode ? 'text-white/45' : 'text-on-surface/45')}>Featured place</p>
-        <p className={cn('text-[14.5px] font-semibold leading-tight tracking-[-0.01em] truncate mt-0.5', phoneMode ? 'text-white/95' : 'text-on-surface')}>{r.name}</p>
-        <p className={cn('text-[11px] truncate mt-0.5', phoneMode ? 'text-white/50' : 'text-on-surface/55')}>
-          {[r.cuisine, r.price, distance].filter(Boolean).join(' · ')}
-        </p>
-      </div>
-      {score > 0 && (
-        <span className={cn(
-          'inline-flex items-center justify-center min-w-[34px] h-7 px-2 rounded-full text-[12px] font-bold tabular-nums flex-shrink-0',
-          phoneMode ? cn('bg-white/[0.10]', scoreColorLight(score)) : cn('bg-on-surface/[0.06]', scoreColor(score)),
-        )}>
-          {score.toFixed(1)}
-        </span>
-      )}
-      <ChevronRight size={14} className={cn('flex-shrink-0', phoneMode ? 'text-white/35' : 'text-on-surface/40')} />
-    </button>
-  );
+  return <ReelAttachment title={r.name} subtitle={[r.cuisine, r.price, r.distanceMi != null ? `${r.distanceMi.toFixed(1)} mi` : ''].filter(Boolean).join(' · ')} image={r.image} score={r.score} onClick={onClick} />;
 };
-
 const RecipeCard: React.FC<{ reel: Reel; onClick: () => void }> = ({ reel, onClick }) => {
   const r = reel.recipe!;
-  const { phoneMode } = useSettings();
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={cn(
-        'w-full flex items-center gap-3 rounded-2xl px-3.5 py-2 text-left transition-colors',
-        phoneMode
-          ? 'bg-black/30 backdrop-blur-md border border-white/[0.08] hover:bg-black/40'
-          : 'bg-white/95 backdrop-blur shadow-lg hover:bg-white',
-      )}
-    >
-      <div className="flex-1 min-w-0">
-        <p className={cn('text-[9px] font-semibold uppercase tracking-[0.13em]', phoneMode ? 'text-white/45' : 'text-on-surface/45')}>Featured recipe</p>
-        <p className={cn('text-[14.5px] font-semibold leading-tight tracking-[-0.01em] truncate mt-0.5', phoneMode ? 'text-white/95' : 'text-on-surface')}>{r.title}</p>
-        <p className={cn('text-[11px] truncate mt-0.5', phoneMode ? 'text-white/50' : 'text-on-surface/55')}>{formatRecipeMeta(r.prepTime, r.cookTime, r.servings, r.difficulty)}</p>
-      </div>
-      <span className={cn(
-        'px-3.5 h-9 rounded-full text-xs font-bold flex items-center justify-center flex-shrink-0',
-        // media-white/-ink: the phone pill sits on glass over the video, so it
-        // stays literal white with fixed dark text — the paper remap made it
-        // near-black under hardcoded dark text in dark mode.
-        phoneMode ? 'bg-media-white text-media-ink' : 'bg-on-surface text-surface',
-      )}>View</span>
-    </button>
-  );
+  return <ReelAttachment recipe title={r.title} subtitle={formatRecipeMeta(r.prepTime, r.cookTime, r.servings, r.difficulty)} image={r.image} onClick={onClick} />;
 };
 
 /* ── A single reel slide ────────────────────────────────────────────── */
@@ -528,9 +473,16 @@ const ReelSlideInner: React.FC<ReelSlideProps> = ({ reel, active, near, preloadF
         )}
       </div>
 
+      {(reel.videoUrl || reel.muxPlaybackId) && <button type="button" className="reel-play-surface" aria-label={isPaused ? 'Play reel' : 'Pause reel'} onClick={() => {
+        const el = reel.muxPlaybackId ? document.querySelector<HTMLMediaElement>(`[data-feed-key="reel-${reel.id}"] mux-player`) : videoRef.current;
+        if (!el) return;
+        if (el.paused) { triggerFlash('play'); void el.play()?.catch(() => {}); void backdropRef.current?.play()?.catch(() => {}); }
+        else { triggerFlash('pause'); el.pause(); backdropRef.current?.pause(); }
+      }} tabIndex={active ? 0 : -1} />}
+
       {/* Gradient overlays for text legibility */}
-      <div className="pointer-events-none absolute inset-x-0 top-0 h-32 bg-gradient-to-b from-black/55 to-transparent z-10" />
-      <div className="pointer-events-none absolute inset-x-0 bottom-0 h-72 bg-gradient-to-t from-black/75 via-black/30 to-transparent z-10" />
+      <div className="reel-top-shade" />
+      <div className="reel-bottom-shade" />
 
       {/* Transient play/pause flash — pops the tapped action's glyph in
           the centre and fades out, YouTube-style. Purely decorative
@@ -607,7 +559,7 @@ const ReelSlideInner: React.FC<ReelSlideProps> = ({ reel, active, near, preloadF
       {!hideDetailsOverlay && (
       <div
         className={cn(
-          'absolute inset-x-0 bottom-0 z-20 pl-4 pt-10 pointer-events-none',
+          'reel-info absolute inset-x-0 bottom-0 z-20 pl-4 pt-10 pointer-events-none',
           // Padding clears the solid 50 px bottom nav + the safe-area
           // inset on a real iPhone, sitting just above the scrub bar.
           phoneMode ? 'pb-[calc(70px+env(safe-area-inset-bottom))]' : 'pb-5',
@@ -618,7 +570,7 @@ const ReelSlideInner: React.FC<ReelSlideProps> = ({ reel, active, near, preloadF
           phoneMode && !hideActionRail ? 'pr-[68px]' : 'pr-4',
         )}
       >
-        <div className="flex items-center gap-3 mb-2">
+        <div className="flex items-center gap-2 mb-3">
           {/* Avatar + @handle + VERIFIED chip — only this region opens the
               author's profile. */}
           <Link
@@ -626,20 +578,12 @@ const ReelSlideInner: React.FC<ReelSlideProps> = ({ reel, active, near, preloadF
             onClick={(e) => e.stopPropagation()}
             className="flex items-center gap-3 min-w-0 group pointer-events-auto"
           >
-            <div className={cn('w-11 h-11 rounded-full flex items-center justify-center text-white text-sm font-bold ring-2 ring-white/30 transition-transform group-hover:scale-[1.04] group-active:scale-[0.96]', reel.authorAvatarColor)}>
+            <div className={cn('w-9 h-9 rounded-full flex items-center justify-center text-white text-xs font-bold ring-1 ring-white/40 transition-transform group-hover:scale-[1.04] group-active:scale-[0.96]', reel.authorAvatarColor)}>
               {reel.authorInitials}
             </div>
             <div className="flex items-center gap-2 min-w-0">
-              <span className="text-white font-bold text-[15px] truncate group-hover:underline underline-offset-2">@{reel.authorUsername}</span>
-              {reel.isExpert && (
-                // bg-media-white, not bg-white: this chip sits over the
-                // VIDEO, so it must stay literal white in dark mode too —
-                // the paper remap turned it near-black with dark-red text.
-                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-media-white text-primary text-[10px] font-bold flex-shrink-0">
-                  <VerifiedBadge size={11} />
-                  VERIFIED
-                </span>
-              )}
+              <span className="reel-author-name">{reel.authorDisplayName || reel.authorUsername}</span>
+              {reel.isExpert && <span className="text-white" aria-label="Verified expert"><VerifiedBadge size={16} /></span>}
             </div>
           </Link>
           {/* Follow / Unfollow pill — replaces the audio label that
@@ -657,17 +601,14 @@ const ReelSlideInner: React.FC<ReelSlideProps> = ({ reel, active, near, preloadF
                   : 'bg-media-white text-media-ink hover:opacity-90',
               )}
             >
-              {isFollowing ? 'Unfollow' : 'Follow'}
+              {isFollowing ? 'Following' : 'Follow'}
             </button>
           )}
         </div>
 
         <Collapse open={!!(infoOpen && hasCollapsibleContent)}>
-              {reel.caption && (
-                <p className="text-white text-[15px] font-serif italic leading-snug mb-3 line-clamp-3 max-w-[78%]">
-                  {reel.caption}
-                </p>
-              )}
+              {reel.locationLabel && <p className="reel-location"><MapPin size={12} />{reel.locationLabel}</p>}
+              <ReelCaption text={reel.caption} />
 
               {/* pointer-events-auto: the overlay root is pointer-events-none
                   (taps reach the video), so without this the featured card
@@ -732,7 +673,7 @@ const ReelSlide = React.memo(ReelSlideInner, (prev, next) =>
 
 const DesktopReelSideDetails: React.FC<{ reel: Reel; onCardClick: () => void }> = ({ reel, onCardClick }) => {
   return (
-    <div className="hidden md:flex w-[300px] flex-col gap-3.5">
+    <div className="reel-desktop-details hidden md:flex w-full max-w-[300px] flex-col gap-3.5">
       {/* Author + expert chip */}
       <Link
         to={`/user/${encodeURIComponent(reel.authorUsername)}`}
@@ -763,11 +704,7 @@ const DesktopReelSideDetails: React.FC<{ reel: Reel; onCardClick: () => void }> 
       <p className="text-on-surface/55 text-[12.5px] font-mono truncate">♪ {reel.audioLabel}</p>
 
       {/* Caption */}
-      {reel.caption && (
-        <p className="text-on-surface/85 text-[14.5px] font-serif italic leading-snug line-clamp-5">
-          {reel.caption}
-        </p>
-      )}
+      <ReelCaption text={reel.caption} />
 
       {/* Featured restaurant / recipe — re-uses the existing card
           components. The cards use bg-white/95 which sits cleanly on
@@ -799,7 +736,7 @@ const DesktopPostSideDetails: React.FC<{
   const item = post.items[activeItemIdx] ?? post.items[0];
   const caption = (item?.caption?.trim() || post.caption || '').trim();
   return (
-    <div className="hidden md:flex w-[300px] flex-col gap-3.5">
+    <div className="reel-desktop-details hidden md:flex w-full max-w-[300px] flex-col gap-3.5">
       {/* Author + expert chip */}
       <Link
         to={`/user/${encodeURIComponent(post.author?.username || post.userId)}`}
@@ -827,11 +764,7 @@ const DesktopPostSideDetails: React.FC<{
       </Link>
 
       {/* Caption — per-item, falls back to the post-level caption */}
-      {caption && (
-        <p className="text-on-surface/85 text-[14.5px] font-serif italic leading-snug line-clamp-5">
-          {caption}
-        </p>
-      )}
+      <ReelCaption text={caption} />
 
       {/* Location pin (post-level) */}
       {post.locationLabel && (
@@ -1502,8 +1435,8 @@ export const CommentsBody: React.FC<CommentsBodyProps> = ({ targetId, onClose, v
   // with the surface color in light AND dark mode (the mobile sheet used to
   // hardcode a light stone palette, which broke in dark mode).
   const headerCls = 'border-b border-on-surface/[0.07]';
-  const titleCls = 'font-serif font-bold text-on-surface text-[17px]';
-  const closeCls = 'w-8 h-8 rounded-full bg-on-surface/[0.06] hover:bg-on-surface/[0.1] text-on-surface/65';
+  const titleCls = 'font-semibold text-on-surface text-[18px] tracking-tight';
+  const closeCls = 'w-11 h-11 rounded-full bg-on-surface/[0.06] hover:bg-on-surface/[0.1] text-on-surface/65';
   const composerBorderCls = 'border-on-surface/[0.07]';
   const usernameCls = 'text-on-surface';
   const bodyTextCls = 'text-on-surface/85';
@@ -1744,13 +1677,13 @@ interface CommentsSheetProps {
 
 const CommentsSheet: React.FC<CommentsSheetProps> = ({ targetId, onClose, loadComments, addComment, deleteComment, currentUserId }) => {
   const scrollRef = useRef<HTMLDivElement | null>(null);
-  const { dragProps, sheetRef } = useBottomSheet(!!targetId, onClose, scrollRef);
+  const { dragProps, sheetRef, startDrag } = useBottomSheet(!!targetId, onClose, scrollRef);
   return (
     <AnimatePresence>
       {targetId && (
         <motion.div
           initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-          className="absolute inset-0 z-40 bg-black/55 backdrop-blur-sm flex items-end"
+          className="fixed inset-0 z-40 bg-black/55 backdrop-blur-sm flex items-end"
           onClick={onClose}
         >
           <motion.div
@@ -1765,7 +1698,7 @@ const CommentsSheet: React.FC<CommentsSheetProps> = ({ targetId, onClose, loadCo
             // resizes itself, so without this the user types blind).
             style={keyboardLiftSheetStyle('78%')}
           >
-            <div className="pt-2.5 pb-1 flex justify-center">
+            <div onPointerDown={startDrag} style={{ touchAction: 'none' }} className="pt-3 pb-3 flex justify-center">
               <span className="w-9 h-1 rounded-full bg-on-surface/15" />
             </div>
             <CommentsBody
@@ -1837,6 +1770,8 @@ interface TopBarProps {
   setKind: (k: FeedKind) => void;
   muted: boolean;
   setMuted: (m: boolean) => void;
+  onCreate: () => void;
+  focused: boolean;
 }
 
 /* ── Hover volume control (desktop) ─────────────────────────────────── */
@@ -1937,59 +1872,21 @@ const VolumeControl: React.FC<{
   );
 };
 
-const TopBar: React.FC<TopBarProps> = ({ kind, setKind, muted, setMuted }) => {
-  const { phoneMode } = useSettings();
-  return (
-    // Three-column grid keeps the tabs perfectly centered regardless of
-    // whether the right-side mute button is present. The text-only tabs
-    // rely on the top gradient overlay + a small drop shadow for
-    // legibility on bright video.
-    <div className="absolute top-0 inset-x-0 z-30 grid grid-cols-3 items-center px-3 pt-safe-3">
-      <div />
-      <div className="flex items-center justify-center gap-6">
-        {([
-          { value: 'explore', label: 'Explore' },
-          { value: 'recipe', label: 'Recipes' },
-        ] as const).map((opt) => {
-          const active = kind === opt.value;
-          return (
-            <button
-              key={opt.value}
-              type="button"
-              onClick={() => setKind(opt.value)}
-              className={cn(
-                'text-[16px] transition-colors drop-shadow-[0_1px_2px_rgba(0,0,0,0.5)]',
-                active ? 'text-white font-bold' : 'text-white/55 font-semibold',
-              )}
-            >
-              {opt.label}
-            </button>
-          );
-        })}
-      </div>
-      <div className="flex justify-end">
-        {/* Phone keeps a simple always-on mute toggle here (no hover on
-            touch). Desktop's audio control is the hover volume slider
-            pinned to the bottom-right of the reel frame instead. */}
-        {phoneMode && (
-          <button
-            type="button"
-            onClick={() => setMuted(!muted)}
-            className="w-11 h-11 rounded-full bg-black/40 backdrop-blur flex items-center justify-center text-white"
-            aria-label={muted ? 'Unmute' : 'Mute'}
-          >
-            {muted ? <VolumeX size={18} /> : <Volume2 size={18} />}
-          </button>
-        )}
-      </div>
+const TopBar: React.FC<TopBarProps> = ({ kind, setKind, muted, setMuted, onCreate, focused }) => (
+  <div className="reel-topbar">
+    <div>{!focused && <button type="button" className="reel-glass-control" aria-label="Create" onClick={onCreate}><Plus size={23} strokeWidth={1.8} /></button>}</div>
+    <div className="reel-tabs" role="group" aria-label="Reel categories">
+      {([{ value: 'explore', label: 'Explore' }, { value: 'recipe', label: 'Recipes' }] as const).map(opt => <button key={opt.value} type="button" aria-pressed={kind === opt.value} onClick={() => setKind(opt.value)}>{opt.label}</button>)}
     </div>
-  );
-};
+    <button type="button" className="reel-glass-control" aria-label={muted ? 'Unmute' : 'Mute'} aria-pressed={!muted} onClick={() => setMuted(!muted)}>{muted ? <VolumeX size={19} /> : <Volume2 size={19} />}</button>
+  </div>
+);
 
 /* ── The page ───────────────────────────────────────────────────────── */
 
 export const Reels: React.FC = () => {
   const navigate = useNavigate();
+  const goBack = usePageBack('/');
   const location = useLocation();
   // When mounted under /r/:focusKey the page acts as a focused viewer
   // for a single reel/post — full feed and full functionality, but
@@ -2030,6 +1927,9 @@ export const Reels: React.FC = () => {
   })();
   const [kind, setKind] = useState<FeedKind>(initialKind);
   const [muted, setMuted] = useState(true);
+  const [createOpen, setCreateOpen] = useState(false);
+  const experienceRef = useRef<HTMLDivElement>(null);
+
   // Playback volume (0–1) set from the desktop hover slider. Applied to
   // whichever media element is currently active (below); mute stays a
   // separate flag so unmuting returns to the last chosen level.
@@ -2076,6 +1976,8 @@ export const Reels: React.FC = () => {
   // ReelRecipeSnapshot; the panel resolves the full meal record lazily.
   const [recipePanelSnapshot, setRecipePanelSnapshot] = useState<RecipePanelSnapshot | null>(null);
 
+
+
   const loading = reelsLoading || postsLoading;
 
   // ── Build the unified, sorted feed for the active tab ──
@@ -2105,6 +2007,18 @@ export const Reels: React.FC = () => {
   const activeReelId = activeKey?.startsWith('reel-') ? activeKey.slice(5) : null;
   const activePostId = activeKey?.startsWith('post-') ? activeKey.slice(5) : null;
 
+  const [isDesktop, setIsDesktop] = useState(() =>
+    typeof window !== 'undefined' && window.matchMedia('(min-width: 1024px)').matches,
+  );
+  useEffect(() => {
+    const mq = window.matchMedia('(min-width: 1024px)');
+    const handler = (e: MediaQueryListEvent) => setIsDesktop(e.matches);
+    mq.addEventListener('change', handler);
+    return () => mq.removeEventListener('change', handler);
+  }, []);
+  const showDesktopFrame = isDesktop && !phoneMode;
+  useReelPlaybackFocus(experienceRef, !!confirmDeleteId || !!confirmDeletePostId || !!restaurantPanelSnapshot || !!recipePanelSnapshot || !!openCommentsReelId || !!openPostCommentsId || !!sharePayload, showDesktopFrame);
+
   // ── Per-tab "last seen" feed-item key.
   //
   // The user expects tab-switching to be a stack-of-pages, not a
@@ -2117,31 +2031,36 @@ export const Reels: React.FC = () => {
   // lastActivePostId pointer remains a secondary fallback so
   // returning from /restaurant/X back to /reels still lands you on
   // the post you were on (mostly useful on the Explore tab).
-  const [lastKeyByTab, setLastKeyByTab] = useState<Record<FeedKind, string | null>>({
+  const lastKeyByTab = useRef<Record<FeedKind, string | null>>({
     explore: null,
     recipe: null,
   });
 
-  // The feed-key the snap container should be programmatically scrolled to on
-  // the next genuine restore (mount / tab switch / focus / feed-length
-  // change). User scrolling never sets this, so the restore effect below can
-  // never yank the container mid-swipe — that instant-jump-per-slide was the
-  // main cause of choppy scrolling.
-  const restoreTargetRef = useRef<string | null>(null);
+  // Keep each category's place, and preserve the current slide when another
+  // page of results arrives. Restore before paint so no other reel flashes.
+  const restoredKind = useRef<FeedKind | null>(null);
+  const restoredFocus = useRef<string | undefined>(undefined);
+  const switchKind = (next: FeedKind) => {
+    if (next === kind) return;
+    lastKeyByTab.current[kind] = activeKey;
+    setKind(next);
+  };
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     // Resolve which slide this tab should be parked on, then arm a one-shot
     // scroll to it. Priority: focused URL item → per-tab saved key →
     // cross-mount post pointer → top of the feed.
     let target: string | null = feedItems[0]?.key ?? null;
-    if (focused && focusKey && feedItems.some((f) => f.key === focusKey)) {
+    if (restoredKind.current === kind && restoredFocus.current === focusKey && activeKey && feedItems.some(f => f.key === activeKey)) {
+      target = activeKey;
+    } else if (focused && focusKey && feedItems.some((f) => f.key === focusKey)) {
       // Focused mode wins: the URL points at a specific feed item that's
       // present in this tab's feed.
       target = focusKey;
     } else {
       // Per-tab saved key — dropped if the underlying item is gone
       // (deleted / no longer visible to this viewer).
-      const saved = lastKeyByTab[kind];
+      const saved = lastKeyByTab.current[kind];
       if (saved && feedItems.some((f) => f.key === saved)) {
         target = saved;
       } else if (lastActivePostId) {
@@ -2152,9 +2071,15 @@ export const Reels: React.FC = () => {
       }
     }
     setActiveKey(target);
-    restoreTargetRef.current = target;
+    restoredKind.current = kind;
+    restoredFocus.current = focusKey;
+    const root = containerRef.current;
+    if (root) {
+      const index = Math.max(0, feedItems.findIndex(item => item.key === target));
+      root.scrollTo({ top: index * root.clientHeight, behavior: 'instant' });
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [kind, feedItems.length, focusKey, focused]);
+  }, [kind, feedItems.length, focusKey, focused, showDesktopFrame]);
 
   // If the focused item is a recipe reel that doesn't appear on the
   // current tab (e.g. it's not also in Explore for some reason), flip
@@ -2181,13 +2106,6 @@ export const Reels: React.FC = () => {
       setKind('explore');
     }
   }, [focused, focusKey, feedItems, allReels, kind]);
-
-  // Mirror the activeKey into per-tab state whenever it changes, and
-  // into PostsContext's cross-mount pointer for posts.
-  useEffect(() => {
-    if (!activeKey) return;
-    setLastKeyByTab((prev) => (prev[kind] === activeKey ? prev : { ...prev, [kind]: activeKey }));
-  }, [activeKey, kind]);
 
   useEffect(() => {
     if (activePostId) setLastActivePostId(activePostId);
@@ -2304,28 +2222,6 @@ export const Reels: React.FC = () => {
     }
   }, [activeKey, allReels, recipeReels, allPosts, openCommentsSheet, openPostCommentsSheet, closeCommentsSheet, closePostCommentsSheet]);
 
-  // After the feed renders with a restored active key, scroll the snap
-  // container so that item is the visible slide. Works for both reels
-  // and posts now that per-tab restoration applies to either kind.
-  // useLayoutEffect so the scroll happens before paint and there's no
-  // flash of slide 0.
-  useLayoutEffect(() => {
-    // Only reposition for a genuine restore (armed via restoreTargetRef).
-    // Without this guard the effect fired on every scroll-driven activeKey
-    // change and snapped the container to block:start mid-swipe — the
-    // instant jumps that made scrolling feel choppy. User scrolling never
-    // arms the ref, so momentum/snap is left untouched.
-    const targetKey = restoreTargetRef.current;
-    if (!targetKey) return;
-    const root = containerRef.current;
-    if (!root) return;
-    const target = root.querySelector(`[data-feed-key="${targetKey}"]`) as HTMLElement | null;
-    if (!target) return; // not in the DOM yet — retried when feedItems length resolves
-    target.scrollIntoView({ block: 'start' });
-    restoreTargetRef.current = null; // consumed
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeKey, feedItems.length]);
-
   // Track which slide is on screen with scroll-position arithmetic
   // (rather than IntersectionObserver + threshold gate) — the observer
   // version had a bug where the desktop side panel kept showing the
@@ -2372,18 +2268,24 @@ export const Reels: React.FC = () => {
     // starts in sync with the visible slide.
     update();
     return detach;
-  }, [feedItems.length]);
+  }, [feedItems.length, showDesktopFrame]);
 
-  const [isDesktop, setIsDesktop] = useState(() =>
-    typeof window !== 'undefined' && window.matchMedia('(min-width: 1024px)').matches,
-  );
+  const stepFeed = useCallback((direction: number) => {
+    const root = containerRef.current;
+    if (!root || isOverlayOpen()) return;
+    const index = Math.round(root.scrollTop / root.clientHeight);
+    root.scrollTo({ top: Math.max(0, Math.min(feedItems.length - 1, index + direction)) * root.clientHeight, behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth' });
+  }, [feedItems.length]);
   useEffect(() => {
-    const mq = window.matchMedia('(min-width: 1024px)');
-    const handler = (e: MediaQueryListEvent) => setIsDesktop(e.matches);
-    mq.addEventListener('change', handler);
-    return () => mq.removeEventListener('change', handler);
-  }, []);
-  const showDesktopFrame = isDesktop && !phoneMode;
+    const onKey = (event: KeyboardEvent) => {
+      if (isOverlayOpen() || restaurantPanelSnapshot || recipePanelSnapshot || openCommentsReelId || openPostCommentsId || sharePayload || confirmDeleteId || confirmDeletePostId) return;
+      if ((event.target as HTMLElement)?.closest('input, textarea, select, button, a, [contenteditable="true"], [role="slider"]')) return;
+      if (event.key === 'ArrowDown' || event.key === 'ArrowUp') { event.preventDefault(); stepFeed(event.key === 'ArrowDown' ? 1 : -1); }
+      if (event.code === 'Space' && activeMedia) { event.preventDefault(); const el = activeMedia.el; if (el.paused) void el.play()?.catch(() => {}); else el.pause(); }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [stepFeed, activeMedia, restaurantPanelSnapshot, recipePanelSnapshot, openCommentsReelId, openPostCommentsId, sharePayload, confirmDeleteId, confirmDeletePostId]);
 
   // ── Infinite scroll: a zero-height sentinel sits after the last slide;
   // when it enters the container's viewport extended two screens downward,
@@ -2575,7 +2477,8 @@ export const Reels: React.FC = () => {
   const renderFeed = (opts: { hideActionRail?: boolean; hideOwnerDelete?: boolean; hideCommentsSheet?: boolean; hideDetailsOverlay?: boolean; onActiveVideoChange?: (media: ActiveReelMedia | null) => void }) => (
     <div
       ref={containerRef}
-      className="h-full w-full overflow-y-auto snap-y snap-mandatory overscroll-y-contain bg-black scrollbar-hide"
+      aria-label="Reels feed"
+      className="reel-feed h-full w-full overflow-y-auto snap-y snap-mandatory overscroll-y-contain bg-black scrollbar-hide"
       style={{ scrollbarWidth: 'none' }}
     >
       {/* AnimatePresence used to wrap the per-slide motion.div fade-in;
@@ -2583,7 +2486,7 @@ export const Reels: React.FC = () => {
           for it to track, so it's gone. */}
       {loading && feedItems.length === 0 ? (
           <div className="h-full w-full flex items-center justify-center text-white/60">
-            <Loader2 size={26} className="animate-spin" />
+            <div className="reel-loading" role="status" aria-label="Loading reels"><Play size={24} /><span className="sr-only">Loading reels</span></div>
           </div>
         ) : feedItems.length === 0 && (reelsLoadError || postsLoadError) ? (
           // Fetch failed with nothing cached — say so instead of passing it
@@ -2660,6 +2563,9 @@ export const Reels: React.FC = () => {
             <div
               key={item.key}
               data-feed-key={item.key}
+              data-feed-active={activeKey === item.key}
+              inert={!isActive}
+              aria-hidden={!isActive}
               className="h-full w-full snap-start snap-always"
             >
               {item.kind === 'reel' ? (
@@ -2744,46 +2650,10 @@ export const Reels: React.FC = () => {
 
       {/* Delete confirmations — separate states for reel vs post. */}
       <AnimatePresence>
-        {confirmDeleteId && (
-          <motion.div
-            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-            className="absolute inset-0 z-50 bg-black/70 flex items-center justify-center px-6"
-            onClick={() => setConfirmDeleteId(null)}
-          >
-            <motion.div
-              initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }}
-              onClick={(e) => e.stopPropagation()}
-              className="bg-white rounded-3xl p-6 max-w-xs w-full text-center"
-            >
-              <h4 className="font-serif font-bold text-on-surface text-lg">Delete reel?</h4>
-              <p className="text-sm text-on-surface/55 mt-1">This can't be undone.</p>
-              <div className="flex gap-2 mt-5">
-                <button type="button" onClick={() => setConfirmDeleteId(null)} className="flex-1 h-11 rounded-full bg-on-surface/[0.08] text-on-surface/80 text-sm font-bold hover:bg-on-surface/[0.12]">Cancel</button>
-                <button type="button" onClick={handleConfirmDelete} className="flex-1 h-11 rounded-full bg-rose-600 text-white text-sm font-bold hover:bg-rose-700">Delete</button>
-              </div>
-            </motion.div>
-          </motion.div>
-        )}
-        {confirmDeletePostId && (
-          <motion.div
-            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-            className="absolute inset-0 z-50 bg-black/70 flex items-center justify-center px-6"
-            onClick={() => setConfirmDeletePostId(null)}
-          >
-            <motion.div
-              initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }}
-              onClick={(e) => e.stopPropagation()}
-              className="bg-white rounded-3xl p-6 max-w-xs w-full text-center"
-            >
-              <h4 className="font-serif font-bold text-on-surface text-lg">Delete post?</h4>
-              <p className="text-sm text-on-surface/55 mt-1">This permanently removes every photo / video and the comments. It can't be undone.</p>
-              <div className="flex gap-2 mt-5">
-                <button type="button" onClick={() => setConfirmDeletePostId(null)} className="flex-1 h-11 rounded-full bg-on-surface/[0.08] text-on-surface/80 text-sm font-bold hover:bg-on-surface/[0.12]">Cancel</button>
-                <button type="button" onClick={handleConfirmDeletePost} className="flex-1 h-11 rounded-full bg-rose-600 text-white text-sm font-bold hover:bg-rose-700">Delete</button>
-              </div>
-            </motion.div>
-          </motion.div>
-        )}
+        {confirmDeleteId && <DeleteConfirmation title="Delete reel?" message="This permanently removes the video and its likes, saves, and comments. This can’t be undone."
+          onCancel={() => setConfirmDeleteId(null)} onConfirm={handleConfirmDelete} />}
+        {confirmDeletePostId && <DeleteConfirmation title="Delete post?" message="This permanently removes the post and its comments. This can’t be undone."
+          onCancel={() => setConfirmDeletePostId(null)} onConfirm={handleConfirmDeletePost} />}
       </AnimatePresence>
     </div>
   );
@@ -2802,18 +2672,22 @@ export const Reels: React.FC = () => {
     // When a featured restaurant / recipe panel is open it lives in the
     // right column; give that column more room (and nudge the reel left
     // off dead-center) so the wider panel has space to breathe.
-    const sidePanelOpen = !!restaurantPanelSnapshot || !!recipePanelSnapshot;
+    const sidePanelOpen = !!restaurantPanelSnapshot || !!recipePanelSnapshot || !!commentsTargetId;
     return (
       // 3-column grid: [1fr] [auto] [1fr]. The reel column auto-sizes
       // to its 9:16 aspect ratio, and the two side columns share the
       // remaining space — symmetric (reel centered) by default, weighted
       // to the right when a side panel is open so the reel slides left.
-      <div className={cn(
-        "relative h-screen w-full bg-surface overflow-hidden grid items-center gap-4 px-6 py-3 transition-[grid-template-columns] duration-300 ease-out",
+      <div ref={experienceRef} data-desktop="true" className={cn(
+        "reels-experience relative h-screen w-full bg-surface overflow-hidden grid items-center gap-4 px-6 py-3 transition-[grid-template-columns] duration-300 ease-out",
         sidePanelOpen ? "grid-cols-[1fr_auto_1.3fr]" : "grid-cols-[1fr_auto_1fr]",
       )}>
+        <div className="reel-desktop-navigation" aria-label="Browse reels" hidden={sidePanelOpen}>
+          <button type="button" aria-label="Previous reel" disabled={!activeKey || activeKey === feedItems[0]?.key} onClick={() => stepFeed(-1)}><ChevronDown size={20} className="rotate-180" /></button>
+          <button type="button" aria-label="Next reel" disabled={!activeKey || activeKey === feedItems[feedItems.length - 1]?.key} onClick={() => stepFeed(1)}><ChevronDown size={20} /></button>
+        </div>
         {focused && (
-          <GlassButton id="reels-back-wide" symbol="arrow.left" label="Go back" onClick={() => navigate(-1)} className="absolute top-[max(1rem,env(safe-area-inset-top))] left-4 z-50 hit-44 flex-none w-11 h-11 rounded-full flex items-center justify-center text-on-surface/80 transition-transform active:scale-95">
+          <GlassButton id="reels-back-wide" symbol="arrow.left" label="Go back" onClick={() => goBack()} className="absolute top-[max(1rem,env(safe-area-inset-top))] left-4 z-50 hit-44 flex-none w-11 h-11 rounded-full flex items-center justify-center text-on-surface/80 transition-transform active:scale-95">
             <ArrowLeft size={18} strokeWidth={2.4} />
           </GlassButton>
         )}
@@ -2847,8 +2721,10 @@ export const Reels: React.FC = () => {
           className="relative h-full bg-black rounded-[22px] overflow-hidden shadow-xl border border-on-surface/[0.08]"
           style={{ aspectRatio: '9 / 16' }}
         >
-          <TopBar kind={kind} setKind={setKind} muted={muted} setMuted={setMuted} />
+          <TopBar kind={kind} setKind={switchKind} muted={muted} setMuted={setMuted} focused={focused} onCreate={() => setCreateOpen(true)} />
           {renderFeed({ hideActionRail: true, hideOwnerDelete: true, hideCommentsSheet: true, hideDetailsOverlay: true, onActiveVideoChange: setActiveMedia })}
+          {activeMedia && <div className="absolute inset-x-0 bottom-0 px-4 z-30"><ReelProgressBar media={activeMedia} /></div>}
+          <ReelPlaybackStatus media={activeMedia} />
           <VolumeControl muted={muted} setMuted={setMuted} volume={volume} setVolume={setVolume} />
         </div>
 
@@ -2896,7 +2772,7 @@ export const Reels: React.FC = () => {
 
           {/* Panels overlay — left-anchored just past the rail, full height.
               Out of flow, so opening a panel never resizes the column. */}
-          <div className="absolute top-0 bottom-0 left-[68px] flex items-stretch gap-3 pointer-events-none">
+          <div className="absolute top-0 bottom-0 right-0 z-30 flex items-stretch gap-3 pointer-events-none">
             {/* Each panel re-enables pointer events on its own root */}
             <div className="contents [&>*]:pointer-events-auto">
               <CommentsPanel
@@ -2924,34 +2800,30 @@ export const Reels: React.FC = () => {
         </div>
 
         {/* Share dialog — fixed-position, floats above the layout. */}
-        <ShareDialog
+        <ReelCreateSheet open={createOpen} onClose={() => setCreateOpen(false)} onReel={() => { setCreateOpen(false); openAddReelModal(kind === 'recipe' ? 'recipe' : 'restaurant'); }} onPost={() => { setCreateOpen(false); openAddPostModal(); }} />
+      <ShareDialog
           open={!!sharePayload}
           payload={sharePayload}
           externalShareUrl={externalShareUrl}
           onClose={() => setSharePayload(null)}
         />
 
-        {/* Playback progress bar — pinned to the very bottom of the
-            desktop frame so it spans the full width. */}
-        {activeMedia && (
-          <div className="absolute inset-x-0 bottom-0 px-4 pb-1 z-30">
-            <ReelProgressBar media={activeMedia} />
-          </div>
-        )}
+
       </div>
     );
   }
 
   /* ── Mobile / phone-frame layout ── */
   return (
-    <div className="relative h-dvh w-full bg-black overflow-hidden">
-      <TopBar kind={kind} setKind={setKind} muted={muted} setMuted={setMuted} />
+    <div ref={experienceRef} className="reels-experience relative h-dvh w-full bg-black overflow-hidden" data-focused={focused}>
+      <TopBar kind={kind} setKind={switchKind} muted={muted} setMuted={setMuted} focused={focused} onCreate={() => setCreateOpen(true)} />
       {focused && (
-        <GlassButton id="reels-back" symbol="arrow.left" label="Go back" tint="white" onClick={() => navigate(-1)} className="fixed top-[max(0.75rem,env(safe-area-inset-top))] left-3 z-50 hit-44 flex-none w-11 h-11 rounded-full flex items-center justify-center bg-black/55 text-white transition-transform active:scale-95">
+        <GlassButton id="reels-back" symbol="arrow.left" label="Go back" tint="white" onClick={() => goBack()} className="fixed top-[max(0.75rem,env(safe-area-inset-top))] left-3 z-50 hit-44 flex-none w-11 h-11 rounded-full flex items-center justify-center bg-black/55 text-white transition-transform active:scale-95">
           <ArrowLeft size={18} strokeWidth={2.4} />
         </GlassButton>
       )}
       {renderFeed({ onActiveVideoChange: setActiveMedia })}
+      <ReelPlaybackStatus media={activeMedia} />
       {/* Restaurant sheet — mobile counterpart of the desktop panel. Slides
           up from the bottom over the feed. */}
       <RestaurantPanel
@@ -2967,6 +2839,7 @@ export const Reels: React.FC = () => {
         onClose={() => setRecipePanelSnapshot(null)}
         currentUserId={currentUserId}
       />
+      <ReelCreateSheet open={createOpen} onClose={() => setCreateOpen(false)} onReel={() => { setCreateOpen(false); openAddReelModal(kind === 'recipe' ? 'recipe' : 'restaurant'); }} onPost={() => { setCreateOpen(false); openAddPostModal(); }} />
       <ShareDialog
         open={!!sharePayload}
         payload={sharePayload}
@@ -2979,7 +2852,7 @@ export const Reels: React.FC = () => {
           on a real iPhone, so this offset puts the bar flush against
           its top edge. */}
       {activeMedia && (
-        <div className="absolute inset-x-0 bottom-[calc(50px+env(safe-area-inset-bottom))] px-4 z-30">
+        <div className="reel-progress absolute inset-x-0 bottom-[calc(50px+env(safe-area-inset-bottom))] px-4 z-30">
           <ReelProgressBar media={activeMedia} />
         </div>
       )}

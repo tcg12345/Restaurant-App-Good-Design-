@@ -3,13 +3,13 @@
  * a "featured restaurant" card on a reel or post. Shows the restaurant at a
  * glance without yanking the user out of the feed:
  *
- *   - Non-interactive Mapbox hero pinned to the place's lat/lng
+ *   - Optional photo and an on-demand location map
  *   - Directions / call / website action row
  *   - Address + thin hours accordion (closed by default)
  *   - Community / friends / expert score chips
  *   - Your-rating block (no card chrome — divider-separated rows, with
  *     an expandable details accordion mirroring the detail page)
- *   - Filler "Featured in" reels strip
+ *   - Real related reels
  *   - Friend reviews + expert picks
  *   - View full restaurant page primary button
  *
@@ -22,11 +22,11 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { primaryHex } from '../lib/brand';
 import { createPortal } from 'react-dom';
-import { motion, AnimatePresence } from 'motion/react';
+import { motion, AnimatePresence, useReducedMotion } from 'motion/react';
 import { Link } from 'react-router-dom';
 import {
-  X, Star, Bookmark, Plus, ArrowUpRight, Pencil, Loader2, ImageOff,
-  Navigation, Phone, Globe, ChevronDown, ChevronRight,
+  X, Star, Bookmark, Plus, ArrowUpRight, Pencil, Loader2,
+  Navigation, Phone, Globe, ChevronDown, ChevronRight, MapPin, Map as MapIcon,
 } from 'lucide-react';
 import mapboxgl from 'mapbox-gl';
 import { attachMapErrorFallback } from '../lib/map-error';
@@ -64,6 +64,7 @@ import { RestaurantFeaturedReels } from './RestaurantFeaturedReels';
 import { PhotoGallery } from './PhotoGallery';
 import { useSettings } from '../contexts/SettingsContext';
 import { RatingDistributionSheet } from './RatingDistributionSheet';
+import './RestaurantPanel.css';
 
 /* ── Snapshot the panel accepts ───────────────────────────────────────────
    We accept any object that quacks like a ReelRestaurantSnapshot so reels
@@ -99,9 +100,9 @@ function formatVisitDate(iso: string): string {
    spaced-caps eyebrows, no boxed tiles. ── */
 
 const SECTION_TITLE_STYLE: React.CSSProperties = {
-  fontSize: '17px',
-  fontWeight: 700,
-  lineHeight: 1.15,
+  fontSize: '15px',
+  fontWeight: 650,
+  lineHeight: 1.3,
   letterSpacing: '-0.022em',
 };
 
@@ -143,24 +144,14 @@ const ScorePill: React.FC<{
   return (
     <Tag
       {...(onClick ? { type: 'button' as const, onClick } : {})}
-      className={cn(
-        'flex-1 min-w-0 flex flex-col items-center text-center',
-        onClick && 'active:opacity-70 transition-opacity',
-      )}
+      className="rp-score-column"
+      aria-label={`${label}: ${has ? `${formatScore(score, twoDecimalScores)} out of 10, ${count} ${unit}${count === 1 ? '' : 's'}` : 'No ratings yet'}`}
     >
-      <span
-        className={cn(
-          'w-[68px] h-[68px] rounded-full flex items-center justify-center tabular-nums',
-          has ? scoreTint(score) : 'bg-on-surface/[0.06] text-on-surface/30',
-        )}
-        style={{ fontSize: twoDecimalScores && has ? '20px' : '23px', fontWeight: 700, letterSpacing: '-0.01em' }}
-      >
-        {has ? formatScore(score, twoDecimalScores) : '—'}
+      <span className={cn('rp-score-disc', has ? scoreTint(score) : 'bg-on-surface/[0.05] text-on-surface/60')}>
+        <span className="rp-score-value" style={{ fontSize: twoDecimalScores && has ? 18 : 21 }}>{has ? formatScore(score, twoDecimalScores) : '—'}</span>
+        <span className="rp-score-label">{label}</span>
       </span>
-      <span className="mt-2.5 text-on-surface" style={{ fontSize: '13px', fontWeight: 700 }}>{label}</span>
-      <span className={cn('mt-1', has ? 'text-on-surface/50' : 'text-on-surface/35')} style={{ fontSize: '11.5px' }}>
-        {has ? `${count} ${unit}${count === 1 ? '' : 's'}` : 'None yet'}
-      </span>
+      <span className="rp-score-count">{has ? `${count} ${unit}${count === 1 ? '' : 's'}` : 'Not rated'}</span>
     </Tag>
   );
 };
@@ -228,9 +219,8 @@ const ActionButton: React.FC<ActionButtonProps> = ({ icon, label, href, external
       <span style={{ fontSize: '12.5px', fontWeight: 700 }}>{label}</span>
     </>
   );
-  const cls = 'flex-1 inline-flex items-center justify-center gap-2 rounded-full border border-on-surface/20 text-on-surface px-3 py-[11px] active:opacity-80 transition-opacity';
-  const disabledCls = 'flex-1 inline-flex items-center justify-center gap-2 rounded-full border border-on-surface/[0.12] text-on-surface/30 px-3 py-[11px] cursor-not-allowed';
-  if (!href) return <div className={disabledCls}>{inner}</div>;
+  const cls = 'rp-contact-action';
+  if (!href) return <button type="button" className={cls} disabled aria-label={`${label} unavailable`}>{inner}</button>;
   return (
     <a
       href={href}
@@ -283,11 +273,6 @@ export const RestaurantPanelBody: React.FC<{
    *  mirror trails a finger-driven transform) and let the web glass look
    *  carry them. */
   glassSuspended?: boolean;
-  /** Sheet presentation: the close and save buttons float ABOVE the
-   *  sheet's top edge, in the dimmed strip over the page, instead of over
-   *  the hero. The panel root must not clip for this (clip-path, not
-   *  overflow: hidden). */
-  chromeAbove?: boolean;
   /** When true the map hero is omitted entirely so the body can be
    *  embedded inside another panel (e.g. the Map page's results sidebar)
    *  that already has its own header. The scroll container and all the
@@ -303,8 +288,8 @@ export const RestaurantPanelBody: React.FC<{
    *  inject extra sections (e.g. a distance + routing card) without
    *  re-implementing the rest of the body. */
   headSlot?: React.ReactNode;
-}> = ({ snapshot, onClose, currentUserId, scrollElRef, glassSuspended, chromeAbove, noHero, topChrome, headSlot }) => {
-  const { twoDecimalScores } = useSettings();
+}> = ({ snapshot, onClose, currentUserId, scrollElRef, glassSuspended, noHero, topChrome, headSlot }) => {
+  const { twoDecimalScores, darkMode } = useSettings();
   const {
     getRating,
     isWishlisted,
@@ -478,7 +463,7 @@ export const RestaurantPanelBody: React.FC<{
       // top of comfortably. A CSS filter on the container (see JSX) takes
       // a touch of saturation out so it reads as warm gray rather than
       // bright. interactive: false keeps it a decorative locator map.
-      style: 'mapbox://styles/mapbox/light-v11',
+      style: darkMode ? 'mapbox://styles/mapbox/dark-v11' : 'mapbox://styles/mapbox/light-v11',
       center: [lng, lat],
       // Zoomed out a notch so the surrounding streets are visible, not just
       // the building footprint. ~12.5 shows ~1 mile across.
@@ -503,7 +488,7 @@ export const RestaurantPanelBody: React.FC<{
       map.remove();
       mapInstanceRef.current = null;
     };
-  }, [lat, lng]);
+  }, [lat, lng, darkMode]);
 
   /* ── Hours + contact derived from the details fetch. */
   const phoneHref = details?.phone ? `tel:${details.phone}` : null;
@@ -521,6 +506,9 @@ export const RestaurantPanelBody: React.FC<{
 
   const hours = details?.hours || [];
   const [hoursOpen, setHoursOpen] = useState(false);
+  const [mapOpen, setMapOpen] = useState(false);
+  const [imageFailed, setImageFailed] = useState(false);
+  useEffect(() => { setMapOpen(false); setHoursOpen(false); setImageFailed(false); setMyRatingOpen(false); }, [snapshot.id]);
   const todayHours = useMemo(() => (hours.length > 0 ? getTodayHours(hours) : ''), [hours]);
   const isOpenNow = details?.isOpen ?? null;
 
@@ -532,6 +520,15 @@ export const RestaurantPanelBody: React.FC<{
   const hasPrice = !!myRating?.price;
 
   const scrollRef = useRef<HTMLDivElement | null>(null);
+  const bodyRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    const previous = document.activeElement as HTMLElement | null;
+    const frame = requestAnimationFrame(() => bodyRef.current?.querySelector<HTMLButtonElement>('button')?.focus({ preventScroll: true }));
+    return () => {
+      cancelAnimationFrame(frame);
+      if (previous?.isConnected && !previous.closest('[inert]')) previous.focus({ preventScroll: true });
+    };
+  }, [snapshot.id]);
 
   // Creating a Mapbox WebGL context is main-thread work heavy enough to
   // stutter the sheet's entrance — hold the map back until the slide has
@@ -543,51 +540,27 @@ export const RestaurantPanelBody: React.FC<{
   }, []);
 
   return (
-    <>
-      {/* Embedded callers (noHero) supply their own header chrome — a
-          back arrow, wishlist toggle, etc. — pinned above the scroll
-          area. The standard panel/sheet renders the map hero instead. */}
-      {noHero && topChrome && (
-        <div className="flex-shrink-0">{topChrome}</div>
+    <div className="rp-body" ref={bodyRef} onKeyDown={event => {
+      // Portaled rating and photo dialogs own their own keyboard handling.
+      if (!event.currentTarget.contains(event.target as Node)) return;
+      if (event.key === 'Escape') { event.stopPropagation(); onClose(); }
+      if (event.key === 'Tab' && event.currentTarget.closest('[role="dialog"]')) {
+        const controls = Array.from((event.currentTarget as HTMLElement).querySelectorAll<HTMLElement>('button:not(:disabled), a[href], [tabindex="0"]')).filter(el => el.getClientRects().length > 0);
+        const first = controls[0], last = controls[controls.length - 1];
+        if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
+        else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
+      }
+    }}>
+      {noHero && topChrome ? <div className="rp-embedded-chrome">{topChrome}</div> : !noHero && (
+        <div className="rp-toolbar">
+          <GlassButton id="panel-close" symbol="xmark" label="Close" suspended={glassSuspended} onClick={onClose} className="rp-glass"><X size={20} /></GlassButton>
+          <span className="rp-toolbar-label">Restaurant</span>
+          <GlassButton id="panel-save" symbol={wishlisted ? 'bookmark.fill' : 'bookmark'} label={wishlisted ? 'Remove from wishlist' : 'Save to wishlist'} pressed={wishlisted} suspended={glassSuspended} onClick={onWishlist} className="rp-glass">
+            <Bookmark size={19} fill={wishlisted ? 'currentColor' : 'none'} />
+          </GlassButton>
+        </div>
       )}
-      {/* The old scroll-driven hero collapse (a height transform racing
-          three opacity fades) fought the sheet's own drag and read as a
-          glitch. Now the map is an ordinary block at the top of ONE
-          scroll container — it scrolls away like content, the way modern
-          sheets behave — and only the save/close buttons stay pinned. */}
       <div className="relative flex-1 min-h-0">
-        {!noHero && (
-          <div className={cn('z-20', chromeAbove ? 'absolute left-3 right-3 top-[-56px] flex flex-row-reverse justify-between pointer-events-none' : 'contents')}>
-            <GlassButton
-              id="panel-close"
-              symbol="xmark"
-              label="Close"
-              suspended={glassSuspended}
-              onClick={onClose}
-              className={cn('w-11 h-11 rounded-full bg-black/55 backdrop-blur text-white ring-1 ring-white/[0.16] hover:bg-black/75 flex items-center justify-center transition-colors z-20', chromeAbove ? 'pointer-events-auto' : 'absolute top-3 right-3')}
-            >
-              <X size={19} />
-            </GlassButton>
-            <GlassButton
-              id="panel-save"
-              symbol={wishlisted ? 'bookmark.fill' : 'bookmark'}
-              label={wishlisted ? 'Remove from wishlist' : 'Save to wishlist'}
-              pressed={wishlisted}
-              suspended={glassSuspended}
-              onClick={onWishlist}
-              className={cn(
-                'w-11 h-11 rounded-full backdrop-blur ring-1 ring-white/[0.16] flex items-center justify-center transition-colors z-20',
-                chromeAbove ? 'pointer-events-auto' : 'absolute top-3 left-3',
-                wishlisted
-                  ? 'bg-primary text-on-primary hover:bg-primary/90 shadow-md shadow-black/20'
-                  : 'bg-black/55 text-white hover:bg-black/75',
-              )}
-            >
-              <Bookmark size={19} className={cn(wishlisted && 'fill-white')} />
-            </GlassButton>
-          </div>
-        )}
-
         <div
           ref={(el) => {
             scrollRef.current = el;
@@ -595,58 +568,23 @@ export const RestaurantPanelBody: React.FC<{
           }}
           // overscroll 'none': the local top-bounce used to fight the
           // drag-anywhere dismissal for the first few pixels.
-          className="h-full overflow-y-auto pb-6"
+          className="rp-scroll h-full overflow-y-auto"
           style={{ overscrollBehavior: 'none' }}
         >
-          {!noHero && (
-            // The hero rounds its OWN top corners when the chrome floats
-            // above: the sheet root can't clip it then (its clip rectangle
-            // starts in the strip overhead, so the rounding lands up there
-            // and the map meets a square edge).
-            <div className={cn('relative w-full h-[168px] bg-cream-2 overflow-hidden', chromeAbove && 'rounded-t-3xl')}>
-              {hasMap && mediaSettled ? (
-                <div
-                  key={`${snapshot.id}-${lat}-${lng}`}
-                  ref={mapContainerRef}
-                  // Inline position/inset: mapbox-gl.css sets `.mapboxgl-map
-                  // { position: relative }`, which beats the Tailwind class
-                  // and collapsed the container to zero height. The saturate
-                  // filter quiets the cartography so it reads as warm gray.
-                  className="animate-[fadeIn_0.35s_ease_both]"
-                  style={{ position: 'absolute', inset: 0, filter: 'saturate(0.55)' }}
-                />
-              ) : hasMap ? (
-                <div className="absolute inset-0 bg-cream-2" />
-              ) : snapshot.image ? (
-                <img
-                  src={snapshot.image}
-                  alt=""
-                  className="absolute inset-0 w-full h-full object-cover"
-                  referrerPolicy="no-referrer"
-                />
-              ) : (
-                <div className="absolute inset-0 bg-gradient-to-br from-clay/30 to-olive/20 flex items-center justify-center text-on-surface/30">
-                  <ImageOff size={28} />
-                </div>
-              )}
-              {/* Soft bottom fade so the map settles into the surface. */}
-              <div className="pointer-events-none absolute inset-x-0 bottom-0 h-14 bg-gradient-to-t from-surface to-transparent" />
-            </div>
-          )}
-
-          <div className={cn('px-5 space-y-6', noHero ? 'pt-5' : 'pt-4')}>
+          <div className="rp-content">
+          {!noHero && snapshot.image && !imageFailed && <img src={snapshot.image} alt="" className="rp-hero-photo" referrerPolicy="no-referrer" onError={() => setImageFailed(true)} />}
           {headSlot}
         {/* Identity — the main detail page's lead: the name says it in
             large serif ON the surface, with the cuisine speaking in the
             accent underneath. It used to hide as a caption inside the
             map wash. */}
         {!noHero && (
-          <div>
-            <h2 className="font-serif font-bold text-on-surface text-[27px] leading-[1.08] tracking-[-0.02em]" style={{ textWrap: 'balance' } as React.CSSProperties}>
+          <div className="rp-identity">
+            <h2 className="rp-title">
               {snapshot.name}
             </h2>
             {(snapshot.cuisine || snapshot.price || distance) && (
-              <p className="mt-2 text-[13.5px] truncate">
+              <p className="rp-identity-meta">
                 {snapshot.cuisine && <span className="font-semibold text-primary">{snapshot.cuisine}</span>}
                 {snapshot.cuisine && (snapshot.price || distance) && <span className="text-on-surface/30">  ·  </span>}
                 {snapshot.price && <span className="text-on-surface/60">{snapshot.price}</span>}
@@ -659,23 +597,24 @@ export const RestaurantPanelBody: React.FC<{
         {/* Action row — outlined pills, the detail page's control
             language: each of these leaves the app, so they read as
             controls rather than tiles. */}
-        <div className="flex gap-2">
+        <div className="rp-contact-actions">
           <ActionButton
-            icon={<Navigation size={15} />}
+            icon={<Navigation size={20} />}
             label="Directions"
             href={directionsHref}
             external
             onClick={directionsHref ? () => { void openExternalUrl(directionsHref); } : undefined}
           />
           <ActionButton
-            icon={<Phone size={15} />}
+            icon={<Phone size={20} />}
             label="Call"
             href={phoneHref}
           />
           <ActionButton
-            icon={<Globe size={15} />}
+            icon={<Globe size={20} />}
             label="Website"
             href={websiteHref}
+            onClick={websiteHref ? () => { void openExternalUrl(websiteHref); } : undefined}
             external
           />
         </div>
@@ -686,62 +625,46 @@ export const RestaurantPanelBody: React.FC<{
             the last thing you reached, and only after scrolling past
             reference material. Both states render the same pair so the
             controls don't move when a restaurant becomes rated. */}
-        <div className="flex gap-2">
+        <div className="rp-primary-actions">
           <button
             type="button"
             onClick={onRate}
-            className="flex-1 inline-flex items-center justify-center gap-1.5 h-11 rounded-full bg-on-surface text-surface text-[13.5px] font-bold hover:bg-on-surface/90 transition-colors shadow-sm"
+            className="rp-rate"
           >
             <Star size={15} className="fill-current" />
-            {myRating ? 'Re-rate' : 'Rate'}
+            {myRating ? 'Rate again' : 'Rate this place'}
           </button>
           <button
             type="button"
             onClick={onAddToList}
-            className="flex-1 inline-flex items-center justify-center gap-1.5 h-11 rounded-full bg-on-surface/[0.05] text-on-surface text-[13px] font-semibold hover:bg-on-surface/[0.09] transition-colors"
+            className="rp-add-list"
           >
             <Plus size={14} />
             {myLists.length > 0
               ? `In ${myLists.length} list${myLists.length === 1 ? '' : 's'}`
-              : 'Add to a list'}
+              : 'Add to list'}
           </button>
         </div>
 
-        {/* Ratings — three tinted discs over a name and a count, the
-            same tier palette every score wears everywhere. */}
-        <section>
-          <SectionRule />
-          <SectionTitle className="pt-3">Ratings</SectionTitle>
-          <div className="mt-5 flex gap-2">
-          <ScorePill
-            label="Community"
-            score={community?.avg ?? 0}
-            count={community?.count ?? 0}
-            onClick={(community?.count ?? 0) > 0 ? () => setDistOpen(true) : undefined}
-          />
-          <ScorePill
-            label="Friends"
-            score={friends?.avg ?? 0}
-            count={friends?.count ?? 0}
-          />
-          <ScorePill
-            label="Experts"
-            score={
-              experts.length > 0
-                ? experts.reduce((s, e) => s + (e.rating || 0), 0) / experts.length
-                : 0
-            }
-            count={experts.length}
-          />
-          </div>
+        <section className="rp-ratings" aria-label="Ratings" aria-busy={loading}>
+          <div className="rp-section-heading"><SectionTitle>Ratings</SectionTitle><span>Out of 10</span></div>
+          {loading ? <div className="rp-ratings-loading" role="status"><Loader2 size={16} className="animate-spin" />Loading ratings</div>
+            : !loadError && (community?.count ?? 0) === 0 && (friends?.count ?? 0) === 0 && !experts.length
+              ? <p className="rp-empty-ratings">No ratings yet</p>
+              : !loadError && <div className="rp-scores">
+                <ScorePill label="Everyone" score={community?.avg ?? 0} count={community?.count ?? 0} onClick={(community?.count ?? 0) > 0 ? () => setDistOpen(true) : undefined} />
+                <ScorePill label="Friends" score={friends?.avg ?? 0} count={friends?.count ?? 0} />
+                <ScorePill label="Experts" score={experts.length ? experts.reduce((sum, e) => sum + (e.rating || 0), 0) / experts.length : 0} count={experts.length} />
+              </div>}
         </section>
 
-        {/* Address + thin hours accordion — sits directly below the score
-            chips so "where it is / when it's open" is at-a-glance without
-            scrolling past the social proof. Hours default closed; today's
-            slice is shown on the trigger row. */}
-        {snapshot.address && (
-          <p className="text-on-surface/80 leading-snug" style={{ fontSize: '13.5px' }}>{snapshot.address}</p>
+        {(details?.fullAddress || details?.address || snapshot.address) && (
+          <section className="rp-location">
+            <div className="rp-location-row"><MapPin size={18} /><p>{details?.fullAddress || details?.address || snapshot.address}</p>
+              {!noHero && hasMap && <button type="button" onClick={() => setMapOpen(open => !open)} aria-expanded={mapOpen} aria-label={mapOpen ? 'Hide map' : 'Show map'}><MapIcon size={19} /></button>}
+            </div>
+            {!noHero && mapOpen && hasMap && mediaSettled && <div className="rp-map"><div key={`${snapshot.id}-${lat}-${lng}-${darkMode}`} ref={mapContainerRef} style={{ position: 'absolute', inset: 0 }} /></div>}
+          </section>
         )}
 
         {/* Hours — a real section, not a whisper: the status word leads
@@ -750,13 +673,12 @@ export const RestaurantPanelBody: React.FC<{
             word and a "Closed" hours line used to double up as
             "Closed · Closed".) */}
         {hours.length > 0 && (
-          <section>
-            <SectionRule />
+          <section className="rp-hours">
             <button
               type="button"
               onClick={() => setHoursOpen((o) => !o)}
               aria-expanded={hoursOpen}
-              className="w-full pt-3 flex items-center justify-between gap-3 text-left"
+              className="rp-hours-toggle"
             >
               <SectionTitle>Hours</SectionTitle>
               <span className="flex items-center gap-2 min-w-0">
@@ -772,7 +694,7 @@ export const RestaurantPanelBody: React.FC<{
               </span>
             </button>
             {todayHours && todayHours.trim().toLowerCase() !== 'closed' && (
-              <p className="mt-2 text-[14px] text-on-surface/70">Today · {todayHours}</p>
+              <p className="rp-today">Today · {todayHours}</p>
             )}
             <AnimatePresence initial={false}>
               {hoursOpen && (
@@ -845,7 +767,7 @@ export const RestaurantPanelBody: React.FC<{
                     <p className="text-[12px] text-on-surface/50">Rated {formatRelativeDate(myRating.visitDate)}</p>
                   )}
                   {myRating.notes ? (
-                    <p className="font-serif italic text-on-surface/80 text-[14px] leading-snug mt-1 line-clamp-2">
+                    <p className="text-on-surface/80 text-[14px] leading-snug mt-1 line-clamp-2">
                       "{myRating.notes}"
                     </p>
                   ) : (
@@ -884,7 +806,7 @@ export const RestaurantPanelBody: React.FC<{
                     <div className="mt-3 border-t border-on-surface/[0.08] divide-y divide-on-surface/[0.08]">
                       <RatingDetailRow label="Notes" onEdit={() => openAt('notes')}>
                         {hasNotes ? (
-                          <p className="font-serif italic text-on-surface/85 text-[13.5px] leading-relaxed">
+                          <p className="text-on-surface/85 text-[13.5px] leading-relaxed">
                             "{myRating.notes}"
                           </p>
                         ) : (
@@ -1007,11 +929,7 @@ export const RestaurantPanelBody: React.FC<{
         />
 
         {/* Friend + expert reviews */}
-        {loading ? (
-          <div className="flex items-center justify-center py-6 text-on-surface/45">
-            <Loader2 size={18} className="animate-spin" />
-          </div>
-        ) : loadError ? (
+        {loading ? null : loadError ? (
           <div className="flex flex-col items-center justify-center gap-2 py-6">
             <span className="text-[13px] text-on-surface/55 font-medium">Couldn&rsquo;t load community info</span>
             <button
@@ -1076,27 +994,16 @@ export const RestaurantPanelBody: React.FC<{
               </section>
             )}
 
-            {(friends?.count ?? 0) === 0 && experts.length === 0 && (community?.count ?? 0) === 0 && !myRating && (
-              <div className="rounded-2xl bg-on-surface/[0.04] px-4 py-5 text-center">
-                <p className="text-[13px] text-on-surface/65 leading-snug">
-                  No reviews yet. Be the first to share what you thought.
-                </p>
-              </div>
-            )}
           </>
         )}
 
-        {/* View full restaurant page — primary route to the detail page. */}
-        <Link
-          to={`/restaurant/${encodeURIComponent(snapshot.id)}`}
-          onClick={onClose}
-          className="group flex items-center justify-center gap-1.5 w-full h-12 rounded-full bg-primary text-on-primary text-[14px] font-bold hover:bg-primary/90 transition-colors shadow-sm"
-        >
-          View full restaurant page
-          <ArrowUpRight size={16} className="transition-transform group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
-        </Link>
           </div>
         </div>
+      </div>
+      <div className="rp-footer">
+        <Link to={`/restaurant/${encodeURIComponent(snapshot.id)}`} onClick={onClose} className="rp-full-details">
+          Restaurant details<ArrowUpRight size={17} />
+        </Link>
       </div>
 
       {/* Full-screen community photo gallery. Portaled to document.body
@@ -1123,19 +1030,20 @@ export const RestaurantPanelBody: React.FC<{
         restaurantName={snapshot.name}
         currentUserId={currentUserId}
       />
-    </>
+    </div>
   );
 };
 
 /* ── Desktop side panel + mobile sheet ───────────────────────────────── */
 
 export const RestaurantPanel: React.FC<RestaurantPanelProps> = ({ snapshot, onClose, currentUserId, variant }) => {
+  const reducedMotion = useReducedMotion();
   const sheetScrollRef = useRef<HTMLDivElement | null>(null);
   // Native glass stands down while the sheet is entering or under the
   // finger — the async mirror can't track a per-frame transform.
   const [dragging, setDragging] = useState(false);
   const [entered, setEntered] = useState(false);
-  const { dragProps, sheetRef } = useBottomSheet(!!snapshot && variant === 'sheet', onClose, sheetScrollRef, setDragging);
+  const { dragProps, startDrag, sheetRef } = useBottomSheet(!!snapshot && variant === 'sheet', onClose, sheetScrollRef, setDragging);
   useEffect(() => { if (!snapshot) setEntered(false); }, [snapshot]);
   if (variant === 'sheet') {
     return (
@@ -1160,27 +1068,19 @@ export const RestaurantPanel: React.FC<RestaurantPanelProps> = ({ snapshot, onCl
               exit={{ y: '100%' }}
               // iOS's own sheet curve — the spring stuttered against the
               // Mapbox init happening mid-entrance.
-              transition={{ duration: 0.42, ease: [0.32, 0.72, 0, 1] }}
+              transition={{ duration: reducedMotion ? 0 : 0.42, ease: [0.32, 0.72, 0, 1] }}
               onAnimationComplete={() => setEntered(true)}
               ref={sheetRef as React.RefObject<HTMLDivElement>}
               {...dragProps}
               onClick={(e) => e.stopPropagation()}
-              // clip-path, not overflow: hidden — the close/save buttons sit
-              // ABOVE the sheet's top edge (RestaurantPanelBody chromeAbove),
-              // and overflow: hidden would clip them; clip-path rounds the top
-              // corners and lets the strip above through.
-              className="bg-surface w-full rounded-t-3xl flex flex-col ring-1 ring-on-surface/[0.16] overflow-visible relative"
-              style={{ height: '92%', willChange: 'transform', clipPath: 'inset(-80px 0 0 0 round 24px 24px 0 0)' }}
+              role="dialog" aria-modal="true" aria-label={snapshot.name}
+              className="rp-sheet bg-surface w-full flex flex-col overflow-hidden relative"
+              style={{ height: 'min(92dvh, 940px)', willChange: 'transform' }}
             >
-              {/* Drag-handle pill — absolute so it overlays the hero map
-                  at the top of the sheet rather than sitting on its own
-                  white strip above the map. on-surface/30 stays visible
-                  against both the light cartography and the cream
-                  surface beneath. */}
-              <div className="pointer-events-none absolute top-2 left-1/2 -translate-x-1/2 z-30">
-                <span className="block w-10 h-1 rounded-full bg-on-surface/30" />
+              <div className="rp-grabber" style={{ touchAction: 'none' }} onPointerDown={startDrag}>
+                <span className="block w-9 h-1 rounded-full bg-on-surface/20" />
               </div>
-              <RestaurantPanelBody snapshot={snapshot} onClose={onClose} currentUserId={currentUserId} scrollElRef={sheetScrollRef} glassSuspended={dragging || !entered} chromeAbove />
+              <RestaurantPanelBody snapshot={snapshot} onClose={onClose} currentUserId={currentUserId} scrollElRef={sheetScrollRef} glassSuspended={dragging || !entered} />
             </motion.div>
           </motion.div>
         )}
@@ -1196,7 +1096,7 @@ export const RestaurantPanel: React.FC<RestaurantPanelProps> = ({ snapshot, onCl
           initial={{ opacity: 0, x: 20, width: 0 }}
           animate={{ opacity: 1, x: 0, width: 388 }}
           exit={{ opacity: 0, x: 20, width: 0 }}
-          transition={{ type: 'spring', damping: 28, stiffness: 280 }}
+          transition={reducedMotion ? { duration: 0 } : { type: 'spring', damping: 28, stiffness: 280 }}
           className="h-full bg-surface ring-1 ring-on-surface/[0.16] rounded-[24px] overflow-hidden flex flex-col flex-shrink-0 shadow-md"
         >
           <div className="w-[388px] h-full flex flex-col">

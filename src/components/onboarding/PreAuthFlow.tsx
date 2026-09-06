@@ -1,12 +1,12 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState, useRef } from 'react';
 import { motion } from 'motion/react';
 import { Star, LogIn } from 'lucide-react';
 import * as OB from './OnboardingKit';
 import { CuisineGrid, PriceStep, TASTE_CUISINES } from './TasteSteps';
 import { CityAutocomplete } from '../CityAutocomplete';
 import { savePickedLocation, geocodePlace } from '../HomeLocationBar';
-import { saveTasteQuiz } from '../../lib/taste-quiz';
-import { savePreauthCity, markPreauthDone, savePreauthOutcome } from '../../lib/preauth';
+import { saveTasteQuiz, getTasteQuiz } from '../../lib/taste-quiz';
+import { savePreauthCity, markPreauthDone, savePreauthOutcome, getPreauthCity } from '../../lib/preauth';
 import { logOnboardingEvent, markOnboardingStep } from '../../lib/onboarding-events';
 import { fetchTastePreview } from '../../lib/taste-preview';
 import type { ScoredPlace } from '../../lib/recommendations';
@@ -55,7 +55,7 @@ const TeaserStack: React.FC = () => (
   <div>
     <OB.Reveal i={3}>
       <div style={{ fontSize: 11, letterSpacing: '1.4px', fontWeight: 700, color: 'var(--ob-label)', textTransform: 'uppercase', marginBottom: 12 }}>
-        Your list, ranked
+        A taste of your list
       </div>
     </OB.Reveal>
     <div className="flex flex-col" style={{ gap: 8 }} aria-hidden>
@@ -147,17 +147,18 @@ export const PreAuthFlow: React.FC<{
   const [step, setStep] = useState<PreStep>('welcome');
   // +1 forward, -1 back — the entrance slide matches travel direction.
   const [dir, setDir] = useState(1);
-  const [cuisineSel, setCuisineSel] = useState<string[]>([]);
+  const [saved] = useState(() => getTasteQuiz(null));
+  const [cuisineSel, setCuisineSel] = useState<string[]>(saved?.cuisines ?? []);
   // The usual tier and the occasional one — stated as such, not inferred
   // from tap order (see PriceStep).
-  const [pricePrimary, setPricePrimary] = useState<number | undefined>(undefined);
-  const [priceSecondary, setPriceSecondary] = useState<number | undefined>(undefined);
+  const [pricePrimary, setPricePrimary] = useState<number | undefined>(saved?.pricePrimary);
+  const [priceSecondary, setPriceSecondary] = useState<number | undefined>(saved?.priceSecondary);
   const priceSel = useMemo(
     () => [pricePrimary, priceSecondary].filter((n): n is number => n !== undefined),
     [pricePrimary, priceSecondary],
   );
-  const [cityText, setCityText] = useState('');
-  const [cityGeo, setCityGeo] = useState<HomeLocation | null>(null);
+  const [cityText, setCityText] = useState(getPreauthCity()?.label ?? '');
+  const [cityGeo, setCityGeo] = useState<HomeLocation | null>(() => getPreauthCity());
   const [preview, setPreview] = useState<ScoredPlace[] | null>(null);
 
   useEffect(() => { logOnboardingEvent('preauth_start'); }, []);
@@ -170,7 +171,7 @@ export const PreAuthFlow: React.FC<{
     setDir(1);
     setStep(next);
   };
-  const back = () => { if (idx > 0) { setDir(-1); setStep(ORDER[idx - 1]); } };
+  const back = () => { if (cityBusy.current) return; if (idx > 0) { setDir(-1); setStep(ORDER[idx - 1]); } };
 
   /** Persist answers to the local mirror (no user yet) — ProfileSetup
    *  reads them back after signup and stamps the row. */
@@ -205,51 +206,38 @@ export const PreAuthFlow: React.FC<{
 
   // Preview data — fires when the step is reached with a real city.
   useEffect(() => {
-    if (step !== 'preview' || !cityGeo || preview !== null) return;
+    if (step !== 'preview' || !cityGeo) return;
+    setPreview(null);
     let cancelled = false;
+    const timer = window.setTimeout(() => { if (!cancelled) { cancelled = true; setPreview([]); } }, 12000);
     fetchTastePreview({ cuisines: cuisineSel, prices: priceSel }, cityGeo)
       .then((places) => {
         if (cancelled) return;
         setPreview(places);
         if (places.length > 0) logOnboardingEvent('preauth_preview_shown');
-      });
-    return () => { cancelled = true; };
-  }, [step, cityGeo, preview, cuisineSel, priceSel]);
+      }).catch(() => { if (!cancelled) setPreview([]); }).finally(() => window.clearTimeout(timer));
+    return () => { cancelled = true; window.clearTimeout(timer); };
+  }, [step, cityGeo, cuisineSel, priceSel]);
 
   const [resolvingCity, setResolvingCity] = useState(false);
+  const cityBusy = useRef(false);
+  const [cityError, setCityError] = useState('');
   const advanceFromCity = async () => {
-    let geo = cityGeo;
-    // Free-typed text gets geocoded here instead of silently dropped.
-    // This was the step's worst bug: onChange nulls cityGeo on every
-    // keystroke, so someone who typed "New York" in full and hit
-    // Continue — without tapping a suggestion row — sailed past as if
-    // they'd skipped, and the post-signup wizard asked for the city all
-    // over again.
-    if (!geo && cityText.trim().length >= 2) {
-      setResolvingCity(true);
-      geo = await geocodePlace(cityText.trim());
-      setResolvingCity(false);
-      if (geo) { setCityText(geo.label); setCityGeo(geo); }
-    }
-    if (geo) {
-      savePreauthCity(geo);
-      // ALSO write the location the app genuinely resolves from. The
-      // pre-auth city used to dead-end: it reached the profile row, and
-      // nothing ever read those columns back into the map or the rec target
-      // — so a user who typed "Austin", confirmed "Austin" and saw an Austin
-      // preview landed on Discover showing New York.
-      // As a PICK, not just an anchor: this is the answer every later launch
-      // falls back to when the device's location isn't available, which is
-      // what makes the city chosen here the app's default until it's changed.
-      savePickedLocation(geo);
+    if (cityBusy.current) return;
+    cityBusy.current = true;
+    setResolvingCity(true);
+    setCityError('');
+    try {
+      const geo = cityGeo ?? (cityText.trim() ? await geocodePlace(cityText.trim()) : null);
+      if (!geo && cityText.trim()) { setCityError('Choose a city from the suggestions, or skip for now.'); return; }
+      if (geo) {
+        setCityGeo(geo); setCityText(geo.label);
+        savePreauthCity(geo); savePickedLocation(geo);
+      }
       persistAnswers(geo);
-      logOnboardingEvent('location_resolved');
       go('preview');
-    } else {
-      // Nothing resolvable — the gate still explains itself.
-      persistAnswers();
-      go('preview');
-    }
+    } catch { setCityError('Couldn’t find that city. Try again or skip for now.'); }
+    finally { cityBusy.current = false; setResolvingCity(false); }
   };
 
   // One footer per step, keyed so it re-plays its entrance on every step
@@ -304,11 +292,12 @@ export const PreAuthFlow: React.FC<{
             {/* Skip disappears once a city exists — with one picked, the
                 only honest action left is showing the picks, and a skip
                 that DISCARDED a chosen city was exactly the bug here. */}
-            {!cityGeo && !cityText.trim() && (
+            {!resolvingCity && (
               <div style={{ marginBottom: 4 }}>
                 <OB.GhostButton onClick={() => { persistAnswers(); go('preview'); }}>Skip for now</OB.GhostButton>
               </div>
             )}
+            {cityError && <OB.ErrorRow>{cityError}</OB.ErrorRow>}
             <OB.PrimaryButton onClick={() => { void advanceFromCity(); }} loading={resolvingCity}>
               {cityGeo ? 'Show my picks' : 'Continue'}
             </OB.PrimaryButton>
@@ -317,10 +306,7 @@ export const PreAuthFlow: React.FC<{
       case 'preview':
         return (
           <OB.Reveal key={step} i={3}>
-            {/* No sign-in / guest links here — the welcome screen already
-                offered both, and repeating them made the flow's last
-                screen read like its first. The Auth screen this leads to
-                still carries "Browse without an account" (5.1.1(v)). */}
+            {onBrowseAsGuest && <OB.GhostButton onClick={() => leave('guest')}>Explore first</OB.GhostButton>}
             <OB.PrimaryButton onClick={() => leave('signup')} trailing="check">Save my taste profile</OB.PrimaryButton>
           </OB.Reveal>
         );
@@ -347,7 +333,7 @@ export const PreAuthFlow: React.FC<{
               initial={{ opacity: 0, scale: 0.6 }}
               animate={{ opacity: 1, scale: 1 }}
               transition={{ ...OB.SPRING_SOFT, delay: 0.05 }}
-              style={{ marginTop: 40 }}
+              style={{ marginTop: 24 }}
             >
               <OB.BrandMark size={56} />
             </motion.div>
@@ -383,7 +369,7 @@ export const PreAuthFlow: React.FC<{
 
         {step === 'prices' && (
           <div className="flex flex-1 flex-col">
-            <OB.StepHeader title={<>What do you usually <em>spend?</em></>} subtitle="Your picks lean toward this, without ever excluding a great table." />
+            <OB.StepHeader title={<>What do you usually <em>spend?</em></>} subtitle="Your usual budget. Optional." />
             <OB.Reveal i={2} style={{ marginTop: 26 }}>
               <PriceStep
                 primary={pricePrimary}

@@ -1,3 +1,4 @@
+import { usePageBack } from '../lib/usePageBack';
 /**
  * Activity — "your activity" hub: a tiny index page that fans out to four
  * lists (saved / liked / commented / recipe drafts).
@@ -235,6 +236,7 @@ interface IndexRowProps {
 
 const IndexRow: React.FC<IndexRowProps & { first?: boolean }> = ({ icon, label, description, count, loading, to, first }) => {
   const navigate = useNavigate();
+  const goBack = usePageBack('/profile');
   return (
     <div className={cn(!first && 'border-t border-on-surface/[0.08]')}>
       <button
@@ -368,6 +370,7 @@ const ActivityHeader: React.FC<{ title: string; onBack: () => void }> = ({ title
 
 export const Activity: React.FC = () => {
   const navigate = useNavigate();
+  const goBack = usePageBack('/profile');
   const location = useLocation();
   const tab = tabFromPathname(location.pathname);
 
@@ -504,7 +507,7 @@ export const Activity: React.FC = () => {
   if (!tab) {
     return (
       <div className="min-h-screen bg-surface pb-32">
-        <ActivityHeader title="Your activity" onBack={() => navigate(-1)} />
+        <ActivityHeader title="Your activity" onBack={() => goBack()} />
         <main className="max-w-2xl mx-auto px-5 pt-5">
           <p className="text-on-surface/55 text-[13.5px] leading-relaxed mb-1" style={{ textWrap: 'pretty' } as React.CSSProperties}>
             Everything you've saved, liked and joined in on — in one place.
@@ -557,7 +560,7 @@ export const Activity: React.FC = () => {
         {/* Pop, don't push: navigating to '/activity' here grew the history
             stack every tap, so back from the index returned to this page —
             an endless index↔sub-page loop. */}
-        <ActivityHeader title="Recipe drafts" onBack={() => navigate(-1)} />
+        <ActivityHeader title="Recipe drafts" onBack={() => goBack()} />
         <main className="max-w-2xl mx-auto px-5 pt-5">
           {drafts.length === 0 ? (
             <EmptyState
@@ -592,7 +595,7 @@ export const Activity: React.FC = () => {
   return (
     <div className="min-h-screen bg-surface pb-32">
       {/* Pop, don't push — see the drafts header above. */}
-      <ActivityHeader title={title} onBack={() => navigate(-1)} />
+      <ActivityHeader title={title} onBack={() => goBack()} />
       <main className="max-w-3xl mx-auto px-5 pt-5">
         {activeLoading && items.length === 0 ? (
           <div className="flex items-center justify-center py-20 text-on-surface/45">

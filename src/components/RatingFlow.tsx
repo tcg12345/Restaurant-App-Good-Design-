@@ -1,45 +1,31 @@
-/**
- * RatingFlow — the whole rating experience, as one popup card.
- *
- * Implements the Claude Design "Rating Flow" spec. The shape of it: a
- * centred card over a scrim, never a full page, whose HEIGHT is the thing
- * that changes between steps. Each step declares the height it needs and
- * the card grows or shrinks into it, so the flow reads as one object being
- * reshaped rather than four screens replacing each other.
- *
- *   gut      → how was it (three sentiments, or "I already know my score")
- *   compare  → head-to-head match-ups against your own list
- *   direct   → the slider, for when you already know
- *   details  → the revealed score + six detail chips + share + save
- *   saved    → the confirmation
- *
- * The comparisons are NOT the design's toy binary search — they run the
- * app's real `headToHeadRating` engine (similarity-biased pivots, ties,
- * skips, budget) so the score this produces is the same score the old flow
- * produced. The design contributes the presentation; the engine keeps the
- * arithmetic. Same for the save: it goes through `rateRestaurant` with the
- * placement order the search decided, exactly as before.
- */
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { DeleteConfirmation } from './DeleteConfirmation';
+/** A continuous rating sheet: choose a feeling, place it on your list, add optional visit details. */
+import React, { useLayoutEffect, useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { X, ChevronLeft, ChevronRight, Heart, Minus, ThumbsDown, RotateCcw, StickyNote, ChefHat, DollarSign, CalendarDays, Tag, Image as ImageIcon, Check, Trash2, Camera } from 'lucide-react';
+import { X, ChevronLeft, ChevronRight, Heart, Minus, ThumbsDown, RotateCcw, StickyNote, ChefHat, DollarSign, CalendarDays, Tag, Image as ImageIcon, Check, Trash2, Camera, ArrowRight, Plus, Sparkles } from 'lucide-react';
 import { cn, localISODate } from '../lib/utils';
 import { compressImage } from '../lib/images';
 import { dropDeadPhotos } from '../lib/pendingPhotos';
 import { useLists, type PhotoItem, type RestaurantRating } from '../contexts/ListsContext';
 import { settleScores } from '../lib/settleScores';
 import { useSubmitOnce } from '../lib/useSubmitOnce';
-import { pushOverlay } from '../lib/overlay-registry';
+import { motion, useReducedMotion } from 'motion/react';
+import { useBottomSheet, liftOverlayToTopLayer } from '../lib/useBottomSheet';
+import { GlassButton } from '../lib/glass-buttons';
+import { RatingCompletion, type CompletedRating } from './RatingCompletion';
 import { ALL_TAGS, PRICE_RANGES, priceIndexFromAmount, Calendar } from './RatingShared';
 import {
   type H2HState, type Tier,
   initH2H, initH2HTieBreak, pickComparison, applyChoice, applyTie, applySkip,
   isComplete, computeFinalScore, comparisonsMade, totalEstimatedComparisons,
-  placementOrder, TIER_LABELS,
+  placementOrder, TIER_LABELS, undoLastChoice,
 } from '../lib/headToHeadRating';
 import './RatingFlow.css';
+import { scoresUnlocked as canShowScores } from '../lib/scoreUnlock';
+import { readDevicePreference } from '../lib/device-preferences';
+import { homeHaptic } from '../lib/haptics';
 
-type Step = 'gut' | 'compare' | 'direct' | 'details' | 'saved';
+type Step = 'gut' | 'compare' | 'direct' | 'details';
 type Editor = 'notes' | 'dishes' | 'price' | 'when' | 'tags' | 'photos';
 
 /** Which sentiment maps to which tier of the score range. */
@@ -82,11 +68,46 @@ export const RatingFlow: React.FC = () => {
     addRestaurantModalOpen, addRestaurantModalMeta, addRestaurantModalInitialPage, closeAddRestaurantModal,
     rateRestaurant, getRating, removeRating, ratings, getRestaurantInfo, scoresUnlocked,
   } = useLists();
-  const { submitting: saving, tryLock } = useSubmitOnce(addRestaurantModalOpen);
+  const { submitting: saving, tryLock, release } = useSubmitOnce(addRestaurantModalOpen);
 
-  const restaurant = addRestaurantModalMeta;
-  const existing = restaurant ? getRating(restaurant.id) : undefined;
+  const existing = addRestaurantModalMeta ? getRating(addRestaurantModalMeta.id) : undefined;
+  const restaurant = addRestaurantModalMeta ? {
+    ...addRestaurantModalMeta,
+    name: !addRestaurantModalMeta.name || addRestaurantModalMeta.name === 'Unknown' ? existing?.name || 'This restaurant' : addRestaurantModalMeta.name,
+    image: addRestaurantModalMeta.image || existing?.image || '',
+    address: addRestaurantModalMeta.address || existing?.address || '',
+  } : null;
 
+  const reduced = useReducedMotion();
+  const [completion, setCompletion] = useState<CompletedRating | null>(null);
+  const pendingCompletion = useRef<CompletedRating | null>(null);
+  const dismissCompletion = useCallback(() => setCompletion(null), []);
+  const [dragging, setDragging] = useState(false);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => { if (addRestaurantModalOpen) liftOverlayToTopLayer(dialogRef.current); }, [addRestaurantModalOpen]);
+  const revealFrame = useRef(0);
+  const pickTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pickLocked = useRef(false);
+  const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [closing, setClosing] = useState(false);
+  const photoSession = useRef(0);
+  const [flowError, setFlowError] = useState('');
+  const [wouldReturn, setWouldReturn] = useState(true);
+  const [viewport, setViewport] = useState<{ height: number; top: number } | null>(null);
+  const cancelPending = useCallback(() => {
+    cancelAnimationFrame(revealFrame.current);
+    if (pickTimer.current) clearTimeout(pickTimer.current);
+    pickLocked.current = false;
+  }, []);
+  const close = useCallback(() => {
+    if (closeTimer.current) return;
+    cancelPending(); setClosing(true);
+    closeTimer.current = window.setTimeout(() => {
+      closeTimer.current = null; closeAddRestaurantModal();
+      if (pendingCompletion.current) { setCompletion(pendingCompletion.current); pendingCompletion.current = null; }
+    }, window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 240);
+  }, [cancelPending, closeAddRestaurantModal]);
+  const { dragProps, startDrag } = useBottomSheet(addRestaurantModalOpen, close, undefined, setDragging);
   const [step, setStep] = useState<Step>('gut');
   const [editor, setEditor] = useState<Editor | null>(null);
   /** Once an editor has been opened, returning to the overview slides back
@@ -132,6 +153,7 @@ export const RatingFlow: React.FC = () => {
   const [newVisit, setNewVisit] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const previewUrls = useRef<Set<string>>(new Set());
+  const visitDrafts = useRef<Record<string, { notes: string; dishes: string[]; visitDate: string; tags: string[]; photos: PhotoItem[]; wouldReturn: boolean; priceIndex: number; priceAmount: string }>>({});
 
   const resolvedCuisine = restaurant?.cuisine || existing?.cuisine || '';
   const resolvedPrice = price || restaurant?.price || existing?.price || '';
@@ -141,14 +163,19 @@ export const RatingFlow: React.FC = () => {
   // already decided, and re-rank is one tap away from there.
   useEffect(() => {
     if (!addRestaurantModalOpen || !restaurant) return;
+    cancelPending(); setFlowError(''); setClosing(false); setDragging(false); setCompletion(null); pendingCompletion.current = null;
+    if (closeTimer.current) { clearTimeout(closeTimer.current); closeTimer.current = null; }
+    visitDrafts.current = {};
     const prior = getRating(restaurant.id);
+    setWouldReturn(prior?.wouldReturn ?? true);
     // "Re-rate" on the restaurant page opens as a new visit: fresh notes,
     // dishes, tags, photos and today's date, with the old rating kept as
     // history. Everything else opens as an edit of the rating that exists.
     const asNewVisit = !!prior && addRestaurantModalInitialPage === 'new-visit';
     setNewVisit(asNewVisit);
-    setEditor(null);
-    setEdVisited(false);
+    const requestedEditor: Editor | undefined = ({ notes: 'notes', photos: 'photos', price: 'price', date: 'when', when: 'when', tags: 'tags', 'favorite-dishes': 'dishes', dishes: 'dishes' } as Record<string, Editor>)[addRestaurantModalInitialPage || ''];
+    setEditor(prior && !asNewVisit && requestedEditor ? requestedEditor : null);
+    setEdVisited(!!requestedEditor);
     setH2h(null);
     setPick(null);
     setTieBreak(false);
@@ -163,7 +190,7 @@ export const RatingFlow: React.FC = () => {
     setTagQuery('');
     setPhotos(asNewVisit ? [] : (prior?.photos ?? []));
     setPhotosProcessing(0);
-    setShare(true);
+    setShare(readDevicePreference('shareRatings'));
     if (prior) {
       setMethod(null);
       setScore(prior.score);
@@ -182,16 +209,48 @@ export const RatingFlow: React.FC = () => {
       setStep('gut');
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [addRestaurantModalOpen, restaurant?.id]);
+  }, [addRestaurantModalOpen, restaurant?.id, addRestaurantModalInitialPage]);
 
-  // The native glass chrome has to stand down while this is up — it draws
-  // ABOVE the WebView, so a z-index here cannot cover it.
   useEffect(() => {
+    photoSession.current += 1;
     if (!addRestaurantModalOpen) return;
-    return pushOverlay();
-  }, [addRestaurantModalOpen]);
+    const before = document.activeElement as HTMLElement | null;
+    const update = () => setViewport(window.visualViewport ? { height: window.visualViewport.height, top: window.visualViewport.offsetTop } : null);
+    update(); window.visualViewport?.addEventListener('resize', update); window.visualViewport?.addEventListener('scroll', update);
+    const focus = requestAnimationFrame(() => dialogRef.current?.focus());
+    return () => {
+      photoSession.current += 1; cancelPending(); cancelAnimationFrame(focus);
+      if (closeTimer.current) { clearTimeout(closeTimer.current); closeTimer.current = null; }
+      window.visualViewport?.removeEventListener('resize', update); window.visualViewport?.removeEventListener('scroll', update);
+      before?.focus({ preventScroll: true });
+    };
+  }, [addRestaurantModalOpen, restaurant?.id, cancelPending]);
 
-  useEffect(() => () => { previewUrls.current.forEach((u) => URL.revokeObjectURL(u)); }, []);
+  useEffect(() => {
+    if (!addRestaurantModalOpen || confirmDelete) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); if (editor) finishEditor(); else close(); }
+      if (event.key === 'Tab') {
+        const controls = Array.from<HTMLElement>(dialogRef.current?.querySelectorAll<HTMLElement>('button:not(:disabled),input:not([type="file"]),textarea,[tabindex="0"]') ?? []).filter(el => el.getClientRects().length > 0);
+        const first = controls[0], last = controls[controls.length - 1];
+        if (!first) return;
+        if (event.shiftKey && (document.activeElement === first || document.activeElement === dialogRef.current)) { event.preventDefault(); last.focus(); }
+        else if (!event.shiftKey && (document.activeElement === last || document.activeElement === dialogRef.current)) { event.preventDefault(); first.focus(); }
+      }
+    };
+    document.addEventListener('keydown', onKey, true);
+    return () => document.removeEventListener('keydown', onKey, true);
+  }, [addRestaurantModalOpen, editor, dishDraft, close, confirmDelete]);
+
+  useEffect(() => () => { cancelPending(); previewUrls.current.forEach((u) => URL.revokeObjectURL(u)); }, [cancelPending]);
+
+  const addDish = () => {
+    const dish = dishDraft.trim();
+    if (dish) setDishes(previous => previous.some(value => value.toLowerCase() === dish.toLowerCase()) ? previous : [...previous, dish]);
+    setDishDraft('');
+  };
+  const finishEditor = () => { if (editor === 'dishes') addDish(); setEditor(null); homeHaptic(); };
+
 
   // ── The score the tier will actually settle on ────────────────────
   const previewSettled = useCallback((raw: number, forOrder: string[] | null): number => {
@@ -220,21 +279,25 @@ export const RatingFlow: React.FC = () => {
     setEditor(null);
     setEdVisited(false);
     setStep('details');
+    cancelAnimationFrame(revealFrame.current);
+    homeHaptic();
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) { setDisplay(shown); return; }
     setDisplay(0);
     const t0 = performance.now();
-    const DUR = 1050;
+    const DUR = 480;
     const tick = (t: number) => {
       const p = Math.min(1, (t - t0) / DUR);
       setDisplay(Math.round(shown * (1 - Math.pow(1 - p, 3)) * 10) / 10);
-      if (p < 1) requestAnimationFrame(tick);
+      if (p < 1) revealFrame.current = requestAnimationFrame(tick);
       else setDisplay(shown);
     };
-    requestAnimationFrame(tick);
+    revealFrame.current = requestAnimationFrame(tick);
   }, [previewSettled]);
 
   // ── Head-to-head ──────────────────────────────────────────────────
   const startBand = (tier: Tier) => {
     if (!restaurant) return;
+    homeHaptic(); cancelPending();
     const fresh = initH2H(ratings, tier, restaurant.id, { ...restaurant, tags }, getRestaurantInfo);
     // An empty band has nothing to compare against — the engine can score it
     // on bounds alone, so skip straight to the reveal.
@@ -255,14 +318,15 @@ export const RatingFlow: React.FC = () => {
      seven match-ups spends most of its time waiting. Short enough now to
      feel like a direct response, long enough that the choice still
      visibly registers. */
-  const PICK_BEAT = 130;
+  const PICK_BEAT = 210;
 
   /** Advance the search once the answer has registered. */
   const resolve = (next: H2HState, chose: 'new' | 'old' | 'tie') => {
-    if (pick || !restaurant) return;
+    if (pickLocked.current || !restaurant) return;
+    pickLocked.current = true; homeHaptic();
     setPick(chose);
-    window.setTimeout(() => {
-      setPick(null);
+    pickTimer.current = window.setTimeout(() => {
+      pickLocked.current = false; setPick(null);
       if (isComplete(next)) {
         const raw = computeFinalScore(next);
         const placement = placementOrder(next, restaurant.id, raw);
@@ -290,6 +354,8 @@ export const RatingFlow: React.FC = () => {
     // Previews land immediately and the compressed JPEG swaps in per photo —
     // the same pipeline the old modal used, so the pending-photo upload pass
     // still recognises what it finds.
+    const session = photoSession.current;
+    setFlowError('');
     const staged = files.map((file) => {
       const preview = URL.createObjectURL(file);
       previewUrls.current.add(preview);
@@ -304,13 +370,16 @@ export const RatingFlow: React.FC = () => {
         if (!item) return;
         try {
           const dataUrl = await compressImage(item.file);
+          if (photoSession.current !== session) continue;
           setPhotos((prev) => prev.map((p) => (p.url === item.preview ? { ...p, url: dataUrl } : p)));
         } catch {
+          if (photoSession.current !== session) continue;
+          setFlowError('A photo couldn’t be added. Try choosing it again.');
           setPhotos((prev) => prev.filter((p) => p.url !== item.preview));
         } finally {
           window.setTimeout(() => URL.revokeObjectURL(item.preview), 1000);
           previewUrls.current.delete(item.preview);
-          setPhotosProcessing((n) => Math.max(0, n - 1));
+          if (photoSession.current === session) setPhotosProcessing((n) => Math.max(0, n - 1));
         }
       }
     };
@@ -320,11 +389,12 @@ export const RatingFlow: React.FC = () => {
   // ── Save ──────────────────────────────────────────────────────────
   const persist = (finalScore: number, placement: string[] | null, how: 'h2h' | 'slider' | null) => {
     if (!restaurant || !tryLock()) return;
+    try {
     rateRestaurant(
       {
         restaurantId: restaurant.id, name: restaurant.name, image: restaurant.image,
         cuisine: resolvedCuisine, price: resolvedPrice, address: restaurant.address,
-        score: finalScore, notes, visitDate, wouldReturn: existing?.wouldReturn ?? true, tags,
+        score: finalScore, notes, visitDate, wouldReturn, tags,
         photos: dropDeadPhotos(photos),
         favoriteDishes: dishes.length > 0 ? dishes : undefined,
         // Lists and friends aren't part of this flow's surface; carrying the
@@ -333,9 +403,14 @@ export const RatingFlow: React.FC = () => {
         listIds: existing?.listIds ?? [], friendIds: existing?.friendIds ?? [], createdAt: Date.now(),
         ratingMethod: how ?? existing?.ratingMethod,
       },
-      { isNewVisit: newVisit, settleOrder: placement ?? undefined, shareToFeed: share },
+      { isNewVisit: newVisit, settleOrder: placement ?? undefined, shareToFeed: share, silent: true },
     );
-    setStep('saved');
+    const actual = previewSettled(finalScore, placement);
+    setSettled(actual); setDisplay(actual); homeHaptic();
+    const otherRatings = ratings.filter(r => r.restaurantId !== restaurant.id);
+    pendingCompletion.current = { id: Date.now(), name: restaurant.name, score: actual, rank: otherRatings.filter(r => r.score > actual).length + 1, showScore: canShowScores(otherRatings.length + 1) };
+    close();
+    } catch { release(); setFlowError('Your rating couldn’t be saved. Please try again.'); }
   };
 
   const onSave = () => {
@@ -355,25 +430,16 @@ export const RatingFlow: React.FC = () => {
     persist(score, order, method);
   };
 
-  if (!addRestaurantModalOpen || !restaurant) return null;
+  if (!addRestaurantModalOpen || !restaurant) return <RatingCompletion rating={completion} onDismiss={dismissCompletion} />;
 
-  // ── Geometry: the height each step asks the card to become ────────
-  const cardH = step === 'gut' ? 438
-    : step === 'compare' ? 446
-    : step === 'direct' ? 404
-    : step === 'saved' ? 352
-    : editor === 'when' ? 548 : editor === 'tags' ? 500 : editor === 'photos' ? 478
-    : editor === 'price' ? 462
-    : editor ? 424 : 512;
-
-  const tone = toneOf(settled || sliderVal);
+  const tone = toneOf(settled);
   const sliderTone = toneOf(sliderVal);
   const sliderBand = bandOf(sliderVal);
   const sliderBandTone = bandTone(sliderBand);
   const filteredTags = ALL_TAGS.filter((t) => t.toLowerCase().includes(tagQuery.trim().toLowerCase()));
   const done = h2h ? comparisonsMade(h2h) + (pick ? 1 : 0) : 0;
   const total = h2h ? Math.max(totalEstimatedComparisons(h2h), done + (isComplete(h2h) ? 0 : 1)) : 0;
-  const subtitle = [restaurant.cuisine, restaurant.price, restaurant.address?.split(',')[0]].filter(Boolean).join(' · ');
+  const subtitle = [resolvedCuisine, resolvedPrice, restaurant.address?.split(',')[0]].filter(Boolean).join(' · ');
   // Plain computations, not memos: everything below here sits AFTER the
   // `return null` guard, and a hook on that side of an early return is a
   // hook that some renders run and others don't.
@@ -382,12 +448,12 @@ export const RatingFlow: React.FC = () => {
   const totalRated = others.length + 1;
 
   const chipSummary: Record<Editor, string> = {
-    notes: notes.trim() ? 'Added' : '—',
-    dishes: dishes.length ? `${dishes.length} added` : '—',
-    price: priceAmount.trim() ? `$${priceAmount.trim()}` : price || '—',
+    notes: notes.trim() ? 'Added' : 'Add a note',
+    dishes: dishes.length ? `${dishes.length} added` : 'Add dishes',
+    price: price || 'Add price',
     when: fmtDate(visitDate),
-    tags: tags.length ? `${tags.length} picked` : '—',
-    photos: photos.length ? `${photos.length} photo${photos.length === 1 ? '' : 's'}` : '—',
+    tags: tags.length ? `${tags.length} picked` : 'Add tags',
+    photos: photos.length ? `${photos.length} photo${photos.length === 1 ? '' : 's'}` : 'Add photos',
   };
   const chipSet: Record<Editor, boolean> = {
     notes: !!notes.trim(), dishes: dishes.length > 0, price: priceIndex >= 0,
@@ -395,25 +461,29 @@ export const RatingFlow: React.FC = () => {
   };
 
   const closeBtn = (
-    <button type="button" onClick={closeAddRestaurantModal} aria-label="Close" className="rf-icon-btn">
-      <X size={11} strokeWidth={1.8} />
-    </button>
+    <GlassButton id="rating-close" symbol="xmark" label="Close" onClick={close} suspended={dragging || closing} className="rf-icon-btn rf-glass-close">
+      <X size={18} strokeWidth={1.8} />
+    </GlassButton>
   );
 
   return createPortal(
     <div
-      className="rf-scrim"
+      className={cn("rf-scrim", closing && "is-closing")}
+      ref={dialogRef}
+      tabIndex={-1}
+      style={viewport ? { height: viewport.height, top: viewport.top, bottom: 'auto' } : undefined}
       /* Tap-outside-to-close, and ONLY that. Closing on any click that
          reaches this element meant the hidden file input below — a child
          of the scrim — dismissed the whole flow the instant
          `fileRef.current.click()` fired, because a programmatic click
          bubbles like any other. The picker then opened over a modal that
          had already torn its state down. */
-      onClick={(e) => { if (e.target === e.currentTarget) closeAddRestaurantModal(); }}
+      onClick={(e) => { if (e.target === e.currentTarget && step === 'gut') close(); }}
       role="dialog"
       aria-modal="true"
       aria-label="Rate this visit"
     >
+      {confirmDelete && <DeleteConfirmation name={restaurant.name} onCancel={() => setConfirmDelete(false)} onConfirm={() => { setConfirmDelete(false); removeRating(restaurant.id); close(); }} />}
       <input
         ref={fileRef}
         type="file"
@@ -423,20 +493,29 @@ export const RatingFlow: React.FC = () => {
         onClick={(e) => e.stopPropagation()}
         className="hidden"
       />
-      <div className="rf-card" style={{ height: cardH }} onClick={(e) => e.stopPropagation()}>
+      <motion.div {...dragProps} initial={reduced ? false : { y: 48, opacity: 0 }} animate={{ y: closing ? (viewport?.height || 800) : 0, opacity: closing ? 0 : 1 }} transition={closing ? { duration: reduced ? 0 : .24, ease: 'easeIn' } : { type: 'spring', stiffness: 310, damping: 31 }} dragMomentum={false} className={cn('rf-card', `rf-stage-${step}`, editor && 'rf-editing')} inert={closing} onClick={(e) => e.stopPropagation()}>
+        <div className="rf-drag-handle" onPointerDown={startDrag}><div className="rf-handle" aria-hidden="true" /></div>
+        <div className="rf-toolbar" onPointerDown={e => { if (!(e.target as Element).closest('button')) startDrag(e); }}>
+          <span className="rf-brand"><Sparkles size={16} />{existing && !newVisit ? 'Your visit' : 'Add a rating'}</span>
+          {closeBtn}
+        </div>
+        <div className="rf-progress" role="group" aria-label={`Step ${step === 'details' ? 2 : 1} of 2`}>
+          {['Rate', 'Details'].map((label, index) => <span key={label} className={index === (step === 'details' ? 1 : 0) ? 'is-current' : ''}><i />{label}</span>)}
+        </div>
+        {flowError && <p className="rf-error" role="alert">{flowError}</p>}
+
 
         {/* ══ GUT — the sentiment that picks the band ══ */}
         {step === 'gut' && (
-          <div className="rf-step">
+          <div className="rf-step" key={step}>
             <div className="flex items-start gap-2.5">
               <span className="flex-1 min-w-0">
-                <span className="block text-[10.5px] font-extrabold tracking-[1.5px] text-primary">RATE THIS VISIT</span>
+                <span className="block text-[10.5px] font-extrabold tracking-[1.5px] text-primary">{newVisit ? 'NEW VISIT' : 'YOUR FIRST IMPRESSION'}</span>
                 <span className="rf-name font-serif block text-[23px] font-bold leading-[1.2] tracking-[-0.3px] mt-1.5 text-on-surface">
                   How was {restaurant.name}?
                 </span>
                 <span className="block text-[12px] text-ink-3 mt-[3px] truncate">{subtitle}</span>
               </span>
-              {closeBtn}
             </div>
             <div className="flex flex-col gap-[9px] mt-4">
               {SENTIMENTS.map(({ tier, title, sub, tone: t, Icon }) => (
@@ -458,16 +537,16 @@ export const RatingFlow: React.FC = () => {
             <button
               type="button"
               onClick={() => { setSliderVal(existing?.score ?? 7.5); setStep('direct'); }}
-              className="mt-3.5 self-center text-[12.5px] font-bold text-primary"
+              className="rf-text-action mt-3.5 self-center text-[12.5px] font-bold text-primary"
             >
-              I already know my score
+              Set a score instead
             </button>
           </div>
         )}
 
         {/* ══ COMPARE — the real head-to-head, in the design's clothes ══ */}
         {step === 'compare' && comparison && (
-          <div className="rf-step">
+          <div className="rf-step" key={step}>
             <div className="flex items-center gap-2.5">
               <span className="flex-1 min-w-0">
                 <span className="font-serif block text-[20px] font-bold tracking-[-0.25px] text-on-surface">Which was better?</span>
@@ -488,12 +567,13 @@ export const RatingFlow: React.FC = () => {
                 ))}
               </div>
             </div>
-            <div className="mt-3.5 flex-1 min-h-0 flex flex-col justify-center">
+            <div className="rf-pair mt-3.5 flex-1 min-h-0 flex flex-col justify-center" key={comparison.restaurantId}>
               <div className={cn('rf-comp-wrap', pick === 'new' && 'is-win', pick === 'old' && 'is-lose', pick === 'tie' && 'is-tie')}>
-                <button type="button" className="rf-comp-btn" onClick={() => h2h && resolve(applyChoice(h2h, true), 'new')}>
+                <button type="button" className="rf-comp-btn" disabled={!!pick} onClick={() => h2h && resolve(applyChoice(h2h, true), 'new')}>
+                  {restaurant.image && <img className="rf-comp-image" src={restaurant.image} alt="" referrerPolicy="no-referrer" />}
                   <span className="flex items-center gap-[7px] mb-[5px]">
                     <span className="w-1.5 h-1.5 rounded-full bg-primary" />
-                    <span className="text-[9.5px] font-extrabold tracking-[1.3px] text-primary">TONIGHT</span>
+                    <span className="text-[9.5px] font-extrabold tracking-[1.3px] text-primary">THIS VISIT</span>
                   </span>
                   <span className="rf-name font-serif block text-[19px] font-bold text-on-surface leading-[1.2]">{restaurant.name}</span>
                   <span className="block text-[11.5px] text-ink-3 mt-[3px] truncate">{subtitle}</span>
@@ -505,7 +585,8 @@ export const RatingFlow: React.FC = () => {
                 <div className="flex-1 h-px bg-line" />
               </div>
               <div className={cn('rf-comp-wrap', pick === 'old' && 'is-win', pick === 'new' && 'is-lose', pick === 'tie' && 'is-tie')}>
-                <button type="button" className="rf-comp-btn" onClick={() => h2h && resolve(applyChoice(h2h, false), 'old')}>
+                <button type="button" className="rf-comp-btn" disabled={!!pick} onClick={() => h2h && resolve(applyChoice(h2h, false), 'old')}>
+                  {comparison.image && <img className="rf-comp-image" src={comparison.image} alt="" referrerPolicy="no-referrer" />}
                   <span className="flex items-center gap-[7px] mb-[5px]">
                     <span className="text-[9.5px] font-extrabold tracking-[1.3px] text-ink-4">ON YOUR LIST</span>
                     {scoresUnlocked && (
@@ -543,12 +624,16 @@ export const RatingFlow: React.FC = () => {
                 Skip
               </button>
             </div>
+            <div className="rf-comparison-nav">
+              <button type="button" disabled={!h2h || comparisonsMade(h2h) === 0 || !!pick} onClick={() => { if (h2h) { cancelPending(); setPick(null); setH2h(undoLastChoice(h2h)); homeHaptic(); } }}><RotateCcw size={14} />Undo</button>
+              <button type="button" disabled={!!pick} onClick={() => { cancelPending(); setTieBreak(false); setPick(null); setStep('direct'); }}>Set a score instead</button>
+            </div>
           </div>
         )}
 
         {/* ══ DIRECT — the slider ══ */}
         {step === 'direct' && (
-          <div className="rf-step">
+          <div className="rf-step" key={step}>
             <div className="flex items-center gap-2.5">
               <button type="button" onClick={() => setStep('gut')} aria-label="Back" className="rf-icon-btn">
                 <ChevronLeft size={12} strokeWidth={2.2} />
@@ -557,7 +642,7 @@ export const RatingFlow: React.FC = () => {
             </div>
             <div className="flex-1 flex flex-col justify-center items-center gap-1 py-2">
               <div
-                className="font-serif text-[74px] font-bold leading-none tabular-nums"
+                className="rf-score-orbit font-serif text-[74px] font-bold leading-none tabular-nums"
                 style={{ color: `var(--color-score-${sliderTone})`, transition: 'color .3s var(--ease-out)' }}
               >
                 {sliderVal.toFixed(1)}
@@ -570,12 +655,12 @@ export const RatingFlow: React.FC = () => {
                   transition: 'all .3s var(--ease-out)',
                 }}
               >
-                “{TIER_LABELS[sliderBand]}” territory
+                {TIER_LABELS[sliderBand]}
               </div>
               <input
                 type="range" min={1} max={10} step={0.1} value={sliderVal}
                 onChange={(e) => setSliderVal(parseFloat(e.target.value))}
-                aria-label="Your score" className="rf-range mt-[18px]"
+                aria-label="Your score" aria-valuetext={`${sliderVal.toFixed(1)} out of 10`} className="rf-range mt-[18px]"
               />
               <div className="flex justify-between w-full text-[10.5px] text-ink-4 -mt-1"><span>1</span><span>10</span></div>
             </div>
@@ -587,7 +672,7 @@ export const RatingFlow: React.FC = () => {
                 runReveal(sc, null, 'slider');
               }}
             >
-              Lock it in
+              Continue
             </button>
           </div>
         )}
@@ -599,7 +684,7 @@ export const RatingFlow: React.FC = () => {
               <span className="flex-1 min-w-0 pt-0.5">
                 <span className="block text-[10px] font-extrabold tracking-[1.4px] text-primary">
                   {newVisit ? 'NEW VISIT'
-                    : method === 'slider' ? 'SCORED BY YOU'
+                    : method === 'slider' ? 'READY TO SAVE'
                     : method === 'h2h' ? 'COMPARED'
                     : 'YOUR RATING'}
                 </span>
@@ -611,7 +696,6 @@ export const RatingFlow: React.FC = () => {
               <button type="button" onClick={() => setStep('gut')} aria-label="Re-rank" className="rf-icon-btn">
                 <RotateCcw size={13} strokeWidth={2} />
               </button>
-              {closeBtn}
             </div>
 
             {/* Only when a rating already exists: is this the same visit
@@ -626,12 +710,26 @@ export const RatingFlow: React.FC = () => {
                       key={k}
                       type="button"
                       role="radio"
+                      disabled={photosProcessing > 0}
                       aria-checked={on}
                       onClick={() => {
                         const nv = k === 'new';
                         if (nv === newVisit) return;
+                        visitDrafts.current[newVisit ? 'new' : 'edit'] = { notes, dishes, visitDate, tags, photos, wouldReturn, priceIndex, priceAmount };
+                        const draft = visitDrafts.current[nv ? 'new' : 'edit'];
                         setNewVisit(nv);
-                        if (nv) setVisitDate(localISODate());
+                        if (draft) {
+                          setNotes(draft.notes); setDishes(draft.dishes); setDishDraft(''); setVisitDate(draft.visitDate); setTags(draft.tags); setPhotos(draft.photos);
+                          setWouldReturn(draft.wouldReturn); setPriceIndex(draft.priceIndex); setPriceAmount(draft.priceAmount); homeHaptic(); return;
+                        }
+                        photoSession.current += 1;
+                        setPhotosProcessing(0); setFlowError('');
+                        setVisitDate(nv ? localISODate() : existing.visitDate || localISODate());
+                        setNotes(nv ? '' : existing.notes || '');
+                        setDishes(nv ? [] : existing.favoriteDishes || []); setDishDraft('');
+                        setTags(nv ? [] : existing.tags || []);
+                        setPhotos(nv ? [] : existing.photos || []);
+                        homeHaptic();
                       }}
                       className={cn('flex-1 h-8 rounded-full text-[12.5px] font-bold transition-colors', on ? 'bg-surface text-on-surface shadow-[0_1px_2px_rgba(0,0,0,0.08)]' : 'text-on-surface/55')}
                     >
@@ -643,7 +741,7 @@ export const RatingFlow: React.FC = () => {
             )}
 
             <div
-              className="flex items-center gap-3 rounded-[18px] px-4 py-3"
+              className="rf-score-summary flex items-center gap-3 rounded-[18px] px-4 py-3"
               style={{ background: `var(--color-score-${tone}-tint)` }}
             >
               {scoresUnlocked ? (
@@ -680,16 +778,18 @@ export const RatingFlow: React.FC = () => {
               )}
             </div>
 
-            <div className="grid grid-cols-3 gap-[9px]">
+            <div className="rf-detail-options">
               {EDITORS.map(({ key, label, Icon }) => (
                 <button
                   key={key}
                   type="button"
-                  className="rf-chip"
+                  className={cn('rf-chip', chipSet[key] && 'is-set')}
+                  aria-label={`${label}: ${chipSummary[key] === '—' ? 'Add' : chipSummary[key]}`}
                   onClick={() => {
-                    if (key === 'photos' && photos.length === 0) { fileRef.current?.click(); }
+                    homeHaptic();
                     setEditor(key);
                     setEdVisited(true);
+                    setFlowError('');
                   }}
                 >
                   <Icon size={16} strokeWidth={1.9} />
@@ -701,7 +801,8 @@ export const RatingFlow: React.FC = () => {
               ))}
             </div>
 
-            <div className="flex items-center gap-2.5">
+            <button type="button" className="rf-return" role="switch" aria-checked={wouldReturn} onClick={() => { setWouldReturn(value => !value); homeHaptic(); }}><span>Would go back</span><span className={wouldReturn ? 'is-on' : ''}>{wouldReturn ? <Check size={14} /> : <Minus size={14} />}{wouldReturn ? 'Yes' : 'No'}</span></button>
+            <div className="rf-sharing flex items-center gap-2.5">
               <span className="flex-1 min-w-0">
                 <span className="block text-[12.5px] font-bold text-ink-2">Share to your circle</span>
                 <span className="block text-[10.5px] text-ink-4 mt-px">Friends see your score and photos</span>
@@ -726,6 +827,7 @@ export const RatingFlow: React.FC = () => {
               </button>
             </div>
 
+            <div className="rf-save-dock">
             <button type="button" className="rf-cta" onClick={onSave} disabled={saving || photosProcessing > 0}>
               {photosProcessing > 0 ? 'Processing photos…' : existing ? (newVisit ? 'Save visit' : 'Update rating') : 'Save rating'}
             </button>
@@ -733,19 +835,13 @@ export const RatingFlow: React.FC = () => {
             {existing && (
               <button
                 type="button"
-                onClick={() => {
-                  if (!confirmDelete) { setConfirmDelete(true); return; }
-                  removeRating(restaurant.id);
-                  closeAddRestaurantModal();
-                }}
-                className={cn(
-                  'self-center inline-flex items-center gap-1.5 text-[12px] font-bold transition-colors',
-                  confirmDelete ? 'text-red-500' : 'text-ink-4',
-                )}
+                onClick={() => setConfirmDelete(true)}
+                className="self-center inline-flex items-center gap-1.5 text-[12px] font-bold text-ink-4"
               >
-                <Trash2 size={12} />{confirmDelete ? 'Tap again to delete' : 'Delete rating'}
+                <Trash2 size={12} />Delete rating
               </button>
             )}
+            </div>
           </div>
         )}
 
@@ -753,7 +849,7 @@ export const RatingFlow: React.FC = () => {
         {step === 'details' && editor && (
           <div className="rf-ed">
             <div className="flex items-center gap-[11px] flex-shrink-0">
-              <button type="button" onClick={() => setEditor(null)} aria-label="Back" className="rf-icon-btn">
+              <button type="button" onClick={finishEditor} aria-label="Back" className="rf-icon-btn">
                 <ChevronLeft size={12} strokeWidth={2.2} />
               </button>
               <span className="font-serif flex-1 text-[18px] font-bold tracking-[-0.2px] text-on-surface">
@@ -761,7 +857,7 @@ export const RatingFlow: React.FC = () => {
               </span>
               <button
                 type="button"
-                onClick={() => setEditor(null)}
+                onClick={finishEditor}
                 className="h-8 px-[15px] rounded-full border-none text-[13px] font-bold text-primary active:scale-95 transition-transform"
                 style={{ background: 'color-mix(in srgb, var(--color-primary) 9%, transparent)' }}
               >
@@ -773,7 +869,8 @@ export const RatingFlow: React.FC = () => {
                 <textarea
                   value={notes}
                   onChange={(e) => setNotes(e.target.value)}
-                  placeholder="Standout dishes, moments, things to remember…"
+                  placeholder="What would you remember about this visit?"
+                  aria-label="Visit notes"
                   className="rf-pop flex-1 w-full box-border resize-none bg-transparent border-none text-[13.5px] leading-[1.5] text-on-surface outline-none"
                 />
               )}
@@ -786,18 +883,18 @@ export const RatingFlow: React.FC = () => {
                     onKeyDown={(e) => {
                       if (e.key === 'Enter' && dishDraft.trim()) {
                         e.preventDefault();
-                        setDishes((d) => [...d, dishDraft.trim()]);
-                        setDishDraft('');
+                        addDish();
                       }
                     }}
-                    placeholder="Type a dish, press return"
+                    placeholder="Add a favorite dish" aria-label="Favorite dish"
                     className="rf-field flex-shrink-0"
                   />
+                  <button className="rf-add-dish" type="button" disabled={!dishDraft.trim()} onClick={addDish}><Plus size={16} />Add dish</button>
                   <div className="flex flex-wrap gap-[7px] overflow-auto content-start">
                     {dishes.map((d, i) => (
                       <button
                         key={`${d}-${i}`}
-                        type="button"
+                        type="button" aria-label={`Remove ${d}`}
                         onClick={() => setDishes((prev) => prev.filter((_, j) => j !== i))}
                         className="rf-pop flex items-center gap-1.5 h-7 px-[11px] rounded-full border-none text-[12px] font-bold text-primary"
                         style={{ background: 'color-mix(in srgb, var(--color-primary) 10%, transparent)' }}
@@ -835,22 +932,22 @@ export const RatingFlow: React.FC = () => {
                   </div>
                   <div className="w-full pt-1">
                     <p className="text-[9.5px] font-bold uppercase tracking-[1.3px] text-ink-4 mb-1.5 text-center">
-                      Or enter exact amount
+                      Find a range by amount
                     </p>
                     <div className="relative">
                       <span className="absolute left-4 top-1/2 -translate-y-1/2 text-[13px] text-ink-4 font-semibold">$</span>
                       <input
-                        type="number"
+                        type="number" min="0" step="0.01"
                         inputMode="decimal"
                         value={priceAmount}
                         onChange={(e) => {
                           const val = e.target.value;
                           setPriceAmount(val);
-                          const num = parseInt(val, 10);
-                          if (!isNaN(num) && num > 0) setPriceIndex(priceIndexFromAmount(num));
+                          const num = parseFloat(val);
+                          setPriceIndex(Number.isFinite(num) && num > 0 ? priceIndexFromAmount(num) : -1);
                         }}
                         placeholder="0"
-                        aria-label="Exact amount per person"
+                        aria-label="Amount per person to find a price range"
                         className="w-full box-border bg-surface border border-line rounded-2xl pl-8 pr-[86px] h-11 text-center text-[15px] font-semibold text-on-surface outline-none focus:border-primary/40 transition-colors"
                       />
                       <span className="absolute right-4 top-1/2 -translate-y-1/2 text-[11px] text-ink-4">per person</span>
@@ -875,7 +972,7 @@ export const RatingFlow: React.FC = () => {
                     {filteredTags.map((t) => (
                       <button
                         key={t}
-                        type="button"
+                        type="button" aria-pressed={tags.includes(t)}
                         onClick={() => setTags((prev) => (prev.includes(t) ? prev.filter((x) => x !== t) : [...prev, t]))}
                         className={cn(
                           'h-7 px-3 rounded-full text-[12px] font-bold transition-colors',
@@ -935,40 +1032,7 @@ export const RatingFlow: React.FC = () => {
           </div>
         )}
 
-        {/* ══ SAVED ══ */}
-        {step === 'saved' && (
-          <div className="flex-1 flex flex-col items-center justify-center text-center">
-            <div
-              className="w-[74px] h-[74px] rounded-full flex items-center justify-center"
-              style={{ background: 'var(--color-score-high-tint)', animation: 'rf-check-pop .55s var(--ease-out-strong) both' }}
-            >
-              <Check size={32} strokeWidth={2.4} style={{ color: 'var(--color-score-high-ink)' }} />
-            </div>
-            <div
-              className="font-serif text-[24px] font-bold tracking-[-0.3px] mt-[18px] text-on-surface"
-              style={{ animation: 'rf-fade-up .5s var(--ease-out) .15s both' }}
-            >
-              On the list.
-            </div>
-            <div
-              className="text-[12.5px] text-ink-3 mt-1.5"
-              style={{ animation: 'rf-fade-up .5s var(--ease-out) .25s both' }}
-            >
-              {scoresUnlocked
-                ? <>Saved at <b className="text-on-surface">{settled.toFixed(1)}</b> — #{rank} of {totalRated}</>
-                : <>Saved — #{rank} of {totalRated}</>}
-            </div>
-            <button
-              type="button"
-              className="rf-cta w-full mt-[26px]"
-              style={{ animation: 'rf-fade-up .5s var(--ease-out) .35s both' }}
-              onClick={closeAddRestaurantModal}
-            >
-              Done
-            </button>
-          </div>
-        )}
-      </div>
+      </motion.div>
     </div>,
     document.body,
   );

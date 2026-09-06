@@ -19,7 +19,7 @@
  */
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { GlassButton } from '../lib/glass-buttons';
-import { motion, AnimatePresence, Reorder, useDragControls } from 'motion/react';
+import { motion, AnimatePresence, Reorder, useDragControls, MotionConfig } from 'motion/react';
 import { useNavigate } from 'react-router-dom';
 import { X, ArrowLeft, ArrowRight, Plus, Trash2, ChefHat, Check, ImagePlus, Loader2, Globe, Lock, Search, Wand2, MapPin, Pencil, ChevronRight, ChevronUp } from 'lucide-react';
 import { searchCities, type HomeLocation } from './HomeLocationBar';
@@ -43,9 +43,11 @@ import { cityFromAddress, cityFromAddressComponents } from '../lib/city';
 import { GuideLiveEditor } from './guide/GuideLiveEditor';
 import { getProfilesByIds, type UserProfile } from '../lib/supabase-community';
 import { SheetGrabArea } from './SheetGrabArea';
+import { CreatorProgress } from './CreatorProgress';
 import './GuideCreatorSheet.css';
 import './guide/GuideRender.css';
 import './guide/GuideLiveEditor.css';
+import './CreatorStudio.css';
 
 type Step = 'basics' | 'add' | 'arrange' | 'publish';
 type SourceMode = 'search' | 'rated' | 'list' | 'recipes-my' | 'recipes-list';
@@ -343,6 +345,7 @@ const StepBasics: React.FC<{
               key={o.key}
               type="button"
               onClick={() => onType(o.key)}
+              aria-pressed={type === o.key}
               className={`gcx-type-card${type === o.key ? ' is-on' : ''}`}
             >
               <span className="gcx-type-icon">{o.icon}</span>
@@ -360,6 +363,7 @@ const StepBasics: React.FC<{
       <div>
         <FieldKicker>Title</FieldKicker>
         <input
+          aria-label="Guide title"
           value={title}
           onChange={(e) => onTitle(e.target.value)}
           placeholder={isRecipes ? 'Weeknight comfort classics' : 'Best pasta in the Village'}
@@ -370,9 +374,10 @@ const StepBasics: React.FC<{
         <div className="gcx-hint">A short, opinionated name works best.</div>
       </div>
 
-      {/* Tags */}
-      <div>
-        <FieldKicker optional>Tags</FieldKicker>
+      {/* Optional metadata stays within reach without crowding the essentials. */}
+      <details className="creator-optional">
+        <summary>Tags <span>{tags.length ? `${tags.length} added` : 'Optional'}</span></summary>
+        <div className="creator-optional-body">
         <div className="gcx-chips">
           {tags.map((t) => (
             <button key={t} type="button" className="gcx-chip is-on" onClick={() => removeTag(t)}>
@@ -403,12 +408,14 @@ const StepBasics: React.FC<{
           }}
           placeholder="Type to search all tags…"
           className="gcx-line-input gcx-tag-search"
+          aria-label="Search guide tags"
         />
-      </div>
+        </div>
+      </details>
 
       {/* More details */}
       <div>
-        <button type="button" className={`gcx-more-btn${moreOpen ? ' is-open' : ''}`} onClick={onToggleMore}>
+        <button type="button" className={`gcx-more-btn${moreOpen ? ' is-open' : ''}`} aria-expanded={moreOpen} onClick={onToggleMore}>
           <ChevronRight size={14} className="gcx-more-chev" />
           More details
           <span className="gcx-more-sub">subtitle · city · intro</span>
@@ -869,7 +876,8 @@ const ArrangeCardPhone: React.FC<{
   isRecipes: boolean;
   onEdit: () => void;
   onRemove: () => void;
-}> = ({ entry, index, isRecipes, onEdit, onRemove }) => {
+  onMove: (direction: -1 | 1) => void;
+}> = ({ entry, index, isRecipes, onEdit, onRemove, onMove }) => {
   const controls = useDragControls();
   return (
     <Reorder.Item
@@ -886,7 +894,10 @@ const ArrangeCardPhone: React.FC<{
           className="gcx-grip gcx-grip-phone"
           onPointerDown={(e) => { e.preventDefault(); controls.start(e); }}
           role="button"
-          aria-label="Drag to reorder"
+          tabIndex={0}
+          aria-label={`Reorder ${entry.name}`}
+          aria-description="Drag, or use the up and down arrow keys."
+          onKeyDown={event => { if (event.key === 'ArrowUp' || event.key === 'ArrowDown') { event.preventDefault(); onMove(event.key === 'ArrowUp' ? -1 : 1); } }}
         />
         <span className="gcx-card-num">{String(index + 1).padStart(2, '0')}</span>
         {entry.image && (
@@ -894,12 +905,12 @@ const ArrangeCardPhone: React.FC<{
             <img src={entry.image} alt="" referrerPolicy="no-referrer" />
           </span>
         )}
-        <span className="gcx-row-main" onClick={onEdit} role="button">
+        <button type="button" className="gcx-row-main" onClick={onEdit} aria-label={`Edit ${entry.name}`}>
           <span className="gcx-row-name">{entry.name}</span>
           <span className="gcx-row-meta">
             {[typeof entry.score === 'number' ? entry.score.toFixed(1) : null, entry.subtitle].filter(Boolean).join(' · ') || (isRecipes ? 'Recipe' : 'Place')}
           </span>
-        </span>
+        </button>
         <span className="gcx-card-actions">
           <button type="button" className="gcx-icon-btn" onClick={onEdit} aria-label="Edit details">
             <Pencil size={13} />
@@ -1085,6 +1096,9 @@ const StepArrange: React.FC<{
 
   return (
     <div className="gcx-stack">
+      <details className="creator-optional">
+        <summary>Cover &amp; appearance <span>Optional</span></summary>
+        <div className="creator-optional-body gcx-stack">
       {/* Cover */}
       <div>
         <FieldKicker optional>Cover photo</FieldKicker>
@@ -1130,6 +1144,7 @@ const StepArrange: React.FC<{
         <button
           type="button"
           role="switch"
+          aria-label="Show photos on entries"
           aria-checked={includePhotos}
           onClick={onTogglePhotos}
           className={`gcx-switch${includePhotos ? ' is-on' : ''}`}
@@ -1137,6 +1152,9 @@ const StepArrange: React.FC<{
           <span className="gcx-switch-knob" />
         </button>
       </div>
+
+        </div>
+      </details>
 
       {/* Entries */}
       <div>
@@ -1151,6 +1169,7 @@ const StepArrange: React.FC<{
                 entry={e}
                 index={i}
                 isRecipes={isRecipes}
+                onMove={direction => onMove(e.id, direction)}
                 onEdit={() => onToggleExpand(e.id)}
                 onRemove={() => onRemove(e.id)}
               />
@@ -1341,6 +1360,7 @@ const StepPublish: React.FC<{
               key={o.key}
               type="button"
               onClick={() => onVisibility(o.key)}
+              aria-pressed={visibility === o.key}
               className={`gcx-type-card${visibility === o.key ? ' is-on' : ''}`}
             >
               <span className="gcx-type-icon">{o.icon}</span>
@@ -1419,6 +1439,7 @@ export const GuideCreatorSheet: React.FC<GuideCreatorSheetProps> = ({ open, onCl
   const [entries, setEntries] = useState<GuideEntry[]>([]);
   const [expandedEntryId, setExpandedEntryId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [confirmClose, setConfirmClose] = useState(false);
   /** Success overlay after publish / save-changes. */
   const [publishedGuide, setPublishedGuide] = useState<Guide | null>(null);
   /** Live Editor state — `theme` carries everything the editor produces;
@@ -1432,7 +1453,7 @@ export const GuideCreatorSheet: React.FC<GuideCreatorSheetProps> = ({ open, onCl
   // reorder (see ArrangeCardPhone), a gesture that would fight a
   // drag-anywhere sheet on the same vertical axis. A dedicated strip
   // keeps dismissal working without that conflict.
-  const { dragProps, startDrag } = useBottomSheet(open, onClose);
+  const { dragProps, startDrag } = useBottomSheet(open, () => handleBackdropClick());
   const dragRef = useRef<number | null>(null);
 
   useEffect(() => {
@@ -1476,6 +1497,7 @@ export const GuideCreatorSheet: React.FC<GuideCreatorSheetProps> = ({ open, onCl
     setExpandedEntryId(null);
     setBusy(false);
     setPublishedGuide(null);
+    setConfirmClose(false);
     setLiveEditOpen(false);
     // Snapshot the just-initialized content so a backdrop click can tell
     // "untouched" from "has unsaved work" (see handleBackdropClick).
@@ -1499,8 +1521,8 @@ export const GuideCreatorSheet: React.FC<GuideCreatorSheetProps> = ({ open, onCl
     const currentSig = JSON.stringify({
       type, title, subtitle, intro, city, tags, coverPhoto, visibility, includePhotos, entries, theme,
     });
-    if (currentSig !== initialSigRef.current
-      && !window.confirm('Discard your unsaved changes to this guide?')) return;
+    if (busy) return;
+    if (!publishedGuide && currentSig !== initialSigRef.current) { setConfirmClose(true); return; }
     onClose();
   };
 
@@ -1535,7 +1557,7 @@ export const GuideCreatorSheet: React.FC<GuideCreatorSheetProps> = ({ open, onCl
       ? `Arrange ${entries.length} ${entries.length === 1 ? 'entry' : 'entries'}`
       : `Add at least one ${entryNoun}`) :
     step === 'arrange' ? 'Review & publish' :
-    (initialGuide?.isPublished ? 'Save changes' : 'Publish guide');
+    (initialGuide?.isPublished ? 'Save changes' : visibility === 'private' ? 'Save guide' : 'Publish guide');
 
   const goNext = () => {
     if (!gateOk || busy) return;
@@ -1754,6 +1776,7 @@ export const GuideCreatorSheet: React.FC<GuideCreatorSheetProps> = ({ open, onCl
       return null;
     }
     setEditingId(saved.id);
+    initialSigRef.current = JSON.stringify({ type, title, subtitle, intro, city, tags, coverPhoto, visibility, includePhotos, entries, theme });
     return saved;
   };
 
@@ -1855,6 +1878,7 @@ export const GuideCreatorSheet: React.FC<GuideCreatorSheetProps> = ({ open, onCl
   // above it unmounted the whole tree the instant `open` flipped, so the
   // sheet hard-popped away instead of playing its slide-down exit.
   return (
+    <MotionConfig reducedMotion="user">
     <AnimatePresence>
       {open && (
       <motion.div
@@ -1871,6 +1895,7 @@ export const GuideCreatorSheet: React.FC<GuideCreatorSheetProps> = ({ open, onCl
       >
         <motion.div
           key="guide-creator-sheet"
+          role="dialog" aria-modal="true" aria-label={initialGuide ? 'Edit guide' : 'Create custom guide'}
           initial={phoneMode ? { y: '100%' } : { opacity: 0, scale: 0.96, y: 14 }}
           animate={phoneMode ? { y: 0 } : { opacity: 1, scale: 1, y: 0 }}
           exit={phoneMode ? { y: '100%' } : { opacity: 0, scale: 0.97, y: 10 }}
@@ -1880,7 +1905,7 @@ export const GuideCreatorSheet: React.FC<GuideCreatorSheetProps> = ({ open, onCl
           {...(phoneMode ? dragProps : {})}
           onClick={(e) => e.stopPropagation()}
           className={cn(
-            'gcx',
+            'gcx guide-studio',
             phoneMode ? 'gcx-phone w-full h-full' : 'gcx-desktop w-full max-w-[640px]',
           )}
         >
@@ -1893,11 +1918,7 @@ export const GuideCreatorSheet: React.FC<GuideCreatorSheetProps> = ({ open, onCl
             <div className="gcx-head-row relative z-10">
               {/* Phone keeps the chrome minimal: just Save draft + a
                   prominent close. Desktop keeps the eyebrow + Live edit. */}
-              {!phoneMode && (
-                <div className="gcx-eyebrow">
-                  {initialGuide ? 'EDIT GUIDE' : 'NEW GUIDE'} · {currentStepIdx + 1} OF {STEPS_ORDER.length}
-                </div>
-              )}
+              <div className="gcx-eyebrow">{initialGuide ? 'Edit guide' : 'New guide'}</div>
               <div className="gcx-head-actions">
                 {!phoneMode && liveEditUnlocked && (
                   <button type="button" className="gcx-head-link" onClick={() => void onLaunchLiveEdit()} disabled={busy} title="Open the Live editor — visual customizer">
@@ -1912,7 +1933,7 @@ export const GuideCreatorSheet: React.FC<GuideCreatorSheetProps> = ({ open, onCl
                   id="guide-close"
                   symbol="xmark"
                   label="Close"
-                  onClick={onClose}
+                  onClick={handleBackdropClick}
                   className="gcx-head-close"
                 >
                   <X size={phoneMode ? 18 : 14} strokeWidth={2.4} />
@@ -1920,9 +1941,9 @@ export const GuideCreatorSheet: React.FC<GuideCreatorSheetProps> = ({ open, onCl
               </div>
             </div>
             <h2 className="gcx-step-title">{stepTitles[step]}</h2>
-            <div className="gcx-progress">
-              <div className="gcx-progress-fill" style={{ width: `${progressPct}%` }} />
-            </div>
+            <CreatorProgress labels={['Basics', isRecipes ? 'Recipes' : 'Places', 'Organize', 'Review']} current={currentStepIdx}
+              canSelect={index => !busy && (index === 0 || (title.trim().length > 0 && (index === 1 || entries.length > 0)))}
+              onSelect={index => setStep(STEPS_ORDER[index])} />
           </div>
 
           {/* ── Scrollable step body ── */}
@@ -1931,7 +1952,7 @@ export const GuideCreatorSheet: React.FC<GuideCreatorSheetProps> = ({ open, onCl
             ref={bodyScrollRef}
             onScroll={(e) => { stepScrollsRef.current[step] = e.currentTarget.scrollTop; }}
             className="gcx-body"
-            style={{ paddingBottom: 'calc(120px + var(--kb-height, 0px))' }}
+
           >
             {/* popLayout + a short crossfade: the outgoing step pops out of
                 layout and fades WHILE the incoming one fades in — the old
@@ -1945,6 +1966,8 @@ export const GuideCreatorSheet: React.FC<GuideCreatorSheetProps> = ({ open, onCl
                 exit={{ opacity: 0 }}
                 transition={{ duration: 0.16, ease: 'easeOut' }}
               >
+                <p className="creator-step-intro">{step === 'basics' ? 'A collection with your point of view. Start with a name.' : step === 'add' ? `Choose the ${isRecipes ? 'recipes' : 'places'} you want to include. You can change their order next.` : step === 'arrange' ? 'Drag the handles to reorder. Tap an entry to add your notes.' : 'Check the details, then choose who can see your guide.'}</p>
+                {step === 'add' && <div className="creator-selection-count"><Check size={15} />{entries.length} {entries.length === 1 ? entryNoun : `${entryNoun}s`} selected</div>}
                 {step === 'basics' && (
                   <StepBasics
                     type={type} onType={setType}
@@ -2032,7 +2055,7 @@ export const GuideCreatorSheet: React.FC<GuideCreatorSheetProps> = ({ open, onCl
                 step === 'publish' && gateOk && 'is-publish',
               )}
               onClick={goNext}
-              disabled={busy}
+              disabled={busy || !gateOk}
             >
               {busy && step === 'publish' ? <Loader2 size={15} className="animate-spin" /> : null}
               {ctaLabel}
@@ -2040,6 +2063,16 @@ export const GuideCreatorSheet: React.FC<GuideCreatorSheetProps> = ({ open, onCl
               {gateOk && step === 'publish' && !busy && <Check size={16} strokeWidth={2.4} />}
             </button>
           </div>
+
+          {confirmClose && <div className="creator-dismiss-backdrop" onClick={event => event.stopPropagation()}>
+            <div className="creator-dismiss" role="alertdialog" aria-modal="true" aria-labelledby="guide-leave-title" aria-describedby="guide-leave-description">
+              <h3 id="guide-leave-title">Keep your progress?</h3>
+              <p id="guide-leave-description">Save a draft to finish this guide later.</p>
+              <button className="creator-dismiss-save" disabled={busy} onClick={async () => { const saved = await persist(initialGuide?.isPublished ?? false); if (saved) { setConfirmClose(false); onClose(); } }}>{busy ? 'Saving…' : 'Save & close'}</button>
+              <button autoFocus disabled={busy} onClick={() => setConfirmClose(false)}>Keep editing</button>
+              <button className="creator-dismiss-discard" disabled={busy} onClick={() => { setConfirmClose(false); onClose(); }}>Discard changes</button>
+            </div>
+          </div>}
 
           {/* ── Entry detail page (phone) — slides in over the wizard ── */}
           <AnimatePresence>
@@ -2085,7 +2118,7 @@ export const GuideCreatorSheet: React.FC<GuideCreatorSheetProps> = ({ open, onCl
                   </svg>
                 </div>
                 <div className="gcx-published-title">
-                  {initialGuide?.isPublished ? 'Changes saved' : 'Guide published'}
+                  {initialGuide?.isPublished ? 'Changes saved' : visibility === 'private' ? 'Guide saved' : 'Guide published'}
                 </div>
                 <div className="gcx-published-sub">
                   {publishedGuide.title || 'Your guide'}
@@ -2132,5 +2165,6 @@ export const GuideCreatorSheet: React.FC<GuideCreatorSheetProps> = ({ open, onCl
         />
       )}
     </AnimatePresence>
+    </MotionConfig>
   );
 };

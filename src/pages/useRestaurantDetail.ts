@@ -64,11 +64,15 @@ export function getTodayHours(hours: string[]): string {
   return 'Hours not available';
 }
 
+const detailMemory = new Map<string, PlaceDetails>();
+// Preserve the hero height on return without retaining entire photo libraries.
+const detailHeroMemory = new Map<string, CommunityPhoto[]>();
+
 export function useRestaurantDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
   const { user } = useAuth();
-  const [place, setPlace] = useState<PlaceDetails | null>(null);
+  const [place, setPlace] = useState<PlaceDetails | null>(() => id ? detailMemory.get(id) ?? null : null);
   const [michelin, setMichelin] = useState<MichelinInfo | null>(null);
   /** Cuisine settled through the shared cache (migration 068) — the answer
    *  when Google's payload has none, and the write that gives every other
@@ -77,7 +81,7 @@ export function useRestaurantDetail() {
   /** This user's own proposal for this place, if they've made one. Shown
    *  back to them so a pending suggestion doesn't look like it vanished. */
   const [mySuggestion, setMySuggestion] = useState<CuisineSuggestion | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(() => !id || !detailMemory.has(id));
   const [error, setError] = useState<string | null>(null);
   const [photoIndex, setPhotoIndex] = useState(0);
   const [hoursOpen, setHoursOpen] = useState(false);
@@ -167,7 +171,9 @@ export function useRestaurantDetail() {
 
   useEffect(() => {
     if (!id) return;
-    setLoading(true);
+    const warm = detailMemory.get(id);
+    setPlace(warm ?? null);
+    setLoading(!warm);
     setError(null);
     let cancelled = false;
     // A Michelin dataset-sourced row carries a synthetic id (name + coords) — no
@@ -188,9 +194,11 @@ export function useRestaurantDetail() {
           placeId = resolved;
         }
         const details = await getPlaceDetails(placeId);
+        detailMemory.set(id, details);
+        if (detailMemory.size > 24) detailMemory.delete(detailMemory.keys().next().value!);
         if (!cancelled) setPlace(details);
       } catch (err) {
-        if (!cancelled) setError(err instanceof Error ? err.message : String(err));
+        if (!cancelled && !warm) setError(err instanceof Error ? err.message : String(err));
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -245,7 +253,7 @@ export function useRestaurantDetail() {
   // Community & friends data
   const [communityStats, setCommunityStats] = useState<CommunityStats>({ avgScore: 0, totalRatings: 0, ratings: [] });
   const [friendsStats, setFriendsStats] = useState<FriendsStats>({ avgScore: 0, totalRatings: 0, ratings: [] });
-  const [communityPhotos, setCommunityPhotos] = useState<CommunityPhoto[]>([]);
+  const [communityPhotos, setCommunityPhotos] = useState<CommunityPhoto[]>(() => detailHeroMemory.get(`${user?.id ?? 'guest'}:${id}`) ?? []);
   // base64 data-URL → blob object-URL map, so the iOS web view can render
   // them (shared hook — see src/lib/useBlobPhotos.ts).
   const photoBlobMap = useBlobPhotos(communityPhotos);
@@ -499,11 +507,17 @@ export function useRestaurantDetail() {
     const id = place?.id;
     if (!id) return;
     let cancelled = false;
+    const cacheKey = `${user?.id ?? 'guest'}:${id}`;
+    setCommunityPhotos(detailHeroMemory.get(cacheKey) ?? []);
     (async () => {
       try {
         const cover = await getCommunityPhotos(id, 1);
         if (cancelled) return;
-        if (cover.length > 0) setCommunityPhotos(cover);
+        if (cover.length > 0) {
+          setCommunityPhotos(cover);
+          if (cover[0].url.length < 2_000_000) detailHeroMemory.set(cacheKey, cover.slice(0, 1));
+          if (detailHeroMemory.size > 12) detailHeroMemory.delete(detailHeroMemory.keys().next().value!);
+        }
         const all = await getCommunityPhotos(id);
         if (cancelled) return;
         // Only a non-empty result replaces what's shown — a failed/timed-out
@@ -514,7 +528,7 @@ export function useRestaurantDetail() {
       }
     })();
     return () => { cancelled = true; };
-  }, [place?.id]);
+  }, [place?.id, user?.id]);
 
   // Merge Google Places photos with community user-uploaded photos
   const photos = useMemo(() => {

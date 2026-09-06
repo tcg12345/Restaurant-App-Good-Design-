@@ -28,6 +28,7 @@ import { followPublicAccount, removeFriend } from '../lib/supabase-community';
 import { getCachedImage, loadCachedImage } from '../lib/image-cache';
 import { MuxReelMedia } from './MuxReelMedia';
 import { addScrollSettleListener } from '../lib/scroll-settle';
+import { ReelAttachment, ReelCaption } from './ReelExperience';
 import { Collapse } from './Collapse';
 
 /** The press. One value for every tappable thing in the reel, because a rail
@@ -81,8 +82,8 @@ const ActionRail: React.FC<{
   onComment: () => void;
   onShare: () => void;
 }> = ({ post, onLike, onSave, onComment, onShare }) => (
-  <div className="absolute right-3 bottom-[calc(100px+env(safe-area-inset-bottom))] z-20 flex flex-col items-center gap-5 select-none">
-    <button type="button" onClick={onLike} className="flex flex-col items-center gap-1 group" aria-label="Like">
+  <div className="reel-action-rail">
+    <button type="button" onClick={onLike} className="flex flex-col items-center gap-1 group" aria-label={post.liked ? 'Unlike post' : 'Like post'} aria-pressed={post.liked}>
       <motion.span whileTap={PRESS} className={cn('w-11 h-11 rounded-full flex items-center justify-center transition-colors', post.liked ? 'text-rose-500' : 'text-white group-hover:text-white/80')}>
         <Heart size={30} strokeWidth={2.2} className={cn(post.liked && 'fill-rose-500')} />
       </motion.span>
@@ -94,7 +95,7 @@ const ActionRail: React.FC<{
       </motion.span>
       <span className="text-white text-[12px] font-bold tabular-nums drop-shadow">{formatCount(post.commentsCount)}</span>
     </button>
-    <button type="button" onClick={onSave} className="flex flex-col items-center gap-1 group" aria-label="Save">
+    <button type="button" onClick={onSave} className="flex flex-col items-center gap-1 group" aria-label={post.saved ? 'Unsave post' : 'Save post'} aria-pressed={post.saved}>
       <motion.span whileTap={PRESS} className={cn('w-11 h-11 rounded-full flex items-center justify-center transition-colors', post.saved ? 'text-amber-300' : 'text-white group-hover:text-white/80')}>
         <Bookmark size={28} strokeWidth={2.2} className={cn(post.saved && 'fill-amber-300')} />
       </motion.span>
@@ -113,67 +114,11 @@ const ActionRail: React.FC<{
 
 const RestaurantCard: React.FC<{ item: PostItemRow; onClick: () => void }> = ({ item, onClick }) => {
   const r = item.restaurant!;
-  const { phoneMode } = useSettings();
-  const score = r.score ?? 0;
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={cn(
-        'w-full flex items-center gap-3 rounded-2xl px-3.5 py-2 text-left transition-colors',
-        phoneMode
-          ? 'bg-black/30 backdrop-blur-md border border-white/[0.08] hover:bg-black/40'
-          : 'bg-white/95 backdrop-blur shadow-lg hover:bg-white',
-      )}
-    >
-      <div className="flex-1 min-w-0">
-        <p className={cn('text-[9px] font-semibold uppercase tracking-[0.13em]', phoneMode ? 'text-white/45' : 'text-on-surface/45')}>Featured place</p>
-        <p className={cn('text-[14.5px] font-semibold leading-tight tracking-[-0.01em] truncate mt-0.5', phoneMode ? 'text-white/95' : 'text-on-surface')}>{r.name}</p>
-        <p className={cn('text-[11px] truncate mt-0.5', phoneMode ? 'text-white/50' : 'text-on-surface/55')}>
-          {[r.cuisine, r.price].filter(Boolean).join(' · ')}
-        </p>
-      </div>
-      {score > 0 && (
-        <span className={cn(
-          'inline-flex items-center justify-center min-w-[34px] h-7 px-2 rounded-full text-[12px] font-bold tabular-nums flex-shrink-0',
-          phoneMode ? cn('bg-white/[0.10]', scoreColorLight(score)) : cn('bg-on-surface/[0.06]', scoreColor(score)),
-        )}>
-          {score.toFixed(1)}
-        </span>
-      )}
-      <ChevronRight size={14} className={cn('flex-shrink-0', phoneMode ? 'text-white/35' : 'text-on-surface/40')} />
-    </button>
-  );
+  return <ReelAttachment title={r.name} subtitle={[r.cuisine, r.price].filter(Boolean).join(' · ')} image={r.image} score={r.score} onClick={onClick} />;
 };
-
 const RecipeCard: React.FC<{ item: PostItemRow; onClick: () => void }> = ({ item, onClick }) => {
   const r = item.recipe!;
-  const { phoneMode } = useSettings();
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={cn(
-        'w-full flex items-center gap-3 rounded-2xl px-3.5 py-2 text-left transition-colors',
-        phoneMode
-          ? 'bg-black/30 backdrop-blur-md border border-white/[0.08] hover:bg-black/40'
-          : 'bg-white/95 backdrop-blur shadow-lg hover:bg-white',
-      )}
-    >
-      <div className="flex-1 min-w-0">
-        <p className={cn('text-[9px] font-semibold uppercase tracking-[0.13em]', phoneMode ? 'text-white/45' : 'text-on-surface/45')}>Featured recipe</p>
-        <p className={cn('text-[14.5px] font-semibold leading-tight tracking-[-0.01em] truncate mt-0.5', phoneMode ? 'text-white/95' : 'text-on-surface')}>{r.title}</p>
-        <p className={cn('text-[11px] truncate mt-0.5', phoneMode ? 'text-white/50' : 'text-on-surface/55')}>{formatRecipeMeta(r.prepTime, r.cookTime, r.servings, r.difficulty)}</p>
-      </div>
-      <span className={cn(
-        'px-3.5 h-9 rounded-full text-xs font-bold flex items-center justify-center flex-shrink-0',
-        // media-white/-ink: the phone pill sits on glass over the photo, so it
-        // stays literal white with fixed dark text (the bg-white → paper remap
-        // would turn it near-black under hardcoded dark text in dark mode).
-        phoneMode ? 'bg-media-white text-media-ink' : 'bg-on-surface text-surface',
-      )}>View</span>
-    </button>
-  );
+  return <ReelAttachment recipe title={r.title} subtitle={formatRecipeMeta(r.prepTime, r.cookTime, r.servings, r.difficulty)} image={r.image} onClick={onClick} />;
 };
 
 /* ── Single media frame (image or muted-loop video) ────────────────── */
@@ -610,7 +555,7 @@ const PostSlideInner: React.FC<PostSlideProps> = ({
           // same treatment as ReelSlide's overlay.
           <div
             className={cn(
-              'absolute inset-x-0 bottom-0 z-20 pl-4 pt-10 pointer-events-none',
+              'reel-info absolute inset-x-0 bottom-0 z-20 pl-4 pt-10 pointer-events-none',
               // Clears the solid 50 px bottom nav + iPhone safe-area
               // inset, sitting just above the scrub bar.
               phoneMode ? 'pb-[calc(70px+env(safe-area-inset-bottom))]' : 'pb-5',
@@ -663,11 +608,7 @@ const PostSlideInner: React.FC<PostSlideProps> = ({
             </div>
 
             <Collapse open={!!(infoOpen && hasCollapsibleContent)}>
-                  {captionForItem && (
-                    <p className="text-white text-[15px] font-serif italic leading-snug mb-1 line-clamp-3 max-w-[78%]">
-                      {captionForItem}
-                    </p>
-                  )}
+                  <ReelCaption text={captionForItem} />
 
                   {post.locationLabel && (
                     <div className="flex items-center gap-1 mb-3 text-white/85 text-[12px] font-medium">

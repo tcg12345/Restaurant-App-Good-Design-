@@ -1,3 +1,4 @@
+import { usePageBack } from '../lib/usePageBack';
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, GripVertical, Undo2, Save, Scale, X } from 'lucide-react';
@@ -91,6 +92,7 @@ const ReorderItem: React.FC<{
 
 export const ReorderRatings: React.FC = () => {
   const navigate = useNavigate();
+  const goBack = usePageBack('/pantry');
   const { ratings, applySettledScores } = useLists();
 
   // Build initial sorted list from rated restaurants (not wishlist)
@@ -205,11 +207,11 @@ export const ReorderRatings: React.FC = () => {
     }
     for (const c of settled) byId.set(c.restaurantId, c.score);
     applySettledScores([...byId.entries()].map(([restaurantId, score]) => ({ restaurantId, score })));
-    navigate(-1);
+    goBack();
   }, [items, ratings, applySettledScores, navigate]);
 
   const handleCancel = useCallback(() => {
-    navigate(-1);
+    goBack();
   }, [navigate]);
 
   const hasChanges = items.some(

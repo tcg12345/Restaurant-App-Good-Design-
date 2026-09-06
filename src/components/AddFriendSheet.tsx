@@ -1,3 +1,4 @@
+import './social/SocialDesign.css';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
@@ -190,7 +191,7 @@ export const AddFriendSheet: React.FC<Props> = ({ open, onClose }) => {
                 })}
             onClick={(e) => e.stopPropagation()}
             className={cn(
-              'flex flex-col overflow-hidden bg-surface',
+              'social-design social-compose-sheet flex flex-col overflow-hidden bg-surface',
               phoneMode
                 ? 'fixed bottom-0 left-0 right-0 rounded-t-3xl h-[88vh]'
                 : 'w-full max-w-md rounded-3xl max-h-[70vh] shadow-[0_30px_80px_-16px_rgba(0,0,0,0.42)] ring-1 ring-on-surface/[0.06]',
@@ -205,7 +206,7 @@ export const AddFriendSheet: React.FC<Props> = ({ open, onClose }) => {
               'flex items-center justify-between flex-shrink-0',
               phoneMode ? 'px-5 pt-2 pb-3' : 'px-5 pt-5 pb-3',
             )}>
-              <h3 className="font-serif text-[20px] font-bold text-on-surface">Add a friend</h3>
+              <h3 className="font-sans text-[20px] font-bold text-on-surface">Add a friend</h3>
               <button
                 type="button"
                 onClick={onClose}
@@ -263,7 +264,7 @@ export const AddFriendSheet: React.FC<Props> = ({ open, onClose }) => {
                           className="flex items-center gap-3 flex-1 min-w-0 text-left group"
                         >
                           <div className={cn('w-11 h-11 rounded-full flex items-center justify-center flex-shrink-0', color.bg)}>
-                            <span className={cn('text-[15px] font-serif font-bold', color.text)}>{initial}</span>
+                            <span className={cn('text-[15px] font-sans font-bold', color.text)}>{initial}</span>
                           </div>
                           <div className="flex-1 min-w-0">
                             <p className="text-[14px] font-bold text-on-surface truncate leading-tight group-hover:text-primary transition-colors">

@@ -22,7 +22,7 @@ import { VerifiedBadge } from './VerifiedBadge';
 import { LoadingSkeletonList } from './LoadingSkeleton';
 import { extractCityState } from '../lib/places';
 import { FilterSheet } from './FilterSheet';
-import { FilterSection, PillRow, Pill, Segment, SegmentItem, RangeSlider, FilterDrillSection, HoursFilterSection } from './filterPrimitives';
+import { FilterSortSection, FilterSection, PillRow, Pill, Segment, SegmentItem, RangeSlider, FilterDrillSection, HoursFilterSection } from './filterPrimitives';
 import { passesHoursFilter, isHoursFilterActive, emptyHoursFilter, type HoursFilter, restaurantLocalNow } from '../lib/hours';
 import { useWarmHoursForFilter } from '../lib/useWarmHours';
 
@@ -899,13 +899,13 @@ const FollowingFilterSheet: React.FC<{
       {/* The same primitives the Discover sheet is built from — the
           shell's unlayered button reset strips raw utility styling, and
           matching the map tab's sheet is the point anyway. */}
-      <FilterSection label="Sort by">
+      <FilterSortSection>
         <PillRow>
           {([['recent', 'Recent'], ['highest', 'Highest Score'], ['lowest', 'Lowest Score']] as const).map(([key, label]) => (
             <Pill key={key} active={sortBy === key} onClick={() => onSortBy(key)}>{label}</Pill>
           ))}
         </PillRow>
-      </FilterSection>
+      </FilterSortSection>
       <FilterSection label="Who">
         <Segment>
           {([['all', 'Everyone'], ['friends', 'Friends'], ['experts', 'Verified']] as const).map(([key, label]) => (

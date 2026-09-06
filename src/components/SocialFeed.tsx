@@ -1,6 +1,8 @@
+import { selectFeedEntries, feedDishPreview, type FeedLens } from '../lib/feed-discovery';
+import { homeHaptic } from '../lib/haptics';
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { Heart, MessageSquare, Send, ChefHat, Plus, Star, ChevronDown, ChevronRight, BookOpen, Bookmark, X, MapPin, UtensilsCrossed, Clock, Layers } from 'lucide-react';
+import { Heart, MessageSquare, Send, ChefHat, Plus, Star, ChevronDown, ChevronRight, BookOpen, Bookmark, X, MapPin, UtensilsCrossed, Clock, Layers, Users } from 'lucide-react';
 import { VerifiedBadge } from './VerifiedBadge';
 
 import { ShareDialog } from './ShareDialog';
@@ -550,6 +552,8 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
   }, []);
   const isDesktop = isWideViewport && !phoneMode;
 
+  const [lens, setLens] = useState<FeedLens>('latest');
+  const [failedDishImages, setFailedDishImages] = useState<Set<string>>(() => new Set());
   const [activity, setActivity] = useState<CommunityRating[]>([]);
   const [homeMeals, setHomeMeals] = useState<FriendHomeMeal[]>([]);
   const [posts, setPosts] = useState<PostRow[]>([]);
@@ -626,6 +630,7 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
   // Controlled when the page owns the chips, uncontrolled otherwise.
   const activityFilter = filter ?? ownFilter;
   const setActivityFilter = onFilterChange ?? setOwnFilter;
+  useEffect(() => setLens('latest'), [activityFilter]);
 
   const [openComments, setOpenComments] = useState<string | null>(null);
   const [comments, setComments] = useState<ActivityComment[]>([]);
@@ -833,9 +838,11 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
    * suggestions arrived, and the fallback would tear itself down.
    */
   const showSuggestions = activityFilter === 'friends' && !loading && circleEntries.length === 0;
-  const feedEntries = showSuggestions && suggestedPosts.length > 0
+  const availableEntries = showSuggestions && suggestedPosts.length > 0
     ? mergeFeed({ posts: suggestedPosts })
     : circleEntries;
+  const feedEntries = selectFeedEntries(availableEntries, lens, e => e.source.post ? e.source.post.saved : e.restaurant ? isWishlisted(e.restaurant.id) : myHomeMeals.some(m => m.id === e.source.homeMeal?.id));
+  const dishPreviews = feedDishPreview(feedEntries).filter(d => !failedDishImages.has(d.url));
   const toFeedItem = (e: FeedEntry): FeedItem => (
     e.kind === 'post' ? { type: 'post', data: e.source.post!, sortTime: e.sortTime }
     : e.kind === 'rating' ? { type: 'rating', data: e.source.rating!, sortTime: e.sortTime }
@@ -862,16 +869,20 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
   // Toggle a post like. Mirrors handleLike's optimistic pattern so the
   // heart flips immediately and the server call reconciles in the
   // background.
+  const updateFeedPosts = (update: (posts: PostRow[]) => PostRow[]) => {
+    setPosts(update);
+    setSuggestedPosts(update);
+  };
   const handleLikePost = async (postId: string, currentlyLiked: boolean) => {
     if (!userId) return;
-    setPosts((prev) => prev.map((p) => (
+    updateFeedPosts((prev) => prev.map((p) => (
       p.id === postId
         ? { ...p, liked: !currentlyLiked, likesCount: Math.max(0, p.likesCount + (currentlyLiked ? -1 : 1)) }
         : p
     )));
     const ok = await setPostLike(postId, userId, !currentlyLiked);
     if (!ok) {
-      setPosts((prev) => prev.map((p) => (
+      updateFeedPosts((prev) => prev.map((p) => (
         p.id === postId
           ? { ...p, liked: currentlyLiked, likesCount: Math.max(0, p.likesCount + (currentlyLiked ? 1 : -1)) }
           : p
@@ -881,14 +892,14 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
 
   const handleSavePost = async (postId: string, currentlySaved: boolean) => {
     if (!userId) return;
-    setPosts((prev) => prev.map((p) => (
+    updateFeedPosts((prev) => prev.map((p) => (
       p.id === postId
         ? { ...p, saved: !currentlySaved, savesCount: Math.max(0, p.savesCount + (currentlySaved ? -1 : 1)) }
         : p
     )));
     const ok = await setPostSave(postId, userId, !currentlySaved);
     if (!ok) {
-      setPosts((prev) => prev.map((p) => (
+      updateFeedPosts((prev) => prev.map((p) => (
         p.id === postId
           ? { ...p, saved: currentlySaved, savesCount: Math.max(0, p.savesCount + (currentlySaved ? 1 : -1)) }
           : p
@@ -1165,7 +1176,7 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
       <div className="px-5 flex items-start justify-between gap-3">
         <div className="flex-1 min-w-0">
           <h2 className="text-on-surface" style={{ fontSize: '18px', fontWeight: 700, lineHeight: 1.15, letterSpacing: '-0.022em' }}>
-            Also rated this week
+            More ratings
           </h2>
           <p className="mt-1.5 text-on-surface/45" style={{ fontSize: '12.5px', lineHeight: 1.35 }}>
             {entries.length} more from your circle{avg > 0 && ` · avg ${avg.toFixed(1)}`}
@@ -1244,6 +1255,17 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
         )}>
           <div className="xl:min-w-0">
             <SectionHeader />
+      {!loading && availableEntries.length > 0 && <>
+        <div className="feed-discovery-controls" role="group" aria-label="Browse feed">
+          {([{id:'latest',label:'Latest'},{id:'highlights',label:'Highly rated'},{id:'saved',label:'Saved'}] as const).filter(option => activityFilter !== 'recipes' || option.id !== 'highlights').map(option => <button key={option.id} aria-pressed={lens === option.id} onClick={() => { homeHaptic(); setLens(option.id); }}>{option.label}</button>)}
+        </div>
+        {lens === 'latest' && dishPreviews.length >= 2 && <section className="feed-dish-discovery" aria-label="Dish discovery"><h2>On the table</h2><div className="feed-dish-rail">
+          {dishPreviews.map(dish => <button key={dish.key} onClick={() => { homeHaptic(); document.getElementById(`feed-entry-${dish.key}`)?.scrollIntoView({behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth',block:'start'}); }} aria-label={`See ${dish.dish}`}>
+            <img src={dish.url} alt="" loading="lazy" onError={() => setFailedDishImages(prev => new Set(prev).add(dish.url))} /><strong>{dish.dish}</strong><small>{dish.place || getName(dish.authorId)}</small>
+          </button>)}
+        </div></section>}
+      </>}
+
             <ul>
               {[0, 1, 2].map((i) => (
                 <li key={i} className="border-b border-on-surface/[0.08] last:border-0 py-5">
@@ -1279,7 +1301,7 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
     // Verified stays full-width: those users publish by rating, almost
     // always without photos, so stripping them would leave a wall of
     // tiles with no full cards to break it up.
-    enabled: activityFilter === 'friends',
+    enabled: activityFilter === 'friends' && lens === 'latest',
   }).map((row): FeedRow => (
     row.kind === 'full'
       ? { kind: 'item', item: toFeedItem(row.entry) }
@@ -1294,6 +1316,17 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
       )}>
         <div className="xl:min-w-0">
       <SectionHeader />
+      {!loading && availableEntries.length > 0 && <>
+        <div className="feed-discovery-controls" role="group" aria-label="Browse feed">
+          {([{id:'latest',label:'Latest'},{id:'highlights',label:'Highly rated'},{id:'saved',label:'Saved'}] as const).filter(option => activityFilter !== 'recipes' || option.id !== 'highlights').map(option => <button key={option.id} aria-pressed={lens === option.id} onClick={() => { homeHaptic(); setLens(option.id); }}>{option.label}</button>)}
+        </div>
+        {lens === 'latest' && dishPreviews.length >= 2 && <section className="feed-dish-discovery" aria-label="Dish discovery"><h2>On the table</h2><div className="feed-dish-rail">
+          {dishPreviews.map(dish => <button key={dish.key} onClick={() => { homeHaptic(); document.getElementById(`feed-entry-${dish.key}`)?.scrollIntoView({behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth',block:'start'}); }} aria-label={`See ${dish.dish}`}>
+            <img src={dish.url} alt="" loading="lazy" onError={() => setFailedDishImages(prev => new Set(prev).add(dish.url))} /><strong>{dish.dish}</strong><small>{dish.place || getName(dish.authorId)}</small>
+          </button>)}
+        </div></section>}
+      </>}
+
       {(showSuggestions || followedFromRail) && (
         <div className="pt-5 pb-1">
           <SuggestedPeople
@@ -1323,6 +1356,8 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
             </li>
           ))}
         </ul>
+      ) : feedItems.length === 0 && availableEntries.length > 0 ? (
+        <div className="feed-discovery-empty"><strong>{lens === 'saved' ? 'Keep something for later' : 'No highly rated picks here yet'}</strong><p>{lens === 'saved' ? 'Posts and places you save from this feed will appear here.' : 'This view shows ratings of 8 or above.'}</p><button onClick={() => setLens('latest')}>See latest</button></div>
       ) : feedItems.length === 0 ? (
         <>
           {inlineSlot && (
@@ -1340,7 +1375,7 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
           ) : (
             <div className="px-5 pt-8 flex flex-col items-start gap-2.5">
               <p className="text-on-surface" style={{ fontSize: '16px', fontWeight: 700, lineHeight: 1.2, letterSpacing: '-0.028em' }}>
-                {showSuggestions ? 'Your feed starts here' : 'Nothing from your circle yet'}
+                {activityFilter === 'recipes' ? 'No cooking posts yet' : showSuggestions ? 'Your feed starts here' : 'Nothing from your circle yet'}
               </p>
               <p className="text-on-surface/45 max-w-[280px]" style={{ fontSize: '13.5px', lineHeight: 1.5 }}>
                 {showSuggestions
@@ -1368,7 +1403,7 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
           </p>
         </div>
       )}
-      <ul>
+      <ul key={`${activityFilter}-${lens}`} className="feed-discovery-stream">
         {feedRows.map((row, rowIndex) => {
           if (row.kind === 'slot') {
             return (
@@ -1414,7 +1449,7 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
               .filter((it) => it.mediaType === 'photo' && it.mediaUrl)
               .map((it) => ({ id: it.id, url: it.mediaUrl, caption: it.caption?.trim() || undefined }));
             return (
-              <li key={`post-${p.id}`}>
+              <li key={`post-${p.id}`} id={`feed-entry-post-${p.id}`} className="feed-entry-anchor">
                 <FeedPost
                   authorName={displayName}
                   authorInitial={author?.initials || 'U'}
@@ -1428,14 +1463,15 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
                   comment={{ count: p.commentsCount, onOpen: () => setOpenPostCommentsId(p.id) }}
                   onShare={() => handleSharePost(p)}
                   save={{ saved: p.saved, onToggle: () => handleSavePost(p.id, p.saved), label: p.saved ? 'Unsave post' : 'Save post' }}
-                  title={p.caption || undefined}
+                  title={splitNote(p.caption).title}
+                  body={splitNote(p.caption).body}
                   place={restaurant ? {
                     name: restaurant.name,
                     meta: [restaurant.cuisine, restaurant.price, restaurant.address?.split(',')[0]?.trim()].filter(Boolean).join(' · '),
                     score: restaurant.score,
                     onOpen: () => handleFeaturedPlaceClick(restaurant),
                   } : undefined}
-                  recipe={recipe && !restaurant && recipeFacts.length > 0 ? {
+                  recipe={recipe && !restaurant ? {
                     facts: recipeFacts,
                     actionLabel: 'Cook it',
                     onAction: () => navigate(`/meal/${p.userId}/${recipe.id}`),
@@ -1451,6 +1487,7 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
             const liked = mealLikedByMe.has(m.id);
             const saved = myHomeMeals.some((x) => x.id === m.id);
             const cover = getMealCoverUrl(m);
+            const mealPhotos = [...new Map([...(cover ? [{ url: cover, caption: m.name }] : []), ...(m.photos || [])].filter(p => p.url).map(p => [p.url, p])).values()].map((p, i) => ({ id: `${m.id}-${i}`, url: p.url, caption: p.caption }));
             const cookName = getName(m.userId);
             const facts = [
               m.dishes.length > 0
@@ -1461,7 +1498,7 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
                 : null,
             ].filter(Boolean) as { icon: React.ReactNode; value: string }[];
             return (
-              <li key={`meal-${m.id}`}>
+              <li key={`meal-${m.id}`} id={`feed-entry-meal-${m.id}`} className="feed-entry-anchor">
                 <FeedPost
                   authorName={cookName}
                   authorInitial={initialOf(cookName)}
@@ -1469,7 +1506,7 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
                   avatarClass="bg-olive/[0.14] text-olive"
                   kind="Cooked"
                   when={`${new Date(m.date.length === 10 ? `${m.date}T12:00:00` : m.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} · at home`}
-                  media={cover ? [{ id: m.id, url: cover }] : []}
+                  media={mealPhotos}
                   mediaHeight={268}
                   onMediaClick={() => openFriendRecipe(m)}
                   like={{ count: mealLikeCounts[m.id] || 0, liked, onToggle: () => toggleMealLike(m.id) }}
@@ -1480,7 +1517,7 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
                   onTitleClick={() => openFriendRecipe(m)}
                   body={m.description || undefined}
                   tags={m.tags.length > 0 ? m.tags : undefined}
-                  recipe={facts.length > 0 ? { facts, actionLabel: 'Open recipe', onAction: () => openFriendRecipe(m) } : undefined}
+                  recipe={{ facts, actionLabel: 'Open recipe', onAction: () => openFriendRecipe(m) }}
                 />
               </li>
             );
@@ -1501,7 +1538,7 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
           };
           const note = splitNote(r.notes);
           return (
-          <li key={r.id}>
+          <li key={r.id} id={`feed-entry-rating-${r.id}`} className="feed-entry-anchor">
             <FeedPost
               authorName={getName(r.user_id)}
               authorInitial={initial}
@@ -1725,24 +1762,10 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
       {/* The end of the feed says so, and offers the one thing that makes
           it longer. Running out of posts used to just stop. */}
       {feedItems.length > 0 && (
-        <div className="px-5 pt-[26px] flex flex-col items-start gap-2.5">
-          <p className="text-on-surface" style={{ fontSize: '16px', fontWeight: 700, lineHeight: 1.2, letterSpacing: '-0.028em' }}>
-            {activityFilter === 'experts' ? "That's everything from verified users"
-              : showSuggestions ? 'Follow people to make this feed your own'
-              : "That's everything from your circle"}
-          </p>
-          <p className="text-on-surface/45 max-w-[280px]" style={{ fontSize: '13.5px', lineHeight: 1.5, textWrap: 'pretty' } as React.CSSProperties}>
-            Follow a few more people, or switch to Verified to see critics and chefs.
-          </p>
-          <Link
-            to="/circle"
-            className="mt-1 inline-flex items-center gap-[7px] rounded-full border border-on-surface/20 text-on-surface px-[15px] py-[11px] active:opacity-75 transition-opacity"
-            style={{ fontSize: '12.5px', fontWeight: 700 }}
-          >
-            Find people to follow
-            <ChevronRight size={12} />
-          </Link>
-        </div>
+        <nav className="feed-next-actions" aria-label="More to explore">
+          <Link to="/decide" onClick={() => homeHaptic()}><Users size={17} /><span>Decide together</span><ChevronRight size={14} /></Link>
+          <Link to="/circle"><Plus size={17} /><span>Find people</span><ChevronRight size={14} /></Link>
+        </nav>
       )}
         </div>
         {!phoneMode && !feedOnly && (

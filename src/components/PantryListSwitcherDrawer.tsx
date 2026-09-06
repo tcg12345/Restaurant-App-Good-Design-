@@ -60,7 +60,7 @@ export const PantryListSwitcherDrawer: React.FC<Props> = ({
           exit={{ opacity: 0 }}
           transition={{ duration: 0.18 }}
           onClick={onClose}
-          className="fixed inset-0 z-[120] bg-black/40 backdrop-blur-[3px]"
+          className="library-drawer fixed inset-0 z-[120] bg-black/40 backdrop-blur-[3px]"
         >
           <motion.div
             ref={sheetRef as React.RefObject<HTMLDivElement>}

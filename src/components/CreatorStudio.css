@@ -1,0 +1,127 @@
+/* Shared recipe / guide editing language. Scoped to the custom editors. */
+.rcx.recipe-studio, .gcx.guide-studio {
+  --rcx-bg: #f7f8f8; --gcx-bg: #f7f8f8;
+  --rcx-card: #fff; --gcx-card: #fff;
+  --rcx-ink: #222d2b; --gcx-ink: #222d2b;
+  --rcx-secondary: #64716d; --gcx-secondary: #64716d;
+  --rcx-faint: #79847f; --gcx-faint: #79847f;
+  --rcx-chip: #edf1ef; --gcx-chip: #edf1ef;
+  --rcx-hairline: #e0e7e3; --gcx-hairline: #e0e7e3;
+  --rcx-hairline-strong: #d3ddd7; --gcx-hairline-strong: #d3ddd7;
+  --rcx-accent: #335e4d; --gcx-accent: #335e4d;
+  --rcx-serif: -apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif;
+  --gcx-serif: -apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif;
+  -webkit-tap-highlight-color: transparent;
+}
+.dark .rcx.recipe-studio, .dark .gcx.guide-studio {
+  --rcx-bg: #171e1c; --gcx-bg: #171e1c; --rcx-card: #222c28; --gcx-card: #222c28;
+  --rcx-ink: #eff4f1; --gcx-ink: #eff4f1; --rcx-secondary: #b0bdb6; --gcx-secondary: #b0bdb6;
+  --rcx-faint: #9aaaa1; --gcx-faint: #9aaaa1; --rcx-chip: #2a3730; --gcx-chip: #2a3730;
+  --rcx-hairline: #35433b; --gcx-hairline: #35433b; --rcx-hairline-strong: #46574c; --gcx-hairline-strong: #46574c;
+  --rcx-accent: #bdd9c8; --gcx-accent: #bdd9c8; --rcx-green: #a4d6b6; --gcx-green: #a4d6b6;
+}
+:is(.rcx.recipe-studio,.gcx.guide-studio) :is(h1,h2,h3,h4,input,textarea,button,select) { font-family: inherit; }
+:is(.rcx.recipe-studio,.gcx.guide-studio) :is(input,textarea,select) { font-size: 16px; }
+:is(.rcx.recipe-studio,.gcx.guide-studio) :is(button,input,textarea,select):focus-visible { outline: 2px solid var(--rcx-accent); outline-offset: 3px; }
+:is(.rcx.recipe-studio,.gcx.guide-studio) button:disabled { opacity: .45; cursor: default; }
+.rcx.recipe-studio .rcx-head, .gcx.guide-studio .gcx-head { padding: 12px 20px 0; background: var(--rcx-bg); border-bottom: 1px solid var(--rcx-hairline); }
+.rcx.recipe-studio.is-phone .rcx-head, .gcx.guide-studio.gcx-phone .gcx-head { padding-top: calc(env(safe-area-inset-top,0px) + 12px); }
+.rcx.recipe-studio .rcx-head-row, .gcx.guide-studio .gcx-head-row { min-height: 44px; gap: 8px; }
+.rcx.recipe-studio .rcx-head-actions, .gcx.guide-studio .gcx-head-actions { gap: 10px; margin-left: auto; }
+.rcx.recipe-studio .rcx-head-close, .gcx.guide-studio .gcx-head-close { width: 44px; height: 44px; flex: none; }
+.rcx.recipe-studio .rcx-head-link, .gcx.guide-studio .gcx-head-link { font-size: 13px; min-height: 44px; padding-inline: 10px; color: var(--rcx-accent); }
+.rcx.recipe-studio .rcx-head-eyebrow, .gcx.guide-studio .gcx-eyebrow { color: var(--rcx-secondary); letter-spacing: 0; text-transform: none; font-size: 14px; font-weight: 600; }
+.rcx.recipe-studio .rcx-saved { display: none; }
+.rcx.recipe-studio .rcx-step-title, .gcx.guide-studio .gcx-step-title { font-size: 28px; letter-spacing: -1px; line-height: 1.15; font-weight: 700; margin: 12px 0 14px; }
+.rcx.recipe-studio .rcx-step-counter { font-size: 12px; color: var(--rcx-secondary); }
+.creator-progress { display: flex; width: 100%; gap: 4px; margin-bottom: 14px; }
+.creator-progress button { flex: 1; min-width: 0; min-height: 56px; display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 6px; border-radius: 13px; font-size: 10px; font-weight: 600; color: var(--rcx-secondary); transition: background .2s, color .2s; }
+.creator-progress .is-current { background: var(--rcx-chip); color: var(--rcx-accent); }
+.creator-progress-number { width: 23px; height: 23px; display: grid; place-items: center; border-radius: 50%; border: 1px solid var(--rcx-hairline-strong); font-size: 11px; }
+.creator-progress .is-current .creator-progress-number { background: var(--rcx-accent); color: var(--rcx-bg); border-color: transparent; }
+.creator-progress .is-done .creator-progress-number { border-color: transparent; color: var(--rcx-accent); }
+.rcx.recipe-studio .rcx-body, .gcx.guide-studio .gcx-body { flex: 1; min-height: 0; padding: 18px 20px 24px; overscroll-behavior: contain; }
+.creator-step-intro { color: var(--rcx-secondary); font-size: 14px; line-height: 1.5; margin: 0 0 24px; }
+.rcx.recipe-studio .rcx-stack, .gcx.guide-studio .gcx-stack { gap: 24px; }
+.rcx.recipe-studio .rcx-kicker, .gcx.guide-studio .gcx-kicker { font-size: 13px; font-weight: 600; letter-spacing: 0; text-transform: none; color: var(--rcx-ink); margin-bottom: 10px; }
+.rcx.recipe-studio .rcx-title-input, .gcx.guide-studio .gcx-title-input { font-size: 20px; font-weight: 600; letter-spacing: -.4px; border: 1px solid var(--rcx-hairline); border-radius: 15px; padding: 15px; background: var(--rcx-card); }
+.rcx.recipe-studio :is(.rcx-line-area,.rcx-area,.rcx-line-input), .gcx.guide-studio :is(.gcx-line-input,.gcx-area) { background: var(--rcx-card); border: 1px solid var(--rcx-hairline); border-radius: 14px; padding: 13px; line-height: 1.5; }
+.rcx.recipe-studio .rcx-card, .gcx.guide-studio .gcx-type-card { border-radius: 18px; box-shadow: none; border-color: var(--rcx-hairline); }
+.rcx.recipe-studio .rcx-time-card { display: grid; grid-template-columns: 1fr 1fr; gap: 1px; padding: 0; overflow: hidden; }
+.creator-time-field { padding: 14px 18px; }
+.creator-time-field + .creator-time-field { border-left: 1px solid var(--rcx-hairline); }
+.creator-time-field > span { display: block; color: var(--rcx-secondary); font-size: 13px; }
+.creator-time-field > div { display: flex; align-items: baseline; gap: 5px; margin-top: 7px; }
+.creator-time-field input { width: 100%; min-width: 0; background: transparent; font-size: 25px; font-weight: 600; appearance: textfield; }
+.creator-time-field input::-webkit-inner-spin-button { -webkit-appearance: none; }
+.creator-time-field small { color: var(--rcx-secondary); font-size: 13px; }
+.rcx.recipe-studio .rcx-stepper-btn { width: 44px; height: 44px; }
+.rcx.recipe-studio .rcx-serves-card { padding: 10px 16px; }
+.rcx.recipe-studio .rcx-ing-row { display: grid; grid-template-columns: 72px 1fr 44px; gap: 8px; background: var(--rcx-card); border: 1px solid var(--rcx-hairline); border-radius: 16px; padding: 12px; margin-bottom: 10px; }
+.rcx.recipe-studio .rcx-ing-name { grid-row: 1; grid-column: 1 / 3; width: 100%; min-height: 44px; }
+.rcx.recipe-studio .rcx-ing-row > .rcx-ghost-delete { grid-row: 1 / 3; grid-column: 3; align-self: center; }
+.rcx.recipe-studio .rcx-ing-input { border-radius: 9px; padding: 10px; background: var(--rcx-chip); min-height: 42px; width: 100%; }
+.rcx.recipe-studio .rcx-ing-unit-wrap { width: 100%; }
+.rcx.recipe-studio .rcx-ing-qty { grid-row: 2; }
+.rcx.recipe-studio .rcx-ing-unit-wrap { grid-row: 2; }
+.rcx.recipe-studio :is(.rcx-ghost-delete,.rcx-ghost-move) { min-width: 40px; min-height: 40px; }
+.rcx.recipe-studio .rcx-step-card { padding: 16px; border-radius: 18px; box-shadow: none; }
+.rcx.recipe-studio .rcx-step-card textarea { min-height: 100px; line-height: 1.55; }
+.rcx.recipe-studio :is(.rcx-mini-primary,.rcx-mini-ghost,.rcx-add-row,.rcx-chip-dash), .gcx.guide-studio :is(.gcx-chip,.gcx-source-tab) { min-height: 40px; }
+.rcx.recipe-studio .rcx-foot, .gcx.guide-studio .gcx-foot { position: relative; inset: auto; flex: none; padding: 12px 20px calc(env(safe-area-inset-bottom,0px) + 14px); background: var(--rcx-bg); border-top: 1px solid var(--rcx-hairline); gap: 10px; transform: none; margin: 0; width: 100%; }
+.rcx.recipe-studio .rcx-foot-cta, .gcx.guide-studio .gcx-foot-cta { flex: 1; min-height: 52px; border-radius: 18px; font-size: 15px; letter-spacing: -.2px; padding: 12px 18px; background: var(--rcx-accent); color: var(--rcx-bg); box-shadow: none; }
+.rcx.recipe-studio .rcx-foot-back, .gcx.guide-studio .gcx-foot-back { width: 48px; height: 48px; flex: none; color: var(--rcx-ink); background: var(--rcx-chip); }
+html.kb-open .rcx.recipe-studio .rcx-foot, html.kb-open .gcx.guide-studio .gcx-foot { margin-bottom: var(--kb-height,0px); padding-bottom: 10px; }
+.creator-optional { border-block: 1px solid var(--rcx-hairline); }
+.creator-optional summary { cursor: pointer; padding: 18px 0; font-size: 14px; font-weight: 600; }
+.creator-optional summary > span { float: right; font-size: 12px; font-weight: 400; color: var(--rcx-secondary); }
+.creator-optional-body { padding-bottom: 18px; }
+.creator-selection-count { display: inline-flex; align-items: center; gap: 7px; color: var(--rcx-accent); background: var(--rcx-chip); border-radius: 30px; font-size: 12px; padding: 8px 12px; margin: -8px 0 18px; }
+.gcx.guide-studio .gcx-type-grid { gap: 10px; }
+.gcx.guide-studio .gcx-type-card { padding: 15px 12px; min-height: 95px; }
+.gcx.guide-studio .gcx-type-card.is-on { background: var(--rcx-chip); border-color: var(--rcx-accent); }
+.gcx.guide-studio .gcx-type-label { font-size: 15px; }
+.gcx.guide-studio .gcx-type-sub { font-size: 12px; color: var(--rcx-secondary); }
+.gcx.guide-studio .gcx-more-btn { min-height: 48px; font-size: 14px; }
+.gcx.guide-studio .gcx-more-sub { font-size: 12px; }
+.gcx.guide-studio :is(.gcx-detail-name,.gcx-review-title,.gcx-arrange-name) { letter-spacing: -.5px; }
+.gcx.guide-studio .gcx-detail-card { border-radius: 18px; box-shadow: none; }
+.gcx.guide-studio .gcx-hint { font-size: 12px; line-height: 1.45; }
+@media(max-width:360px) { .rcx.recipe-studio .rcx-head, .gcx.guide-studio .gcx-head { padding-inline: 14px; } .rcx.recipe-studio .rcx-body, .gcx.guide-studio .gcx-body { padding-inline: 16px; } .rcx.recipe-studio .rcx-method-chip { padding-inline: 8px; font-size: 12px; } .rcx.recipe-studio .rcx-head-actions { gap: 3px; } }
+@media(prefers-reduced-motion:reduce) { :is(.rcx.recipe-studio,.gcx.guide-studio) * { animation-duration: .01ms !important; transition-duration: .01ms !important; } }
+:is(.rcx.recipe-studio,.gcx.guide-studio) :is(input,textarea)::placeholder { color: var(--rcx-faint); opacity: 1; }
+.gcx.guide-studio .gcx-card { border-radius: 17px; box-shadow: none; border-color: var(--gcx-hairline); }
+.gcx.guide-studio .gcx-card-row { gap: 8px; padding: 14px 10px; }
+.gcx.guide-studio button.gcx-row-main { text-align: left; min-height: 44px; }
+.gcx.guide-studio .gcx-row-name { font-size: 15px; line-height: 1.35; }
+.gcx.guide-studio .gcx-row-meta { font-size: 12px; color: var(--gcx-secondary); }
+.gcx.guide-studio .gcx-icon-btn { width: 36px; height: 44px; }
+.gcx.guide-studio .gcx-card-thumb { width: 40px; height: 44px; border-radius: 10px; }
+.gcx.guide-studio .gcx-card-num { width: 18px; font-size: 12px; }
+.gcx.guide-studio .gcx-grip-phone { width: 24px; min-height: 44px; }
+.gcx.guide-studio .gcx-preview { border-radius: 20px; padding: 22px; min-height: 155px; }
+.gcx.guide-studio .gcx-preview-title { font-size: 25px; letter-spacing: -.8px; line-height: 1.2; }
+.creator-dismiss-backdrop { position: absolute; inset: 0; z-index: 80; background: #0007; backdrop-filter: blur(8px); display: grid; place-items: center; padding: 24px; }
+.creator-dismiss { width: 100%; max-width: 340px; border-radius: 26px; padding: 24px; background: var(--gcx-card); box-shadow: 0 24px 70px #0003; }
+.creator-dismiss h3 { font-size: 22px; letter-spacing: -.7px; font-weight: 650; }
+.creator-dismiss p { font-size: 14px; line-height: 1.5; color: var(--gcx-secondary); margin: 10px 0 20px; }
+.creator-dismiss button { min-height: 46px; width: 100%; border-radius: 14px; font-size: 14px; font-weight: 600; margin-top: 6px; }
+.creator-dismiss .creator-dismiss-save { background: var(--gcx-accent); color: var(--gcx-bg); }
+.creator-dismiss .creator-dismiss-discard { color: #b54d3d; }
+.dark .creator-dismiss .creator-dismiss-discard { color: #eda497; }
+.gcx.guide-studio .gcx-head-close { color: var(--gcx-ink); background: var(--gcx-chip); }
+.gcx.guide-studio .gcx-head-link { background: transparent; }
+.gcx.guide-studio .gcx-search { min-height: 48px; border: 1px solid var(--gcx-hairline); background: var(--gcx-card); border-radius: 15px; padding: 0 14px; }
+.gcx.guide-studio .gcx-search:focus-within { border-color: var(--gcx-accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--gcx-accent) 15%, transparent); }
+.gcx.guide-studio .gcx-search input:focus-visible { outline: none; }
+.gcx.guide-studio .gcx-foot-cta.is-disabled { background: var(--gcx-chip); color: var(--gcx-secondary); opacity: .7; }
+.gcx.guide-studio .gcx-seg { padding: 4px; background: var(--gcx-chip); }
+.gcx.guide-studio .gcx-seg-btn { min-height: 38px; font-size: 12px; color: var(--gcx-secondary); }
+.gcx.guide-studio .gcx-seg-btn.is-on { color: var(--gcx-ink); background: var(--gcx-card); }
+.gcx.guide-studio .gcx-type-icon { color: var(--gcx-accent); background: var(--gcx-chip); }
+@media(max-width:360px) {
+  .gcx.guide-studio .gcx-type-card { position: relative; flex-direction: column; align-items: flex-start; gap: 8px; padding: 14px; }
+  .gcx.guide-studio .gcx-type-card .gcx-radio { position: absolute; top: 18px; right: 14px; }
+  .gcx.guide-studio .gcx-type-sub { line-height: 1.35; }
+}

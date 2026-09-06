@@ -41,7 +41,7 @@ const ANTHROPIC_API_KEY: string | undefined = Deno.env.get('ANTHROPIC_API_KEY');
 // Opus authors noticeably better recipes (measurements, sequencing,
 // realistic timing) than Sonnet, and this is a one-shot call rather
 // than a high-volume chat, so the cost trade-off is worth it.
-const MODEL = 'claude-opus-4-8';
+const MODEL = 'claude-opus-5';
 // Ideas are titles and one-liners — easy work where latency IS the
 // experience (a brainstorm that takes 20s isn't one). Sonnet keeps the
 // suggestions varied and appealing at a fraction of the wait.
@@ -535,6 +535,9 @@ async function handler(req: Request): Promise<Response> {
 
   const anthropicBody = {
     model: isIdeas || isNutrition ? IDEAS_MODEL : MODEL,
+    // Keep forced tools and the existing non-thinking output budget.
+    thinking: { type: 'disabled' },
+    output_config: { effort: 'high' },
     max_tokens: isNutrition ? NUTRITION_MAX_TOKENS : isIdeas ? IDEAS_MAX_TOKENS : MAX_TOKENS,
     // Stream the response. A long Opus recipe can take 30s+ to finish;
     // a non-streaming call would block until then and

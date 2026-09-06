@@ -326,6 +326,7 @@ export const RecipeDraftSheet: React.FC<RecipeDraftSheetProps> = ({
             onClick={(e) => e.stopPropagation()}
             className={cn(
               'flex flex-col overflow-hidden bg-surface',
+              draft.recreatedFrom && 'dish-recipe-review',
               phoneMode
                 // Full-page on mobile — not a draggable bottom sheet.
                 ? 'fixed inset-0 h-full w-full'

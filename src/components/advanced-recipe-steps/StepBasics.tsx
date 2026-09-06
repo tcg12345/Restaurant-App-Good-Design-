@@ -1,50 +1,13 @@
-// Step 1 of the Advanced Recipe Builder — "The basics".
-// Name (serif underline), an optional one-line summary, then two small
-// sections: Time and Servings.
-//
-// Prep and cook are a pair of side-by-side LOOPING wheels — the Clock-app
-// gesture: flick, and it never hits an end. Each is ONE wheel over the
-// non-linear duration scale in lib/duration-scale (per-minute up to half
-// an hour, coarsening to 30-minute strides out at the overnight end), so a
-// flick covers the range recipes actually use without hour/minute pairs
-// or a hundred rows of minutes, and the centre row IS the readout — no
-// label to keep in sync. Servings stays a stepper: a small integer you
-// nudge.
-
+// Recipe identity, direct time entry, and a bounded servings stepper.
 import React from 'react';
 import { Minus, Plus } from 'lucide-react';
 import type { AdvancedRecipeState, Action } from '../AdvancedRecipeBuilder';
-import { DURATION_STEPS, minutesForStep, stepForMinutes, formatDuration } from '../../lib/duration-scale';
-import { LoopWheel } from './LoopWheel';
+import { formatDuration } from '../../lib/duration-scale';
 
 interface Props {
   state: AdvancedRecipeState;
   dispatch: React.Dispatch<Action>;
 }
-
-const WHEEL_COUNT = DURATION_STEPS + 1;
-const formatStep = (step: number) => {
-  const m = minutesForStep(step);
-  return m ? formatDuration(m) : 'None';
-};
-
-/** One time column: eyebrow label over a looping wheel. */
-const DurationWheel: React.FC<{
-  label: string;
-  minutes: number;
-  onChange: (minutes: number) => void;
-}> = ({ label, minutes, onChange }) => (
-  <div className="rcx-time-col">
-    <span className="rcx-time-col-label">{label}</span>
-    <LoopWheel
-      count={WHEEL_COUNT}
-      value={stepForMinutes(minutes)}
-      onChange={(step) => onChange(minutesForStep(step))}
-      format={formatStep}
-      ariaLabel={`${label} time`}
-    />
-  </div>
-);
 
 export const StepBasics: React.FC<Props> = ({ state, dispatch }) => {
   const total = state.prepTime + state.cookTime;
@@ -54,6 +17,7 @@ export const StepBasics: React.FC<Props> = ({ state, dispatch }) => {
         <div className="rcx-kicker">Recipe name</div>
         <input
           type="text"
+          aria-label="Recipe name"
           className="rcx-title-input"
           value={state.name}
           onChange={(e) => dispatch({ type: 'SET_FIELD', field: 'name', value: e.target.value })}
@@ -65,6 +29,7 @@ export const StepBasics: React.FC<Props> = ({ state, dispatch }) => {
       <div>
         <div className="rcx-kicker">One-line summary<span className="rcx-kicker-opt"> · optional</span></div>
         <textarea
+          aria-label="Recipe summary"
           className="rcx-line-area"
           value={state.summary}
           onChange={(e) => dispatch({ type: 'SET_FIELD', field: 'summary', value: e.target.value })}
@@ -79,16 +44,11 @@ export const StepBasics: React.FC<Props> = ({ state, dispatch }) => {
           {total > 0 && <span className="rcx-kicker-total">Total · {formatDuration(total)}</span>}
         </div>
         <div className="rcx-card rcx-time-card">
-          <DurationWheel
-            label="Prep"
-            minutes={state.prepTime}
-            onChange={(v) => dispatch({ type: 'SET_FIELD', field: 'prepTime', value: v })}
-          />
-          <DurationWheel
-            label="Cook"
-            minutes={state.cookTime}
-            onChange={(v) => dispatch({ type: 'SET_FIELD', field: 'cookTime', value: v })}
-          />
+          {(['prepTime', 'cookTime'] as const).map(field => <label key={field} className="creator-time-field">
+            <span>{field === 'prepTime' ? 'Prep' : 'Cook'}</span>
+            <div><input type="number" inputMode="numeric" min={0} max={10080} aria-label={field === 'prepTime' ? 'Prep time in minutes' : 'Cook time in minutes'}
+              value={state[field] || ''} placeholder="0" onChange={event => dispatch({ type: 'SET_FIELD', field, value: Math.max(0, Math.min(10080, Number(event.target.value) || 0)) })} /><small>min</small></div>
+          </label>)}
         </div>
       </div>
 

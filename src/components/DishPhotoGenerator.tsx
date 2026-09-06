@@ -6,19 +6,19 @@
 // sheet every AI create uses.
 
 import React, { useEffect, useRef, useState } from 'react';
+import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
 import { GlassButton } from '../lib/glass-buttons';
-import { AlertCircle, Camera, Loader2, RefreshCw, Sparkles, X } from 'lucide-react';
+import { AlertCircle, ArrowRight, Camera, Check, ChefHat, ImagePlus, Loader2, RefreshCw, Sparkles, X } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useAuth } from '../contexts/AuthContext';
-import { useToast } from '../contexts/ToastContext';
 import { usePaywall } from '../contexts/PaywallContext';
 import { QuotaMeter } from './pro/QuotaMeter';
 import type { HomeMeal, DishPhotoRef } from '../contexts/ListsContext';
 import { generateRecipeFromPhoto } from '../lib/build-recipe-client';
 import {
-  estimateRemainingMs, formatRemaining, loadExpectation, recordGeneration, type GenExpectation,
+  loadExpectation, recordGeneration, type GenExpectation,
 } from '../lib/gen-progress';
-import { dishPhotoUrlToFile, prepareDishPhoto, type DishPhotoOrigin } from '../lib/dish-photo';
+import { dishPhotoHint, dishPhotoUrlToFile, prepareDishPhoto, type DishPhotoOrigin } from '../lib/dish-photo';
 import {
   GuidelinePills, EMPTY_GUIDELINES, composeConstraints, describeGuidelines,
   type Guidelines, type MenuKey,
@@ -26,6 +26,7 @@ import {
 import { PhotoSourceSheet } from './PhotoSourceSheet';
 import './AdvancedRecipeBuilder.css';
 import './RecipeBuilder.css';
+import './DishRecreation.css';
 
 export interface DishPhoto {
   /** JPEG data URL sized for the model (lib/dish-photo). */
@@ -55,8 +56,8 @@ export const DishPhotoGenerator: React.FC<DishPhotoGeneratorProps> = ({
   phoneMode,
   initialPhoto,
 }) => {
+  const reduceMotion = useReducedMotion();
   const { user } = useAuth();
-  const { showToast } = useToast();
   const { handleAiError } = usePaywall();
   const [photo, setPhoto] = useState<DishPhoto | null>(null);
   const [photoBusy, setPhotoBusy] = useState(!!initialPhoto);
@@ -87,7 +88,6 @@ export const DishPhotoGenerator: React.FC<DishPhotoGeneratorProps> = ({
      time creep underneath so it never stalls between chunks. Monotonic,
      ticked every 100ms, and capped short of full until the stream ends. */
   const [progress, setProgress] = useState(0);
-  const [remainingMs, setRemainingMs] = useState<number | null>(null);
   /** False while the model is still reading the photo; true once the
    *  first recipe tokens stream in. Drives the phase label + the sweep. */
   const [writing, setWriting] = useState(false);
@@ -107,7 +107,6 @@ export const DishPhotoGenerator: React.FC<DishPhotoGeneratorProps> = ({
       setElapsed(0);
       setProgress(0);
       progressRef.current = 0;
-      setRemainingMs(null);
       setWriting(false);
       return;
     }
@@ -135,7 +134,6 @@ export const DishPhotoGenerator: React.FC<DishPhotoGeneratorProps> = ({
       const clamped = Math.min(STREAM_CEILING, Math.max(progressRef.current, next));
       progressRef.current = clamped;
       setProgress(clamped);
-      setRemainingMs(estimateRemainingMs({ elapsedMs, chars, expected }));
     };
     tick();
     const interval = setInterval(tick, 100);
@@ -148,10 +146,7 @@ export const DishPhotoGenerator: React.FC<DishPhotoGeneratorProps> = ({
   useEffect(() => {
     let cancelled = false;
     if (!initialPhoto) {
-      // Nothing to show yet — open the picker once the flow has settled
-      // in, so the first tap is already spent.
-      const t = setTimeout(() => { if (!cancelled) setSheetOpen(true); }, 420);
-      return () => { cancelled = true; clearTimeout(t); };
+      return;
     }
     (async () => {
       try {
@@ -168,7 +163,7 @@ export const DishPhotoGenerator: React.FC<DishPhotoGeneratorProps> = ({
         setPhoto({ dataUrl, origin });
       } catch (err) {
         console.warn('[DishPhotoGenerator] could not load the photo:', err);
-        if (!cancelled) showToast("Couldn't load that photo");
+        if (!cancelled) setError("Couldn't load that photo. Choose another photo to continue.");
       } finally {
         if (!cancelled) setPhotoBusy(false);
       }
@@ -187,7 +182,7 @@ export const DishPhotoGenerator: React.FC<DishPhotoGeneratorProps> = ({
       setPhoto({ dataUrl, origin: pick.origin });
     } catch (err) {
       console.warn('[DishPhotoGenerator] could not read the photo:', err);
-      setError("Couldn't read that photo. Try another one.");
+      failWith("Couldn't read that photo. Try another one.");
     } finally {
       setPhotoBusy(false);
     }
@@ -204,7 +199,9 @@ export const DishPhotoGenerator: React.FC<DishPhotoGeneratorProps> = ({
   };
 
   const handleGenerate = async () => {
-    if (!photo || loading || photoBusy) return;
+    if (!photo || abortRef.current || loading || photoBusy) return;
+    hintRef.current?.blur();
+    bodyRef.current?.scrollTo({ top: 0 });
     setError(null);
     setOpenMenu(null);
     setLoading(true);
@@ -215,12 +212,11 @@ export const DishPhotoGenerator: React.FC<DishPhotoGeneratorProps> = ({
     progressRef.current = 0;
     expectedRef.current = loadExpectation('photo');
     setProgress(0);
-    setRemainingMs(null);
     const controller = new AbortController();
     abortRef.current = controller;
     try {
       const result = await generateRecipeFromPhoto(photo.dataUrl, {
-        hint: hint.trim() || undefined,
+        hint: dishPhotoHint(hint, photo.origin),
         difficulty: guidelines.difficulty || undefined,
         constraints: composeConstraints(guidelines),
         signal: controller.signal,
@@ -257,8 +253,7 @@ export const DishPhotoGenerator: React.FC<DishPhotoGeneratorProps> = ({
     setLoading(false);
   };
 
-  const canSubmit = !!photo && !loading && !photoBusy;
-  const ctaLabel = loading ? 'Recreating…' : photo ? 'Recreate this dish' : 'Add a photo first';
+  const ctaLabel = photo ? 'Recreate this dish' : 'Choose a dish photo';
   // Phase copy is tied to what is actually happening: nothing has streamed
   // yet → the model is still reading the image; tokens flowing → it is
   // writing; a long tail → nearly done.
@@ -267,137 +262,84 @@ export const DishPhotoGenerator: React.FC<DishPhotoGeneratorProps> = ({
     ? 'Reading the plate — components, sauces, garnish, and how it was cooked.'
     : 'Measuring ingredients, sequencing steps, and dialing in the timing.';
   const pct = Math.round(progress * 100);
-  const remainingLabel = formatRemaining(remainingMs) || (elapsed >= 2 ? `${elapsed}s` : '');
+  const transition = { duration: reduceMotion ? 0 : 0.32, ease: [0.22, 1, 0.36, 1] as const };
 
   return (
-    <div className={`rcx${phoneMode ? ' is-phone' : ''}`}>
-      {/* ── Header ── */}
+    <div className={`rcx dish-flow${phoneMode ? ' is-phone' : ''}`}>
       <div className="rcx-head">
         <div className="rcx-head-row">
           {tabSlot}
           <div className="rcx-head-actions">
-            <GlassButton id="recipe-dish-close" symbol="xmark" label="Close" onClick={onClose} className="rcx-head-close">
-              <X size={14} />
-            </GlassButton>
+            <GlassButton id="recipe-dish-close" symbol="xmark" label="Close" onClick={onClose} className="rcx-head-close"><X size={18} /></GlassButton>
           </div>
         </div>
-        <div className="rcx-title-row">
-          <h2 className="rcx-step-title">Recreate a dish</h2>
+        <div className="dish-steps" aria-label="Recipe progress">
+          {['Photo', 'Create', 'Your recipe'].map((step, i) => <span key={step} className={i === (loading ? 1 : 0) ? 'is-current' : i < (loading ? 1 : 0) ? 'is-complete' : ''}><i>{loading && i === 0 ? <Check size={10} /> : i + 1}</i>{step}</span>)}
         </div>
       </div>
-
-      {/* ── Body ── */}
-      <div ref={bodyRef} className="rcx-body" style={{ paddingBottom: 'calc(120px + var(--kb-height, 0px))' }}>
-        {loading && photo ? (
-          <div className="rcx-dish-analyze" aria-live="polite">
-            {/* The photo stays on the page while it is read: a light sweep
-                passes over it during analysis and settles once the recipe
-                starts streaming. */}
-            <div className={cn('rcx-dish-analyze-photo', writing && 'is-writing')}>
-              <img src={photo.dataUrl} alt="The dish being analyzed" />
-              <div className="rcx-dish-scan" aria-hidden />
-            </div>
-            <div className="rcx-dish-analyze-text">
-              <div className="rcx-dish-analyze-title">{loadingTitle}</div>
-              <p className="rcx-dish-analyze-sub">{loadingSub}</p>
-            </div>
-            <div className="rcx-dish-progress" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={pct} aria-label={loadingTitle}>
-              <div className="rcx-dish-progress-track">
-                <div className="rcx-dish-progress-fill" style={{ width: `${pct}%` }} />
+      <div ref={bodyRef} className="rcx-body dish-body">
+        <AnimatePresence mode="wait" initial={false}>
+          {loading && photo ? (
+            <motion.div key="creating" initial={{ opacity: 0, y: reduceMotion ? 0 : 16 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={transition} className="dish-creating">
+              <div className="dish-orbit-photo">
+                <img src={photo.dataUrl} alt="The dish being recreated" />
+                <div className="dish-photo-sheen" aria-hidden="true" />
+                <span className="dish-photo-badge"><Sparkles size={17} /></span>
               </div>
-              <div className="rcx-dish-progress-meta">
-                <span>{writing ? 'Writing the recipe' : 'Analyzing the photo'}</span>
-                <span>{pct}%{remainingLabel ? ` · ${remainingLabel}` : ''}</span>
+              <div className="dish-creating-copy" role="status" aria-live="polite">
+                <span className="dish-eyebrow">A little kitchen magic</span>
+                <h2>{loadingTitle}</h2>
+                <p>{loadingSub}</p>
               </div>
-            </div>
-            <button type="button" className="rcxa-cancel" onClick={handleCancel}>Cancel</button>
-          </div>
-        ) : (
-          <div className="rcx-step-anim rcx-ai-stack">
-            <div>
-              <div className="rcx-kicker">The dish</div>
+              <div className="dish-activity" aria-hidden="true"><span style={{ width: `${pct}%` }} /></div>
+              <div className="dish-milestones">
+                <div className={writing ? 'is-done' : 'is-active'}>{writing ? <Check size={17} /> : <Loader2 size={17} className="rcx-spin" />}<span>Find the flavors<small>Ingredients, textures & technique</small></span></div>
+                <div className={writing ? 'is-active' : ''}>{writing ? <Loader2 size={17} className="rcx-spin" /> : <ChefHat size={17} />}<span>Make it cookable<small>Measurements & step-by-step instructions</small></span></div>
+              </div>
+              <p className="dish-patience">{elapsed >= 60 ? 'Still working on the details. You can cancel and try again at any time.' : 'Good recipes take a moment. We’re working on yours.'}</p>
+            </motion.div>
+          ) : (
+            <motion.div key="setup" initial={{ opacity: 0, y: reduceMotion ? 0 : 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: reduceMotion ? 0 : -8 }} transition={transition} className="dish-setup">
+              <div className="dish-intro">
+                <span className="dish-eyebrow"><Sparkles size={13} /> From plate to recipe</span>
+                <h2>Recreate a dish</h2>
+              </div>
               {photo ? (
-                <>
-                  <div className="rcx-dish-photo">
-                    <img src={photo.dataUrl} alt="The dish to recreate" />
-                    <button type="button" className="rcx-dish-photo-change" onClick={() => setSheetOpen(true)} disabled={photoBusy}>
-                      <RefreshCw size={12} strokeWidth={2.4} /> Change
-                    </button>
-                    {photoBusy && <div className="rcx-dish-photo-busy"><Loader2 size={20} className="rcx-spin" /></div>}
+                <div className="dish-selected">
+                  <div className="dish-selected-image">
+                    <img src={photo.dataUrl} alt="Your selected dish" />
+                    <span className="dish-selected-label"><Check size={13} /> Photo added</span>
+                    <button type="button" className="dish-change" onClick={() => setSheetOpen(true)} disabled={photoBusy}><RefreshCw size={14} /> Change</button>
+                    {photoBusy && <div className="dish-photo-busy" role="status"><Loader2 size={24} className="rcx-spin" /><span className="sr-only">Preparing photo</span></div>}
                   </div>
-                  {(restaurantName || captionLine) && (
-                    <div className="rcx-dish-from">
-                      {restaurantName && <strong>At {restaurantName}</strong>}
-                      {captionLine && <span>{restaurantName ? ` · ${captionLine}` : captionLine}</span>}
-                    </div>
-                  )}
-                  {error && (
-                    <p className="rcx-modal-error" style={{ marginTop: 10 }} role="alert">
-                      <AlertCircle size={13} /> {error}
-                    </p>
-                  )}
-                </>
-              ) : (
-                <div
-                  className={cn('rcx-photo-slot', photoBusy && 'is-busy')}
-                  onClick={() => { if (!photoBusy) setSheetOpen(true); }}
-                  role="button"
-                  tabIndex={0}
-                  onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setSheetOpen(true); } }}
-                >
-                  <span className="rcx-photo-slot-icon">{photoBusy ? <Loader2 size={18} className="rcx-spin" /> : <Camera size={18} />}</span>
-                  <span className="rcx-photo-slot-text"><strong>Add a photo</strong> of the plate</span>
-                  <span className="rcx-photo-slot-sub">
-                    From your camera, your library, your ratings, or a restaurant&rsquo;s photos.
-                  </span>
+                  {(restaurantName || captionLine) && <p className="dish-provenance">{restaurantName && <strong>{restaurantName}</strong>}{captionLine && <span>{captionLine}</span>}</p>}
                 </div>
+              ) : (
+                <button type="button" className="dish-add-photo" disabled={photoBusy} onClick={() => setSheetOpen(true)}>
+                  <span className="dish-photo-art" aria-hidden="true"><span /><span /><i>{photoBusy ? <Loader2 size={30} className="rcx-spin" /> : <ImagePlus size={30} strokeWidth={1.5} />}</i></span>
+                  <strong>{photoBusy ? 'Getting your photo ready…' : 'Start with a delicious photo'}</strong>
+                  <span>Snap a plate, choose from your library,<br />or rediscover a restaurant favorite.</span>
+                  <span className="dish-add-link">Choose a photo <ArrowRight size={15} /></span>
+                </button>
               )}
-            </div>
-
-            <div>
-              <div className="rcx-kicker">
-                Anything you know?<span className="rcx-kicker-opt"> · optional</span>
+              {error && <div className="dish-error" role="alert"><AlertCircle size={18} /><p>{error}</p><button type="button" onClick={() => setError(null)} aria-label="Dismiss error"><X size={16} /></button></div>}
+              <div className="dish-details">
+                <div className="dish-field-heading"><label htmlFor="dish-hint">Make it yours</label><span>Optional</span></div>
+                <textarea id="dish-hint" ref={hintRef} className="dish-hint" value={hint} maxLength={MAX_HINT} onChange={(e) => setHint(e.target.value)} placeholder="The name, a flavor you remember, or a twist you’d like to try…" rows={2} />
+                <div className="dish-field-heading"><span>Recipe preferences</span>{describeGuidelines(guidelines).length > 0 && <button type="button" onClick={() => { setGuidelines(EMPTY_GUIDELINES); setOpenMenu(null); }}>Reset</button>}</div>
+                <GuidelinePills value={guidelines} onChange={setGuidelines} openMenu={openMenu} onOpenMenu={setOpenMenu} className="dish-guidelines" />
               </div>
-              <textarea
-                ref={hintRef}
-                className="rcx-prompt rcx-dish-hint"
-                value={hint}
-                maxLength={MAX_HINT}
-                onChange={(e) => { setHint(e.target.value); if (error) setError(null); }}
-                placeholder={'“The lamb shawarma from Mamoun’s”, “make it vegetarian”, “it had a miso glaze”…'}
-                rows={2}
-              />
-            </div>
-
-            <div>
-              <div className="rcx-kicker">Guidelines<span className="rcx-kicker-opt"> · optional</span></div>
-              <GuidelinePills value={guidelines} onChange={setGuidelines} openMenu={openMenu} onOpenMenu={setOpenMenu} className="rcx-dish-pills" />
-            </div>
-
-            {error && !photo && (
-              <p className="rcx-modal-error" style={{ marginTop: -8 }} role="alert">
-                <AlertCircle size={13} /> {error}
-              </p>
-            )}
-            <p className="rcxa-note">AI drafts can make mistakes — review before publishing.</p>
-          </div>
-        )}
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
-
-      {/* ── Footer ── */}
-      <div className="rcx-foot">
-        <QuotaMeter feature="recipe-photo" className="rcx-foot-meter" />
-        <button
-          type="button"
-          className={cn('rcx-foot-cta', !canSubmit && !loading && 'is-disabled', (canSubmit || loading) && 'is-publish', loading && 'is-busy')}
-          onClick={() => void handleGenerate()}
-          disabled={loading || !canSubmit}
-        >
-          {loading ? <Loader2 size={15} className="rcx-spin" /> : canSubmit ? <Sparkles size={14} /> : null}
-          {ctaLabel}
+      <div className="dish-footer">
+        {!loading && <QuotaMeter feature="recipe-photo" className="dish-quota" />}
+        <button type="button" className={cn('dish-primary', loading && 'is-cancel')} onClick={loading ? handleCancel : photo ? () => void handleGenerate() : () => setSheetOpen(true)} disabled={photoBusy}>
+          {loading ? <X size={17} /> : photo ? <Sparkles size={18} /> : <Camera size={18} />}{loading ? 'Cancel generation' : ctaLabel}{!loading && <ArrowRight size={17} />}
         </button>
+        <p>{loading ? 'Your photo and preferences will stay here.' : 'An AI interpretation, ready for you to review and refine.'}</p>
       </div>
-
       <PhotoSourceSheet open={sheetOpen} onClose={() => setSheetOpen(false)} onPick={(pick) => void handlePick(pick)} />
     </div>
   );

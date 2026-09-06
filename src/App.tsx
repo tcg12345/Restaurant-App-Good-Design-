@@ -1,3 +1,5 @@
+import { usePageBack } from './lib/usePageBack';
+import { GroupRoomLinks } from './components/GroupRoomLinks';
 /**
  * @license
  * SPDX-License-Identifier: Apache-2.0
@@ -6,6 +8,8 @@
 import React from 'react';
 import { BrowserRouter as Router, Routes, Route, useLocation, useNavigate, useNavigationType, Navigate } from 'react-router-dom';
 import { Discover } from './pages/Discover';
+import { DecideTogether } from './pages/DecideTogether';
+import { Home } from './pages/Home';
 import { Experts } from './pages/Experts';
 import { VerificationApply } from './pages/VerificationApply';
 import { AdminVerification } from './pages/AdminVerification';
@@ -26,6 +30,7 @@ import { RestaurantDetail } from './pages/RestaurantDetail';
 import { Create } from './pages/Create';
 import { BottomNav } from './components/BottomNav';
 import { PullToRefresh } from './components/PullToRefresh';
+import { RetainedRouteStack } from './components/RetainedRouteStack';
 import { SwipeBackContainer } from './components/SwipeBackContainer';
 import { subscribeOverlay } from './lib/overlay-registry';
 import { holdGlass, releaseGlass, resetGlassHolds } from './lib/glass-buttons';
@@ -33,9 +38,9 @@ import { topLayerAvailable } from './lib/useBottomSheet';
 import { ScrollRestoration } from './components/ScrollRestoration';
 import { KEEP_ALIVE_PATHS } from './lib/keep-alive';
 import { useHomeLocation } from './contexts/HomeLocationContext';
-import { recordNavEntry, navEntryAt, backTargetFor, isTabRootLocation, isSheetPath, stackKeyFor } from './lib/nav-stack';
+import { recordNavEntry, navEntryAt, backTargetFor, isTabRootLocation, isSheetPath } from './lib/nav-stack';
 import { Sidebar } from './components/Sidebar';
-import { AnimatePresence, motion, type Variants } from 'motion/react';
+import { AnimatePresence, motion, useReducedMotion, type Variants } from 'motion/react';
 import { SettingsProvider, useSettings } from './contexts/SettingsContext';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { ListsProvider } from './contexts/ListsContext';
@@ -94,7 +99,8 @@ import { ProIntroStep } from './components/onboarding/ProIntroStep';
 /** /pro/intro — the onboarding Pro intro as a page; every exit goes back. */
 const ProIntroRoute: React.FC = () => {
   const navigate = useNavigate();
-  return <ProIntroStep onDone={() => navigate(-1)} />;
+  const back = usePageBack('/profile');
+  return <ProIntroStep onDone={back} />;
 };
 import { RequireAuthRoute } from './components/RequireAuthRoute';
 import { wakeGlassButtons } from './lib/glass-buttons';
@@ -151,8 +157,8 @@ function useIsDesktop(): boolean {
 
 // Tab-root pages stay mounted across navigation (keep-alive) so returning to
 // them is instant with scroll + state intact, rather than remounting and
-// reloading. Heavy/transient screens (map, reels, create, detail pages) are
-// intentionally NOT kept alive — they push/pop normally. KEEP_ALIVE_PATHS is
+// reloading. Detail pages use the bounded history cache below; media players,
+// maps and composers unmount when left. KEEP_ALIVE_PATHS is
 // shared with ScrollRestoration (which skips them — they keep their own scroll).
 // `active` — whether this layer is the CURRENT route. Auth-gated tabs pass
 // it to RequireAuthRoute as `redirect` so a hidden (inactive) layer renders
@@ -160,7 +166,7 @@ function useIsDesktop(): boolean {
 // change and permanently hijacks navigation back to Home.
 const keepAliveElement = (path: string, active: boolean): React.ReactNode => {
   switch (path) {
-    case '/': return <Discover mode="home" />;
+    case '/': return <Home />;
     case '/search': return <Search />;
     case '/search/main': return <SearchMain />;
     case '/pantry': return <RequireAuthRoute reason="Sign in to open your lists" redirect={active}><Pantry /></RequireAuthRoute>;
@@ -175,7 +181,7 @@ const keepAliveElement = (path: string, active: boolean): React.ReactNode => {
 // (Keep-alive tabs never animate anyway; listing them still matters for the
 // EXIT side: leaving a Stack page for a kept tab must also be instant.)
 const TAB_SWITCH_PATHS = new Set<string>([
-  ...KEEP_ALIVE_PATHS, '/search', '/map', '/reels', '/messages',
+  ...KEEP_ALIVE_PATHS, '/search', '/map', '/reels',
 ]);
 
 /** Shown when the signed-in user's profile fetch failed (network/timeout).
@@ -221,15 +227,20 @@ const AppContent: React.FC = () => {
   const location = useLocation();
   const navigate = useNavigate();
   const navType = useNavigationType();
+  const reducedMotion = useReducedMotion();
+  const previousHistoryIdx = React.useRef<number | null>(null);
   // Set true by the swipe-back gesture so a single route change swaps with no
   // AnimatePresence transition — the gesture drives the slide itself.
   const [instantNav, setInstantNav] = React.useState(false);
   // Router history index of the current entry — keys the swipe-back snapshot
   // store and the in-app nav-stack record.
   const historyIdx = typeof window.history.state?.idx === 'number' ? window.history.state.idx : null;
+  const goingBack = React.useMemo(() => (navType === 'POP' && (historyIdx ?? 0) < (previousHistoryIdx.current ?? historyIdx ?? 0))
+    || (navType === 'REPLACE' && location.state?.navigationDirection === 'back'), [location.key, navType, historyIdx]);
+  React.useLayoutEffect(() => { previousHistoryIdx.current = historyIdx; }, [location.key]);
   // Remember what lives at each history index so the swipe-back gesture knows
   // where a pop would actually land (see lib/nav-stack.ts).
-  React.useEffect(() => {
+  React.useLayoutEffect(() => {
     recordNavEntry(historyIdx ?? 0, { pathname: location.pathname, search: location.search }, navType);
   }, [location, historyIdx, navType]);
   // A route change moves whole layers (keep-alive flips visibility with no
@@ -258,7 +269,7 @@ const AppContent: React.FC = () => {
   const isMapPage = location.pathname === '/map';
   const isReelsPage = location.pathname === '/reels';
   const isFocusedReel = location.pathname.startsWith('/r/');
-  const showBottomNav = !['/messages', '/reorder', '/location', '/location/map', '/map', '/create', '/recipes-for-you', '/circle', '/settings'].includes(location.pathname) && !location.pathname.startsWith('/restaurant/') && !location.pathname.startsWith('/user/') && !location.pathname.startsWith('/profile/top/') && !location.pathname.startsWith('/recipe/') && !location.pathname.startsWith('/meal/') && !location.pathname.startsWith('/review/') && !location.pathname.startsWith('/activity') && !location.pathname.startsWith('/guides/') && !isFocusedReel;
+  const showBottomNav = !['/pantry/recommended', '/decide', '/pro/intro', '/messages', '/reorder', '/location', '/location/map', '/map', '/create', '/recipes-for-you', '/circle', '/settings'].includes(location.pathname) && !location.pathname.startsWith('/settings/') && location.pathname !== '/verify/apply' && !location.pathname.startsWith('/restaurant/') && !location.pathname.startsWith('/user/') && !location.pathname.startsWith('/profile/top/') && !location.pathname.startsWith('/recipe/') && !location.pathname.startsWith('/meal/') && !location.pathname.startsWith('/review/') && !location.pathname.startsWith('/activity') && !location.pathname.startsWith('/guides/') && !isFocusedReel;
   const { isSignedIn, isGuest, continueAsGuest, loading, profile, profileComplete, profileError, profileLoading, needsPasswordSetup } = useAuth();
   // How the pre-auth taste flow was left — 'signup' carries the "save your
   // taste profile" framing into the Auth screen it hands off to. Seeded from
@@ -376,6 +387,7 @@ const AppContent: React.FC = () => {
     return (
       <div className="min-h-screen bg-surface selection:bg-primary/20 selection:text-primary">
         <Routes location={location}>
+          {!isSignedIn && <Route path="/decide" element={<DecideTogether />} />}
           <Route path="/import" element={<ImportRestaurants />} />
           <Route
             path="*"
@@ -447,14 +459,15 @@ const AppContent: React.FC = () => {
   // also covers the tab during its first repaint, so there's no flash.
   const motionTransition = isCreateRoute
     ? { duration: 0.26, ease: [0.22, 1, 0.36, 1] as const }
-    : { duration: 0.3, ease: [0.32, 0.72, 0, 1] as const };
+    : { duration: 0.36, ease: [0.32, 0.72, 0, 1] as const };
   // Tapping a bottom-nav / sidebar destination is a tab SWITCH, not a push —
   // it must swap with no motion. The iOS slide stays reserved for pushes
   // into detail pages and their pops (navType POP keeps the slide so an
   // in-app back button still plays the exit reveal; the swipe gesture sets
   // `instantNav` itself and drives the motion with its own drag).
   const isTabSwitchNav = TAB_SWITCH_PATHS.has(location.pathname) && navType !== 'POP';
-  const stackInstant = instantNav || isTabSwitchNav;
+  const stackInstant = instantNav || isTabSwitchNav || !!reducedMotion
+    || (navType === 'REPLACE' && location.state?.navigationTransition === 'instant');
   // PUSH and POP slide in opposite directions (iOS). On a push the new page
   // drives in from the right ABOVE the old one, which parks 35% off to the
   // left, slightly dimmed (the iOS parallax); on a pop the old page slides
@@ -473,7 +486,7 @@ const AppContent: React.FC = () => {
   const fromSheet = navType === 'POP'
     && isSheetPath(navEntryAt((historyIdx ?? 0) + 1)?.pathname ?? '');
   const stackNav = {
-    instant: stackInstant, pop: navType === 'POP',
+    instant: stackInstant, pop: goingBack,
     // Read by the OUTGOING page: framer refreshes `custom` on exiting
     // clones, so the presenter learns it is being covered by a sheet.
     toSheet: isSheetRoute,
@@ -495,19 +508,14 @@ const AppContent: React.FC = () => {
       if (isSheetRoute) return { y: '100%' };
       // Revealed by a sheet going down: already in place, just held back
       // and dimmed — the mirror of the presenter's exit below.
-      if (fromSheet) return { scale: 0.94, filter: 'brightness(0.82)' };
+      if (fromSheet) return { scale: 0.94 };
       // Pop: re-emerge from the parked parallax slot, brightening.
-      return pop ? { x: '-35%', filter: 'brightness(0.85)' } : { x: '100%' };
+      return pop ? { x: '-35%' } : { x: '100%' };
     },
     center: ({ instant }: StackNav) => ({
       x: 0,
       ...(isSheetRoute ? { y: 0 } : { scale: 1 }),
-      ...(isCreateRoute
-        ? { opacity: 1 }
-        // Clear the filter once centered — any non-none filter turns the
-        // wrapper into a containing block for fixed-position descendants
-        // (bottom sheets, overlays), which must not persist at rest.
-        : { filter: 'brightness(1)', transitionEnd: { filter: 'none' } }),
+      ...(isCreateRoute ? { opacity: 1 } : {}),
       transition: instant ? { duration: 0 } : motionTransition,
     }),
     exit: ({ instant, pop, toSheet }: StackNav) => ({
@@ -520,7 +528,7 @@ const AppContent: React.FC = () => {
           // The presenter, being covered: it does not travel. It settles
           // back a little and dims, so the sheet reads as rising in front
           // of the page you were already on.
-          ? { position: 'absolute' as const, top: 0, left: 0, right: 0, scale: 0.94, filter: 'brightness(0.82)', zIndex: 0 }
+          ? { position: 'absolute' as const, top: 0, left: 0, right: 0, scale: 0.94, zIndex: 0 }
         : {
             position: 'absolute' as const, top: 0, left: 0, right: 0,
             ...(pop
@@ -528,9 +536,9 @@ const AppContent: React.FC = () => {
               ? { x: '100%', zIndex: 10 }
               // Push: park left + dim under the newcomer (which paints above
               // by DOM order), then unmount invisibly behind it.
-              : { x: '-35%', filter: 'brightness(0.8)', zIndex: 0 }),
+              : { x: '-35%', zIndex: 0 }),
           }),
-      transition: instant ? { duration: 0 } : motionTransition,
+      transition: instant || (!pop && !toSheet) ? { duration: 0 } : motionTransition,
     }),
   };
 
@@ -564,9 +572,12 @@ const AppContent: React.FC = () => {
                   ? { position: 'relative' as const }
                   : { position: 'absolute' as const, inset: 0, overflow: 'hidden' as const }),
                 visibility: active ? 'visible' : 'hidden',
+                opacity: active ? undefined : 0,
                 pointerEvents: active ? undefined : 'none',
               }}
               aria-hidden={!active}
+              inert={!active}
+              data-kept-page={path}
             >
               {keepAliveElement(path, active)}
             </div>
@@ -574,22 +585,19 @@ const AppContent: React.FC = () => {
         })}
       </React.Fragment>
 
-      {/* Stack — every non-keep-alive route (details, map, reels, create…).
-          Absolutely positioned so it overlays the tab layer; on exit it
-          animates away to reveal the kept-alive tab underneath. mode="sync"
-          (not "wait") so push/pop overlap like iOS: the old and new page
-          slide simultaneously — sequential wait-mode played the exit over
-          bare surface, then the entrance, which read as two disjoint moves. */}
-      <AnimatePresence mode="sync" initial={false} custom={stackNav}>
+      {/* Bounded history layers preserve loaded reading pages. A committed
+          Back reveals the same instance; inactive layers remain inert and
+          clipped, and transient media/composer routes are released. */}
+      <RetainedRouteStack entryKey={isKeepAlivePath ? null : location.key} index={historyIdx ?? 0} pathname={location.pathname} pop={goingBack} instant={stackInstant}>
         {!isKeepAlivePath && (
         <motion.div
-          // Keyed by the SHEET, not the tab, so moving between a sheet's
-          // tabs is an update rather than a dismiss-and-present.
-          key={stackKeyFor(location.pathname)}
+          // History identity preserves the exact presenting page on return.
+          key={location.key}
           // Lets the swipe-back gesture verify the destination (this exact
           // pathname) is mounted and at rest before it drops the covering
           // snapshot — the exiting page's wrapper must not pass for it.
           data-route-stack={location.pathname}
+          data-route-entry={location.key}
           variants={stackVariants}
           custom={stackNav}
           initial="enter"
@@ -622,6 +630,7 @@ const AppContent: React.FC = () => {
           <Route path="/pro/welcome" element={<ProPage />} />
           {/* The onboarding intro, on its own: for anyone who wants the tour
               again, and the way to see it without a fresh account. */}
+          <Route path="/decide" element={<DecideTogether />} />
           <Route path="/pro/intro" element={<ProIntroRoute />} />
           <Route path="/circle" element={<RequireAuthRoute reason="Sign in to see your circle"><Circle /></RequireAuthRoute>} />
           <Route path="/create" element={<RequireAuthRoute reason="Sign in to create"><Create /></RequireAuthRoute>} />
@@ -643,7 +652,7 @@ const AppContent: React.FC = () => {
           <Route path="/admin/verification" element={<RequireAuthRoute reason="Sign in to continue"><AdminVerification /></RequireAuthRoute>} />
           <Route path="/admin/cuisine" element={<RequireAuthRoute reason="Sign in to continue"><AdminCuisineSuggestions /></RequireAuthRoute>} />
           <Route path="/profile" element={<RequireAuthRoute reason="Sign in to view your profile"><Profile /></RequireAuthRoute>} />
-          <Route path="/settings" element={<RequireAuthRoute reason="Sign in to manage your account"><SettingsPage /></RequireAuthRoute>} />
+          <Route path="/settings/:section?" element={<RequireAuthRoute reason="Sign in to manage your account"><SettingsPage /></RequireAuthRoute>} />
           <Route path="/profile/top/:listKey" element={<RequireAuthRoute reason="Sign in to view your top lists"><TopListPage /></RequireAuthRoute>} />
           <Route path="/profile/taste" element={<RequireAuthRoute reason="Sign in to see your taste profile"><TasteProfilePage /></RequireAuthRoute>} />
           <Route path="/user/:username/taste" element={<UserTasteProfilePage />} />
@@ -676,7 +685,7 @@ const AppContent: React.FC = () => {
         </React.Fragment>
         </motion.div>
         )}
-      </AnimatePresence>
+      </RetainedRouteStack>
     </>
   );
 
@@ -725,20 +734,19 @@ const AppContent: React.FC = () => {
   // Pull-to-refresh is off where a downward drag already means something
   // (reels/map panning, the messages thread, the create overlay, onboarding).
   const allowPullToRefresh =
-    !isReelsPage && !isFocusedReel && !isMapPage &&
-    !['/messages', '/create', '/location/map', '/search'].includes(location.pathname);
+    !isReelsPage && !isMapPage &&
+    !['/', '/decide', '/pro/intro', '/messages', '/create', '/location/map', '/search'].includes(location.pathname);
   // Edge swipe-back is allowed wherever a back destination exists, except on
   // routes that own horizontal/vertical gestures. Pure bottom-nav tab roots
   // are NOT swipeable (you never swipe between tabs), but tab *sub-views*
   // (e.g. /pantry?list=x) are — nav-stack.ts resolves where they go: a
   // history pop when the previous entry is within the same flow, otherwise
-  // the sub-view's logical parent (a pantry list always backs out to the
-  // pantry root, never sideways into whatever tab history holds).
+  // a safe logical parent when there is no verified presenting entry.
   const backTarget = backTargetFor(historyIdx ?? 0, location.pathname, location.search);
   const isTabRoot = isTabRootLocation(location.pathname, location.search);
   const allowSwipeBack =
-    backTarget !== null && !isReelsPage && !isFocusedReel && !isMapPage && !isTabRoot && !isSheetRoute &&
-    !['/create', '/location/map'].includes(location.pathname);
+    backTarget !== null && !isReelsPage && !isMapPage && !isTabRoot && !isSheetRoute &&
+    location.pathname !== '/create';
   return (
     <div className="min-h-screen selection:bg-primary/20 selection:text-primary" style={{ background: sheetUp ? '#000' : 'var(--color-surface)' }}>
       <ScrollRestoration />
@@ -759,6 +767,8 @@ const AppContent: React.FC = () => {
       >
       <SwipeBackContainer
         enabled={allowSwipeBack}
+        previewPush={!stackInstant && !goingBack && !isKeepAlivePath && !isSheetRoute && !isCreateRoute}
+        edgeOnly={['/location/map', '/decide', '/pro/intro'].includes(location.pathname) || isFocusedReel}
         navKey={historyIdx ?? 0}
         locationKey={location.key}
         snapshotable={!isMapPage && !isReelsPage && !isFocusedReel && location.pathname !== '/search'}
@@ -773,7 +783,7 @@ const AppContent: React.FC = () => {
           // into the sub-view just dismissed, and repeated up-navigations
           // stacked junk history entries (polluting nav-stack's index map
           // and snapshot keying too). nav-stack records REPLACE in place.
-          else navigate(backTarget.to, { replace: true });
+          else navigate(backTarget.to, { replace: true, state: { navigationDirection: 'back' } });
         }}
         onLockTransition={setInstantNav}
       >
@@ -813,6 +823,7 @@ export default function App() {
   return (
     <AppErrorBoundary>
     <Router>
+        <GroupRoomLinks />
       <AuthProvider>
         <SettingsProvider>
           <ToastProvider>

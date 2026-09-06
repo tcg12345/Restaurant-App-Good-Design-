@@ -1,30 +1,15 @@
-/**
- * Onboarding design kit — the account-creation flow's primitives, in
- * GLASS NIGHT: always dark whatever the theme, a slate glow at the top,
- * glass fields and cards, a thin display serif for the headline, a pale
- * slate capsule for the one action, and liquid-glass chrome for the
- * navigation layer (the back button rides `.glass-control`, exactly like
- * the app's own top bars). The same look as the Pro flow that ends it
- * (components/pro/night.ts).
- *
- * Motion: springs from one shared config, and a `Reveal` primitive that
- * staggers step content in (soft blur on the title, rise + fade on the
- * rest). Glass stays navigation-only — in-content controls are solid, per
- * the same doctrine as the rest of the app (see index.css `.glass-control`).
- *
- * All colour resolves through the `--ob-*` custom properties in index.css,
- * which now mirror the app palette and flip with `.dark`.
- */
+/** Shared onboarding controls: system typography, quiet surfaces,
+ * keyboard-aware layout, accessible actions, and reduced-motion support. */
 import React from 'react';
-import { motion } from 'motion/react';
+import { motion, MotionConfig, useReducedMotion } from 'motion/react';
+import './Onboarding.css';
 import { ArrowLeft, ArrowRight, Check, Loader2 } from 'lucide-react';
 import { GlassButton } from '../../lib/glass-buttons';
 import { Logo } from '../Logo';
 import { NIGHT_BG } from '../pro/night';
 import { useNightStatusBar } from '../../lib/night-status-bar';
 
-/* Colour values resolve through CSS custom properties (index.css) so the
-   whole flow flips with the app's `.dark` class. */
+/* Scoped onboarding colors; the status bar matches this dark surface. */
 export const CREAM = 'var(--ob-bg)'; // historical name — now the app surface
 export const INK = 'var(--ob-ink)';
 export const SECONDARY = 'var(--ob-secondary)';
@@ -34,9 +19,9 @@ export const TERRA = 'var(--ob-terra)';
 export const TERRA_HOVER = 'var(--ob-terra-hover)';
 /** What reads on top of TERRA — white by day, graphite by night. */
 export const ON_TERRA = 'var(--ob-on-terra)';
-export const SERIF = 'var(--font-serif)'; // the app's heading serif
-/** The headline face: Fraunces, light, with an italic turn available. */
-export const DISPLAY = 'var(--font-display)';
+export const SERIF = '-apple-system, BlinkMacSystemFont, system-ui, sans-serif'; // historical export name
+/** System typography throughout account setup. */
+export const DISPLAY = SERIF;
 
 /* ── Motion vocabulary ──────────────────────────────────────────────────── */
 /** The app's arrival curve (--ease-out-strong), as a motion-usable tuple. */
@@ -54,17 +39,19 @@ export const Reveal: React.FC<{
   blur?: boolean;
   className?: string;
   style?: React.CSSProperties;
-}> = ({ children, i = 0, blur, className, style }) => (
+}> = ({ children, i = 0, blur, className, style }) => {
+  const reduce = useReducedMotion();
+  return (
   <motion.div
     className={className}
     style={style}
-    initial={blur ? { opacity: 0, y: 16, filter: 'blur(6px)' } : { opacity: 0, y: 14 }}
-    animate={blur ? { opacity: 1, y: 0, filter: 'blur(0px)' } : { opacity: 1, y: 0 }}
-    transition={{ duration: 0.55, delay: 0.07 * i, ease: EASE }}
+    initial={reduce ? false : { opacity: 0, y: 10 }}
+    animate={{ opacity: 1, y: 0 }}
+    transition={{ duration: reduce ? 0 : 0.3, delay: reduce ? 0 : 0.035 * i, ease: EASE }}
   >
     {children}
   </motion.div>
-);
+); };
 
 /* ── Screen wrapper ─────────────────────────────────────────────────────── */
 /** The screen is a fixed-height column, not a min-height one: `children`
@@ -95,12 +82,12 @@ export const OnboardingScreen: React.FC<{
   // — that trade only makes sense once something is actually pinned to it.
   // `ob-night` hands every theme utility inside the dark tokens, so the
   // step components read right on this ground in both app themes.
-  <div className="ob-night relative w-full overflow-hidden" style={footer ? { height: '100dvh', background: NIGHT_BG, color: INK } : { minHeight: '100dvh', background: NIGHT_BG, color: INK }}>
+  <MotionConfig reducedMotion="user"><div className="ob-night onboarding-screen relative w-full overflow-hidden" style={footer ? { height: 'var(--app-vh, 100dvh)', background: NIGHT_BG, color: INK } : { minHeight: 'var(--app-vh, 100dvh)', background: NIGHT_BG, color: INK }}>
     <div
       className="relative z-10 mx-auto flex w-full max-w-[430px] flex-col"
       style={{
-        ...(footer ? { height: '100dvh' } : { minHeight: '100dvh' }),
-        paddingTop: 'max(54px, calc(env(safe-area-inset-top) + 26px))',
+        ...(footer ? { height: 'var(--app-vh, 100dvh)' } : { minHeight: 'var(--app-vh, 100dvh)' }),
+        paddingTop: 'max(20px, calc(env(safe-area-inset-top) + 12px))',
         paddingBottom: footer ? 0 : 'max(28px, env(safe-area-inset-bottom))',
         paddingLeft: 24,
         paddingRight: 24,
@@ -129,7 +116,7 @@ export const OnboardingScreen: React.FC<{
         </>
       )}
     </div>
-  </div>
+  </div></MotionConfig>
   );
 };
 
@@ -143,7 +130,7 @@ export const BrandMark: React.FC<{ size?: number }> = ({ size = 54 }) => (
     className="rounded-full"
     style={{
       color: TERRA,
-      boxShadow: '0 10px 26px -8px color-mix(in srgb, var(--ob-terra) 55%, transparent)',
+      boxShadow: 'none',
     }}
   />
 );
@@ -155,10 +142,9 @@ export const Eyebrow: React.FC<{ children: React.ReactNode }> = ({ children }) =
   <div style={{ display: 'inline-flex', alignItems: 'center', padding: '5px 10px', borderRadius: 999, fontFamily: 'var(--font-mono)', fontSize: 9.5, letterSpacing: '0.18em', fontWeight: 600, color: TERRA, background: 'var(--ob-badge-bg)', textTransform: 'uppercase' }}>{children}</div>
 );
 
-/** The headline: the display serif, light, tight. Pass an <em> for the
- *  italic turn ("Where do you <em>eat?</em>"). */
+/** One clear headline per step. */
 export const Title: React.FC<{ children: React.ReactNode; size?: number }> = ({ children, size = 34 }) => (
-  <h1 style={{ fontFamily: DISPLAY, fontWeight: 300, fontSize: size, lineHeight: 1.04, letterSpacing: '-0.02em', margin: 0, textWrap: 'balance' } as React.CSSProperties}>{children}</h1>
+  <h1 style={{ fontFamily: DISPLAY, fontWeight: 700, fontSize: size, lineHeight: 1.12, letterSpacing: '-0.02em', margin: 0, textWrap: 'balance' } as React.CSSProperties}>{children}</h1>
 );
 
 export const Subtitle: React.FC<{ children: React.ReactNode }> = ({ children }) => (
@@ -171,7 +157,7 @@ export const StepHeader: React.FC<{
   title: React.ReactNode;
   subtitle?: React.ReactNode;
   topGap?: number;
-}> = ({ title, subtitle, topGap = 40 }) => (
+}> = ({ title, subtitle, topGap = 28 }) => (
   <div style={{ marginTop: topGap }}>
     <Reveal blur><Title>{title}</Title></Reveal>
     {subtitle && <Reveal i={1}><Subtitle>{subtitle}</Subtitle></Reveal>}
@@ -213,6 +199,7 @@ export const Field: React.FC<{
     <input
       type={type}
       name={name}
+      aria-label={name || placeholder || type}
       value={value}
       onChange={(e) => onChange(e.target.value)}
       onKeyDown={onSubmit ? (e) => { if (e.key === 'Enter') { e.preventDefault(); onSubmit(); } } : undefined}
@@ -256,18 +243,19 @@ export const PrimaryButton: React.FC<{
   <motion.button
     type={type}
     onClick={onClick}
+    aria-busy={!!loading}
     disabled={disabled || loading}
     whileTap={!disabled && !loading ? { scale: 0.97 } : undefined}
     transition={SPRING}
     className="w-full flex items-center justify-center gap-2 rounded-full font-semibold cursor-pointer transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
     style={{
       height: 52, border: 'none', background: TERRA, color: ON_TERRA, fontSize: 16,
-      boxShadow: '0 10px 22px -10px color-mix(in srgb, var(--ob-terra) 60%, transparent)',
+      boxShadow: '0 2px 6px rgba(0,0,0,.12)',
     }}
     onMouseEnter={(e) => { if (!disabled && !loading) (e.currentTarget as HTMLButtonElement).style.background = TERRA_HOVER; }}
     onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = TERRA; }}
   >
-    {loading ? <Loader2 size={18} className="animate-spin" /> : (
+    {loading ? <><Loader2 size={18} className="animate-spin" /><span>{children}</span></> : (
       <>
         <span>{children}</span>
         {trailing === 'arrow' && <ArrowRight size={17} strokeWidth={2.2} />}
@@ -305,6 +293,7 @@ export const SecondaryButton: React.FC<{
   <motion.button
     type="button"
     onClick={onClick}
+    aria-busy={!!loading}
     disabled={disabled || loading}
     whileTap={!disabled && !loading ? { scale: 0.98 } : undefined}
     transition={SPRING}
@@ -378,6 +367,7 @@ export const ProgressHeader: React.FC<{ step: number; total: number; onBack?: ()
     <div
       className="flex items-center"
       role="progressbar"
+      aria-label="Setup progress"
       aria-valuemin={1}
       aria-valuemax={total}
       aria-valuenow={step}
@@ -483,6 +473,7 @@ export const ErrorRow: React.FC<{ children: React.ReactNode }> = ({ children }) 
     initial={{ opacity: 0, y: -4 }}
     animate={{ opacity: 1, y: 0 }}
     transition={{ duration: 0.25, ease: EASE }}
+    role="alert"
     className="flex items-center gap-1.5"
     style={{ marginTop: 9, color: 'var(--ob-error)', fontSize: 13, fontWeight: 500 }}
   >

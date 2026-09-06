@@ -1,3 +1,4 @@
+import { usePageBack } from '../lib/usePageBack';
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useNavigate, useLocation, Link } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
@@ -63,6 +64,7 @@ const timeAgo = (date: string) => {
 export const FriendReviewDetail: React.FC = () => {
   const { ratingId } = useParams<{ ratingId: string }>();
   const navigate = useNavigate();
+  const goBack = usePageBack('/');
   const { user } = useAuth();
   const { phoneMode } = useSettings();
   // Mobile top bar dissolves with scroll, Discover-style.
@@ -219,7 +221,7 @@ export const FriendReviewDetail: React.FC = () => {
         <MessageSquare size={32} className="text-on-surface/20 mb-3" />
         <p className="text-sm font-semibold text-on-surface/60">Review not found</p>
         <p className="text-xs text-on-surface/40 mt-1 mb-6">This review may have been removed.</p>
-        <button onClick={() => navigate(-1)} className="px-4 py-2 rounded-full bg-primary text-on-primary text-sm font-bold">Go Back</button>
+        <button onClick={() => goBack()} className="px-4 py-2 rounded-full bg-primary text-on-primary text-sm font-bold">Go Back</button>
       </div>
     );
   }
@@ -250,7 +252,7 @@ export const FriendReviewDetail: React.FC = () => {
       <motion.div ref={headerFade.headerRef} style={headerFade.headerStyle} className="sticky top-0 z-30 bg-surface/80 backdrop-blur-md border-b border-on-surface/[0.06]">
         <div className={SHELL}>
           <div className="flex items-center gap-3 pt-safe-3 pb-3">
-            <GlassButton id="friend-review-back" symbol="arrow.left" label="Back" onClick={() => navigate(-1)} className="hit-44 flex-none w-11 h-11 rounded-full flex items-center justify-center text-on-surface/80 transition-transform active:scale-95">
+            <GlassButton id="friend-review-back" symbol="arrow.left" label="Back" onClick={() => goBack()} className="hit-44 flex-none w-11 h-11 rounded-full flex items-center justify-center text-on-surface/80 transition-transform active:scale-95">
               <ArrowLeft size={18} />
             </GlassButton>
             <div className="flex-1 min-w-0">

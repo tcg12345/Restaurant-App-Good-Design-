@@ -24,10 +24,11 @@ const ANTHROPIC_API_KEY: string | undefined = Deno.env.get('ANTHROPIC_API_KEY');
 
 // Model IDs the chat can run on. The client selects one of these
 // (or 'auto') via the header model picker.
-const MODEL_SONNET = 'claude-sonnet-4-6';
-const MODEL_OPUS = 'claude-opus-4-8';
+const MODEL_SONNET = 'claude-sonnet-5';
+const MODEL_OPUS = 'claude-opus-5';
 // Retired id still accepted from older clients, mapped to MODEL_OPUS.
-const MODEL_OPUS_LEGACY = 'claude-opus-4-7';
+const MODEL_OPUS_LEGACY = new Set(['claude-opus-4-7', 'claude-opus-4-8']);
+const MODEL_SONNET_LEGACY = 'claude-sonnet-4-6';
 const DEFAULT_MODEL = MODEL_SONNET;
 const MAX_RESTAURANTS_IN_PROMPT = 50;
 
@@ -42,7 +43,7 @@ const MAX_MESSAGES = 200;
 /** Adaptive model selector for 'auto' mode.
  *
  *  Lightweight heuristic on the most recent user message + a few
- *  conversation signals. Opus 4.8 is much costlier than Sonnet 4.6, so
+ *  conversation signals. Opus 5 is much costlier than Sonnet 5, so
  *  we only escalate when the request actually looks like it needs
  *  multi-step reasoning. Cheap signals (length, keyword presence,
  *  conversation depth) are good enough — the model still chooses
@@ -168,23 +169,24 @@ function looksLikeRecipeBuild(messages: ChatRequest['messages']): boolean {
  *  ID, or undefined (treated as 'auto'). Falls back to the default
  *  when the client passes something unrecognised.
  *
- *  Recipe-building turns ALWAYS run on Opus 4.8 regardless of the
+ *  Recipe-building turns ALWAYS run on Opus 5 regardless of the
  *  client's pick or plan — the structured JSON output is sensitive to
  *  quality. The override is silent and per-turn; the picker is unchanged. */
 function resolveModel(body: ChatRequest, plan: 'free' | 'pro'): { model: string; downgraded: boolean } {
   if (looksLikeRecipeBuild(body.messages)) return { model: MODEL_OPUS, downgraded: false };
   const requested = (body.model || 'auto').trim();
-  const wantsOpus = requested === MODEL_OPUS || requested === MODEL_OPUS_LEGACY;
+  const wantsOpus = requested === MODEL_OPUS || MODEL_OPUS_LEGACY.has(requested);
   // Opus in the picker is a Pro feature (plan decision A2). A free caller
   // runs Sonnet whatever the picker says — the app shows Opus locked, so a
   // request that asks anyway is reported back as downgraded — and Auto
   // never escalates for them. Recipe-build turns above are the one
   // exception: those stay on Opus for everyone (A3).
   if (plan === 'free') return { model: MODEL_SONNET, downgraded: wantsOpus };
+  if (requested === MODEL_SONNET_LEGACY) return { model: MODEL_SONNET, downgraded: false };
   if (requested === MODEL_SONNET || requested === MODEL_OPUS) return { model: requested, downgraded: false };
-  // Older clients may still send the retired Opus 4.7 id — honor the
+  // Older clients may still send the older Opus IDs — honor the
   // intent by running on the current Opus.
-  if (requested === MODEL_OPUS_LEGACY) return { model: MODEL_OPUS, downgraded: false };
+  if (MODEL_OPUS_LEGACY.has(requested)) return { model: MODEL_OPUS, downgraded: false };
   if (requested === 'auto' || !requested) return { model: pickAutoModel(body.messages), downgraded: false };
   return { model: DEFAULT_MODEL, downgraded: false };
 }
@@ -1498,6 +1500,10 @@ async function handler(req: Request): Promise<Response> {
   const resolved = resolveModel(body, callerPlan);
   const anthropicBody = {
     model: resolved.model,
+    // Preserve the existing tool loop and output budget: generation 5
+    // enables adaptive thinking by default, unlike our previous models.
+    thinking: { type: 'disabled' },
+    output_config: { effort: 'high' },
     max_tokens: maxTokens,
     stream: true,
     // System is shipped as a single text block with ephemeral cache_control

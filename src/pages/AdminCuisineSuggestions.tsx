@@ -1,3 +1,4 @@
+import { usePageBack } from '../lib/usePageBack';
 /**
  * Admin cuisine review — /admin/cuisine.
  *
@@ -37,6 +38,7 @@ export const AdminCuisineSuggestions: React.FC = () => {
   const { isAdmin, adminChecked, loading: authLoading } = useAuth();
   const { showToast } = useToast();
   const navigate = useNavigate();
+  const goBack = usePageBack('/settings');
 
   const [tab, setTab] = useState<SuggestionStatus>('pending');
   const [groups, setGroups] = useState<SuggestionGroup[]>([]);
@@ -120,7 +122,7 @@ export const AdminCuisineSuggestions: React.FC = () => {
             id="admin-cuisine-back"
             symbol="chevron.left"
             label="Back"
-            onClick={() => navigate(-1)}
+            onClick={() => goBack()}
             className="hit-44 flex-none w-11 h-11 -ml-1 rounded-full flex items-center justify-center text-on-surface bg-on-surface/[0.05] active:scale-95 transition-transform"
           >
             <ArrowLeft size={18} />

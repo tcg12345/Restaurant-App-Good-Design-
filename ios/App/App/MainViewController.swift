@@ -198,6 +198,8 @@ public class LiquidGlassPlugin: CAPPlugin, CAPBridgedPlugin {
     // registration above exists to avoid.
     public let pluginMethods: [CAPPluginMethod] = [
         CAPPluginMethod(name: "isSupported", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "selectionHaptic", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "confirmDestructive", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "configureTabBar", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "setActiveTab", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "setMinimized", returnType: CAPPluginReturnPromise),
@@ -227,6 +229,39 @@ public class LiquidGlassPlugin: CAPPlugin, CAPBridgedPlugin {
         guard #available(iOS 26.0, *) else { return "requiresIOS26" }
         if UIAccessibility.isReduceTransparencyEnabled { return "reduceTransparency" }
         return nil
+    }
+
+    /// A genuine system alert on every supported iOS version, independent of glass support.
+    @objc func confirmDestructive(_ call: CAPPluginCall) {
+        DispatchQueue.main.async {
+            guard var presenter = self.bridge?.viewController else {
+                call.reject("No view controller available")
+                return
+            }
+            while let presented = presenter.presentedViewController { presenter = presented }
+            guard !(presenter is UIAlertController) else {
+                call.resolve(["confirmed": false])
+                return
+            }
+            let alert = UIAlertController(title: call.getString("title") ?? "Delete this item?",
+                                          message: call.getString("message"), preferredStyle: .alert)
+            let cancel = UIAlertAction(title: "Cancel", style: .cancel) { _ in call.resolve(["confirmed": false]) }
+            alert.addAction(cancel)
+            alert.addAction(UIAlertAction(title: call.getString("confirmLabel") ?? "Delete", style: .destructive) { _ in
+                call.resolve(["confirmed": true])
+            })
+            alert.preferredAction = cancel
+            presenter.present(alert, animated: true)
+        }
+    }
+
+    @objc func selectionHaptic(_ call: CAPPluginCall) {
+        DispatchQueue.main.async {
+            let feedback = UISelectionFeedbackGenerator()
+            feedback.prepare()
+            feedback.selectionChanged()
+            call.resolve()
+        }
     }
 
     @objc func isSupported(_ call: CAPPluginCall) {

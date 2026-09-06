@@ -32,17 +32,19 @@ export const PhotoGallery: React.FC<{
   communityPhotos: Array<CommunityPhoto & { rawUrl?: string }>;
   name: string;
   initialIndex: number;
+  startExpanded?: boolean;
+  photoCaptions?: Record<string, string>;
   onClose: () => void;
   /** When set, a single expanded member photo carries a small corner
    *  button that hands the photo to the "Recreate a dish" AI flow. */
   onRecreate?: (photo: GalleryRecreatePhoto) => void;
-}> = ({ photos, communityPhotos, name, initialIndex, onClose, onRecreate }) => {
+}> = ({ photos, communityPhotos, name, initialIndex, startExpanded = false, photoCaptions, onClose, onRecreate }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [activeDish, setActiveDish] = useState<string | null>(null);
   // Full-screen viewer: index into the CURRENT displayPhotos (the grid the
   // user tapped from) + slide direction for the swipe animation. `dir: 0`
   // marks the initial open (no slide).
-  const [expanded, setExpanded] = useState<{ index: number; dir: 1 | -1 | 0 } | null>(null);
+  const [expanded, setExpanded] = useState<{ index: number; dir: 1 | -1 | 0 } | null>(() => startExpanded ? { index: Math.max(0, initialIndex), dir: 0 } : null);
 
   const sheetScrollRef = useRef<HTMLDivElement | null>(null);
   const { dragProps, sheetRef } = useBottomSheet(true, onClose, sheetScrollRef);
@@ -52,12 +54,12 @@ export const PhotoGallery: React.FC<{
     const communityUrls = new Set(communityPhotos.map((p) => p.url));
     const googlePhotos: GalleryPhoto[] = photos
       .filter((url) => !communityUrls.has(url))
-      .map((url) => ({ url, rawUrl: url, caption: '', isGoogle: true, ownerUserId: '' }));
+      .map((url) => ({ url, rawUrl: url, caption: photoCaptions?.[url] || '', isGoogle: true, ownerUserId: '' }));
     const userPhotos: GalleryPhoto[] = communityPhotos
       .filter((p) => !!p.url && (p.url.startsWith('blob:') || p.url.length < 12_000_000))
       .map((p) => ({ url: p.url, rawUrl: p.rawUrl || p.url, caption: p.caption || '', isGoogle: false, ownerUserId: p.user_id }));
     return [...googlePhotos, ...userPhotos];
-  }, [photos, communityPhotos]);
+  }, [photos, communityPhotos, photoCaptions]);
 
   // Group photos by dish name
   const dishGroups: DishGroup[] = React.useMemo(() => {
@@ -139,6 +141,7 @@ export const PhotoGallery: React.FC<{
             </div>
             <button
               onClick={onClose}
+              aria-label="Close photos"
               className="p-2 rounded-full hover:bg-on-surface/5 transition-colors"
             >
               <X size={22} className="text-on-surface/50" />

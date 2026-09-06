@@ -1,526 +1,14 @@
-import React, { useState, useMemo, useCallback, useEffect } from 'react';
-import { motion, AnimatePresence } from 'motion/react';
-import { ArrowLeft, ArrowRight, Eye, EyeOff, Loader2, Lock, Mail, Phone, Check } from 'lucide-react';
+import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
+import { motion } from 'motion/react';
+import { Eye, EyeOff, Loader2, Lock, Mail, Phone } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { PRIVACY_URL, TERMS_URL, openExternalUrl } from '../lib/external-links';
-import { cn } from '../lib/utils';
-import { AuthShell, useDesktopAuthLayout } from '../components/AuthShell';
 import { logOnboardingEvent } from '../lib/onboarding-events';
 import { toE164, deviceRegion, type CountryCode } from '../lib/phone';
-// Mobile uses the new cream/terracotta onboarding kit; desktop keeps the
-// original split-screen AuthShell design below.
+// A shared responsive presentation for every sign-in method.
 import * as OB from '../components/onboarding/OnboardingKit';
 
 type Step = 'email' | 'password' | 'verify' | 'setpassword';
-type PasswordStrength = { score: 0 | 1 | 2 | 3 | 4; label: string; color: string };
-
-// Lightweight password strength heuristic: length + character-class diversity.
-function getPasswordStrength(password: string): PasswordStrength {
-  if (!password) return { score: 0, label: '', color: '' };
-  let raw = 0;
-  if (password.length >= 6) raw++;
-  if (password.length >= 10) raw++;
-  if (/[A-Z]/.test(password) && /[a-z]/.test(password)) raw++;
-  if (/\d/.test(password)) raw++;
-  if (/[^A-Za-z0-9]/.test(password)) raw++;
-  const score = Math.min(raw, 4) as 0 | 1 | 2 | 3 | 4;
-  const meta: Record<0 | 1 | 2 | 3 | 4, { label: string; color: string }> = {
-    0: { label: '', color: '' },
-    1: { label: 'Weak', color: 'bg-red-500' },
-    2: { label: 'Fair', color: 'bg-orange-500' },
-    3: { label: 'Good', color: 'bg-yellow-500' },
-    4: { label: 'Strong', color: 'bg-green-500' },
-  };
-  return { score, ...meta[score] };
-}
-
-// ── Social icons ────────────────────────────────────────────────────────
-const AppleIcon: React.FC<{ size?: number }> = ({ size = 16 }) => (
-  <svg width={size} height={size} viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
-    <path d="M11.2 8.4c0-1.7 1.4-2.5 1.4-2.5-.8-1.1-2-1.3-2.4-1.3-1-.1-2 .6-2.5.6s-1.3-.6-2.2-.6c-1.1 0-2.2.7-2.8 1.7C1.5 8.4 2.4 11.6 3.6 13.4c.6.9 1.3 1.9 2.2 1.8.9 0 1.2-.6 2.3-.6s1.4.6 2.3.6c.9 0 1.6-.9 2.2-1.8.7-1 .9-2 .9-2-.1 0-1.9-.7-1.9-2.8zM9.6 3.6c.5-.6.8-1.4.7-2.2-.7 0-1.5.5-2 1-.4.5-.8 1.3-.7 2.1.8.1 1.6-.4 2-.9z" />
-  </svg>
-);
-
-const GoogleIcon: React.FC<{ size?: number }> = ({ size = 16 }) => (
-  <svg width={size} height={size} viewBox="0 0 16 16" aria-hidden="true">
-    <path fill="#4285F4" d="M15.5 8.2c0-.5 0-1-.1-1.5H8v2.9h4.2c-.2 1-.7 1.8-1.6 2.4v2h2.6c1.5-1.4 2.3-3.5 2.3-5.8z" />
-    <path fill="#34A853" d="M8 16c2.2 0 4-.7 5.3-1.9l-2.6-2c-.7.5-1.6.8-2.7.8-2.1 0-3.8-1.4-4.4-3.3H1v2.1A8 8 0 008 16z" />
-    <path fill="#FBBC05" d="M3.6 9.6c-.2-.5-.3-1-.3-1.6s.1-1.1.3-1.6V4.3H1A8 8 0 000 8c0 1.3.3 2.5.9 3.7l2.7-2.1z" />
-    <path fill="#EA4335" d="M8 3.2c1.2 0 2.3.4 3.1 1.2L13.4 2A8 8 0 001 4.3l2.6 2.1C4.2 4.6 5.9 3.2 8 3.2z" />
-  </svg>
-);
-
-// ── Form atoms (shared between desktop and mobile layouts) ──────────────
-const FieldLabel: React.FC<{ children: React.ReactNode }> = ({ children }) => (
-  <label className="block text-xs font-semibold tracking-wider uppercase text-on-surface/45 mb-1.5">
-    {children}
-  </label>
-);
-
-const TextField: React.FC<{
-  type?: string;
-  value: string;
-  onChange: (v: string) => void;
-  placeholder?: string;
-  autoComplete?: string;
-  autoFocus?: boolean;
-  trailing?: React.ReactNode;
-  inputMode?: React.HTMLAttributes<HTMLInputElement>['inputMode'];
-  name?: string;
-}> = ({ type = 'text', value, onChange, placeholder, autoComplete, autoFocus, trailing, inputMode, name }) => (
-  <div className="relative">
-    <input
-      type={type}
-      name={name}
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-      placeholder={placeholder}
-      autoComplete={autoComplete}
-      autoFocus={autoFocus}
-      inputMode={inputMode}
-      className={cn(
-        'w-full px-4 py-3 rounded-2xl bg-white/70 backdrop-blur-sm border border-on-surface/8 text-on-surface',
-        'placeholder:text-on-surface/30 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary/30 transition-all text-sm',
-        trailing && 'pr-11',
-      )}
-    />
-    {trailing && (
-      <div className="absolute right-3 top-1/2 -translate-y-1/2">{trailing}</div>
-    )}
-  </div>
-);
-
-const PrimaryButton: React.FC<{
-  children: React.ReactNode;
-  type?: 'button' | 'submit';
-  onClick?: () => void;
-  disabled?: boolean;
-  loading?: boolean;
-}> = ({ children, type = 'submit', onClick, disabled, loading }) => (
-  <motion.button
-    type={type}
-    onClick={onClick}
-    disabled={disabled || loading}
-    whileHover={!disabled && !loading ? { scale: 1.01 } : undefined}
-    whileTap={!disabled && !loading ? { scale: 0.99 } : undefined}
-    className="group w-full flex items-center justify-center gap-3 bg-primary text-on-primary px-6 py-3 rounded-2xl text-base font-semibold shadow-lg shadow-primary/25 hover:shadow-xl hover:shadow-primary/30 transition-shadow cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
-  >
-    {loading ? (
-      <Loader2 size={18} className="animate-spin" />
-    ) : (
-      <>
-        <span>{children}</span>
-        <ArrowRight size={18} className="group-hover:translate-x-1 transition-transform" />
-      </>
-    )}
-  </motion.button>
-);
-
-const SocialRow: React.FC<{
-  onOAuth: (provider: 'google' | 'apple') => void;
-  pending: 'google' | 'apple' | null;
-}> = ({ onOAuth, pending }) => (
-  <div className="grid grid-cols-2 gap-3">
-    <button
-      type="button"
-      onClick={() => onOAuth('apple')}
-      disabled={pending !== null}
-      className="flex items-center justify-center gap-2.5 px-4 py-2.5 rounded-2xl bg-white/70 backdrop-blur-sm border border-on-surface/8 text-on-surface text-sm font-medium hover:bg-white transition-colors cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
-    >
-      {pending === 'apple' ? <Loader2 size={16} className="animate-spin" /> : <AppleIcon size={16} />}
-      <span>Apple</span>
-    </button>
-    <button
-      type="button"
-      onClick={() => onOAuth('google')}
-      disabled={pending !== null}
-      className="flex items-center justify-center gap-2.5 px-4 py-2.5 rounded-2xl bg-white/70 backdrop-blur-sm border border-on-surface/8 text-on-surface text-sm font-medium hover:bg-white transition-colors cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
-    >
-      {pending === 'google' ? <Loader2 size={16} className="animate-spin" /> : <GoogleIcon size={16} />}
-      <span>Google</span>
-    </button>
-  </div>
-);
-
-const Divider: React.FC<{ children: React.ReactNode }> = ({ children }) => (
-  <div className="relative flex items-center my-1">
-    <div className="flex-1 h-px bg-on-surface/10" />
-    <span className="px-3 text-[11px] uppercase tracking-wider text-on-surface/40 font-medium">{children}</span>
-    <div className="flex-1 h-px bg-on-surface/10" />
-  </div>
-);
-
-const EmailPill: React.FC<{ email: string; onClear: () => void }> = ({ email, onClear }) => (
-  <button
-    type="button"
-    onClick={onClear}
-    className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-on-surface/[0.05] text-on-surface/80 text-[13px] font-medium hover:bg-on-surface/[0.08] transition-colors"
-  >
-    <span>{email}</span>
-    <ArrowLeft size={12} />
-  </button>
-);
-
-// ── Step components ─────────────────────────────────────────────────────
-type SharedProps = {
-  email: string;
-  setEmail: (v: string) => void;
-  password: string;
-  setPassword: (v: string) => void;
-  showPassword: boolean;
-  setShowPassword: (v: boolean) => void;
-  submitting: boolean;
-  error: string;
-  // ── Channel ──
-  /** Which identifier this run of the flow is using. */
-  channel: 'email' | 'phone';
-  setChannel: (v: 'email' | 'phone') => void;
-  /** The raw phone input, exactly as typed. Never send this anywhere —
-   *  normalize through `toE164` first (the parent already does). */
-  phone: string;
-  setPhone: (v: string) => void;
-  /** Country to parse a national number against. */
-  region: CountryCode;
-  setRegion: (v: CountryCode) => void;
-  /** Whichever identifier is in play, ready to display — the address, or
-   *  the number in E.164 (falling back to the raw input mid-typing). */
-  identifier: string;
-  /** Advance from the identifier step. Named for the step, not the
-   *  channel — it handles both. */
-  onEmailContinue: () => void;
-  /** True while the screen is a SIGN-IN screen: reached via "Sign in",
-   *  so an unknown identifier is an error to surface, never a signup to
-   *  silently start. */
-  lockedToSignIn: boolean;
-  /** The way out of the lock — "New here? Create an account". */
-  onUnlockSignup: () => void;
-  onSignIn: () => void;
-  onSetPassword: () => void;
-  onBack: () => void;
-  onOAuth: (provider: 'google' | 'apple') => void;
-  oauthPending: 'google' | 'apple' | null;
-  // ── Forgot password ──
-  onForgotPassword: () => void;
-  resetSending: boolean;
-  /** Send a 6-digit sign-in code instead of a password (the rescue path). */
-  onEmailCodeSignIn: () => void;
-  codeSending: boolean;
-  /** "Save your taste profile" framing on the email step (pre-auth flow). */
-  saveTaste?: boolean;
-  /** Set after a reset email goes out ("We emailed a link to …"). */
-  resetNotice: string;
-  /** Signup = first password after code verification; recovery = new
-   *  password after a forgot-password link. Tweaks the set-password copy. */
-  passwordSetupMode: 'signup' | 'recovery';
-  /** When set, the email step shows a prominent "Browse without an account"
-   *  button. As the first screen it enters guest mode; inside the on-demand
-   *  sign-in overlay it dismisses the overlay. */
-  onBrowseAsGuest?: () => void;
-  // ── Email verification (enter the emailed 6-digit code) ──
-  code: string;
-  setCode: (v: string) => void;
-  onVerify: () => void;
-  onResend: () => void;
-  resendIn: number;
-  verifyNotice: string;
-};
-
-const StepEmail: React.FC<SharedProps> = ({
-  email, setEmail, submitting, error, onEmailContinue, onOAuth, oauthPending, onBrowseAsGuest,
-  saveTaste, channel, setChannel, phone, setPhone, lockedToSignIn, onUnlockSignup,
-}) => (
-  <div className="space-y-4">
-    <header>
-      <h1 className="font-serif font-bold text-3xl xl:text-4xl tracking-tight leading-[1.05] text-on-surface mb-2">
-        {lockedToSignIn ? 'Welcome back' : saveTaste ? 'Save your taste profile' : <>Welcome to&nbsp;GoodEats</>}
-      </h1>
-      <p className="text-sm text-on-surface/55 font-light leading-relaxed max-w-md">
-        {lockedToSignIn
-          ? `Sign in with your ${channel === 'phone' ? 'phone number' : 'email'}.`
-          : saveTaste
-            ? 'Create a free account to keep your picks and start rating — or sign in.'
-            : "Sign in or create an account — we'll figure out which one based on your email."}
-      </p>
-    </header>
-
-    <SocialRow onOAuth={onOAuth} pending={oauthPending} />
-    <Divider>{channel === 'phone' ? 'or continue with phone' : 'or continue with email'}</Divider>
-
-    <form
-      onSubmit={(e) => {
-        e.preventDefault();
-        onEmailContinue();
-      }}
-      className="space-y-4"
-    >
-      <div>
-        {channel === 'phone' ? (
-          <>
-            <FieldLabel>Phone number</FieldLabel>
-            <TextField
-              type="tel"
-              name="phone"
-              value={phone}
-              onChange={setPhone}
-              placeholder="(555) 123-4567"
-              autoComplete="tel"
-              autoFocus
-              inputMode="tel"
-            />
-          </>
-        ) : (
-          <>
-            <FieldLabel>Email address</FieldLabel>
-            <TextField
-              type="email"
-              name="email"
-              value={email}
-              onChange={setEmail}
-              placeholder="you@example.com"
-              autoComplete="email"
-              autoFocus
-              inputMode="email"
-            />
-          </>
-        )}
-      </div>
-
-      {error && (
-        <motion.p
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          className="text-sm text-red-600 bg-red-50 px-4 py-2.5 rounded-xl"
-        >
-          {error}
-        </motion.p>
-      )}
-
-      <PrimaryButton loading={submitting}>Continue</PrimaryButton>
-
-      <button
-        type="button"
-        onClick={() => setChannel(channel === 'phone' ? 'email' : 'phone')}
-        className="w-full text-center text-[13px] font-semibold text-on-surface/50 hover:text-on-surface/80 transition-colors cursor-pointer"
-      >
-        {channel === 'phone' ? 'Use email instead' : 'Use phone number instead'}
-      </button>
-
-      {lockedToSignIn && (
-        <button
-          type="button"
-          onClick={onUnlockSignup}
-          className="w-full text-center text-[13px] font-semibold text-primary hover:opacity-80 transition-opacity cursor-pointer"
-        >
-          New to GoodEats? Create an account
-        </button>
-      )}
-    </form>
-
-    {onBrowseAsGuest && (
-      <>
-        <Divider>or</Divider>
-        <button
-          type="button"
-          onClick={onBrowseAsGuest}
-          className="group w-full flex items-center justify-center gap-2 px-6 py-3 rounded-2xl bg-on-surface/[0.04] border-2 border-on-surface/15 text-on-surface text-[15px] font-semibold hover:bg-on-surface/[0.07] hover:border-on-surface/25 transition-colors cursor-pointer"
-        >
-          <span>Browse without an account</span>
-          <ArrowRight size={16} className="group-hover:translate-x-1 transition-transform" />
-        </button>
-      </>
-    )}
-  </div>
-);
-
-const StepPassword: React.FC<SharedProps> = ({
-  email, password, setPassword, showPassword, setShowPassword,
-  submitting, error, onSignIn, onBack,
-  onForgotPassword, resetSending, resetNotice,
-  onEmailCodeSignIn, codeSending,
-}) => (
-  <div className="space-y-4">
-    <header>
-      <h1 className="font-serif font-bold text-3xl xl:text-4xl tracking-tight leading-[1.05] text-on-surface mb-2">
-        Welcome back
-      </h1>
-      <p className="text-sm text-on-surface/55 font-light leading-relaxed flex flex-wrap items-center gap-2">
-        <span>Signing in as</span>
-        <EmailPill email={email} onClear={onBack} />
-      </p>
-    </header>
-
-    <form
-      onSubmit={(e) => {
-        e.preventDefault();
-        onSignIn();
-      }}
-      className="space-y-4"
-    >
-      <div>
-        <FieldLabel>Password</FieldLabel>
-        <TextField
-          type={showPassword ? 'text' : 'password'}
-          name="password"
-          value={password}
-          onChange={setPassword}
-          placeholder="••••••••"
-          autoComplete="current-password"
-          autoFocus
-          trailing={
-            <button
-              type="button"
-              onClick={() => setShowPassword(!showPassword)}
-              className="text-on-surface/40 hover:text-on-surface/70 p-1"
-              aria-label={showPassword ? 'Hide password' : 'Show password'}
-            >
-              {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
-            </button>
-          }
-        />
-      </div>
-
-      <div className="flex items-center justify-between">
-        <button
-          type="button"
-          onClick={onEmailCodeSignIn}
-          disabled={codeSending}
-          className="text-sm text-primary font-medium hover:underline cursor-pointer disabled:opacity-60 disabled:no-underline"
-        >
-          {codeSending ? 'Sending code…' : 'Email me a sign-in code'}
-        </button>
-        <button
-          type="button"
-          onClick={onForgotPassword}
-          disabled={resetSending}
-          className="text-sm text-primary font-medium hover:underline cursor-pointer disabled:opacity-60 disabled:no-underline"
-        >
-          {resetSending ? 'Sending reset link…' : 'Forgot password?'}
-        </button>
-      </div>
-
-      {resetNotice && (
-        <motion.p
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          className="text-sm text-green-700 bg-green-50 px-4 py-2.5 rounded-xl"
-        >
-          {resetNotice}
-        </motion.p>
-      )}
-
-      {error && (
-        <motion.p
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          className="text-sm text-red-600 bg-red-50 px-4 py-2.5 rounded-xl"
-        >
-          {error}
-        </motion.p>
-      )}
-
-      <PrimaryButton loading={submitting}>Sign in</PrimaryButton>
-    </form>
-  </div>
-);
-
-const StepSetPassword: React.FC<SharedProps> = ({
-  email, password, setPassword, showPassword, setShowPassword,
-  submitting, error, onSetPassword, passwordSetupMode,
-}) => {
-  const passwordStrength = useMemo(() => getPasswordStrength(password), [password]);
-  const isRecovery = passwordSetupMode === 'recovery';
-
-  return (
-    <div className="space-y-4">
-      <header>
-        <h1 className="font-serif font-bold text-3xl xl:text-4xl tracking-tight leading-[1.05] text-on-surface mb-2">
-          {isRecovery ? 'Set a new password' : 'Choose a password'}
-        </h1>
-        <p className="text-sm text-on-surface/55 font-light leading-relaxed flex flex-wrap items-center gap-2">
-          {isRecovery ? (
-            <span>Pick a new password for <span className="font-medium text-on-surface/80">{email}</span>.</span>
-          ) : (
-            <span className="inline-flex items-center gap-1.5 text-green-700 font-medium">
-              <Check size={14} /> {email} verified
-            </span>
-          )}
-        </p>
-      </header>
-
-      <form
-        onSubmit={(e) => {
-          e.preventDefault();
-          onSetPassword();
-        }}
-        className="space-y-4"
-      >
-        <div>
-          <FieldLabel>Password</FieldLabel>
-          <TextField
-            type={showPassword ? 'text' : 'password'}
-            name="password"
-            value={password}
-            onChange={setPassword}
-            placeholder="Choose a password"
-            autoComplete="new-password"
-            autoFocus
-            trailing={
-              <button
-                type="button"
-                onClick={() => setShowPassword(!showPassword)}
-                className="text-on-surface/40 hover:text-on-surface/70 p-1"
-                aria-label={showPassword ? 'Hide password' : 'Show password'}
-              >
-                {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
-              </button>
-            }
-          />
-          {password.length > 0 && (
-            <motion.div
-              initial={{ opacity: 0, y: -4 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="flex items-center gap-3 mt-2 px-1"
-              aria-live="polite"
-            >
-              <div className="flex-1 h-1 rounded-full bg-on-surface/8 overflow-hidden">
-                <motion.div
-                  initial={false}
-                  animate={{ width: `${passwordStrength.score * 25}%` }}
-                  transition={{ duration: 0.25, ease: 'easeOut' }}
-                  className={`h-full rounded-full ${passwordStrength.color}`}
-                />
-              </div>
-              <span className="text-xs font-semibold text-on-surface/55 w-[44px] text-right flex-shrink-0">
-                {passwordStrength.label}
-              </span>
-            </motion.div>
-          )}
-        </div>
-
-        {error && (
-          <motion.p
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            className="text-sm text-red-600 bg-red-50 px-4 py-2.5 rounded-xl"
-          >
-            {error}
-          </motion.p>
-        )}
-
-        <PrimaryButton loading={submitting} disabled={password.length < 8}>Continue</PrimaryButton>
-
-        <p className="text-xs text-on-surface/45 text-center leading-relaxed">
-          At least 8 characters. By continuing you agree to our{' '}
-          <a href={TERMS_URL} target="_blank" rel="noopener noreferrer" className="text-on-surface/70 underline">Terms</a>
-          {' '}&amp;{' '}
-          <a href={PRIVACY_URL} target="_blank" rel="noopener noreferrer" className="text-on-surface/70 underline">Privacy Policy</a>.
-        </p>
-      </form>
-    </div>
-  );
-};
-
-// ── Mobile onboarding helpers (cream design) ────────────────────────────
 const EyeToggle: React.FC<{ shown: boolean; onClick: () => void }> = ({ shown, onClick }) => (
   <button
     type="button"
@@ -556,7 +44,7 @@ const TermsNote: React.FC<{ style?: React.CSSProperties }> = ({ style }) => (
 );
 
 const FadeStep: React.FC<{ stepKey: string; children: React.ReactNode }> = ({ stepKey, children }) => (
-  <AnimatePresence mode="wait" initial={false}>
+
     <motion.div
       key={stepKey}
       initial={{ opacity: 0, y: 10 }}
@@ -567,65 +55,9 @@ const FadeStep: React.FC<{ stepKey: string; children: React.ReactNode }> = ({ st
     >
       {children}
     </motion.div>
-  </AnimatePresence>
+
 );
 
-const StepVerify: React.FC<SharedProps> = ({
-  code, setCode, submitting, error, onVerify, onResend, resendIn, verifyNotice, onBack,
-  channel, identifier,
-}) => (
-  <div className="space-y-4">
-    <header>
-      <h1 className="font-serif font-bold text-3xl xl:text-4xl tracking-tight leading-[1.05] text-on-surface mb-2">
-        {channel === 'phone' ? 'Check your texts' : 'Check your email'}
-      </h1>
-      <p className="text-sm text-on-surface/55 font-light leading-relaxed flex flex-wrap items-center gap-2">
-        <span>{verifyNotice || 'We sent a 6-digit code to'}</span>
-        <EmailPill email={identifier} onClear={onBack} />
-      </p>
-    </header>
-
-    <form
-      onSubmit={(e) => { e.preventDefault(); onVerify(); }}
-      className="space-y-4"
-    >
-      <div>
-        <FieldLabel>Verification code</FieldLabel>
-        <input
-          type="text"
-          name="one-time-code"
-          value={code}
-          onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
-          placeholder="123456"
-          autoComplete="one-time-code"
-          inputMode="numeric"
-          autoFocus
-          className="w-full px-4 py-3 rounded-2xl bg-white/70 backdrop-blur-sm border border-on-surface/8 text-on-surface text-center text-[22px] font-bold tracking-[0.4em] placeholder:tracking-[0.4em] placeholder:text-on-surface/20 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary/30 transition-all"
-        />
-      </div>
-
-      {error && (
-        <motion.p initial={{ opacity: 0 }} animate={{ opacity: 1 }}
-          className="text-sm text-red-600 bg-red-50 px-4 py-2.5 rounded-xl">{error}</motion.p>
-      )}
-
-      <PrimaryButton loading={submitting} disabled={code.length !== 6}>
-        {channel === 'phone' ? 'Verify number' : 'Verify email'}
-      </PrimaryButton>
-
-      <button
-        type="button"
-        onClick={onResend}
-        disabled={resendIn > 0}
-        className="w-full text-center text-[13px] font-semibold text-primary disabled:text-on-surface/35 transition-colors"
-      >
-        {resendIn > 0 ? `Resend code in ${resendIn}s` : "Didn't get it? Resend code"}
-      </button>
-    </form>
-  </div>
-);
-
-// ── Main page ────────────────────────────────────────────────────────────
 export const Auth: React.FC<{
   onBrowseAsGuest?: () => void;
   /** Reached via "Sign in" (not "Get started"): an identifier with no
@@ -647,7 +79,6 @@ export const Auth: React.FC<{
     completePasswordSetup, needsPasswordSetup, passwordSetupMode,
     requestPasswordReset, isSignedIn, user,
   } = useAuth();
-  const useDesktopLayout = useDesktopAuthLayout();
   useEffect(() => { logOnboardingEvent('auth_shown'); }, []);
 
   // A relaunch mid-signup (code verified, password not yet chosen) reopens
@@ -711,7 +142,12 @@ export const Auth: React.FC<{
     return () => clearInterval(t);
   }, [resendIn]);
 
+  const authAction = useRef(false);
+
   const handleIdentifierContinue = useCallback(async () => {
+    if (authAction.current) return;
+    authAction.current = true;
+    try {
     setError('');
 
     /* Phone and email answer the same three questions — is this a real
@@ -800,9 +236,21 @@ export const Auth: React.FC<{
     setVerifyNotice('We sent a 6-digit code to');
     setResendIn(60);
     setStep('verify');
+    } catch {
+      setError('Couldn’t connect. Please try again.');
+    } finally {
+      authAction.current = false;
+      setSubmitting(false);
+      setOauthPending(null);
+      setCodeSending(false);
+      setResetSending(false);
+    }
   }, [channel, phone, phoneE164, email, lockedToSignIn, checkEmailExists, checkPhoneExists, startEmailSignup, startPhoneSignup]);
 
   const handleSignIn = useCallback(async () => {
+    if (authAction.current) return;
+    authAction.current = true;
+    try {
     setError('');
     if (!password) {
       setError('Please enter your password');
@@ -830,9 +278,21 @@ export const Auth: React.FC<{
       }
     }
     setSubmitting(false);
+    } catch {
+      setError('Couldn’t connect. Please try again.');
+    } finally {
+      authAction.current = false;
+      setSubmitting(false);
+      setOauthPending(null);
+      setCodeSending(false);
+      setResetSending(false);
+    }
   }, [channel, phoneE164, email, password, signIn, signInWithPhonePassword, resendVerificationCode]);
 
   const handleSetPassword = useCallback(async () => {
+    if (authAction.current) return;
+    authAction.current = true;
+    try {
     setError('');
     if (password.length < 8) {
       setError('Password must be at least 8 characters');
@@ -843,9 +303,19 @@ export const Auth: React.FC<{
     if (err) setError(err);
     // Success clears needsPasswordSetup — App swaps to profile setup.
     setSubmitting(false);
+    } catch {
+      setError('Couldn’t connect. Please try again.');
+    } finally {
+      authAction.current = false;
+      setSubmitting(false);
+      setOauthPending(null);
+      setCodeSending(false);
+      setResetSending(false);
+    }
   }, [password, completePasswordSetup]);
 
   const handleBack = useCallback(() => {
+    if (authAction.current) return;
     setStep('email');
     setPassword('');
     setCode('');
@@ -854,6 +324,9 @@ export const Auth: React.FC<{
   }, []);
 
   const handleForgotPassword = useCallback(async () => {
+    if (authAction.current) return;
+    authAction.current = true;
+    try {
     if (resetSending) return;
     setError('');
     setResetNotice('');
@@ -862,9 +335,21 @@ export const Auth: React.FC<{
     setResetSending(false);
     if (err) setError(err);
     else setResetNotice(`We emailed a password-reset link to ${email}. Open it to choose a new password.`);
+    } catch {
+      setError('Couldn’t connect. Please try again.');
+    } finally {
+      authAction.current = false;
+      setSubmitting(false);
+      setOauthPending(null);
+      setCodeSending(false);
+      setResetSending(false);
+    }
   }, [email, resetSending, requestPasswordReset]);
 
   const handleCodeSignIn = useCallback(async () => {
+    if (authAction.current) return;
+    authAction.current = true;
+    try {
     if (codeSending) return;
     setError('');
     setCodeSending(true);
@@ -886,9 +371,21 @@ export const Auth: React.FC<{
     setVerifyNotice('We sent a 6-digit sign-in code to');
     setResendIn(60);
     setStep('verify');
+    } catch {
+      setError('Couldn’t connect. Please try again.');
+    } finally {
+      authAction.current = false;
+      setSubmitting(false);
+      setOauthPending(null);
+      setCodeSending(false);
+      setResetSending(false);
+    }
   }, [channel, phoneE164, email, codeSending, startEmailSignup, startPhoneSignup]);
 
   const handleVerify = useCallback(async () => {
+    if (authAction.current) return;
+    authAction.current = true;
+    try {
     setError('');
     if (code.length !== 6) {
       setError(channel === 'phone'
@@ -915,9 +412,21 @@ export const Auth: React.FC<{
     }
     // 'unconfirmed': the session lands and onAuthStateChange swaps to the app.
     setSubmitting(false);
+    } catch {
+      setError('Couldn’t connect. Please try again.');
+    } finally {
+      authAction.current = false;
+      setSubmitting(false);
+      setOauthPending(null);
+      setCodeSending(false);
+      setResetSending(false);
+    }
   }, [channel, phoneE164, email, code, verifyFor, verifyEmailCode, verifyPhoneCode]);
 
   const handleResend = useCallback(async () => {
+    if (authAction.current) return;
+    authAction.current = true;
+    try {
     if (resendIn > 0) return;
     setError('');
     setResendIn(60);
@@ -929,6 +438,15 @@ export const Auth: React.FC<{
         ? await startEmailSignup(email)
         : await resendVerificationCode(email));
     if (err) setError(err);
+    } catch {
+      setError('Couldn’t connect. Please try again.');
+    } finally {
+      authAction.current = false;
+      setSubmitting(false);
+      setOauthPending(null);
+      setCodeSending(false);
+      setResetSending(false);
+    }
   }, [channel, phoneE164, email, resendIn, verifyFor, startEmailSignup, resendVerificationCode, startPhoneSignup, resendPhoneCode]);
 
   /* A phone account has no emailed reset link to send, so "forgot
@@ -946,6 +464,9 @@ export const Auth: React.FC<{
   }, [channel, handleCodeSignIn, handleForgotPassword]);
 
   const handleOAuth = useCallback(async (provider: 'google' | 'apple') => {
+    if (authAction.current) return;
+    authAction.current = true;
+    try {
     setError('');
     setOauthPending(provider);
     const { error: err } = await signInWithOAuth(provider);
@@ -954,74 +475,17 @@ export const Auth: React.FC<{
     // Native: control returns here after success (onAuthStateChange then
     // swaps the screen) or after a cancel — either way clear the spinner.
     setOauthPending(null);
+    } catch {
+      setError('Couldn’t connect. Please try again.');
+    } finally {
+      authAction.current = false;
+      setSubmitting(false);
+      setOauthPending(null);
+      setCodeSending(false);
+      setResetSending(false);
+    }
   }, [signInWithOAuth]);
 
-  const sharedProps: SharedProps = {
-    email, setEmail, password, setPassword, showPassword, setShowPassword,
-    submitting, error,
-    channel, setChannel, phone, setPhone, region, setRegion, identifier,
-    lockedToSignIn, onUnlockSignup: unlockSignup,
-    onEmailContinue: handleIdentifierContinue,
-    onSignIn: handleSignIn,
-    onSetPassword: handleSetPassword,
-    onBack: handleBack,
-    onOAuth: handleOAuth,
-    oauthPending,
-    onForgotPassword: handleForgotPasswordForChannel,
-    resetSending, resetNotice, passwordSetupMode,
-    onEmailCodeSignIn: () => { void handleCodeSignIn(); },
-    codeSending,
-    saveTaste: saveTasteFraming,
-    onBrowseAsGuest,
-    code, setCode,
-    onVerify: handleVerify,
-    onResend: handleResend,
-    resendIn, verifyNotice,
-  };
-
-  const stepContent = (
-    <AnimatePresence mode="wait" initial={false}>
-      <motion.div
-        key={step}
-        initial={{ opacity: 0, y: 8 }}
-        animate={{ opacity: 1, y: 0 }}
-        exit={{ opacity: 0, y: -6 }}
-        transition={{ duration: 0.22, ease: 'easeOut' }}
-      >
-        {step === 'email' && <StepEmail {...sharedProps} />}
-        {step === 'password' && <StepPassword {...sharedProps} />}
-        {step === 'verify' && <StepVerify {...sharedProps} />}
-        {step === 'setpassword' && <StepSetPassword {...sharedProps} />}
-      </motion.div>
-    </AnimatePresence>
-  );
-
-  // ── Desktop split layout ─────────────────────────────────────────────
-  if (useDesktopLayout) {
-    const headerRight =
-      step === 'email' ? (
-        <span className="text-on-surface/45">New to GoodEats?</span>
-      ) : step === 'setpassword' ? (
-        // Email is verified and the session exists — no going back from here.
-        <span className="text-on-surface/45">One last step</span>
-      ) : (
-        <button
-          type="button"
-          onClick={handleBack}
-          className="inline-flex items-center gap-1.5 text-on-surface/55 hover:text-on-surface transition-colors cursor-pointer"
-        >
-          <ArrowLeft size={14} />
-          <span>Use a different email</span>
-        </button>
-      );
-    return (
-      <AuthShell headerRight={headerRight} panel={step === 'verify' || step === 'setpassword' ? 'signup' : step}>
-        {stepContent}
-      </AuthShell>
-    );
-  }
-
-  // ── Mobile / phone-frame layout — the cream/terracotta onboarding ─────
   /* Whichever identifier is in play — a phone signup has no email at
      all, so keying every screen off `email` left them blank. */
   const identifierDisplay = channel === 'phone'
@@ -1056,6 +520,19 @@ export const Auth: React.FC<{
               </>
             )}
           </div>
+          <div className="flex flex-col gap-3" style={{ marginTop:22 }}>
+            {/* Sits with the other "continue another way" options rather
+                than under the field, because that is what it is. */}
+            <OB.SocialButton
+              icon={oauthPending === 'apple' ? <Loader2 size={16} className="animate-spin" /> : <OB.AppleGlyph />}
+              onClick={() => handleOAuth('apple')} disabled={oauthPending !== null || submitting}
+            >Continue with Apple</OB.SocialButton>
+            <OB.SocialButton
+              icon={oauthPending === 'google' ? <Loader2 size={16} className="animate-spin" /> : <OB.GoogleGlyph />}
+              onClick={() => handleOAuth('google')} disabled={oauthPending !== null || submitting}
+            >Continue with Google</OB.SocialButton>
+          </div>
+          <OB.Divider>OR</OB.Divider>
           <form onSubmit={(e) => { e.preventDefault(); handleIdentifierContinue(); }} style={{ marginTop: 28 }}>
             {channel === 'phone' ? (
               <>
@@ -1063,7 +540,7 @@ export const Auth: React.FC<{
                 <OB.Field
                   type="tel" name="phone" value={phone} onChange={(v) => { setPhone(v); setError(''); }}
                   placeholder="(555) 123-4567" icon={<Phone size={18} strokeWidth={1.6} />}
-                  autoFocus autoComplete="tel" inputMode="tel" autoCapitalize="off"
+                  autoComplete="tel" inputMode="tel" autoCapitalize="off"
                 />
               </>
             ) : (
@@ -1072,32 +549,16 @@ export const Auth: React.FC<{
                 <OB.Field
                   type="email" name="email" value={email} onChange={(v) => { setEmail(v); setError(''); }}
                   placeholder="you@example.com" icon={<Mail size={18} strokeWidth={1.6} />}
-                  autoFocus autoComplete="email" inputMode="email" autoCapitalize="off"
+                  autoComplete="email" inputMode="email" autoCapitalize="off"
                 />
               </>
             )}
             {error && <OB.ErrorRow>{error}</OB.ErrorRow>}
             <div style={{ marginTop: 14 }}><OB.PrimaryButton type="submit" loading={submitting}>Continue</OB.PrimaryButton></div>
           </form>
-          <OB.Divider>OR</OB.Divider>
-          <div className="flex flex-col gap-3">
-            {/* Sits with the other "continue another way" options rather
-                than under the field, because that is what it is. */}
-            <OB.SocialButton
-              icon={channel === 'phone' ? <Mail size={16} strokeWidth={1.8} /> : <Phone size={16} strokeWidth={1.8} />}
-              onClick={() => { setChannel(channel === 'phone' ? 'email' : 'phone'); setError(''); }}
-            >
-              {channel === 'phone' ? 'Use email instead' : 'Use phone number instead'}
-            </OB.SocialButton>
-            <OB.SocialButton
-              icon={oauthPending === 'apple' ? <Loader2 size={16} className="animate-spin" /> : <OB.AppleGlyph />}
-              onClick={() => handleOAuth('apple')} disabled={oauthPending !== null}
-            >Continue with Apple</OB.SocialButton>
-            <OB.SocialButton
-              icon={oauthPending === 'google' ? <Loader2 size={16} className="animate-spin" /> : <OB.GoogleGlyph />}
-              onClick={() => handleOAuth('google')} disabled={oauthPending !== null}
-            >Continue with Google</OB.SocialButton>
-          </div>
+          <OB.GhostButton onClick={() => { if (!authAction.current) { setChannel(channel === 'phone' ? 'email' : 'phone'); setError(''); } }}>
+            {channel === 'phone' ? 'Use email instead' : 'Use phone instead'}
+          </OB.GhostButton>
           <TermsNote style={{ marginTop: 18 }} />
           {lockedToSignIn && (
             <div style={{ marginTop: 6 }}>
@@ -1183,6 +644,7 @@ export const Auth: React.FC<{
             <input
               type="text"
               name="one-time-code"
+              aria-label="Verification code"
               value={code}
               onChange={(e) => { setCode(e.target.value.replace(/\D/g, '').slice(0, 6)); setError(''); }}
               placeholder="123456"
@@ -1249,7 +711,7 @@ export const Auth: React.FC<{
             {pwOk ? (
               <>
                 <svg width="15" height="15" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="7" fill="var(--ob-success-dot)" /><path d="M5 8.2l2 2 4-4.4" stroke="#fff" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg>
-                <span style={{ fontSize: 13, color: 'var(--ob-success)', fontWeight: 500 }}>Strong enough to go</span>
+                <span style={{ fontSize: 13, color: 'var(--ob-success)', fontWeight: 500 }}>At least 8 characters</span>
               </>
             ) : (
               <>

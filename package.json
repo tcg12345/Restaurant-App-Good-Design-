@@ -13,7 +13,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "postinstall": "patch-package",
-    "ios:sync": "npm run build && npx cap sync ios"
+    "ios:sync": "npm run build && npx cap sync ios",
+    "group:scorer": "node scripts/build-group-scorer.mjs"
   },
   "dependencies": {
     "@capacitor-community/apple-sign-in": "^7.1.0",

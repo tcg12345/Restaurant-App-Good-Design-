@@ -1,4 +1,7 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import { liftOverlayToTopLayer, acquireHardScrollLock } from '../lib/useBottomSheet';
+import { pushOverlay } from '../lib/overlay-registry';
+import { DeleteConfirmation } from './DeleteConfirmation';
+import React, { useLayoutEffect, useState, useEffect, useRef, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { X, Plus, Check, ChevronLeft, ChevronRight, Camera, Search, Clock, Users, Globe, Lock, Tag, Image, StickyNote, Timer, Hash } from 'lucide-react';
 import { cn } from '../lib/utils';
@@ -37,6 +40,13 @@ export const RecipeModal: React.FC = () => {
   const { user } = useAuth();
 
   const existing = recipeModalData;
+  const overlayRef = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    if (!recipeModalOpen) return;
+    liftOverlayToTopLayer(overlayRef.current);
+    const releaseLock = acquireHardScrollLock(), releaseOverlay = pushOverlay();
+    return () => { releaseOverlay(); releaseLock(); };
+  }, [recipeModalOpen]);
 
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
@@ -260,6 +270,8 @@ export const RecipeModal: React.FC = () => {
       {recipeModalOpen && (
         <motion.div
           initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+          ref={overlayRef}
+          role="dialog" aria-modal="true" aria-label={existing ? "Edit recipe" : "New recipe"}
           className={cn("fixed inset-0 bg-black/60 backdrop-blur-sm z-[100] flex justify-center",
             phoneMode ? "items-end" : "items-end sm:items-center"
           )}
@@ -441,17 +453,7 @@ export const RecipeModal: React.FC = () => {
                         Delete Recipe
                       </button>
                     )}
-                    {existing && confirmDelete && (
-                      <div className="flex items-center justify-between bg-red-50 border border-red-200 rounded-xl px-3 py-2.5">
-                        <p className="text-xs text-red-600 font-medium">Delete this recipe?</p>
-                        <div className="flex gap-2">
-                          <button onClick={() => setConfirmDelete(false)} disabled={deleting} className="px-3 py-1.5 text-xs font-semibold text-on-surface/50 border border-on-surface/15 rounded-lg hover:bg-white disabled:opacity-40">Cancel</button>
-                          <button onClick={handleDelete} disabled={deleting} className="px-3 py-1.5 text-xs font-semibold text-white bg-red-500 rounded-lg hover:bg-red-600 disabled:opacity-60">
-                            {deleting ? 'Deleting…' : 'Delete'}
-                          </button>
-                        </div>
-                      </div>
-                    )}
+                    {existing && confirmDelete && <DeleteConfirmation name={title} onCancel={() => setConfirmDelete(false)} onConfirm={() => { setConfirmDelete(false); void handleDelete(); }} />}
                   </div>
                 </motion.div>
               )}
