@@ -57,7 +57,7 @@ const Serif: React.FC<{ size?: number; children: React.ReactNode }> = ({ size = 
 );
 
 const Chip: React.FC<{ children: React.ReactNode }> = ({ children }) => (
-  <span style={{ display: 'inline-block', padding: '5px 10px', borderRadius: 999, background: 'rgba(174,187,211,0.12)', color: PALE, fontSize: '11.5px', fontWeight: 600 }}>{children}</span>
+  <span style={{ display: 'inline-block', padding: '5px 10px', borderRadius: 999, background: 'rgba(168,208,184,0.12)', color: PALE, fontSize: '11.5px', fontWeight: 600 }}>{children}</span>
 );
 
 /* ── Recipes: a generated recipe, as the recipe page opens it ─────── */
@@ -94,7 +94,7 @@ const TasteVisual: React.FC<{ delay?: number }> = ({ delay }) => {
       <Piece i={0} delay={delay}><Eyebrow right="#14 of 326">Taste profile</Eyebrow></Piece>
       <Piece i={1} delay={delay}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <span style={{ width: 44, height: 44, borderRadius: 999, flex: 'none', background: 'rgba(174,187,211,0.14)', border: '1px solid rgba(174,187,211,0.35)', display: 'grid', placeItems: 'center', color: PALE, fontFamily: 'var(--font-serif)', fontWeight: 700, fontSize: 18 }}>ψ</span>
+          <span style={{ width: 44, height: 44, borderRadius: 999, flex: 'none', background: 'rgba(168,208,184,0.14)', border: '1px solid rgba(168,208,184,0.35)', display: 'grid', placeItems: 'center', color: PALE, fontFamily: 'var(--font-serif)', fontWeight: 700, fontSize: 18 }}>ψ</span>
           <span style={{ minWidth: 0, flex: 1 }}>
             <Serif size={18}>The Fine-Dining Explorer</Serif>
             <span style={{ display: 'block', fontSize: '12px', color: NIGHT_INK_FAINT, marginTop: 3, fontWeight: 600 }}>Critic · 431 pts</span>

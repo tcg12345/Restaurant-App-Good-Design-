@@ -1,5 +1,6 @@
 import './FeedDiscovery.css';
 import { PhotoGallery } from '../PhotoGallery';
+import { FeedPhotoCarousel } from './FeedPhotoCarousel';
 import { homeHaptic } from '../../lib/haptics';
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
@@ -8,7 +9,7 @@ import { ShareIcon } from '../icons/ShareIcon';
 import { cn } from '../../lib/utils';
 import { scoreTint } from '../../lib/score';
 
-/** Shared photo-led post: identity, meal mosaic, reactions, and the author's notes. */
+/** Shared photo-led post: identity, swipeable photos, reactions, and the author's notes. */
 
 export type FeedPostKind = 'Dined' | 'Cooked' | 'Rated';
 
@@ -154,15 +155,10 @@ export const FeedPost: React.FC<FeedPostProps> = ({
       )}
 
       {shots.length > 0 && (
-        <div className="feed-mosaic" data-count={Math.min(shots.length, 3)}>
-          {shots.slice(0, 3).map((shot, i) => (
-            <button key={shot.id} type="button" aria-label={`View photo ${i + 1} of ${shots.length}${shot.caption ? `: ${shot.caption}` : ''}`} onClick={() => { homeHaptic(); setPhotoIndex(i); }}>
-              <img src={shot.url} alt={shot.caption || `${authorName}'s ${kind === 'Cooked' ? 'cooking' : 'meal'}`} loading="lazy" decoding="async" referrerPolicy="no-referrer" onError={() => setFailed(prev => new Set(prev).add(shot.id))} />
-              {shot.caption && <span className="feed-mosaic-caption">{shot.caption}</span>}
-              {i === Math.min(shots.length, 3) - 1 && shots.length > 3 && <span className="feed-mosaic-more">+{shots.length - 3} photos</span>}
-            </button>
-          ))}
-        </div>
+        <FeedPhotoCarousel key={shots.map(shot => `${shot.id}:${shot.url}`).join('|')}
+          photos={shots} name={place?.name || title || authorName}
+          onOpen={index => { homeHaptic(); setPhotoIndex(index); }}
+          onError={id => setFailed(prev => new Set(prev).add(id))} />
       )}
       {photoIndex !== null && <PhotoGallery photos={shots.map(s => s.url)} communityPhotos={[]} name={place?.name || title || authorName} initialIndex={photoIndex} photoCaptions={Object.fromEntries(shots.map(s => [s.url, s.caption || '']))} startExpanded onClose={() => setPhotoIndex(null)} />}
 

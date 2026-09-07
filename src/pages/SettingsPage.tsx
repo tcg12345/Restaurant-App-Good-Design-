@@ -1,8 +1,10 @@
+import { TastePreferencesEditor } from '../components/settings/TastePreferencesEditor';
+import { ReviewArchive } from '../components/in-review/ReviewArchive';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import {
   ArrowLeft, AtSign, AlertTriangle, BadgeCheck, Camera, Check, ChevronRight, Globe,
-  LifeBuoy, Loader2, Lock, LogOut, Mail, MapPin, Moon, Phone, Shield, Sparkles,
+  LifeBuoy, Loader2, Lock, LogOut, Mail, MapPin, Moon, Monitor, Phone, Shield, Sparkles,
   SquarePen, Star, Sun, Trash2, Upload, UploadCloud, User, Utensils, X,
 } from 'lucide-react';
 import { motion, AnimatePresence, MotionConfig } from 'motion/react';
@@ -45,7 +47,7 @@ import pkg from '../../package.json';
 
 /** Focused settings routes share one consistent navigation and form shell. */
 
-const PAGE_TITLES = { edit: 'Edit profile', account: 'Account & security', email: 'Email address', phone: 'Phone number', password: 'Password', privacy: 'Privacy & permissions', appearance: 'Appearance & feedback', ratings: 'Rating preferences', home: 'Home & personalization', subscription: 'GoodEats Pro', data: 'Your data', support: 'Help & about', verification: 'Verification', delete: 'Delete account' } as const;
+const PAGE_TITLES = { taste: 'Taste profile settings', reviews: 'GoodEats in Review', edit: 'Edit profile', account: 'Account & security', email: 'Email address', phone: 'Phone number', password: 'Password', privacy: 'Privacy & permissions', appearance: 'Appearance & feedback', ratings: 'Rating preferences', home: 'Home & personalization', subscription: 'GoodEats Pro', data: 'Your data', support: 'Help & about', verification: 'Verification', delete: 'Delete account' } as const;
 type SubPage = keyof typeof PAGE_TITLES;
 
 /** Human names for the profile columns saveProfile may have to skip, so a
@@ -127,7 +129,7 @@ export const SettingsPage: React.FC = () => {
   const location = useLocation();
   const routePage = location.pathname.split('/')[2];
   const page: SubPage | null = routePage && routePage in PAGE_TITLES ? routePage as SubPage : null;
-  const back = usePageBack(page ? '/settings' : '/profile');
+  const back = usePageBack(page === 'taste' ? '/settings/home' : page ? '/settings' : '/profile');
   const [haptics, setHaptics] = useDevicePreference('haptics');
   const [homeAutoplay, setHomeAutoplay] = useDevicePreference('homeAutoplay');
   const [shareRatings, setShareRatings] = useDevicePreference('shareRatings');
@@ -138,7 +140,7 @@ export const SettingsPage: React.FC = () => {
   const [restoreBusy, setRestoreBusy] = useState(false);
   const { profile, user, signOut, refreshProfile, isAdmin } = useAuth();
   const listsCtx = useLists();
-  const { darkMode, toggleDarkMode, twoDecimalScores, toggleTwoDecimalScores } = useSettings();
+  const { appearance, setAppearance, twoDecimalScores, toggleTwoDecimalScores } = useSettings();
   const plan = usePlan();
   const { showToast } = useToast();
   const { openPaywall, requirePro } = usePaywall();
@@ -437,14 +439,16 @@ export const SettingsPage: React.FC = () => {
   const links: SettingLink[] = [
     { page: 'account', title: 'Account & security', sub: 'Email, phone and password', icon: <Lock size={19} />, group: 'Your account' },
     { page: 'privacy', title: 'Privacy & permissions', sub: profile?.is_public ? 'Public profile' : 'Private profile', icon: <Shield size={19} />, group: 'Your account', keywords: 'private public visibility contacts location photos' },
-    { page: 'appearance', title: 'Appearance & feedback', sub: darkMode ? 'Dark' : 'Light', icon: <Sun size={19} />, group: 'Your experience', keywords: 'dark light theme haptics vibration' },
+    { page: 'appearance', title: 'Appearance & feedback', sub: appearance === 'system' ? 'System' : appearance === 'dark' ? 'Dark' : 'Light', icon: <Sun size={19} />, group: 'Your experience', keywords: 'system automatic dark light theme haptics vibration' },
     { page: 'ratings', title: 'Rating preferences', sub: 'Scores and sharing', icon: <Star size={19} />, group: 'Your experience', keywords: 'precise decimals default circle' },
+    { page: 'reviews', title: 'GoodEats in Review', sub: 'Your weeks, months, and years in food', icon: <Sparkles size={19} />, group: 'Your experience', keywords: 'wrapped recap memories archive annual weekly monthly share' },
     { page: 'home', title: 'Home & personalization', sub: 'Make it feel like you', icon: <SlidersHorizontal size={19} />, group: 'Your experience', keywords: 'carousel autoplay rotate reset algorithm' },
     { page: 'subscription', title: 'GoodEats Pro', sub: plan.subscribed ? 'Your membership' : 'Plan and purchases', icon: <Sparkles size={19} />, group: 'More from GoodEats' },
     { page: 'data', title: 'Your data', sub: 'Import, export and photo uploads', icon: <Download size={19} />, group: 'More from GoodEats' },
     { page: 'support', title: 'Help & about', sub: 'Support and app information', icon: <LifeBuoy size={19} />, group: 'More from GoodEats', keywords: 'terms policy version legal' },
   ];
   const searchable = [...links,
+    { page: 'taste' as const, title: 'Taste profile settings', sub: 'Cuisines, budget, recipes and AI personalization', icon: <Sparkles size={19} />, group: 'Your experience' },
     { page: 'edit' as const, title: 'Edit profile', sub: 'Name, username, bio and city', icon: <User size={19} />, group: 'Your account' },
     ...(['email', 'phone', 'password', 'verification', 'delete'] as const).map(p => ({ page: p, title: PAGE_TITLES[p], sub: 'Account & security', icon: <Lock size={19} />, group: 'Your account' })),
   ];
@@ -788,16 +792,30 @@ export const SettingsPage: React.FC = () => {
         {group('Your information', <Row icon={<Shield size={19} />} title="Privacy policy" onPress={() => void openExternalUrl(PRIVACY_URL)} />)}
       </>}
       {page === 'appearance' && <>
-        <section className="settings-section"><h2>Appearance</h2><div className="settings-theme-options" role="group" aria-label="Color theme">{[false,true].map(dark => <button key={String(dark)} aria-pressed={darkMode === dark} onClick={() => { if (darkMode !== dark) toggleDarkMode(); }}><span className={`settings-theme-preview ${dark ? 'is-dark' : ''}`}><i /><i /><i /></span><span>{dark ? <Moon size={16} /> : <Sun size={16} />}{dark ? 'Dark' : 'Light'}{darkMode === dark && <Check size={17} />}</span></button>)}</div></section>
+        <section className="settings-section">
+          <h2>Appearance</h2>
+          <div className="settings-theme-options" role="group" aria-label="Color theme">
+            {(['light', 'dark', 'system'] as const).map(mode => (
+              <button key={mode} aria-pressed={appearance === mode} aria-label={mode === 'system' ? 'System' : mode === 'dark' ? 'Dark' : 'Light'} onClick={() => setAppearance(mode)}>
+                <span aria-hidden="true" className={`settings-theme-preview ${mode === 'dark' ? 'is-dark' : mode === 'system' ? 'is-system' : ''}`}><i /><i /><i /></span>
+                <span>{mode === 'system' ? <Monitor size={16} /> : mode === 'dark' ? <Moon size={16} /> : <Sun size={16} />}{mode === 'system' ? 'System' : mode === 'dark' ? 'Dark' : 'Light'}</span>
+                <span className="settings-theme-check" aria-hidden="true">{appearance === mode && <Check size={16} />}</span>
+              </button>
+            ))}
+          </div>
+          <p className="settings-note">System automatically matches your device’s light or dark appearance.</p>
+        </section>
         {group('Interaction', <Row icon={<Vibrate size={19} />} title="Button haptics" sub="Subtle feedback when you tap and swipe" toggle on={haptics} onPress={() => setHaptics(!haptics)} />, 'Device preferences stay on this device. System Reduce Motion is respected where supported.')}
       </>}
       {page === 'ratings' && <>
         {group('Score display', <Row icon={<Star size={19} />} title="Precise scores" sub="Show 8.37 instead of 8.4" toggle on={!proLocked && twoDecimalScores} tag={proLocked ? <ProTag /> : undefined} onPress={proLocked ? () => openPaywall('gate:precise-scores', 'precise-scores', { onUnlocked: () => { if (!twoDecimalScores) toggleTwoDecimalScores(); } }) : toggleTwoDecimalScores} />, 'Display precision doesn’t change your rankings.')}
         {group('When you rate', <Row icon={<Globe size={19} />} title="Share to your circle by default" sub="You can change this for each rating" toggle on={shareRatings} onPress={() => setShareRatings(!shareRatings)} />, 'Applies to new rating sessions on this device. Existing activity stays as it is.')}
       </>}
+      {page === 'reviews' && <ReviewArchive />}
+      {page === 'taste' && <TastePreferencesEditor />}
       {page === 'home' && <>
         {group('Ideas for you', <><Row icon={<Play size={19} />} title="Rotate Home cards automatically" sub="Turn off to browse cards at your own pace" toggle on={homeAutoplay} onPress={() => setHomeAutoplay(!homeAutoplay)} /><Row icon={<RotateCcw size={19} />} title="Reset card personalization" sub="Clear recent views and taps on this device" onPress={() => setResetHome(true)} /></>, 'Home still uses your ratings, saved places, recipes and circle to choose relevant ideas.')}
-        {group('Your taste', <Row icon={<Sparkles size={19} />} title="Taste profile" sub="See what shapes your recommendations" onPress={() => navigate('/profile/taste')} />)}
+        {group('Your taste', <Row icon={<Sparkles size={19} />} title="Taste profile" sub="Edit what shapes your recommendations" onPress={() => navigate('/settings/taste')} />)}
       </>}
       {page === 'subscription' && <>
         <div className="settings-pro"><Sparkles size={30} /><h2>GoodEats Pro</h2><p>{!plan.checked ? 'Checking your plan…' : plan.subscribed ? plan.source === 'grant' ? 'Your complimentary membership' : 'Your membership is active' : 'More ways to find your next favorite.'}</p>{plan.proUntil && <small>{plan.willRenew === false ? 'Ends' : 'Renews'} {new Date(plan.proUntil).toLocaleDateString()}</small>}<button className="settings-primary" disabled={!plan.checked} onClick={() => navigate('/pro')}>{plan.subscribed ? 'Explore your benefits' : 'Explore Pro'}</button></div>

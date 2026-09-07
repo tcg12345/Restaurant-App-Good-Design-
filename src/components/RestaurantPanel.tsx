@@ -76,6 +76,7 @@ interface RestaurantPanelProps {
   onClose: () => void;
   currentUserId: string | null;
   variant: 'panel' | 'sheet';
+  headSlot?: React.ReactNode;
 }
 
 function formatRelativeDate(iso: string): string {
@@ -1036,7 +1037,7 @@ export const RestaurantPanelBody: React.FC<{
 
 /* ── Desktop side panel + mobile sheet ───────────────────────────────── */
 
-export const RestaurantPanel: React.FC<RestaurantPanelProps> = ({ snapshot, onClose, currentUserId, variant }) => {
+export const RestaurantPanel: React.FC<RestaurantPanelProps> = ({ snapshot, onClose, currentUserId, variant, headSlot }) => {
   const reducedMotion = useReducedMotion();
   const sheetScrollRef = useRef<HTMLDivElement | null>(null);
   // Native glass stands down while the sheet is entering or under the
@@ -1080,7 +1081,7 @@ export const RestaurantPanel: React.FC<RestaurantPanelProps> = ({ snapshot, onCl
               <div className="rp-grabber" style={{ touchAction: 'none' }} onPointerDown={startDrag}>
                 <span className="block w-9 h-1 rounded-full bg-on-surface/20" />
               </div>
-              <RestaurantPanelBody snapshot={snapshot} onClose={onClose} currentUserId={currentUserId} scrollElRef={sheetScrollRef} glassSuspended={dragging || !entered} />
+              <RestaurantPanelBody headSlot={headSlot} snapshot={snapshot} onClose={onClose} currentUserId={currentUserId} scrollElRef={sheetScrollRef} glassSuspended={dragging || !entered} />
             </motion.div>
           </motion.div>
         )}
@@ -1100,7 +1101,7 @@ export const RestaurantPanel: React.FC<RestaurantPanelProps> = ({ snapshot, onCl
           className="h-full bg-surface ring-1 ring-on-surface/[0.16] rounded-[24px] overflow-hidden flex flex-col flex-shrink-0 shadow-md"
         >
           <div className="w-[388px] h-full flex flex-col">
-            <RestaurantPanelBody snapshot={snapshot} onClose={onClose} currentUserId={currentUserId} />
+            <RestaurantPanelBody headSlot={headSlot} snapshot={snapshot} onClose={onClose} currentUserId={currentUserId} />
           </div>
         </motion.div>
       )}

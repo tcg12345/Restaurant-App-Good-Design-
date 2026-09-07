@@ -1,10 +1,11 @@
+import { usePageBack } from '../lib/usePageBack';
 /**
  * GuideEdit — route wrapper for /guides/:id/edit. Loads the existing
  * guide, hands it to the global GuideCreator via context, and navigates
  * back to the reader page when the sheet closes.
  */
 import React, { useEffect, useState } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams } from 'react-router-dom';
 import { Loader2 } from 'lucide-react';
 import { getGuideById, type Guide } from '../lib/supabase-guides';
 import { useAuth } from '../contexts/AuthContext';
@@ -12,7 +13,7 @@ import { useGuideCreator } from '../contexts/GuideCreatorContext';
 
 export const GuideEdit: React.FC = () => {
   const { id } = useParams<{ id: string }>();
-  const navigate = useNavigate();
+  const goBack = usePageBack(`/guides/${id}`);
   const { user } = useAuth();
   const { openGuideCreator, isOpen } = useGuideCreator();
   const [guide, setGuide] = useState<Guide | null>(null);
@@ -43,9 +44,9 @@ export const GuideEdit: React.FC = () => {
   // When the sheet closes, navigate back to the reader.
   useEffect(() => {
     if (opened && !isOpen) {
-      navigate(`/guides/${id}`);
+      goBack();
     }
-  }, [opened, isOpen, id, navigate]);
+  }, [opened, isOpen, goBack]);
 
   if (loading) {
     return (

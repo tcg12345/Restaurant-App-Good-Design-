@@ -1,10 +1,10 @@
 @import './ProfileDesign.css';
 .public-profile-design {
-  --profile-ink: #24282b; --profile-muted: #737b80; --profile-line: #e4e8e8; --profile-canvas: #f6f7f8; --profile-paper: #fff; --profile-accent: #456c61;
+  --profile-ink: #24282b; --profile-muted: #737b80; --profile-line: #e4e8e8; --profile-canvas: #f6f7f8; --profile-paper: #fff; --profile-accent: var(--brand-accent);
   background: var(--profile-canvas); color: var(--profile-ink);
   font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Helvetica Neue', sans-serif;
 }
-.dark .public-profile-design { --profile-ink: #f2f4f4; --profile-muted: #a0a8ab; --profile-line: #303638; --profile-canvas: #111517; --profile-paper: #1d2426; --profile-accent: #a6cbbd; }
+.dark .public-profile-design { --profile-ink: #f2f4f4; --profile-muted: #a0a8ab; --profile-line: #303638; --profile-canvas: #111517; --profile-paper: #1d2426; --profile-accent: var(--brand-accent); }
 .public-profile-design :is(h1,h2,h3,button,.font-serif) { font-family: inherit; }
 .public-profile-design :is(button,a,select):focus-visible { outline: 2px solid var(--profile-accent); outline-offset: 3px; }
 .public-profile-wash { position: absolute; inset: 0 0 auto; height: 250px; background: radial-gradient(ellipse at 80% 0%,#c9ddd32b,transparent 75%); pointer-events: none; }

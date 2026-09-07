@@ -1,3 +1,6 @@
+import { MobilePageSheet } from './MobilePageSheet';
+import { tasteRankingKey } from '../lib/taste-preferences';
+import { useTastePreferences } from '../hooks/useTastePreferences';
 import './LibraryDesign.css';
 import { homeHaptic } from '../lib/haptics';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
@@ -279,13 +282,14 @@ export const RecommendationsBrowser: React.FC<RecommendationsBrowserProps> = ({ 
 
   // The mobile full-pager covers the bottom nav's space — hide it.
   useEffect(() => {
+    if (isPage) return;
     setHideBottomNav(open && isMobile);
     return () => setHideBottomNav(false);
-  }, [open, isMobile, setHideBottomNav]);
+  }, [open, isMobile, setHideBottomNav, isPage]);
 
   useEffect(() => {
     if (!open) return;
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && !scrollRef.current?.closest('[inert]')) onClose(); };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [open, onClose]);
@@ -296,10 +300,11 @@ export const RecommendationsBrowser: React.FC<RecommendationsBrowserProps> = ({ 
   // Michelin-readiness flag is a dep so the profile's michelinTaste shares
   // (index-gated inside the builder) appear once the dataset loads.
   const michelinReady = useMichelinIndexReady();
+  const { preferences: tastePreferences } = useTastePreferences();
   const liveProfile = useMemo(
-    () => buildTasteProfile(ratings, wishlist, lists, [], getTasteQuiz(myProfile)),
+    () => buildTasteProfile(ratings, wishlist, lists, [], null, { preferences: tastePreferences }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [ratings, wishlist, lists, michelinReady, myProfile],
+    [ratings, wishlist, lists, michelinReady, myProfile, tastePreferences],
   );
 
   /* Under RECS_MIN_RATINGS this surface can't keep its promise — see the
@@ -321,8 +326,8 @@ export const RecommendationsBrowser: React.FC<RecommendationsBrowserProps> = ({ 
   const [moodPhrases, setMoodPhrases] = useState<string[]>(() => preset?.moodPhrases ?? []);
   const [moodCuisines, setMoodCuisines] = useState<string[]>(() => preset?.moodCuisines ?? []);
   const scoringProfile = useMemo(
-    () => withMoodTags(liveProfile, moodTags, moodCuisines),
-    [liveProfile, moodTags, moodCuisines],
+    () => withMoodTags(liveProfile, moodTags, moodCuisines, statedTiers),
+    [liveProfile, moodTags, moodCuisines, statedTiers],
   );
 
   const ratedCount = ratings.length;
@@ -400,14 +405,14 @@ export const RecommendationsBrowser: React.FC<RecommendationsBrowserProps> = ({ 
   /** Members with `me`'s profile always current, without refetching anyone. */
   const liveMembers = useMemo<GroupMember[]>(() => {
     if (groupMembers.length === 0) return [];
-    return groupMembers.map((m, i) => (i === 0 ? { ...m, profile: liveProfile } : m));
-  }, [groupMembers, liveProfile]);
+    return groupMembers.map((m, i) => (i === 0 ? { ...m, profile: liveProfile, dietary: tastePreferences.dietary.map(d=>d.toLowerCase()) } : m));
+  }, [groupMembers, liveProfile, tastePreferences]);
 
   // Gather the candidate pool (network) — profile changes deliberately do
   // NOT re-run this; they only re-score.
   useEffect(() => {
     if (!open || !target || locked) return;
-    const key = `${userId ?? 'anon'}|${target.lat.toFixed(3)},${target.lng.toFixed(3)}|${radiusMiles}|${statedTiers.join('')}|${moodPhrases.join('_')}`;
+    const key = `${userId ?? 'anon'}|${target.lat.toFixed(3)},${target.lng.toFixed(3)}|${radiusMiles}|${statedTiers.join('')}|${moodPhrases.join('_')}|${tasteRankingKey(tastePreferences)}`;
     const cached = poolCache.get(key);
     if (cached && Date.now() - cached.fetchedAt < POOL_TTL_MS) {
       setPool(cached);
@@ -447,7 +452,7 @@ export const RecommendationsBrowser: React.FC<RecommendationsBrowserProps> = ({ 
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; controller.abort(); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, target, radiusMiles, userId, locked, statedTiers, moodPhrases]);
+  }, [open, target, radiusMiles, userId, locked, statedTiers, moodPhrases, tastePreferences]);
 
   // Rank the pool against the live profile. Rated places drop out here
   // (skipUserHistory), so rating from inside the popup removes the row and
@@ -478,7 +483,7 @@ export const RecommendationsBrowser: React.FC<RecommendationsBrowserProps> = ({ 
     const radiusMeters = Math.round(radiusMiles * 1609.34);
     const perMember = liveMembers.map((m) => {
       const scored = scoreCandidates(
-        pool.candidates, withMoodTags(m.profile, moodTags, moodCuisines), pool.signals,
+        pool.candidates, withMoodTags(m.profile, moodTags, moodCuisines, statedTiers), pool.signals,
         { label: target.label, lat: target.lat, lng: target.lng }, radiusMeters,
         { limit: pool.candidates.length, skipUserHistory: false, keepWishlisted: true, enforcePriceBand: !priceStated },
       );
@@ -503,7 +508,7 @@ export const RecommendationsBrowser: React.FC<RecommendationsBrowserProps> = ({ 
       out.set(c.id, aggregateGroup(liveMembers, perMember.map((m) => m.get(c.id))));
     }
     return out;
-  }, [pool, target, liveMembers, radiusMiles, moodTags, moodCuisines, priceStated]);
+  }, [pool, target, liveMembers, radiusMiles, moodTags, moodCuisines, priceStated, statedTiers]);
 
   /* The group's own base list. It must NOT be the solo `results`: that
      list is MY top-60, with my rated places dropped (skipUserHistory) and
@@ -1499,16 +1504,9 @@ export const RecommendationsBrowser: React.FC<RecommendationsBrowserProps> = ({ 
     <AnimatePresence>
       {open && (
         isMobile ? (
-          /* Mobile: full-page slide-up panel. */
-          <motion.div
-            initial={{ y: '100%' }}
-            animate={{ y: 0 }}
-            exit={{ y: '100%' }}
-            transition={{ type: 'spring' as const, damping: 28, stiffness: 300 }}
-            className="foryou-page fixed inset-0 z-50 flex flex-col bg-surface"
-          >
+          <MobilePageSheet label="For you" onClose={onClose} scrollRef={scrollRef} className="foryou-page">
             {mobileLayout}
-          </motion.div>
+          </MobilePageSheet>
         ) : (
           /* Desktop: backdrop + centered spotlight card. */
           <>
@@ -1558,6 +1556,6 @@ export const RecommendationsBrowser: React.FC<RecommendationsBrowserProps> = ({ 
         )
       )}
     </AnimatePresence>,
-    document.getElementById('phone-frame-root') ?? document.body,
+    document.body,
   );
 };

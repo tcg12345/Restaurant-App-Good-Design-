@@ -1,3 +1,4 @@
+import { useLocalBack } from '../lib/back-navigation';
 import { usePageBack } from '../lib/usePageBack';
 import { Capacitor } from "@capacitor/core";
 import React, { useCallback, useEffect, useRef, useState } from "react";
@@ -48,6 +49,9 @@ import {
 import { GroupCuisinePicker } from "../components/GroupCuisinePicker";
 import { GroupDiscovery } from "../components/GroupDiscovery";
 import { GroupPairwise } from "../components/GroupPairwise";
+import { GroupCustomLobby, GroupContributionPolicy } from "../components/GroupCustomLobby";
+import { GroupPlaceInfo } from "../components/GroupPlaceInfo";
+import { RestaurantPanel } from "../components/RestaurantPanel";
 import "./DecideTogether.css";
 type RoomSummary = Pick<GroupRoom, "id" | "code" | "host" | "status" | "location">;
 export const DecideTogether: React.FC = () => {
@@ -63,6 +67,8 @@ export const DecideTogether: React.FC = () => {
   const [mode, setMode] = useState<"intro" | "create" | "join">("intro");
   const [code, setCode] = useState(params.get("code") || "");
   const [count, setCount] = useState(8);
+  const [source, setSource] = useState<'recommendations' | 'custom'>('recommendations');
+  const [allowGuestAdds, setAllowGuestAdds] = useState(false);
   const [radius, setRadius] = useState(5000);
   const [locationOpen, setLocationOpen] = useState(false);
   const [preferences, setPreferences] = useState<GroupPreferences>(() => normalizeGroupPreferences(null));
@@ -92,14 +98,22 @@ export const DecideTogether: React.FC = () => {
   const member = room && user ? room.members[user.id] : null;
   const host = room?.host === user?.id;
   const current = room?.deck.find((p) => !member?.votes[p.id]);
+  const [preview, setPreview] = useState<GroupPlace | null>(null);
   const [dragLabel, setDragLabel] = useState("");
   const accept = useCallback(
     (next: GroupRoom) => {
       setRoom(next);
       setSyncError("");
-      setParams({ code: next.code }, { replace: true });
+      // Replacing even an identical URL creates a new history key. The route
+      // stack remounts this page, auto-joins, then accepts the room again.
+      // Only navigate when switching to a different room code.
+      if (params.get("code") !== next.code) {
+        const nextParams = new URLSearchParams(params);
+        nextParams.set("code", next.code);
+        setParams(nextParams, { replace: true });
+      }
     },
-    [setParams],
+    [params, setParams],
   );
   const run = async (action: string, payload: Record<string, unknown> = {}) => {
     if (lock.current) return;
@@ -245,13 +259,15 @@ export const DecideTogether: React.FC = () => {
     ? `Join my GoodEats room. Code: ${room.code}\n${roomUrl}`
     : "";
   const leaveView = () => {
+    setPreview(null);
     setRoom(null);
     setParams({}, { replace: true });
     autoJoin.current = "";
     setMode("intro");
     setError("");
   };
-  const choosingMood = busy !== "generate" && room?.status === "lobby" && !settings && (!member?.ready || editing);
+  const customRoom = room?.source === 'custom';
+  const choosingMood = !customRoom && busy !== "generate" && room?.status === "lobby" && !settings && (!member?.ready || editing);
   const leaveRoom = () => host ? setConfirm("cancel") : void run("leave").then(next => { if (next) leaveView(); });
   const saveMood = () => void run("preferences", { preferences: { ...preferences, dietary: [] } });
   const primary = (label: string, onClick: () => void, disabled = false) => (
@@ -271,6 +287,7 @@ export const DecideTogether: React.FC = () => {
   const done = members.filter(
     ([, m]) => m.ranking?.done,
   ).length;
+  const placeInfo = (place: GroupPlace) => room && user ? <GroupPlaceInfo key={`${room.id}:${place.id}`} place={place} roomId={room.id} userId={user.id} onDetails={() => setPreview(place)} /> : null;
   const featurePhoto = (p: GroupPlace, cls = "") => (
     <div className={`gs-photo ${cls}`}>
       {p.photoUrl ? (
@@ -288,18 +305,21 @@ export const DecideTogether: React.FC = () => {
       ) : null}
     </div>
   );
+  const isSetup = !room && mode !== "intro";
+  const navigationOwner = useRef<HTMLElement>(null);
+  useLocalBack(isSetup, () => setMode("intro"), navigationOwner);
   return (
-    <main className={`gs-page${choosingMood ? " is-mood" : ""}`}>
+    <main ref={navigationOwner} className={`gs-page${choosingMood ? " is-mood" : ""}${isSetup ? " is-setup" : ""}`}>
       <header className="gs-header">
         <button
           className="gs-glass"
-          aria-label="Back to Home"
-          onClick={() => goBack()}
+          aria-label={isSetup ? "Back to Decide together" : "Back to Home"}
+          onClick={isSetup ? () => setMode("intro") : () => goBack()}
         >
           <ArrowLeft size={21} />
         </button>
         <span>Decide together</span>
-        {choosingMood ? <button className="gs-glass gs-header-close" disabled={!!busy} aria-label={host ? "Close room" : "Leave room"} onClick={leaveRoom}><X size={18} /></button> : <span className="gs-live">
+        {choosingMood ? <button className="gs-glass gs-header-close" disabled={!!busy} aria-label={host ? "Close room" : "Leave room"} onClick={leaveRoom}><X size={18} /></button> : !isSetup && <span className="gs-live">
           <i className={connected ? "online" : ""} />
           {room ? "Live room" : "Group Swipe"}
         </span>}
@@ -309,7 +329,7 @@ export const DecideTogether: React.FC = () => {
           className="gs-body"
           key={
             room
-              ? `${busy === "generate" ? "generating" : room.status}-${room.round}-${member?.ready && !editing ? "ready" : "prefs"}`
+              ? `${busy === "generate" ? "generating" : room.status}-${room.round}-${room.source === "custom" ? "custom" : member?.ready && !editing ? "ready" : "prefs"}`
               : mode
           }
           initial={{ opacity: 0, y: reduced ? 0 : 16 }}
@@ -389,9 +409,6 @@ export const DecideTogether: React.FC = () => {
                 </section>
               ) : mode === "join" ? (
                 <section className="gs-form">
-                  <button className="gs-text" onClick={() => setMode("intro")}>
-                    <ArrowLeft size={16} /> Back
-                  </button>
                   <span className="gs-hero-icon">
                     <Users />
                   </span>
@@ -433,15 +450,13 @@ export const DecideTogether: React.FC = () => {
                   </small>
                 </section>
               ) : (
-                <section className="gs-form">
-                  <button className="gs-text" onClick={() => setMode("intro")}>
-                    <ArrowLeft size={16} /> Back
-                  </button>
-                  <span className="gs-hero-icon">
-                    <Plus />
-                  </span>
-                  <h1>Make a night of it.</h1>
-                  <p>Pick the area. We’ll find the possibilities.</p>
+                <section className="gs-form gs-create-form">
+                  <h1>Create a room</h1>
+                  <p>{source === 'custom' ? 'Choose who can add to your shortlist.' : 'Choose your restaurants and dining area.'}</p>
+                  <div className="gs-room-type" role="group" aria-label="How to choose restaurants">
+                    <button aria-label="Find places for us" aria-pressed={source === 'recommendations'} onClick={() => setSource('recommendations')}><Sparkles size={23} /><span><strong>Find places for us</strong><small>Recommendations shaped around your group.</small></span>{source === 'recommendations' && <Check size={17} />}</button>
+                    <button aria-label="Choose our own places" aria-pressed={source === 'custom'} onClick={() => setSource('custom')}><Utensils size={23} /><span><strong>Choose our own places</strong><small>Decide between restaurants you already have in mind.</small></span>{source === 'custom' && <Check size={17} />}</button>
+                  </div>
                   <label>Where are we eating?</label>
                   <button
                     className="gs-location"
@@ -451,6 +466,7 @@ export const DecideTogether: React.FC = () => {
                     <span>{home?.location?.label || "Choose a location"}</span>
                     <ChevronDown size={17} />
                   </button>
+                  {source === 'recommendations' ? <>
                   <label>Search radius</label>
                   <div className="gs-chips">
                     {[
@@ -483,6 +499,7 @@ export const DecideTogether: React.FC = () => {
                     <span>Quick decision · 5</span>
                     <span>More choice · 15</span>
                   </div>
+                  </> : <><label>Who can add restaurants?</label><GroupContributionPolicy value={allowGuestAdds} onChange={setAllowGuestAdds} /></>}
                   {primary(
                     "Create room",
                     () =>
@@ -490,12 +507,13 @@ export const DecideTogether: React.FC = () => {
                         location: home?.location,
                         count,
                         radius,
+                        source,
+                        allowGuestAdds,
                       }),
                     !home?.location,
                   )}
                   <small>
-                    Your taste profile helps personalize this group’s
-                    suggestions.
+                    {source === 'custom' ? 'Add 2–15 restaurants after creating your room. Guests can join by code or invite.' : 'Your taste profile helps personalize this group’s suggestions.'}
                   </small>
                 </section>
               )}
@@ -558,7 +576,7 @@ export const DecideTogether: React.FC = () => {
                   <MapPin size={14} />
                   {room.location.label}
                   <span>· {room.count} places</span>
-                  {host && (
+                  {host && !customRoom && (
                     <button
                       className="gs-text"
                       onClick={() => {
@@ -573,6 +591,7 @@ export const DecideTogether: React.FC = () => {
                   )}
                 </div>
               </section>
+              {customRoom ? <GroupCustomLobby room={room} userId={user.id} busy={!!busy} error={error} run={run} onPreview={setPreview} /> : <>
               {settings && host && (
                 <section className="gs-form gs-room-settings">
                   <h2>Room settings</h2>
@@ -719,6 +738,7 @@ export const DecideTogether: React.FC = () => {
                   )}
                 </section>
               )}
+              </>}
               {!choosingMood && <button className="gs-text gs-leave" disabled={!!busy} onClick={leaveRoom}>{host ? "Close room" : "Leave room"}</button>}
             </>
           ) : room.status === "ready" ? (
@@ -731,7 +751,7 @@ export const DecideTogether: React.FC = () => {
               {host && <button className="gs-text gs-leave" onClick={() => setConfirm("cancel")}>Close room</button>}
             </section>
           ) : room.status === "swiping" && !current && member?.ranking && !member.ranking.done ? (
-            <GroupPairwise ranking={member.ranking} deck={room.deck} busy={!!busy} photo={featurePhoto}
+            <GroupPairwise ranking={member.ranking} deck={room.deck} busy={!!busy || !!preview} photo={featurePhoto} info={placeInfo}
               choose={payload => { void run("rank", { ...payload, round: room.round }); }} />
           ) : room.status === "swiping" ? (
             <section className="gs-swiping">
@@ -759,8 +779,8 @@ export const DecideTogether: React.FC = () => {
                   <AnimatePresence mode="wait">
                     <motion.article
                       key={current.id}
-                      className="gs-swipe-card"
-                      drag={!busy}
+                      className="gs-swipe-card" data-swipe-back="off"
+                      drag={!busy && !preview}
                       dragConstraints={{ left: 0, right: 0, top: 0, bottom: 0 }}
                       dragElastic={0.6}
                       onDrag={(_, info) =>
@@ -783,7 +803,7 @@ export const DecideTogether: React.FC = () => {
                       <div className="gs-card-shade" />
                       <span className="gs-fit">
                         <Sparkles size={13} />
-                        {current.fit}% taste fit
+                        {customRoom ? 'Your shortlist' : `${current.fit}% taste fit`}
                       </span>
                       {dragLabel && (
                         <span className={`gs-drag-label ${dragLabel}`}>
@@ -814,6 +834,7 @@ export const DecideTogether: React.FC = () => {
                       </div>
                     </motion.article>
                   </AnimatePresence>
+                  {placeInfo(current)}
                   <div className="gs-live-votes" aria-live="polite">
                     {members
                       .filter(([, m]) => m.votes[current.id])
@@ -922,7 +943,7 @@ export const DecideTogether: React.FC = () => {
                   : room.results[0].score === 0
                     ? "These places are still options, but nobody liked them."
                     : tiedPlaces(room).length > 1
-                      ? "Equal rankings. Your group’s taste fit puts this one first."
+                      ? customRoom ? "These places are tied. Choose the one your group feels like most." : "Equal rankings. Your group’s taste fit puts this one first."
                       : "A little of everyone, in one good pick."}
               </p>
               {room.results[0] && (
@@ -940,18 +961,14 @@ export const DecideTogether: React.FC = () => {
                       {room.results[0].cuisine} · {room.results[0].likes}/
                       {members.length} said yes
                     </p>
-                    <span>{room.results[0].fit}% predicted taste fit</span>
+                    <span>{customRoom ? 'Chosen from your own shortlist' : `${room.results[0].fit}% predicted taste fit`}</span>
                   </div>
-                  {primary("See the place", () =>
-                    navigate(`/restaurant/${room.results[0].id}`),
-                  )}
+                  {placeInfo(room.results[0])}
                   <div className="gs-runners">
                     <h2>Also in the running</h2>
                     {room.results.slice(1).map((p, i) => (
-                      <button
-                        key={p.id}
-                        onClick={() => navigate(`/restaurant/${p.id}`)}
-                      >
+                      <div className="gs-runner-entry" key={p.id}>
+                      <button onClick={() => setPreview(p)} aria-label={`Preview ${p.name}`}>
                         <span className="gs-rank">{i + 2}</span>
                         {featurePhoto(p)}
                         <span>
@@ -962,6 +979,8 @@ export const DecideTogether: React.FC = () => {
                         </span>
                         <ArrowRight size={16} />
                       </button>
+                      {placeInfo(p)}
+                      </div>
                     ))}
                   </div>
                 </>
@@ -978,7 +997,7 @@ export const DecideTogether: React.FC = () => {
                   Your pairwise choices rank your yeses from 100 for your favorite
                   to 60 for your last choice. A single yes scores 100; a pass scores 0.
                   Group fit combines 60% of the average with 40% of the lowest score.
-                  Any veto removes a place. Equal scores use your group’s predicted taste fit.
+                  Any veto removes a place. {customRoom ? 'Equal scores remain a tie for your group to decide.' : 'Equal scores use your group’s predicted taste fit.'}
                 </p>
               </details>
               <button
@@ -1078,6 +1097,11 @@ export const DecideTogether: React.FC = () => {
           onUseCurrent={home.useCurrent}
         />
       )}
+      <RestaurantPanel
+        snapshot={preview ? { id: preview.id, name: preview.name, cuisine: preview.cuisine, price: preview.priceLevel > 0 ? '$'.repeat(preview.priceLevel) : '', address: preview.address, image: preview.photoUrl || undefined, distanceMi: preview.distance / 1609 } : null}
+        onClose={() => setPreview(null)} currentUserId={user?.id || null} variant="sheet"
+        headSlot={preview && room && user ? <GroupPlaceInfo key={`preview:${preview.id}`} place={preview} roomId={room.id} userId={user.id} /> : undefined}
+      />
       <ShareDialog
         open={share}
         onClose={() => setShare(false)}

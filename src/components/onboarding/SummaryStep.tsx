@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { motion } from 'motion/react';
 import { Star } from 'lucide-react';
 import * as OB from './OnboardingKit';
-import { TASTE_PRICES, DIETARY_OPTIONS } from './TasteSteps';
+import { TASTE_PRICES } from './TasteSteps';
 import { TierEmblem } from '../profile/TierEmblem';
 import { useTasteProfile } from '../../lib/useTasteProfile';
 import { fetchTastePreview } from '../../lib/taste-preview';
@@ -81,9 +81,8 @@ export const SummaryStep: React.FC<{
   cuisines: string[];
   pricePrimary?: number;
   priceSecondary?: number;
-  dietary: string[];
   city: HomeLocation | null;
-}> = ({ name, cuisines, pricePrimary, priceSecondary, dietary, city }) => {
+}> = ({ name, cuisines, pricePrimary, priceSecondary, city }) => {
   // The same hook the profile card and the full page run, so the points
   // and tier here are exactly what they will see next — ratings made on
   // the rate step, the photo, the cuisines they cover, all already
@@ -109,7 +108,6 @@ export const SummaryStep: React.FC<{
     ...cuisines.slice(0, 4),
     ...(cuisines.length > 4 ? [`+${cuisines.length - 4} more`] : []),
     ...(spend ? [`${spend.sub} · ${spend.label}`] : []),
-    ...dietary.map((d) => DIETARY_OPTIONS.find((o) => o.id === d)?.title ?? d),
     ...(city ? [city.label.split(',')[0]] : []),
   ];
 

@@ -232,7 +232,7 @@ export function moodHasSignal(q: MoodQuery): boolean {
   return q.tags.length > 0 || q.cuisines.length > 0 || q.priceLevels.length > 0 || q.openNow;
 }
 
-import type { TasteProfile } from './recommendations';
+import { withPreferenceOverrides, type TasteProfile } from './recommendations';
 
 /**
  * The mood's ranking half: a transient boost on the profile's tagScore.
@@ -256,7 +256,9 @@ export function withMoodTags(
    *  filter is how "expensive sushi" returned an empty list — Google types
    *  most sushi rooms as Japanese, so the label never matched. */
   cuisines: string[] = [],
+  priceTiers: number[] = [],
 ): TasteProfile {
+  profile = withPreferenceOverrides(profile, priceTiers, cuisines);
   if (tags.length === 0 && cuisines.length === 0) return profile;
   let tagMax = 1;
   for (const v of Object.values(profile.tagScore)) tagMax = Math.max(tagMax, Math.abs(v));

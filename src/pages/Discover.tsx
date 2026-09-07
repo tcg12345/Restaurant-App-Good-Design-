@@ -1,3 +1,5 @@
+import { recipePreferenceScore } from '../lib/taste-preferences';
+import { useTastePreferences } from '../hooks/useTastePreferences';
 import { usePageBack } from '../lib/usePageBack';
 import React, { useState, useRef, useCallback, useEffect, useMemo, useLayoutEffect } from 'react';
 import { discoverSheetStops, nearestDiscoverSnap } from '../lib/discover-sheet-motion';
@@ -13,7 +15,6 @@ import { attachMapErrorFallback } from '../lib/map-error';
 import MapboxWorker from 'mapbox-gl/dist/mapbox-gl-csp-worker?worker';
 import { cn, safeImage } from '../lib/utils';
 import { GlassButton, GlassGroup, GlassChipRow } from '../lib/glass-buttons';
-import { getTasteQuiz } from '../lib/taste-quiz';
 import { VerifiedBadge } from '../components/VerifiedBadge';
 import { ScoreBadge } from '../components/ScoreBadge';
 import { scoreColor, scoreHex, scoreTintStyle, formatScore } from '../lib/score';
@@ -1367,12 +1368,13 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, sear
     });
   }, [userId]);
 
+  const { preferences: tastePreferences } = useTastePreferences();
   // Taste profile is centralised in src/lib/recommendations.ts so Map.tsx and
   // anything else that needs preference-weighted picks share the same weighting
   // math (score-centered around 7, wishlist nudges, list-name → tag signals).
   const userPreferences = useMemo<TasteProfile>(
-    () => buildTasteProfile(myLocalRatings, wishlist, myLists, recentViews, getTasteQuiz(profile)),
-    [myLocalRatings, wishlist, myLists, recentViews, profile],
+    () => buildTasteProfile(myLocalRatings, wishlist, myLists, recentViews, null, { preferences: tastePreferences }),
+    [myLocalRatings, wishlist, myLists, recentViews, profile, tastePreferences],
   );
 
   // Radius scope for the Recommended For You row (miles). Persisted so the
@@ -1512,7 +1514,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, sear
         if (!r?.id || seen.has(r.id)) continue;
         if (cooked.has(r.title.trim().toLowerCase())) continue;
         seen.add(r.id);
-        let s = baseWeight;
+        let s = baseWeight + recipePreferenceScore(tastePreferences, r);
         if (r.cuisine) s += (recipePreferences.cuisineCounts[r.cuisine.toLowerCase()] || 0) * 3;
         for (const t of r.tags) s += recipePreferences.tagCounts[t.toLowerCase()] || 0;
         scored.push({ ...r, _source: source, _score: s });
@@ -1558,7 +1560,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, sear
 
     scored.sort((a, b) => b._score - a._score);
     return scored.slice(0, 8);
-  }, [friendPublishedRecipes, friendRecipes, expertPublishedRecipes, publicPublishedRecipes, homeMeals, recipePreferences]);
+  }, [friendPublishedRecipes, friendRecipes, expertPublishedRecipes, publicPublishedRecipes, homeMeals, recipePreferences, tastePreferences]);
 
   // Thin wrapper around buildCandidateQueries — Map passes a city override
   // from the home-location dropdown; the engine treats it as target.label so
@@ -2917,7 +2919,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, sear
       // Selected → brand primary; otherwise restore the marker's own score
       // colour. Content (white score / pin glyph) stays white in both states.
       pin.style.background = isSelected
-        ? 'var(--color-primary, #2b2622)'
+        ? 'var(--color-primary, #2e6651)'
         : (pin.dataset.baseColor || '#94a3b8');
       el.style.zIndex = isSelected ? '5' : '';
     });
@@ -5619,7 +5621,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, sear
                     <div>
                       <div className="flex items-baseline justify-between gap-3 border-b border-on-surface/[0.07] pb-2">
                         <h2 className="text-[11px] font-bold uppercase tracking-[0.18em] text-on-surface/45">Featured guides</h2>
-                        <SectionLink label="Browse all" onClick={() => setGuidesBrowserOpen(true)} />
+                        <SectionLink label="Browse all" onClick={() => { if (!usingDesktopHeader) navigate('/guides', { state: { guideCollection: browseGuides } }); else setGuidesBrowserOpen(true); }} />
                       </div>
                       <div className="divide-y divide-on-surface/[0.06]">
                         {feedGuides.slice(0, 4).map((g) => {
@@ -5682,7 +5684,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, sear
                         <GuidesRail
                           guides={feedGuides}
                           authors={feedGuideAuthors}
-                          onBrowseAll={() => setGuidesBrowserOpen(true)}
+                          onBrowseAll={() => { if (!usingDesktopHeader) navigate('/guides', { state: { guideCollection: browseGuides } }); else setGuidesBrowserOpen(true); }}
                           onCreate={() => openGuideCreator()}
                         />
                       ),

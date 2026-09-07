@@ -24,6 +24,7 @@
  */
 import type { TasteProfile } from './recommendations';
 import type { TasteQuizAnswers } from './taste-quiz';
+import { tastePreferenceText } from './taste-preferences';
 
 export interface RatingLike {
   restaurantId: string;
@@ -107,6 +108,7 @@ export function sampleRatings<T extends RatingLike>(ratings: T[], cap = 60): Rat
 
 /** A plain-language reading of the computed taste profile. */
 export interface TasteSummary {
+  statedPreferences?: string;
   ratingCount: number;
   /** Their own average, and the shrunk anchor the engine scores against. */
   avgScore?: number;
@@ -148,6 +150,7 @@ export function buildTasteSummary(
   quiz: TasteQuizAnswers | null,
 ): TasteSummary {
   const out: TasteSummary = { ratingCount: profile.scoreN };
+  if (profile.preferences) out.statedPreferences = tastePreferenceText(profile.preferences) || 'No explicit preferences. Follow dining history and the current request.';
 
   if (profile.avgScore > 0) out.avgScore = Math.round(profile.avgScore * 10) / 10;
   if (typeof profile.anchor === 'number') out.anchor = Math.round(profile.anchor * 10) / 10;

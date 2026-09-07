@@ -3,12 +3,12 @@
   --rd-muted: color-mix(in srgb, var(--rd-ink) 64%, var(--color-surface));
   --rd-line: color-mix(in srgb, var(--rd-ink) 10%, transparent);
   --rd-panel: color-mix(in srgb, var(--color-surface) 94%, var(--rd-ink));
-  --rd-accent: #365b50;
+  --rd-accent: var(--brand-accent);
   box-sizing: border-box; min-height: 100%; max-width: 1120px; margin: 0 auto;
   padding: calc(env(safe-area-inset-top, 0px) + 18px) 22px calc(env(safe-area-inset-bottom, 0px) + 110px);
   color: var(--rd-ink); font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'Manrope', sans-serif;
 }
-.dark .recipe-discovery { --rd-accent: #b5d4c5; }
+.dark .recipe-discovery { --rd-accent: var(--brand-accent); }
 .recipe-discovery--embedded { padding-top: calc(env(safe-area-inset-top, 0px) + 137px); }
 .recipe-discovery button { cursor: pointer; -webkit-tap-highlight-color: transparent; }
 .recipe-discovery button:focus-visible { outline: 3px solid var(--rd-accent); outline-offset: 3px; }

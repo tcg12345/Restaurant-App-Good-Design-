@@ -1,4 +1,6 @@
+import { isAppGoal, type AppGoal } from './app-goal';
 import { supabase, supabaseConfigured } from './supabase';
+import { TASTE_QUESTION_ORDER, type TasteQuestion } from './onboarding-progress';
 
 /**
  * Persistence for the signup wizard's taste steps (components/onboarding/TasteSteps.tsx).
@@ -11,6 +13,10 @@ import { supabase, supabaseConfigured } from './supabase';
  */
 
 export interface TasteQuizAnswers {
+  /** Prioritizes restaurant or cooking suggestions on Home. */
+  goal?: AppGoal;
+  /** Includes deliberately skipped questions, to prevent duplicate setup. */
+  completedSteps?: TasteQuestion[];
   atmosphere?: string;
   /** Legacy — the flavor question was cut (nothing ever consumed it). Old
    *  rows still carry it; new writes don't. */
@@ -51,6 +57,8 @@ function sanitize(raw: unknown): TasteQuizAnswers | null {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
   const o = raw as Record<string, unknown>;
   const answers: TasteQuizAnswers = {
+    goal: isAppGoal(o.goal) ? o.goal : undefined,
+    completedSteps: Array.isArray(o.completedSteps) ? TASTE_QUESTION_ORDER.filter(key => (o.completedSteps as unknown[]).includes(key)) : undefined,
     atmosphere: typeof o.atmosphere === 'string' ? o.atmosphere : undefined,
     flavor: typeof o.flavor === 'string' ? o.flavor : undefined,
     cuisines: Array.isArray(o.cuisines) ? o.cuisines.filter((c): c is string => typeof c === 'string') : undefined,
@@ -69,13 +77,13 @@ function sanitize(raw: unknown): TasteQuizAnswers | null {
     frequency: typeof o.frequency === 'string' ? o.frequency : undefined,
     completedAt: typeof o.completedAt === 'number' ? o.completedAt : undefined,
   };
-  const hasAnything = answers.atmosphere || answers.flavor || answers.frequency
+  const hasAnything = answers.goal || answers.atmosphere || answers.flavor || answers.frequency
     || (answers.cuisines && answers.cuisines.length > 0)
     || (answers.prices && answers.prices.length > 0)
     || answers.pricePrimary !== undefined
     || (answers.avoidCuisines && answers.avoidCuisines.length > 0)
     || (answers.dietary && answers.dietary.length > 0)
-    || !!answers.city;
+    || !!answers.city || !!answers.completedSteps?.length;
   return hasAnything ? answers : null;
 }
 
@@ -96,16 +104,20 @@ export function getTasteQuiz(profile?: { taste_profile?: unknown } | null): Tast
 }
 
 /** Persist quiz answers: local mirror always, profile row when signed in. */
-export async function saveTasteQuiz(userId: string | null | undefined, answers: TasteQuizAnswers): Promise<void> {
+export async function saveTasteQuiz(userId: string | null | undefined, answers: TasteQuizAnswers, options?: { requireRemote?: boolean }): Promise<void> {
   try { localStorage.setItem(LOCAL_KEY, JSON.stringify(answers)); } catch { /* storage unavailable */ }
   if (!userId || !supabaseConfigured) return;
   try {
-    const { error } = await supabase
+    const { data, error } = await supabase
       .from('user_profiles')
       .update({ taste_profile: answers, updated_at: new Date().toISOString() })
-      .eq('user_id', userId);
+      .eq('user_id', userId)
+      .select('user_id')
+      .maybeSingle();
+    if (options?.requireRemote && (error || !data)) throw new Error('We couldn’t save your preferences. Please try again.');
     if (error) console.warn('[taste-quiz] persist failed (local mirror kept):', error.message);
   } catch (err) {
+    if (options?.requireRemote) throw err;
     console.warn('[taste-quiz] persist failed (local mirror kept):', err);
   }
 }

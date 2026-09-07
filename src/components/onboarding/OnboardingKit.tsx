@@ -4,13 +4,10 @@ import React from 'react';
 import { motion, MotionConfig, useReducedMotion } from 'motion/react';
 import './Onboarding.css';
 import { ArrowLeft, ArrowRight, Check, Loader2 } from 'lucide-react';
-import { GlassButton } from '../../lib/glass-buttons';
 import { Logo } from '../Logo';
-import { NIGHT_BG } from '../pro/night';
-import { useNightStatusBar } from '../../lib/night-status-bar';
 
-/* Scoped onboarding colors; the status bar matches this dark surface. */
-export const CREAM = 'var(--ob-bg)'; // historical name — now the app surface
+/* Aliases follow the active app theme. */
+export const CREAM = 'var(--ob-bg)';
 export const INK = 'var(--ob-ink)';
 export const SECONDARY = 'var(--ob-secondary)';
 export const LABEL_GREY = 'var(--ob-label)';
@@ -19,7 +16,7 @@ export const TERRA = 'var(--ob-terra)';
 export const TERRA_HOVER = 'var(--ob-terra-hover)';
 /** What reads on top of TERRA — white by day, graphite by night. */
 export const ON_TERRA = 'var(--ob-on-terra)';
-export const SERIF = '-apple-system, BlinkMacSystemFont, system-ui, sans-serif'; // historical export name
+export const SERIF = '-apple-system, BlinkMacSystemFont, system-ui, sans-serif';
 /** System typography throughout account setup. */
 export const DISPLAY = SERIF;
 
@@ -53,77 +50,36 @@ export const Reveal: React.FC<{
   </motion.div>
 ); };
 
-/* ── Screen wrapper ─────────────────────────────────────────────────────── */
-/** The screen is a fixed-height column, not a min-height one: `children`
- *  scrolls in its own region while `header` and `footer` sit outside that
- *  scroll, so the back button/progress bar and the primary action both land
- *  on the exact same pixel on every step regardless of how much content
- *  that step has — a short question and a long picked-list put "Continue"
- *  in the same place, and a step tall enough to need scrolling scrolls
- *  UNDER a footer (and BENEATH a header) that never move. Pass `footer` on
- *  every onboarding screen; omitting it falls back to the old
- *  content-decides-the-bottom layout for any screen not yet moved over. */
+/** One scroll container keeps fields, suggestions and actions reachable above
+ * the keyboard. The app theme owns the status bar and all surface colors. */
 export const OnboardingScreen: React.FC<{
   children: React.ReactNode;
   header?: React.ReactNode;
   footer?: React.ReactNode;
-  /** Kept for API compatibility. The page is a clean app surface now — the
-   *  old cream radial glows are gone; depth comes from glass and motion. */
   glow?: 'corner' | 'center';
-}> = ({ children, header, footer }) => {
-  // A dark page in a light app: the status bar text goes light while any
-  // onboarding screen is up.
-  useNightStatusBar();
+  contentKey?: React.Key;
+}> = ({ children, header, footer, contentKey }) => {
+  const content = React.useRef<HTMLDivElement>(null);
+  React.useEffect(() => {
+    if (contentKey === undefined) return;
+    content.current?.scrollTo({ top: 0 });
+    content.current?.querySelector<HTMLElement>('h1')?.focus({ preventScroll: true });
+  }, [contentKey]);
   return (
-  // Without a footer, height stays a MINIMUM: a screen whose content grows
-  // past one viewport (an error row, a reset notice, a keyboard-shrunk
-  // viewport) still needs the page itself to scroll, same as always. Only
-  // a footer screen gets the hard-height + internal-scroll treatment below
-  // — that trade only makes sense once something is actually pinned to it.
-  // `ob-night` hands every theme utility inside the dark tokens, so the
-  // step components read right on this ground in both app themes.
-  <MotionConfig reducedMotion="user"><div className="ob-night onboarding-screen relative w-full overflow-hidden" style={footer ? { height: 'var(--app-vh, 100dvh)', background: NIGHT_BG, color: INK } : { minHeight: 'var(--app-vh, 100dvh)', background: NIGHT_BG, color: INK }}>
-    <div
-      className="relative z-10 mx-auto flex w-full max-w-[430px] flex-col"
-      style={{
-        ...(footer ? { height: 'var(--app-vh, 100dvh)' } : { minHeight: 'var(--app-vh, 100dvh)' }),
-        paddingTop: 'max(20px, calc(env(safe-area-inset-top) + 12px))',
-        paddingBottom: footer ? 0 : 'max(28px, env(safe-area-inset-bottom))',
-        paddingLeft: 24,
-        paddingRight: 24,
-      }}
-    >
-      {footer ? (
-        <>
-          {header && <div className="flex-shrink-0">{header}</div>}
-          {/* min-h-0 overrides the flex-item default of min-height:auto —
-              without it, content taller than the column refuses to shrink
-              and overflow-y-auto never actually scrolls.
-              overflow-x-hidden is NOT redundant: `overflow-y: auto` makes
-              the x axis compute to `auto` too, so the step-change slide
-              (x: ±24 → 0) would flash a real horizontal scrollbar. */}
-          <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden" style={{ paddingBottom: 20 }}>
-            {children}
-          </div>
-          <div className="flex-shrink-0" style={{ paddingBottom: 'max(28px, env(safe-area-inset-bottom))' }}>
-            {footer}
-          </div>
-        </>
-      ) : (
-        <>
-          {header}
-          {children}
-        </>
-      )}
-    </div>
-  </div></MotionConfig>
+  <MotionConfig reducedMotion="user">
+    <main className={`onboarding-screen ${footer ? 'ob-pinned' : 'ob-form-screen'}`}>
+      <div className="ob-shell">
+        {header && <header className="ob-navigation">{header}</header>}
+        <div className="ob-content" ref={content}>{children}</div>
+        {footer && <footer className="ob-footer">{footer}</footer>}
+      </div>
+    </main>
+  </MotionConfig>
   );
 };
 
-/* ── Brand mark (the GoodEats bowl, in a terracotta disc) ───────────────── */
-/** Onboarding's mark: the shared Logo, tinted with the flow's own terracotta
- *  (`--ob-terra`) rather than `--color-primary`, and carrying the soft lift
- *  every disc on these screens has. */
+/* Brand mark */
+/** The shared GoodEats mark follows the active theme. */
 export const BrandMark: React.FC<{ size?: number }> = ({ size = 54 }) => (
   <Logo
     size={size}
@@ -143,12 +99,12 @@ export const Eyebrow: React.FC<{ children: React.ReactNode }> = ({ children }) =
 );
 
 /** One clear headline per step. */
-export const Title: React.FC<{ children: React.ReactNode; size?: number }> = ({ children, size = 34 }) => (
-  <h1 style={{ fontFamily: DISPLAY, fontWeight: 700, fontSize: size, lineHeight: 1.12, letterSpacing: '-0.02em', margin: 0, textWrap: 'balance' } as React.CSSProperties}>{children}</h1>
+export const Title: React.FC<{ children: React.ReactNode; size?: number }> = ({ children, size = 32 }) => (
+  <h1 tabIndex={-1} style={{ fontFamily: DISPLAY, fontWeight: 650, fontSize: size, lineHeight: 1.12, letterSpacing: '-0.045em', margin: 0, textWrap: 'balance' } as React.CSSProperties}>{children}</h1>
 );
 
 export const Subtitle: React.FC<{ children: React.ReactNode }> = ({ children }) => (
-  <p style={{ fontSize: 15.5, lineHeight: 1.5, color: SECONDARY, margin: '10px 0 0', maxWidth: 320 }}>{children}</p>
+  <p style={{ fontSize: 15, lineHeight: 1.6, color: SECONDARY, margin: '10px 0 0', maxWidth: 320 }}>{children}</p>
 );
 
 /** Step headline + optional one-liner, with the entrance built in: the
@@ -157,7 +113,7 @@ export const StepHeader: React.FC<{
   title: React.ReactNode;
   subtitle?: React.ReactNode;
   topGap?: number;
-}> = ({ title, subtitle, topGap = 28 }) => (
+}> = ({ title, subtitle, topGap = 26 }) => (
   <div style={{ marginTop: topGap }}>
     <Reveal blur><Title>{title}</Title></Reveal>
     {subtitle && <Reveal i={1}><Subtitle>{subtitle}</Subtitle></Reveal>}
@@ -165,72 +121,44 @@ export const StepHeader: React.FC<{
 );
 
 export const FieldLabel: React.FC<{ children: React.ReactNode }> = ({ children }) => (
-  <div style={{ fontSize: 10.5, letterSpacing: '1.3px', fontWeight: 700, color: LABEL_GREY, textTransform: 'uppercase', marginBottom: 9 }}>{children}</div>
+  <div style={{ fontSize: 13, letterSpacing: '-0.01em', fontWeight: 600, color: SECONDARY, marginBottom: 9 }}>{children}</div>
 );
 
 /* ── Inputs ─────────────────────────────────────────────────────────────── */
 /** iOS-style filled field: recessed neutral fill, no hairline at rest, a
  *  primary ring on focus. */
 export const Field: React.FC<{
-  value: string;
-  onChange: (v: string) => void;
-  placeholder?: string;
-  type?: string;
-  icon?: React.ReactNode;
-  /** A textual prefix shown inside the field (e.g. the "@" for a handle). */
-  prefix?: React.ReactNode;
-  rightSlot?: React.ReactNode;
-  autoFocus?: boolean;
-  autoComplete?: string;
-  autoCapitalize?: string;
-  inputMode?: React.HTMLAttributes<HTMLInputElement>['inputMode'];
-  name?: string;
-  onSubmit?: () => void;
-  onFocus?: () => void;
-  onBlur?: () => void;
-}> = ({ value, onChange, placeholder, type = 'text', icon, prefix, rightSlot, autoFocus, autoComplete, autoCapitalize, inputMode, name, onSubmit, onFocus, onBlur }) => (
-  <div className="relative">
-    {icon && (
-      <span className="absolute left-4 top-1/2 -translate-y-1/2 flex pointer-events-none" style={{ color: LABEL_GREY }}>{icon}</span>
-    )}
-    {prefix && (
-      <span className="absolute left-4 top-1/2 -translate-y-1/2 pointer-events-none" style={{ fontSize: 18, fontWeight: 600, color: LABEL_GREY }}>{prefix}</span>
-    )}
-    <input
-      type={type}
-      name={name}
-      aria-label={name || placeholder || type}
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-      onKeyDown={onSubmit ? (e) => { if (e.key === 'Enter') { e.preventDefault(); onSubmit(); } } : undefined}
-      onFocus={onFocus}
-      onBlur={onBlur}
-      placeholder={placeholder}
-      autoFocus={autoFocus}
-      autoComplete={autoComplete}
-      autoCapitalize={autoCapitalize}
-      autoCorrect="off"
-      inputMode={inputMode}
-      className="w-full rounded-2xl outline-none transition-all focus:[box-shadow:0_0_0_3.5px_var(--ob-focus-ring)]"
-      style={{
-        height: 54,
-        background: 'var(--ob-field)',
-        border: '1px solid var(--ob-border)',
-        backdropFilter: 'blur(18px)',
-        WebkitBackdropFilter: 'blur(18px)',
-        paddingLeft: icon ? 46 : prefix ? 42 : 16,
-        paddingRight: rightSlot ? 50 : 16,
-        fontSize: 16.5,
-        color: INK,
-      }}
-    />
-    {rightSlot && <div className="absolute right-2 top-1/2 -translate-y-1/2">{rightSlot}</div>}
-  </div>
-);
+  value: string; onChange: (v: string) => void; placeholder?: string;
+  type?: string; icon?: React.ReactNode; prefix?: React.ReactNode;
+  rightSlot?: React.ReactNode; autoFocus?: boolean; autoComplete?: string;
+  invalid?: boolean; autoCapitalize?: string; inputMode?: React.HTMLAttributes<HTMLInputElement>['inputMode'];
+  name?: string; label?: string; onSubmit?: () => void; onFocus?: () => void; onBlur?: () => void;
+}> = ({ value, onChange, placeholder, type = 'text', icon, prefix, rightSlot,
+  autoFocus, autoComplete, autoCapitalize, inputMode, name, label, onSubmit, onFocus, onBlur, invalid }) => {
+  const id = React.useId();
+  const ref = React.useRef<HTMLInputElement>(null);
+  return <div className="ob-field-group">
+    {label && <label className="ob-input-label" htmlFor={id}>{label}</label>}
+    <div className="ob-field" data-keep-keyboard onClick={(event) => {
+      if (!(event.target as HTMLElement).closest('button')) ref.current?.focus();
+    }}>
+      {(icon || prefix) && <span className="ob-field-leading" aria-hidden>{icon || prefix}</span>}
+      <input ref={ref} id={id} type={type} name={name}
+        aria-label={label || name || placeholder || type} aria-invalid={invalid || undefined} value={value}
+        onChange={(e) => onChange(e.target.value)}
+        onKeyDown={onSubmit ? (e) => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) { e.preventDefault(); onSubmit(); } } : undefined}
+        onFocus={onFocus} onBlur={onBlur} placeholder={placeholder}
+        autoFocus={autoFocus} autoComplete={autoComplete} autoCapitalize={autoCapitalize}
+        autoCorrect="off" spellCheck={false} inputMode={inputMode}
+        enterKeyHint={onSubmit ? 'go' : 'next'}
+      />
+      {rightSlot && <span className="ob-field-trailing" onPointerDown={(e) => e.preventDefault()}>{rightSlot}</span>}
+    </div>
+  </div>;
+};
 
 /* ── Buttons ────────────────────────────────────────────────────────────── */
-/** The flow's one solid action: a full-width terracotta capsule, same as
- *  the app's primary actions, with spring press physics. */
+/** Primary action, with a subtle press response. */
 export const PrimaryButton: React.FC<{
   children: React.ReactNode;
   onClick?: () => void;
@@ -247,9 +175,9 @@ export const PrimaryButton: React.FC<{
     disabled={disabled || loading}
     whileTap={!disabled && !loading ? { scale: 0.97 } : undefined}
     transition={SPRING}
-    className="w-full flex items-center justify-center gap-2 rounded-full font-semibold cursor-pointer transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+    className="ob-primary w-full flex items-center justify-center gap-2 rounded-full font-semibold cursor-pointer transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
     style={{
-      height: 52, border: 'none', background: TERRA, color: ON_TERRA, fontSize: 16,
+      height: 56, borderRadius: 18, border: 'none', background: TERRA, color: ON_TERRA, fontSize: 16,
       boxShadow: '0 2px 6px rgba(0,0,0,.12)',
     }}
     onMouseEnter={(e) => { if (!disabled && !loading) (e.currentTarget as HTMLButtonElement).style.background = TERRA_HOVER; }}
@@ -298,7 +226,7 @@ export const SecondaryButton: React.FC<{
     whileTap={!disabled && !loading ? { scale: 0.98 } : undefined}
     transition={SPRING}
     className="w-full flex items-center justify-center gap-2.5 rounded-full font-semibold cursor-pointer transition-colors disabled:opacity-60"
-    style={{ height: 52, background: 'var(--ob-card)', border: `1.5px solid ${BORDER}`, color: INK, fontSize: 15.5, backdropFilter: 'blur(18px)', WebkitBackdropFilter: 'blur(18px)' }}
+    style={{ height: 54, borderRadius: 18, background: 'var(--ob-card)', border: `1.5px solid ${BORDER}`, color: INK, fontSize: 15.5, backdropFilter: 'blur(18px)', WebkitBackdropFilter: 'blur(18px)' }}
     onMouseEnter={(e) => { if (!disabled && !loading) (e.currentTarget as HTMLButtonElement).style.background = 'var(--ob-card-hover)'; }}
     onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'var(--ob-card)'; }}
   >
@@ -319,7 +247,7 @@ export const SocialButton: React.FC<{ children: React.ReactNode; icon: React.Rea
     whileTap={!disabled ? { scale: 0.98 } : undefined}
     transition={SPRING}
     className="w-full flex items-center justify-center gap-2.5 rounded-full font-semibold cursor-pointer transition-colors disabled:opacity-60"
-    style={{ height: 52, background: 'var(--ob-card)', border: `1px solid ${BORDER}`, color: INK, fontSize: 15.5, backdropFilter: 'blur(18px)', WebkitBackdropFilter: 'blur(18px)' }}
+    style={{ height: 54, borderRadius: 18, background: 'var(--ob-card)', border: `1px solid ${BORDER}`, color: INK, fontSize: 15.5, backdropFilter: 'blur(18px)', WebkitBackdropFilter: 'blur(18px)' }}
     onMouseEnter={(e) => { if (!disabled) (e.currentTarget as HTMLButtonElement).style.background = 'var(--ob-card-hover)'; }}
     onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'var(--ob-card)'; }}
   >
@@ -337,52 +265,22 @@ export const Divider: React.FC<{ children?: React.ReactNode }> = ({ children = '
 );
 
 /* ── Navigation chrome ──────────────────────────────────────────────────── */
-/** The back capsule — real liquid glass, via the same native handover every
- *  other back button in the app makes (TopBar, Search, GuideDetail). This
- *  used to paint `.glass-control` by hand, which is only the FALLBACK
- *  material: CSS cannot refract, so on a flat onboarding background — where
- *  there is nothing behind the capsule for `backdrop-filter` to bend — it
- *  read as a plain dark disc. `GlassButton` registers the box with the
- *  native layer, which draws a genuine `UIGlassEffect` over it on iOS 26 and
- *  falls back to the same CSS everywhere else. */
+
 export const RoundBackButton: React.FC<{ onClick?: () => void }> = ({ onClick }) => (
-  <GlassButton
-    id="onboarding-back"
-    symbol="arrow.left"
-    label="Back"
-    onClick={() => onClick?.()}
-    className="flex items-center justify-center rounded-full cursor-pointer flex-shrink-0 p-0 border-none active:scale-90 transition-transform"
-    style={{ width: 44, height: 44 }}
-  >
-    <ArrowLeft size={17} strokeWidth={2.2} style={{ color: 'var(--ob-ink-soft)' }} />
-  </GlassButton>
+  <button type="button" className="ob-back" aria-label="Back" onClick={onClick}>
+    <ArrowLeft size={20} strokeWidth={1.8} />
+  </button>
 );
 
-/** Glass back capsule + the dots: one per step, the current one drawn
- *  long — the same progress mark the Pro intro uses at the end of the
- *  flow. No "Step N of total" caption; the dots are the statement. */
-export const ProgressHeader: React.FC<{ step: number; total: number; onBack?: () => void }> = ({ step, total, onBack }) => (
-  <div className="flex items-center" style={{ gap: 16 }}>
+export const ProgressHeader: React.FC<{ step: number; total: number; onBack?: () => void; label?: string }> = ({ step, total, onBack, label = 'Your taste' }) => (
+  <div className="ob-progress-header">
     <RoundBackButton onClick={onBack} />
-    <div
-      className="flex items-center"
-      role="progressbar"
-      aria-label="Setup progress"
-      aria-valuemin={1}
-      aria-valuemax={total}
-      aria-valuenow={step}
-      style={{ gap: 5 }}
-    >
-      {Array.from({ length: total }, (_, i) => (
-        <motion.i
-          key={i}
-          className="block rounded-full"
-          style={{ height: 6, background: INK }}
-          initial={false}
-          animate={{ width: i + 1 === step ? 18 : 6, opacity: i + 1 === step ? 1 : i + 1 < step ? 0.55 : 0.28 }}
-          transition={SPRING_SOFT}
-        />
-      ))}
+    <div className="ob-progress-body">
+      <div className="ob-progress-caption"><span>{label}</span><span>{step} of {total}</span></div>
+      <div className="ob-progress-track" role="progressbar" aria-label={`${label} progress`}
+        aria-valuemin={0} aria-valuemax={total} aria-valuenow={step}>
+        <motion.div initial={false} animate={{ width: `${Math.min(step / total, 1) * 100}%` }} transition={SPRING_SOFT} />
+      </div>
     </div>
   </div>
 );
@@ -412,15 +310,15 @@ export const RadioCard: React.FC<{
   description: string;
   multi?: boolean;
 }> = ({ selected, onClick, title, description, multi }) => (
-  <motion.div
+  <motion.button
+    type="button"
     onClick={onClick}
     role={multi ? 'checkbox' : 'radio'}
     aria-checked={selected}
     tabIndex={0}
-    onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick(); } }}
     whileTap={{ scale: 0.985 }}
     transition={SPRING}
-    className="flex items-start gap-3.5 cursor-pointer transition-colors"
+    className="ob-radio-card w-full text-left flex items-start gap-3.5 cursor-pointer transition-colors"
     style={{
       borderRadius: 16,
       padding: '16px 17px',
@@ -450,7 +348,7 @@ export const RadioCard: React.FC<{
       <div style={{ fontSize: 16, fontWeight: 600, color: INK }}>{title}</div>
       <div style={{ fontSize: 13, color: 'var(--ob-secondary)', marginTop: 3, lineHeight: 1.45 }}>{description}</div>
     </div>
-  </motion.div>
+  </motion.button>
 );
 
 /* ── Social glyphs ──────────────────────────────────────────────────────── */

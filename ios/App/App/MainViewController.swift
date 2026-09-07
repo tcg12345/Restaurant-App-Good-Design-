@@ -95,8 +95,9 @@ public class AppThemePlugin: CAPPlugin, CAPBridgedPlugin {
 
     @objc func setTheme(_ call: CAPPluginCall) {
         let dark = call.getBool("dark") ?? false
+        let system = call.getBool("system") ?? false
         DispatchQueue.main.async {
-            let style: UIUserInterfaceStyle = dark ? .dark : .light
+            let style: UIUserInterfaceStyle = system ? .unspecified : (dark ? .dark : .light)
             AppThemePlugin.pendingStyle = style
             let window = self.bridge?.viewController?.view.window
                 ?? UIApplication.shared.connectedScenes
@@ -617,11 +618,18 @@ final class GlassTabBar: NSObject, UITabBarDelegate {
         case bar
     }
 
-    /// #2b2622, the app's `--color-primary` (warm graphite; pale slate in dark). Duplicated here rather than read
-    /// from the page: the bar has to draw before the WebView has told us
-    /// anything, and this is stable brand chrome. It tints the *selected
-    /// glyph* only — the lens stays neutral glass, which is what Apple's does.
-    static let primary = UIColor(red: 0.169, green: 0.149, blue: 0.133, alpha: 1.0)
+    /// Shared Forest / Mint endpoints from src/index.css. Dynamic colors
+    /// let native controls follow the app's appearance before the web view paints.
+    static let primary = UIColor { trait in
+        trait.userInterfaceStyle == .dark
+            ? UIColor(red: 168.0/255, green: 208.0/255, blue: 184.0/255, alpha: 1)
+            : UIColor(red: 46.0/255, green: 102.0/255, blue: 81.0/255, alpha: 1)
+    }
+    static let onPrimary = UIColor { trait in
+        trait.userInterfaceStyle == .dark
+            ? UIColor(red: 30.0/255, green: 34.0/255, blue: 40.0/255, alpha: 1)
+            : .white
+    }
 
     /// The ink the floating glass chrome writes in — the selector's words,
     /// the chips' glyphs and labels, the field's magnifier and placeholder.
@@ -659,9 +667,6 @@ final class GlassTabBar: NSObject, UITabBarDelegate {
             : UIColor(white: 0.99, alpha: 0.72)
     }
 
-    /// The same rust lifted until it reads against the charcoal the platter
-    /// adapts to over a black page. See `setStyle`.
-    static let primaryOnDark = UIColor(red: 0.682, green: 0.733, blue: 0.827, alpha: 1.0)
 
     /// The ink every tab glyph and label wears, selected or not. The user's
     /// call: a tab should not change colour because it is the current one —
@@ -1816,6 +1821,7 @@ final class GlassActionGroupView: UIView {
                 badge.text = text
                 badge.isHidden = false
                 badge.backgroundColor = segment.badgeTone == "danger" ? .systemRed : GlassTabBar.primary
+                badge.textColor = segment.badgeTone == "danger" ? .white : GlassTabBar.onPrimary
                 badge.invalidateIntrinsicContentSize()
             } else {
                 badge.isHidden = true
@@ -2430,7 +2436,7 @@ final class GlassButtonView: UIView {
         // On a fill, the glyph has to be legible against it; on the lens it
         // wears the page's ink.
         let foreground: UIColor = spec.prominent
-            ? (spec.tintName == "primary" ? .white : .systemBackground)
+            ? (spec.tintName == "primary" ? GlassTabBar.onPrimary : .systemBackground)
             : spec.tint
 
         if spec.title.isEmpty {
@@ -2454,6 +2460,7 @@ final class GlassButtonView: UIView {
         if let text = spec.badge, !text.isEmpty {
             badge.text = text
             badge.isHidden = false
+            badge.textColor = spec.badgeTone == "danger" ? .white : GlassTabBar.onPrimary
             badge.backgroundColor = spec.badgeTone == "danger"
                 ? UIColor.systemRed
                 : GlassTabBar.primary

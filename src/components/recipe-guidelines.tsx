@@ -76,13 +76,14 @@ export function describeGuidelines(g: Guidelines): string[] {
    pill's rect at open time. */
 
 export const GuidelineMenu: React.FC<{
+  appearance?: 'modern';
   label: string;
   active: boolean;
   open: boolean;
   onToggle: () => void;
   onClose: () => void;
   children: React.ReactNode;
-}> = ({ label, active, open, onToggle, onClose, children }) => {
+}> = ({ label, active, open, onToggle, onClose, children, appearance }) => {
   const triggerRef = useRef<HTMLButtonElement | null>(null);
   const layerRef = useRef<HTMLDivElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -162,7 +163,7 @@ export const GuidelineMenu: React.FC<{
                 animate={{ opacity: 1, y: 0, scale: 1 }}
                 exit={{ opacity: 0, y: 6, scale: 0.98 }}
                 transition={{ duration: 0.16, ease: [0.22, 1, 0.36, 1] }}
-                className="rcxa-menu"
+                className={cn('rcxa-menu', appearance === 'modern' && 'recipe-create-menu')}
                 style={{ left: anchor.left, top: anchor.top, maxHeight: anchor.maxHeight }}
                 role="group" aria-label={label}
               >
@@ -196,12 +197,13 @@ export const MenuOption: React.FC<{ label: string; selected: boolean; onSelect: 
 /* ── The five pills ────────────────────────────────────────────────── */
 
 export const GuidelinePills: React.FC<{
+  appearance?: 'modern';
   value: Guidelines;
   onChange: (next: Guidelines) => void;
   openMenu: MenuKey | null;
   onOpenMenu: (key: MenuKey | null) => void;
   className?: string;
-}> = ({ value: g, onChange, openMenu, onOpenMenu, className }) => {
+}> = ({ value: g, onChange, openMenu, onOpenMenu, className, appearance }) => {
   const set = (patch: Partial<Guidelines>) => onChange({ ...g, ...patch });
   const toggleMenu = (key: MenuKey) => onOpenMenu(openMenu === key ? null : key);
   const closeMenu = () => onOpenMenu(null);
@@ -215,7 +217,7 @@ export const GuidelinePills: React.FC<{
 
   return (
     <div className={cn('rcxa-pills', className)}>
-      <GuidelineMenu label={timeLabel} active={!!g.timeBudget} open={openMenu === 'time'} onToggle={() => toggleMenu('time')} onClose={closeMenu}>
+      <GuidelineMenu appearance={appearance} label={timeLabel} active={!!g.timeBudget} open={openMenu === 'time'} onToggle={() => toggleMenu('time')} onClose={closeMenu}>
         {TIME_OPTIONS.map((t) => (
           <MenuOption
             key={t.key}
@@ -226,7 +228,7 @@ export const GuidelinePills: React.FC<{
         ))}
       </GuidelineMenu>
 
-      <GuidelineMenu label={g.difficulty || 'Skill'} active={!!g.difficulty} open={openMenu === 'skill'} onToggle={() => toggleMenu('skill')} onClose={closeMenu}>
+      <GuidelineMenu appearance={appearance} label={g.difficulty || 'Skill'} active={!!g.difficulty} open={openMenu === 'skill'} onToggle={() => toggleMenu('skill')} onClose={closeMenu}>
         {DIFFICULTIES.map((d) => (
           <MenuOption
             key={d}
@@ -237,7 +239,7 @@ export const GuidelinePills: React.FC<{
         ))}
       </GuidelineMenu>
 
-      <GuidelineMenu label={g.course || 'Course'} active={!!g.course} open={openMenu === 'course'} onToggle={() => toggleMenu('course')} onClose={closeMenu}>
+      <GuidelineMenu appearance={appearance} label={g.course || 'Course'} active={!!g.course} open={openMenu === 'course'} onToggle={() => toggleMenu('course')} onClose={closeMenu}>
         {COURSE_OPTIONS.map((c) => (
           <MenuOption
             key={c}
@@ -248,7 +250,7 @@ export const GuidelinePills: React.FC<{
         ))}
       </GuidelineMenu>
 
-      <GuidelineMenu label={dietaryLabel} active={g.dietary.length > 0} open={openMenu === 'dietary'} onToggle={() => toggleMenu('dietary')} onClose={closeMenu}>
+      <GuidelineMenu appearance={appearance} label={dietaryLabel} active={g.dietary.length > 0} open={openMenu === 'dietary'} onToggle={() => toggleMenu('dietary')} onClose={closeMenu}>
         {/* Multi-select — stays open across toggles. */}
         {DIETARY_OPTIONS.map((d) => (
           <MenuOption
@@ -260,7 +262,7 @@ export const GuidelinePills: React.FC<{
         ))}
       </GuidelineMenu>
 
-      <GuidelineMenu label={servesLabel} active={g.servings !== null} open={openMenu === 'serves'} onToggle={() => toggleMenu('serves')} onClose={closeMenu}>
+      <GuidelineMenu appearance={appearance} label={servesLabel} active={g.servings !== null} open={openMenu === 'serves'} onToggle={() => toggleMenu('serves')} onClose={closeMenu}>
         <div className="rcxa-serves-row">
           <button
             type="button"

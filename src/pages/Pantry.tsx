@@ -6717,7 +6717,7 @@ export const Pantry: React.FC = () => {
                   <div className="ml-auto flex items-center gap-3 flex-shrink-0">
                     <button
                       type="button"
-                      onClick={() => setRecsOpen(true)}
+                      onClick={() => { if (phoneMode) navigate('/pantry/recommended'); else setRecsOpen(true); }}
                       className="inline-flex items-center gap-1.5 h-8 px-3.5 rounded-full bg-primary text-on-primary text-[12px] font-bold hover:bg-primary/90 transition-colors flex-shrink-0"
                     >
                       <Sparkles size={14} /><span>For you</span>

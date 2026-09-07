@@ -101,7 +101,7 @@ button.restaurant-orb-item:active { transform: scale(.95); opacity: .7; }
 .restaurant-detail-mobile .restaurant-body { padding-bottom: 0; }
 .restaurant-detail-mobile .restaurant-location-map {
   margin-inline: -22px;
-  height: calc(294px + env(safe-area-inset-bottom, 0px));
+  height: calc(220px + env(safe-area-inset-bottom, 0px));
 }
 .restaurant-location-map :is(.mapboxgl-ctrl-bottom-left, .mapboxgl-ctrl-bottom-right) {
   bottom: env(safe-area-inset-bottom, 0px);

@@ -19,8 +19,8 @@
   --ink-2: #4A423C;
   --muted: #8C8278;
   --muted-2: #B8AFA4;
-  --accent: #A8392A;
-  --accent-soft: #F3E0D7;
+  --accent: var(--brand-accent);
+  --accent-soft: var(--brand-soft);
   --green: #2E7D5C;
   /* Shared editorial surface tokens consumed by the Advanced Recipe Builder
      and Guide Creator modals (their CSS reads --cream / --cream-2 from here).
@@ -47,9 +47,9 @@
   --ink-2: #4A423C;
   --muted: #8C8278;
   --muted-2: #B8AFA4;
-  --accent: #A8392A;
-  --accent-2: #C2543E;
-  --accent-soft: #F3E0D7;
+  --accent: var(--brand-accent);
+  --accent-2: var(--brand-accent);
+  --accent-soft: var(--brand-soft);
   --green: #2E7D5C;
   --green-soft: #DCEEDE;
   --gold: #E8A33C;
@@ -112,8 +112,8 @@
   --ink-2: #c2c2c2;
   --muted: #8a8a8a;
   --muted-2: #5d5d5d;
-  --accent: #c2543e;
-  --accent-soft: rgba(194, 84, 62, 0.16);
+  --accent: var(--brand-accent);
+  --accent-soft: var(--brand-soft);
   /* Dark surfaces for the shared editorial tokens (recipe builder / guide
      creator). Page bg goes near-black; cards ride --surface above. */
   --cream: #232326;
@@ -132,9 +132,9 @@
   --ink-2: #c2c2c2;
   --muted: #8a8a8a;
   --muted-2: #5d5d5d;
-  --accent: #c2543e;
-  --accent-2: #d4664e;
-  --accent-soft: rgba(194, 84, 62, 0.16);
+  --accent: var(--brand-accent);
+  --accent-2: var(--brand-accent);
+  --accent-soft: var(--brand-soft);
   --green-soft: rgba(46, 125, 92, 0.18);
   --loc-bar-bg: rgba(19, 19, 20, 0.92);
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(255, 255, 255, 0.04);
@@ -334,7 +334,7 @@
   padding: 0 5px;
   border-radius: 999px;
   background: var(--accent);
-  color: #fff;
+  color: var(--brand-on-accent);
   font-size: 10.5px;
   font-weight: 700;
   letter-spacing: 0;
@@ -802,7 +802,7 @@
 .location-page-root .minimap-info .pulse {
   width: 8px; height: 8px; border-radius: 50%;
   background: var(--accent);
-  box-shadow: 0 0 0 0 rgba(168,57,42,0.5);
+  box-shadow: 0 0 0 0 color-mix(in srgb,var(--brand-accent) 50%,transparent);
   animation: lp-pulse 1.8s infinite;
 }
 .location-page-root .minimap-expand {
@@ -833,8 +833,8 @@
 
 @keyframes lp-pulse {
   0%   { box-shadow: 0 0 0 0 rgba(168,57,42,0.45); }
-  70%  { box-shadow: 0 0 0 8px rgba(168,57,42,0); }
-  100% { box-shadow: 0 0 0 0 rgba(168,57,42,0); }
+  70%  { box-shadow: 0 0 0 8px transparent; }
+  100% { box-shadow: 0 0 0 0 transparent; }
 }
 
 /* ============ SECTION ============ */
@@ -1400,7 +1400,7 @@
   padding: 0 5px;
   border-radius: 999px;
   background: var(--accent);
-  color: #fff;
+  color: var(--brand-on-accent);
   font-size: 11px;
   font-weight: 700;
   letter-spacing: 0;
@@ -3314,3 +3314,5 @@ html.kb-open .lp-chat-island.is-phone .lp-chat-foot {
 
 /* The assistant's allowance meter (QuotaMeter), above the composer. */
 .lp-chat-meter { align-self: flex-start; margin: 0 16px 8px; }
+
+.location-page-root :is(.minimap-cta,.exp-cta .btn-follow,.lp-load-more):hover, .lp-chat-send:hover:not(:disabled) { color: var(--brand-on-accent); }

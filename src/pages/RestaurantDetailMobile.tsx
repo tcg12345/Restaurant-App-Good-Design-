@@ -72,6 +72,7 @@ import { useTravelTimes, formatTravelTime } from '../lib/directions';
 import { openExternalUrl } from '../lib/external-links';
 import { Link } from 'react-router-dom';
 import { PhotoGallery } from '../components/PhotoGallery';
+import { RestaurantPhotoStage } from '../components/RestaurantPhotoStage';
 import { RestaurantFeaturedReels } from '../components/RestaurantFeaturedReels';
 import { YourReviewComments } from '../components/YourReviewComments';
 import { getNextOpenLabel, restaurantLocalNow } from '../lib/hours';
@@ -153,7 +154,7 @@ export const RestaurantDetailMobile: React.FC = () => {
   const { showToast } = useToast();
 
   const { toggleWishlist, isWishlisted, getRating, openAddRestaurantModal, deleteVisit, scoresUnlocked, openHomeMealModal } = useLists();
-  const { requirePro } = usePaywall();
+  const { requirePro, isOpen: paywallOpen } = usePaywall();
 
   /* ── "Ask about this place" ────────────────────────────────────────
      Pins the chat to this restaurant and opens it. The digest is built
@@ -199,93 +200,6 @@ export const RestaurantDetailMobile: React.FC = () => {
         .filter(Boolean).join(' · '),
       details,
     });
-  };
-
-  // Swipe the hero to step through photos — a finger-following slide over a
-  // 3-photo window (prev / current / next) that snaps on release. The hero
-  // gets `touch-action: pan-y` so the browser hands us horizontal drags while
-  // keeping vertical scroll for the page; that also stops iOS from turning a
-  // horizontal drag into a `touchcancel` mid-gesture.
-  const heroRef = useRef<HTMLDivElement>(null);
-  const trackTransition = 'transform 0.32s cubic-bezier(0.22, 1, 0.36, 1)';
-  const [heroDragX, setHeroDragX] = useState(0);
-  const [heroAnimating, setHeroAnimating] = useState(false);
-  const heroG = useRef({ x: 0, y: 0, dragging: false, decided: false, horizontal: false, moved: false, swiped: false, busy: false });
-
-  const heroWidth = () => heroRef.current?.clientWidth || window.innerWidth;
-
-  // Animate one step, then commit the index and reset the offset in the same
-  // frame — the slide ends with the next/prev photo already centered, so the
-  // reset is visually a no-op.
-  const heroSlide = (dir: 1 | -1) => {
-    if (heroG.current.busy || photos.length < 2) return;
-    heroG.current.busy = true;
-    setHeroAnimating(true);
-    setHeroDragX(dir === 1 ? -heroWidth() : heroWidth());
-    window.setTimeout(() => {
-      setPhotoIndex((i) => (dir === 1 ? (i + 1) % photos.length : (i - 1 + photos.length) % photos.length));
-      setHeroAnimating(false);
-      setHeroDragX(0);
-      heroG.current.busy = false;
-    }, 320);
-  };
-
-  // Dot taps ride the same slide animation as arrows/swipes (they used to
-  // swap instantly). Multi-photo jumps play as ONE slide: the landing photo
-  // is loaded into the adjacent track slot for the duration (heroJump).
-  const [heroJump, setHeroJump] = useState<number | null>(null);
-  const heroSlideTo = (target: number) => {
-    if (heroG.current.busy || target === photoIndex || photos.length < 2) return;
-    const N = photos.length;
-    const forward = (target - photoIndex + N) % N;
-    const dir: 1 | -1 = forward <= N - forward ? 1 : -1;
-    heroG.current.busy = true;
-    setHeroJump(target);
-    setHeroAnimating(true);
-    setHeroDragX(dir === 1 ? -heroWidth() : heroWidth());
-    window.setTimeout(() => {
-      setPhotoIndex(target);
-      setHeroJump(null);
-      setHeroAnimating(false);
-      setHeroDragX(0);
-      heroG.current.busy = false;
-    }, 320);
-  };
-
-  const onHeroTouchStart = (e: React.TouchEvent) => {
-    if (heroG.current.busy || e.touches[0].clientX <= 28) return;
-    const t = e.touches[0];
-    heroG.current = { x: t.clientX, y: t.clientY, dragging: true, decided: false, horizontal: false, moved: false, swiped: false, busy: false };
-  };
-  const onHeroTouchMove = (e: React.TouchEvent) => {
-    const g = heroG.current;
-    if (!g.dragging || g.busy || photos.length < 2) return;
-    const dx = e.touches[0].clientX - g.x;
-    const dy = e.touches[0].clientY - g.y;
-    if (!g.decided) {
-      if (Math.abs(dx) < 8 && Math.abs(dy) < 8) return;
-      g.decided = true;
-      g.horizontal = Math.abs(dx) > Math.abs(dy);
-    }
-    if (!g.horizontal) return; // vertical → let the page scroll
-    g.moved = true;
-    setHeroDragX(Math.max(-heroWidth(), Math.min(heroWidth(), dx)));
-  };
-  const onHeroTouchEnd = (e: React.TouchEvent) => {
-    const g = heroG.current;
-    if (!g.dragging) return;
-    g.dragging = false;
-    if (g.busy) return;
-    g.swiped = g.horizontal && g.moved; // any horizontal drag suppresses the tap-to-open
-    if (!g.horizontal || !g.moved) return;
-    const dx = e.changedTouches[0].clientX - g.x;
-    if (Math.abs(dx) > Math.min(64, heroWidth() * 0.16)) {
-      heroSlide(dx < 0 ? 1 : -1);
-    } else {
-      setHeroAnimating(true);
-      setHeroDragX(0);
-      window.setTimeout(() => setHeroAnimating(false), 260);
-    }
   };
 
   // Resolve the user's anchored origin once per mount. The distance suffix
@@ -351,12 +265,17 @@ export const RestaurantDetailMobile: React.FC = () => {
   useEffect(() => {
     const title = identityTitleRef.current;
     if (!title) return;
+    // The title moves with the photo sheet. Observe the stationary hero instead,
+    // so opening/closing the gallery cannot leave an opaque navigation band behind.
+    const page = title.closest('.restaurant-detail-mobile');
+    const hero = page?.querySelector('.rps-hero-spacer');
+    const navHeight = page?.querySelector('.restaurant-nav-chrome')?.getBoundingClientRect().height || 100;
     const observer = new IntersectionObserver(([entry]) => {
-      setCompactHeader(!entry.isIntersecting && entry.boundingClientRect.top < 100);
-    }, { rootMargin: '-100px 0px 0px 0px' });
-    observer.observe(title);
+      setCompactHeader(!entry.isIntersecting && entry.boundingClientRect.bottom <= navHeight);
+    }, { rootMargin: `-${navHeight}px 0px 0px 0px` });
+    observer.observe(hero || title);
     return () => observer.disconnect();
-  }, [loading, place?.id]);
+  }, [loading, place?.id, photos.length > 0]);
 
   if (loading) {
     // Skeleton mirroring the page shape (hero, title, meta, review rows)
@@ -419,7 +338,7 @@ export const RestaurantDetailMobile: React.FC = () => {
   // eyebrow labels already said where they started.
 
   return (
-    <div className={cn("restaurant-detail restaurant-detail-mobile min-h-screen bg-cream type-archivo", photos.length > 0 && "has-detail-photo")}>
+    <div data-no-pull-refresh="" className={cn("restaurant-detail restaurant-detail-mobile min-h-screen bg-cream type-archivo", photos.length > 0 && "has-detail-photo")}>
 
       {/* ── Floating top controls — back / bookmark / share. Light glass
           circles so the icons stay legible both over the hero photo and
@@ -480,145 +399,19 @@ export const RestaurantDetailMobile: React.FC = () => {
         </div>
       </div>
 
-      {/* ── Hero — full-bleed photo. Only rendered when the restaurant
-          actually has photos; with none we drop straight to the title and
-          leave a little clearance for the floating top controls. Tapping
-          the hero (or the photo-count pill) opens the full gallery. ── */}
-      {photos.length > 0 ? (
-      <div
-        ref={heroRef}
-        data-horizontal-gesture=""
-        className="restaurant-hero relative w-full overflow-hidden"
-        style={{ height: '40vh', maxHeight: '46vh', touchAction: 'pan-y' }}
-        onTouchStart={onHeroTouchStart}
-        onTouchMove={onHeroTouchMove}
-        onTouchEnd={onHeroTouchEnd}
-        onTouchCancel={onHeroTouchEnd}
-      >
-        {/* Sliding 3-photo window — prev / current / next. The track is 300%
-            wide and parked one panel left so the current photo is centred;
-            `heroDragX` follows the finger, then snaps via `heroSlide`. */}
-        <div
-          className="absolute inset-0 z-[1] flex"
-          style={{
-            width: '300%',
-            transform: `translateX(calc(-33.3333% + ${heroDragX}px))`,
-            transition: heroAnimating ? trackTransition : 'none',
-            willChange: 'transform',
-          }}
-        >
-          {(() => {
-            const N = photos.length;
-            const prevIdx = (photoIndex - 1 + N) % N;
-            const nextIdx = (photoIndex + 1) % N;
-            // During a dot-initiated jump the landing photo rides the slot
-            // the track is sliding toward, so a >1 jump still animates.
-            return heroJump !== null && heroJump !== photoIndex
-              ? (heroDragX < 0 ? [prevIdx, photoIndex, heroJump] : [heroJump, photoIndex, nextIdx])
-              : [prevIdx, photoIndex, nextIdx];
-          })().map((idx, slot) => (
-            <button
-              key={slot}
-              onClick={() => { if (heroG.current.swiped) { heroG.current.swiped = false; return; } setGalleryOpen(true); }}
-              // bg placeholder so a slow hero photo doesn't paint as a
-              // hard white block while it decodes.
-              className="relative w-1/3 h-full cursor-pointer bg-on-surface/5"
-              aria-label="Open photo gallery"
-              aria-hidden={slot !== 1}
-              tabIndex={slot === 1 ? 0 : -1}
-            >
-              <img
-                src={photos[idx]}
-                alt={place.name}
-                className="h-full w-full object-cover"
-                referrerPolicy="no-referrer"
-                draggable={false}
-              />
-            </button>
-          ))}
-        </div>
-
-        {/* Top scrim — keeps the floating glass controls readable on
-            bright photos. */}
-        <div
-          className="absolute inset-x-0 top-0 h-28 pointer-events-none"
-          style={{ background: 'linear-gradient(to bottom, rgba(0,0,0,0.28), rgba(0,0,0,0))' }}
-        />
-        {/* Thin fade into the page surface at the bottom */}
-        <div
-          className="absolute inset-x-0 bottom-0 h-10 pointer-events-none"
-          style={{ background: 'linear-gradient(to top, var(--color-cream), transparent)' }}
-        />
-
-        {/* Photo-count pill — opens the gallery */}
-        {photos.length > 0 && (
-          <button
-            onClick={(e) => { e.stopPropagation(); setGalleryOpen(true); }}
-            className="absolute bottom-5 right-4 z-10 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-black/55 backdrop-blur-md text-white active:opacity-80 transition-opacity"
-            style={{ fontSize: 12, fontWeight: 600 }}
-          >
-            <Images size={13} />
-            {photos.length} {photos.length === 1 ? 'Photo' : 'Photos'}
-          </button>
-        )}
-
-        {/* Position dots — a windowed "carousel" indicator: a fixed row of
-            up to 7 dots that slides smoothly so the active dot is always
-            lit, with dots scaling down toward either end whenever there are
-            more photos beyond the visible window. */}
-        {photos.length > 1 && (() => {
-          const N = photos.length;
-          const SLOT = 13;                 // px of horizontal space per dot
-          const WINDOW = Math.min(N, 7);   // dots visible at once
-          const half = Math.floor(WINDOW / 2);
-          const first = Math.max(0, Math.min(photoIndex - half, N - WINDOW));
-          const overflowL = first > 0;
-          const overflowR = first + WINDOW < N;
-          const baseScale = (i: number) => {
-            if (i < first || i > first + WINDOW - 1) return 0;
-            if (overflowL && i === first) return 0.45;
-            if (overflowR && i === first + WINDOW - 1) return 0.45;
-            if (overflowL && i === first + 1) return 0.72;
-            if (overflowR && i === first + WINDOW - 2) return 0.72;
-            return 1;
+      <RestaurantPhotoStage key={place.id} name={place.name} photos={photos} communityPhotos={communityPhotos}
+        index={photoIndex} onIndexChange={setPhotoIndex} open={galleryOpen} onOpenChange={setGalleryOpen} interactionBlocked={paywallOpen}
+        onRecreate={(p) => {
+          const open = () => {
+            setGalleryOpen(false);
+            openHomeMealModal(undefined, {
+              initialMethod: 'dish',
+              dishPhoto: { url: p.rawUrl || p.url, caption: p.caption || undefined, restaurantId: place.id, restaurantName: place.name, ownerUserId: p.ownerUserId },
+            });
           };
-          return (
-            <div
-              className="absolute bottom-6 left-1/2 -translate-x-1/2 z-10 overflow-hidden"
-              style={{ width: WINDOW * SLOT, height: 14 }}
-            >
-              <div
-                className="flex items-center h-full transition-transform duration-300 ease-out"
-                style={{ width: N * SLOT, transform: `translateX(${-first * SLOT}px)` }}
-              >
-                {photos.map((_, i) => {
-                  const scale = i === photoIndex ? 1 : baseScale(i);
-                  return (
-                    <button
-                      key={i}
-                      onClick={(e) => { e.stopPropagation(); heroSlideTo(i); }}
-                      className="hit-44-y flex-shrink-0 h-full flex items-center justify-center"
-                      style={{ width: SLOT }}
-                      aria-label={`Show photo ${i + 1}`}
-                      tabIndex={scale === 0 ? -1 : 0}
-                    >
-                      <span
-                        className={cn('block h-1.5 w-1.5 rounded-full transition-all duration-300 ease-out', i === photoIndex ? 'bg-media-white' : 'bg-white/50')}
-                        style={{ transform: `scale(${scale})` }}
-                      />
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-          );
-        })()}
-
-      </div>
-      ) : (
-        <div style={{ height: 'calc(env(safe-area-inset-top, 0px) + 60px)' }} aria-hidden />
-      )}
-
+          if (!requirePro('recipe-photo', { onUnlocked: open })) return;
+          open();
+        }}>
       {/* ── Main Content ── */}
       <main className="restaurant-body pt-5" style={{ paddingLeft: 22, paddingRight: 22 }}>
 
@@ -1218,31 +1011,11 @@ export const RestaurantDetailMobile: React.FC = () => {
 
       </main>
 
+      </RestaurantPhotoStage>
+
       {/* Photo Gallery Bottom Sheet */}
       <AnimatePresence>
         {ownPhotoIndex !== null && myRating && <PhotoGallery photos={myRating.photos.map(p => p.url)} communityPhotos={[]} name={place.name} initialIndex={ownPhotoIndex} startExpanded onClose={() => setOwnPhotoIndex(null)} />}
-      {galleryOpen && photos.length > 0 && (
-          <PhotoGallery
-            photos={photos}
-            communityPhotos={communityPhotos}
-            name={place.name}
-            initialIndex={photoIndex}
-            onClose={() => setGalleryOpen(false)}
-            onRecreate={(p) => {
-              // Gate first: the modal's deep link skips the chooser's own
-              // Pro check. A purchase lands right back here.
-              const open = () => {
-                setGalleryOpen(false);
-                openHomeMealModal(undefined, {
-                  initialMethod: 'dish',
-                  dishPhoto: { url: p.rawUrl || p.url, caption: p.caption || undefined, restaurantId: place.id, restaurantName: place.name, ownerUserId: p.ownerUserId },
-                });
-              };
-              if (!requirePro('recipe-photo', { onUnlocked: open })) return;
-              open();
-            }}
-          />
-        )}
       </AnimatePresence>
       {/* A friend's review, read over the restaurant instead of replacing
           it. The row used to push a whole screen for one paragraph. */}

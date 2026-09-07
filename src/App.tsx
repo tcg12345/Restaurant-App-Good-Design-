@@ -1,4 +1,7 @@
+import { NotFoundPage } from './pages/NotFoundPage';
+import { InReviewProvider } from './contexts/InReviewContext';
 import { usePageBack } from './lib/usePageBack';
+import { GuidesPage } from './pages/GuidesPage';
 import { GroupRoomLinks } from './components/GroupRoomLinks';
 /**
  * @license
@@ -32,13 +35,13 @@ import { BottomNav } from './components/BottomNav';
 import { PullToRefresh } from './components/PullToRefresh';
 import { RetainedRouteStack } from './components/RetainedRouteStack';
 import { SwipeBackContainer } from './components/SwipeBackContainer';
-import { subscribeOverlay } from './lib/overlay-registry';
+import { subscribePresenterOverlay } from './lib/overlay-registry';
 import { holdGlass, releaseGlass, resetGlassHolds } from './lib/glass-buttons';
 import { topLayerAvailable } from './lib/useBottomSheet';
 import { ScrollRestoration } from './components/ScrollRestoration';
 import { KEEP_ALIVE_PATHS } from './lib/keep-alive';
 import { useHomeLocation } from './contexts/HomeLocationContext';
-import { recordNavEntry, navEntryAt, backTargetFor, isTabRootLocation, isSheetPath } from './lib/nav-stack';
+import { recordNavEntry, navEntryAt, backTargetFor, routeBackGesture, isSheetPath } from './lib/nav-stack';
 import { Sidebar } from './components/Sidebar';
 import { AnimatePresence, motion, useReducedMotion, type Variants } from 'motion/react';
 import { SettingsProvider, useSettings } from './contexts/SettingsContext';
@@ -269,7 +272,7 @@ const AppContent: React.FC = () => {
   const isMapPage = location.pathname === '/map';
   const isReelsPage = location.pathname === '/reels';
   const isFocusedReel = location.pathname.startsWith('/r/');
-  const showBottomNav = !['/pantry/recommended', '/decide', '/pro/intro', '/messages', '/reorder', '/location', '/location/map', '/map', '/create', '/recipes-for-you', '/circle', '/settings'].includes(location.pathname) && !location.pathname.startsWith('/settings/') && location.pathname !== '/verify/apply' && !location.pathname.startsWith('/restaurant/') && !location.pathname.startsWith('/user/') && !location.pathname.startsWith('/profile/top/') && !location.pathname.startsWith('/recipe/') && !location.pathname.startsWith('/meal/') && !location.pathname.startsWith('/review/') && !location.pathname.startsWith('/activity') && !location.pathname.startsWith('/guides/') && !isFocusedReel;
+  const showBottomNav = !['/pantry/recommended', '/decide', '/pro/intro', '/messages', '/reorder', '/location', '/location/map', '/map', '/create', '/recipes-for-you', '/circle', '/settings'].includes(location.pathname) && !location.pathname.startsWith('/settings/') && location.pathname !== '/verify/apply' && !location.pathname.startsWith('/restaurant/') && !location.pathname.startsWith('/user/') && !location.pathname.startsWith('/profile/top/') && !location.pathname.startsWith('/recipe/') && !location.pathname.startsWith('/meal/') && !location.pathname.startsWith('/review/') && !location.pathname.startsWith('/activity') && !location.pathname.startsWith('/guides') && !isFocusedReel;
   const { isSignedIn, isGuest, continueAsGuest, loading, profile, profileComplete, profileError, profileLoading, needsPasswordSetup } = useAuth();
   // How the pre-auth taste flow was left — 'signup' carries the "save your
   // taste profile" framing into the Auth screen it hands off to. Seeded from
@@ -347,7 +350,7 @@ const AppContent: React.FC = () => {
     document.body.appendChild(probe);
     setSafeTop(probe.offsetHeight);
     probe.remove();
-    return subscribeOverlay((open) => { setSheetUp(open); wakeGlassButtons(); });
+    return subscribePresenterOverlay((open) => { setSheetUp(open); wakeGlassButtons(); });
   }, []);
   React.useEffect(() => {
     if (KEEP_ALIVE_PATHS.includes(location.pathname)) {
@@ -465,7 +468,7 @@ const AppContent: React.FC = () => {
   // into detail pages and their pops (navType POP keeps the slide so an
   // in-app back button still plays the exit reveal; the swipe gesture sets
   // `instantNav` itself and drives the motion with its own drag).
-  const isTabSwitchNav = TAB_SWITCH_PATHS.has(location.pathname) && navType !== 'POP';
+  const isTabSwitchNav = TAB_SWITCH_PATHS.has(location.pathname) && location.state?.navigationPresentation === 'tab' && navType !== 'POP';
   const stackInstant = instantNav || isTabSwitchNav || !!reducedMotion
     || (navType === 'REPLACE' && location.state?.navigationTransition === 'instant');
   // PUSH and POP slide in opposite directions (iOS). On a push the new page
@@ -610,11 +613,11 @@ const AppContent: React.FC = () => {
           onAnimationStart={holdGlass}
           onAnimationComplete={releaseGlass}
           className={
-            isCreateRoute ? 'absolute inset-0 z-30'
+            isCreateRoute ? 'relative h-[100dvh] z-30'
               // A sheet overlays the page it was opened from instead of
               // taking its place in flow, and keeps a soft top edge while
               // it travels (flush at rest, where it is full-bleed).
-              : isSheetRoute ? 'absolute inset-0 z-30 overflow-hidden rounded-t-[22px] bg-surface shadow-[0_-8px_40px_rgba(0,0,0,0.28)]'
+              : isSheetRoute ? 'relative h-[100dvh] z-30 overflow-hidden rounded-t-[22px] bg-surface shadow-[0_-8px_40px_rgba(0,0,0,0.28)]'
               : 'relative bg-surface'
           }
           style={isSheetRoute ? { transformOrigin: '50% 100%' } : { transformOrigin: '50% 50%' }}
@@ -668,6 +671,7 @@ const AppContent: React.FC = () => {
               (reels, messages, RecipePanel, old guide entries) working. */}
           <Route path="/recipe/:userId/:id" element={<RecipePage />} />
           <Route path="/recipe/:id" element={<RecipePage />} />
+          <Route path="/guides" element={<GuidesPage />} />
           <Route path="/guides/:id" element={<GuideDetail />} />
           <Route path="/guides/:id/edit" element={<RequireAuthRoute reason="Sign in to edit guides"><GuideEdit /></RequireAuthRoute>} />
           <Route path="/meal/:userId/:mealId" element={<RecipePage />} />
@@ -681,6 +685,7 @@ const AppContent: React.FC = () => {
           <Route path="/review/:ratingId" element={<FriendReviewDetail />} />
           <Route path="/location" element={<LocationPage />} />
           <Route path="/location/map" element={<LocationMap />} />
+          <Route path="*" element={<NotFoundPage />} />
         </Routes>
         </React.Fragment>
         </motion.div>
@@ -734,19 +739,13 @@ const AppContent: React.FC = () => {
   // Pull-to-refresh is off where a downward drag already means something
   // (reels/map panning, the messages thread, the create overlay, onboarding).
   const allowPullToRefresh =
-    !isReelsPage && !isMapPage &&
+    !isReelsPage && !isMapPage && !isSheetRoute && !location.pathname.startsWith('/restaurant/') &&
     !['/', '/decide', '/pro/intro', '/messages', '/create', '/location/map', '/search'].includes(location.pathname);
-  // Edge swipe-back is allowed wherever a back destination exists, except on
-  // routes that own horizontal/vertical gestures. Pure bottom-nav tab roots
-  // are NOT swipeable (you never swipe between tabs), but tab *sub-views*
-  // (e.g. /pantry?list=x) are — nav-stack.ts resolves where they go: a
-  // history pop when the previous entry is within the same flow, otherwise
-  // a safe logical parent when there is no verified presenting entry.
+  // Pushed pages return in their presentation direction. Explicit tab taps
+  // stay still; horizontal interactions retain their own gesture regions.
   const backTarget = backTargetFor(historyIdx ?? 0, location.pathname, location.search);
-  const isTabRoot = isTabRootLocation(location.pathname, location.search);
-  const allowSwipeBack =
-    backTarget !== null && !isReelsPage && !isMapPage && !isTabRoot && !isSheetRoute &&
-    location.pathname !== '/create';
+  const backGesture = routeBackGesture(location.pathname, location.search, location.state, backTarget !== null);
+  const allowSwipeBack = backGesture !== null;
   return (
     <div className="min-h-screen selection:bg-primary/20 selection:text-primary" style={{ background: sheetUp ? '#000' : 'var(--color-surface)' }}>
       <ScrollRestoration />
@@ -767,8 +766,9 @@ const AppContent: React.FC = () => {
       >
       <SwipeBackContainer
         enabled={allowSwipeBack}
+        direction={backGesture ?? 'right'}
         previewPush={!stackInstant && !goingBack && !isKeepAlivePath && !isSheetRoute && !isCreateRoute}
-        edgeOnly={['/location/map', '/decide', '/pro/intro'].includes(location.pathname) || isFocusedReel}
+        edgeOnly={['/map', '/location/map', '/reels', '/pro/intro'].includes(location.pathname) || isFocusedReel}
         navKey={historyIdx ?? 0}
         locationKey={location.key}
         snapshotable={!isMapPage && !isReelsPage && !isFocusedReel && location.pathname !== '/search'}
@@ -850,7 +850,7 @@ export default function App() {
                               <HomeLocationProvider>
                                 <AssistantProvider>
                                   <AiChatHistoryProvider>
-                                    <AppContent />
+                                    <InReviewProvider><AppContent /></InReviewProvider>
                                   </AiChatHistoryProvider>
                                 </AssistantProvider>
                               </HomeLocationProvider>

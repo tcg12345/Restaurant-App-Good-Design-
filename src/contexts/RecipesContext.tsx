@@ -70,6 +70,7 @@ interface RecipesContextValue {
 
   // Loading
   loading: boolean;
+  cloudSyncReady: boolean;
 }
 
 /* ── localStorage helpers ── */
@@ -113,6 +114,7 @@ export const RecipesProvider: React.FC<{ children: ReactNode }> = ({ children })
   // User's own recipes — localStorage cached + cloud synced
   const [myRecipes, setMyRecipes] = useState<Recipe[]>(() => loadFromStorage(STORAGE_KEY_MY_RECIPES, []));
   const [loading, setLoading] = useState(false);
+  const [loadedOwner, setLoadedOwner] = useState<string | null>(null);
 
   // On-demand caches
   const [publicRecipes, setPublicRecipes] = useState<Recipe[]>([]);
@@ -130,18 +132,23 @@ export const RecipesProvider: React.FC<{ children: ReactNode }> = ({ children })
 
   // ── Load user's recipes from cloud on sign-in ──
   useEffect(() => {
+    setLoadedOwner(null);
     if (!userId || !supabaseConfigured) return;
     let cancelled = false;
 
     (async () => {
       setLoading(true);
-      const cloudRecipes = await getUserRecipes(userId);
-      if (cancelled) return;
-      if (cloudRecipes.length > 0 || myRecipes.length === 0) {
+      try {
+        const cloudRecipes = await getUserRecipes(userId, true);
+        if (cancelled) return;
         setMyRecipes(cloudRecipes);
         saveToStorage(STORAGE_KEY_MY_RECIPES, cloudRecipes);
+        setLoadedOwner(userId);
+      } catch (error) {
+        if (!cancelled) console.warn('[Recipes] Cloud load unavailable; preserving the local cache.', error);
+      } finally {
+        if (!cancelled) setLoading(false);
       }
-      setLoading(false);
     })();
 
     return () => { cancelled = true; };
@@ -201,10 +208,18 @@ export const RecipesProvider: React.FC<{ children: ReactNode }> = ({ children })
   }, [myRecipes, publicRecipes, expertRecipes, friendRecipes]);
 
   const refreshMyRecipes = useCallback(async () => {
-    if (!userIdRef.current || !supabaseConfigured) return;
-    const recipes = await getUserRecipes(userIdRef.current);
-    setMyRecipes(recipes);
-    saveToStorage(STORAGE_KEY_MY_RECIPES, recipes);
+    const uid = userIdRef.current;
+    if (!uid || !supabaseConfigured) return;
+    try {
+      const recipes = await getUserRecipes(uid, true);
+      if (uid !== userIdRef.current) return;
+      setMyRecipes(recipes);
+      saveToStorage(STORAGE_KEY_MY_RECIPES, recipes);
+      setLoadedOwner(uid);
+    } catch (error) {
+      if (uid === userIdRef.current) setLoadedOwner(null);
+      console.warn('[Recipes] Refresh unavailable; preserving the local cache.', error);
+    }
   }, []);
 
   // ── On-demand fetch methods ──
@@ -319,7 +334,7 @@ export const RecipesProvider: React.FC<{ children: ReactNode }> = ({ children })
     recipeModalOpen, recipeModalData, openRecipeModal, closeRecipeModal,
     getCheckedIngredients, toggleIngredientCheck, clearIngredientChecks,
     getCollapsedSteps, toggleStepCollapse,
-    loading,
+    loading, cloudSyncReady:!!userId && loadedOwner === userId,
   };
 
   return (

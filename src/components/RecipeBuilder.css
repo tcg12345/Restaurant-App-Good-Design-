@@ -13,7 +13,7 @@
   --rcx-hairline-strong: #e4dfd7;
   --rcx-chip: #f0ede7;
   --rcx-card: #ffffff;
-  --rcx-accent: var(--color-primary, #2b2622);
+  --rcx-accent: var(--color-primary, #2e6651);
   --rcx-green: #1e7a55;
   --rcx-amber: #e0a030;
   --rcx-serif: var(--font-serif, 'Noto Serif', Georgia, serif);
@@ -153,25 +153,25 @@
   padding: 14px 2px;
   text-align: left;
   border-bottom: 1px solid #ece8e1;
-  animation: rcxRowIn 0.3s var(--ease-out-strong) both;
+  animation: rcxRowIn 0.16s var(--ease-out-strong) both;
   transition: background 0.12s ease;
 }
 
 .rcx-choose-row:last-child { border-bottom: 0; }
 .rcx-choose-row:active { background: rgba(29, 26, 22, 0.03); }
-.rcx-choose-row:nth-child(1) { animation-delay: 0.03s; }
-.rcx-choose-row:nth-child(2) { animation-delay: 0.07s; }
-.rcx-choose-row:nth-child(3) { animation-delay: 0.11s; }
-.rcx-choose-row:nth-child(4) { animation-delay: 0.15s; }
-.rcx-choose-row:nth-child(5) { animation-delay: 0.19s; }
-.rcx-choose-row:nth-child(6) { animation-delay: 0.23s; }
+.rcx-choose-row:nth-child(1) { animation-delay: 0s; }
+.rcx-choose-row:nth-child(2) { animation-delay: 0s; }
+.rcx-choose-row:nth-child(3) { animation-delay: 0s; }
+.rcx-choose-row:nth-child(4) { animation-delay: 0s; }
+.rcx-choose-row:nth-child(5) { animation-delay: 0s; }
+.rcx-choose-row:nth-child(6) { animation-delay: 0s; }
 
 .rcx-choose-icon {
   width: 42px;
   height: 42px;
   border-radius: 999px;
   background: rgba(159, 48, 18, 0.08);
-  color: var(--color-primary, #2b2622);
+  color: var(--color-primary, #2e6651);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -218,16 +218,16 @@
   background: var(--rcx-card);
   border: 1px solid var(--rcx-hairline-strong);
   border-radius: 16px;
-  animation: rcxRowIn 0.3s var(--ease-out-strong) both;
+  animation: rcxRowIn 0.16s var(--ease-out-strong) both;
   transition: border-color 0.18s ease, transform 0.18s ease, box-shadow 0.18s ease;
 }
 
-.rcx-choose-card:nth-child(1) { animation-delay: 0.03s; }
-.rcx-choose-card:nth-child(2) { animation-delay: 0.07s; }
-.rcx-choose-card:nth-child(3) { animation-delay: 0.11s; }
-.rcx-choose-card:nth-child(4) { animation-delay: 0.15s; }
-.rcx-choose-card:nth-child(5) { animation-delay: 0.19s; }
-.rcx-choose-card:nth-child(6) { animation-delay: 0.23s; }
+.rcx-choose-card:nth-child(1) { animation-delay: 0s; }
+.rcx-choose-card:nth-child(2) { animation-delay: 0s; }
+.rcx-choose-card:nth-child(3) { animation-delay: 0s; }
+.rcx-choose-card:nth-child(4) { animation-delay: 0s; }
+.rcx-choose-card:nth-child(5) { animation-delay: 0s; }
+.rcx-choose-card:nth-child(6) { animation-delay: 0s; }
 
 /* An odd final card (e.g. the 5th "Create with AI") would sit alone in
    a 2-col grid — span it full-width so the grid stays balanced. */
@@ -385,7 +385,7 @@
 }
 
 .rcx-step-anim {
-  animation: rcxStepIn 0.32s var(--ease-out-strong) both;
+  animation: rcxStepIn 0.16s var(--ease-out-strong) both;
 }
 
 .rcx-stack { display: grid; gap: 28px; }
@@ -854,7 +854,7 @@
   position: relative;
   border-radius: 16px;
   overflow: hidden;
-  animation: rcxRowIn 0.3s var(--ease-out-strong) both;
+  animation: rcxRowIn 0.16s var(--ease-out-strong) both;
 }
 
 .rcx-photo-preview img {
@@ -936,7 +936,7 @@
   display: flex;
   align-items: center;
   gap: 7px;
-  animation: rcxRowIn 0.28s var(--ease-out-strong) both;
+  animation: rcxRowIn 0.16s var(--ease-out-strong) both;
 }
 
 .rcx-ing-input {
@@ -1137,7 +1137,7 @@
   border: 1px solid var(--rcx-hairline);
   border-radius: 16px;
   padding: 14px 15px;
-  animation: rcxRowIn 0.28s var(--ease-out-strong) both;
+  animation: rcxRowIn 0.16s var(--ease-out-strong) both;
 }
 
 .rcx-step-head {
@@ -1210,7 +1210,7 @@
   background: rgba(159, 48, 18, 0.08);
   border-radius: 999px;
   color: var(--rcx-accent);
-  animation: rcxPopIn 0.3s var(--ease-out-strong) both;
+  animation: rcxPopIn 0.16s var(--ease-out-strong) both;
 }
 
 .rcx-time-chip input {
@@ -1248,7 +1248,7 @@
   border-radius: 12px;
   padding: 10px 12px;
   margin-top: 10px;
-  animation: rcxRowIn 0.3s var(--ease-out-strong) both;
+  animation: rcxRowIn 0.16s var(--ease-out-strong) both;
 }
 
 .rcx-tip-label {
@@ -1296,7 +1296,7 @@
   padding: 11px 14px;
   font-size: 13px;
   color: var(--rcx-ink);
-  animation: rcxRowIn 0.3s both;
+  animation: rcxRowIn 0.16s both;
 }
 
 .rcx-ai-banner svg { color: var(--rcx-accent); flex-shrink: 0; }
@@ -1421,7 +1421,7 @@
   margin-top: 16px;
   display: grid;
   gap: 22px;
-  animation: rcxStepIn 0.3s var(--ease-out-strong) both;
+  animation: rcxStepIn 0.16s var(--ease-out-strong) both;
 }
 
 .rcx-note-card {
@@ -1720,7 +1720,7 @@
   --rcx-hairline-strong: #e4dfd7;
   --rcx-chip: #f0ede7;
   --rcx-card: #ffffff;
-  --rcx-accent: var(--color-primary, #2b2622);
+  --rcx-accent: var(--color-primary, #2e6651);
   position: fixed;
   z-index: 260;
   min-width: 196px;
@@ -1799,7 +1799,7 @@
   align-items: center;
   justify-content: center;
   background: var(--rcx-accent);
-  color: #fff;
+  color: var(--brand-on-accent);
   transition: background 0.18s ease, transform 0.15s ease, color 0.18s ease;
 }
 .rcxa-send:hover:not(:disabled) { background: #872709; }
@@ -1964,7 +1964,7 @@
   border-radius: 14px;
   overflow: hidden;
   border: 1px solid var(--rcx-hairline-strong);
-  animation: rcxRowIn 0.28s var(--ease-out-strong) both;
+  animation: rcxRowIn 0.16s var(--ease-out-strong) both;
 }
 
 .rcx-import-thumb img {
@@ -2167,7 +2167,7 @@
   text-align: center;
   padding: 32px 28px;
   gap: 10px;
-  animation: rcxFadeIn 0.3s both;
+  animation: rcxFadeIn 0.16s both;
 }
 
 .rcx-published-badge {
@@ -2179,7 +2179,7 @@
   align-items: center;
   justify-content: center;
   margin-bottom: 10px;
-  animation: rcxPopIn 0.5s var(--ease-out-strong) both;
+  animation: rcxPopIn 0.16s var(--ease-out-strong) both;
 }
 
 .rcx-published-check {
@@ -2193,7 +2193,7 @@
   font-size: 27px;
   font-weight: 650;
   color: var(--rcx-ink);
-  animation: rcxStepIn 0.4s var(--ease-out-strong) 0.1s both;
+  animation: rcxStepIn 0.16s var(--ease-out-strong) both;
 }
 
 .rcx-published-sub {
@@ -2201,7 +2201,7 @@
   line-height: 1.55;
   color: var(--rcx-secondary);
   max-width: 300px;
-  animation: rcxStepIn 0.4s var(--ease-out-strong) 0.18s both;
+  animation: rcxStepIn 0.16s var(--ease-out-strong) both;
 }
 
 .rcx-published-actions {
@@ -2211,7 +2211,7 @@
   width: 100%;
   max-width: 300px;
   margin-top: 14px;
-  animation: rcxStepIn 0.4s var(--ease-out-strong) 0.26s both;
+  animation: rcxStepIn 0.16s var(--ease-out-strong) both;
 }
 
 .rcx-published-view {
@@ -2246,7 +2246,7 @@
   align-items: center;
   justify-content: center;
   padding: 24px;
-  animation: rcxFadeIn 0.25s both;
+  animation: rcxFadeIn 0.16s both;
 }
 
 .rcx-modal {
@@ -2256,7 +2256,7 @@
   border-radius: 20px;
   padding: 22px 20px;
   box-shadow: 0 24px 64px rgba(29, 26, 22, 0.3);
-  animation: rcxPopIn 0.35s var(--ease-out-strong) both;
+  animation: rcxPopIn 0.16s var(--ease-out-strong) both;
 }
 
 .rcx-modal.is-wide { max-width: 440px; }
@@ -2600,7 +2600,7 @@
   color: transparent;
   transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
 }
-.rcxa-card-check.is-on { background: var(--rcx-accent); border-color: var(--rcx-accent); color: #fff; }
+.rcxa-card-check.is-on { background: var(--rcx-accent); border-color: var(--rcx-accent); color: var(--brand-on-accent); }
 
 /* The CTA row under the grid. */
 .rcxa-grid-cta {
@@ -2630,7 +2630,7 @@
   border: none;
   border-radius: 999px;
   background: var(--rcx-accent);
-  color: #fff;
+  color: var(--brand-on-accent);
   font-size: 13px;
   font-weight: 700;
   transition: opacity 0.15s ease, transform 0.15s ease;
@@ -2705,7 +2705,7 @@
 .dark .rcxa-card { background: rgba(255, 255, 255, 0.04); border-color: rgba(255, 255, 255, 0.07); }
 .dark .rcxa-card.is-on { background: rgba(255, 255, 255, 0.07); border-color: var(--rcx-accent); }
 .dark .rcxa-grid-mood { color: #f2f2f4; }
-.dark .rcxa-card-search { background: color-mix(in srgb, var(--rcx-accent) 20%, transparent); color: #f2c4b3; }
+.dark .rcxa-card-search { background: color-mix(in srgb, var(--rcx-accent) 20%, transparent); color: var(--brand-accent); }
 .dark .rcxa-card-search:active { background: color-mix(in srgb, var(--rcx-accent) 30%, transparent); }
 .dark .rcxa-combine-sheet { background: #232326; }
 /* The light theme brightens the notes field to white on focus; flipping to

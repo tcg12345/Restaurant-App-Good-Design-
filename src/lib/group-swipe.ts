@@ -28,6 +28,8 @@ export interface GroupPlace {
   name: string;
   cuisine: string;
   address: string;
+  lat?: number;
+  lng?: number;
   photoUrl: string | null;
   rating: number;
   priceLevel: number;
@@ -36,6 +38,7 @@ export interface GroupPlace {
   distance: number;
   score?: number;
   likes?: number;
+  addedBy?: string;
   attributions?: { displayName: string; uri?: string }[];
 }
 export interface GroupRanking {
@@ -69,6 +72,9 @@ export interface GroupRoom {
       ranking?: GroupRanking;
     }
   >;
+  source?: 'recommendations' | 'custom';
+  allowGuestAdds?: boolean;
+  shortlistVersion?: number;
   personalization?: string;
 }
 export class GroupError extends Error {
@@ -131,12 +137,17 @@ async function awaitSession(work: Promise<Session>): Promise<Session> {
   }
 }
 
-export async function groupAction<T = GroupRoom>(
-  action: string,
-  payload: Record<string, unknown> = {},
-): Promise<T> {
+export async function groupAction<T = GroupRoom>(action: string, payload: Record<string, unknown> = {}): Promise<T> {
+  return groupRequest<T>("group-swipe", action, payload);
+}
+
+export async function groupPlaceSummary(roomId: string, placeId: string): Promise<{ summary: string }> {
+  return groupRequest("group-place-summary", "describe", { id: roomId, place: placeId });
+}
+
+async function groupRequest<T>(endpoint: string, action: string, payload: Record<string, unknown>): Promise<T> {
   const session = await awaitSession(currentSession());
-  const invoke = (accessToken: string) => supabase.functions.invoke("group-swipe", {
+  const invoke = (accessToken: string) => supabase.functions.invoke(endpoint, {
     body: { action, payload },
     headers: { Authorization: `Bearer ${accessToken}` },
     timeout: action === "generate" ? 180_000 : 20_000,

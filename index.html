@@ -41,7 +41,7 @@
           // moment to look broken.
           var stored = localStorage.getItem('goodeats-dark-mode');
           if (stored === null) stored = localStorage.getItem('gourmad-dark-mode');
-          var dark = stored === null
+          var dark = stored !== '0' && stored !== '1'
             ? window.matchMedia('(prefers-color-scheme: dark)').matches
             : stored === '1';
           if (dark) document.documentElement.classList.add('dark');

@@ -58,5 +58,5 @@ export function useHomeHighlightSocial(userId?: string, city = '') {
     return () => { cancelled = true; };
   }, [userId, city, revision]);
   // Account switches cannot render an earlier account's social data.
-  return state?.userId === userId ? state.data : EMPTY;
+  return state && state.userId === userId ? state.data : EMPTY;
 }

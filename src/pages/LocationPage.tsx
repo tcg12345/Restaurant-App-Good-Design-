@@ -1,3 +1,4 @@
+import { useTastePreferences } from '../hooks/useTastePreferences';
 import { usePageBack } from '../lib/usePageBack';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
@@ -383,6 +384,7 @@ const LOAD_MORE_MAX_ATTEMPTS = 6;
 
 /* ── Page ────────────────────────────────────────────────────────────────── */
 export const LocationPage: React.FC = () => {
+  const { preferences: tastePreferences } = useTastePreferences();
   const [params] = useSearchParams();
   const navigate = useNavigate();
   const goBack = usePageBack('/');
@@ -526,12 +528,12 @@ export const LocationPage: React.FC = () => {
   // affects a skip-set, and the cost of occasionally re-showing a recent view
   // on this page is negligible.
   const profile = useMemo(
-    () => buildTasteProfile(ratings, wishlist, lists, [], getTasteQuiz(myProfile)),
+    () => buildTasteProfile(ratings, wishlist, lists, [], null, { preferences: tastePreferences }),
     // michelinReady is a rebuild trigger: the profile's michelinTaste shares
     // are gated on the dataset index inside the builder, so the profile must
     // be rebuilt once the index loads (same pattern as the recs popup).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [ratings, wishlist, lists, michelinReady, myProfile],
+    [ratings, wishlist, lists, michelinReady, myProfile, tastePreferences],
   );
 
   // Social scoring signals, fetched once per (user, city). These feed
@@ -2597,7 +2599,7 @@ export const LocationPage: React.FC = () => {
               longer own half the screen. */}
           <div className="gd-mini-head">
             <h2>Guides for {shortCityName}</h2>
-            <button type="button" className="gd-all-pill" onClick={() => setGuidesBrowserOpen(true)}>
+            <button type="button" className="gd-all-pill" onClick={() => { if (isMobile) navigate('/guides', { state: { guideCollection: browseGuides, cityName: shortCityName } }); else setGuidesBrowserOpen(true); }}>
               All <ChevronRight />
             </button>
           </div>
@@ -2649,7 +2651,7 @@ export const LocationPage: React.FC = () => {
                     <ChevronRight />
                   </button>
                 </div>
-                <button type="button" className="section-link" onClick={() => setGuidesBrowserOpen(true)}>
+                <button type="button" className="section-link" onClick={() => { if (isMobile) navigate('/guides', { state: { guideCollection: browseGuides, cityName: shortCityName } }); else setGuidesBrowserOpen(true); }}>
                   Browse all <ChevronRight />
                 </button>
               </div>
@@ -2685,7 +2687,7 @@ export const LocationPage: React.FC = () => {
                 <button
                   type="button"
                   className="gd-card gd-browse-all"
-                  onClick={() => setGuidesBrowserOpen(true)}
+                  onClick={() => { if (isMobile) navigate('/guides', { state: { guideCollection: browseGuides, cityName: shortCityName } }); else setGuidesBrowserOpen(true); }}
                 >
                   <span className="gd-browse-all-icon"><BookOpen /></span>
                   <span className="gd-browse-all-title">Browse all guides</span>

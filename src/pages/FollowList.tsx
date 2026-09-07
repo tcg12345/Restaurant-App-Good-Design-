@@ -27,7 +27,7 @@ import '../components/social/SocialDesign.css';
  *                          request for private ones; sign-in gated)
  */
 import React, { useState, useEffect, useMemo } from 'react';
-import { motion, useDragControls } from 'motion/react';
+import { motion } from 'motion/react';
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { ChevronDown, Loader2, Lock, MapPin, Search, Star, UserCircle, Users } from 'lucide-react';
 import { cn } from '../lib/utils';
@@ -70,28 +70,16 @@ const Sheet: React.FC<{
   children: React.ReactNode;
   chrome?: React.ReactNode;
 }> = ({ title, subtitle, onDismiss, children, chrome }) => {
-  // The listener is off by default and started by hand from the grabber and
-  // title row only — starting it from the whole header would swallow taps on
-  // the tabs and the search field.
-  const dragControls = useDragControls();
+  // The shared route gesture owns dismissal; the header remains available
+  // even when the list is scrolled. No second drag controller competes with it.
   return (
     <motion.div
       className="social-design social-follow-sheet absolute inset-0 flex flex-col bg-surface"
-      drag="y"
-      dragListener={false}
-      dragControls={dragControls}
-      dragConstraints={{ top: 0, bottom: 0 }}
-      dragElastic={{ top: 0, bottom: 0.6 }}
-      dragMomentum={false}
-      onDragEnd={(_, info) => {
-        // A decisive pull or a fast flick dismisses; anything less springs back.
-        if (info.offset.y > 110 || info.velocity.y > 700) onDismiss();
-      }}
     >
       <div className="flex-none border-b border-on-surface/[0.07]">
         <div
-          className="cursor-grab touch-none active:cursor-grabbing"
-          onPointerDown={(e) => dragControls.start(e)}
+          className="cursor-grab active:cursor-grabbing"
+          data-route-drag-handle=""
           // The sheet covers the whole screen, status bar included, so the
           // grabber owns the inset rather than sitting under the clock.
           style={{ paddingTop: 'calc(env(safe-area-inset-top, 0px) + 10px)' }}

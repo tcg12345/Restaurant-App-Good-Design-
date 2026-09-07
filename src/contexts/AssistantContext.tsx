@@ -106,7 +106,8 @@ interface AssistantContextValue {
    *  owns its own open state, so this is a signal rather than a setter —
    *  re-asking while it's already open is a no-op, not a fight. */
   openRequest: number;
-  requestOpen: () => void;
+  composerDraft: {id:number;text:string} | null;
+  requestOpen: (draft?:string) => void;
 }
 
 const AssistantContext = createContext<AssistantContextValue | null>(null);
@@ -116,10 +117,11 @@ export const AssistantProvider: React.FC<{ children: ReactNode }> = ({ children 
   const [pageContext, setPageContext] = useState<AssistantPageContext | null>(null);
   const [attachment, setAttachment] = useState<AssistantAttachment | null>(null);
   const [openRequest, setOpenRequest] = useState(0);
-  const requestOpen = useCallback(() => setOpenRequest((n) => n + 1), []);
+  const [composerDraft,setComposerDraft] = useState<{id:number;text:string}|null>(null);
+  const requestOpen = useCallback((draft?:string) => {if(draft)setComposerDraft({id:Date.now(),text:draft});setOpenRequest(n=>n+1);}, []);
   const value = useMemo<AssistantContextValue>(
-    () => ({ homeFeedVisible, setHomeFeedVisible, pageContext, setPageContext, attachment, setAttachment, openRequest, requestOpen }),
-    [homeFeedVisible, pageContext, attachment, openRequest, requestOpen],
+    () => ({ homeFeedVisible, setHomeFeedVisible, pageContext, setPageContext, attachment, setAttachment, composerDraft, openRequest, requestOpen }),
+    [homeFeedVisible, pageContext, attachment, composerDraft, openRequest, requestOpen],
   );
   return (
     <AssistantContext.Provider value={value}>
@@ -140,6 +142,7 @@ export function useAssistantContext(): AssistantContextValue {
       setPageContext: () => {},
       attachment: null,
       setAttachment: () => {},
+      composerDraft:null,
       openRequest: 0,
       requestOpen: () => {},
     };

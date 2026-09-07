@@ -10,51 +10,29 @@
   --font-display: "Fraunces", "Noto Serif", serif;
   --font-mono: "JetBrains Mono", ui-monospace, monospace;
 
-  /* Surface palette — warm stone by day: a warm off-white, so pure #fff
-     never appears. Single source of truth for the app background;
-     `cream` aliases it for the editorial tokens below. */
-  --color-surface: #f8f6f2;
-  --color-on-surface: #231f1c;
-  /* ── Accent: warm stone by day, slate by night ──
-     By day the primary is a warm graphite (#2b2622) on a warm off-white,
-     with a warm off-white on it — never pure white, never pure black, so
-     nothing flashes. By night the primary is a pale slate at mid
-     brightness (see .dark). `bg-primary text-on-primary` inverts with
-     the theme without any component knowing which. The score tiers, the
-     Michelin red and the danger red keep their own hues — they mean
-     something. */
-  --color-primary: #2b2622;
-  --color-on-primary: #f3ede3;
-  /* A warm stone for secondary marks, and the champagne gold for the
-     rare warm note (Pro, verified, featured). */
-  --color-secondary: #7a7168;
-  --color-accent: #c4ab7c;
-  /* The tint: the colour the page is allowed to wear at full — the
-     profile wash, the avatar ring, the selected tab, the chips. Champagne
-     by day (warm stone's one note), the pale slate by night. `tint-ink` is
-     the same idea as text, readable on the surface. */
-  --color-tint: #c4ab7c;
-  --color-tint-ink: #83703f;
-  --color-muted: #efece6;
-
-  /* Editorial tokens used by the restaurant detail redesign.
-     `cream` is the page bg, `paper` is the card fill, `ink-*`
-     are text tones, and `olive`/`clay`/`persimmon` map the
-     score-coded accents. On white, `cream-2` is the recessed/hover
-     tone and `line`/`line-2` are neutral hairline borders. */
-  --color-cream: #f8f6f2;
-  --color-cream-2: #efece6;
-  --color-paper: #fdfcfa;
-  --color-line: #e8e4dd;
-  --color-line-2: #dcd7ce;
-  --color-ink: #231f1c;
-  --color-ink-2: #3d3835;
-  --color-ink-3: #6b6359;
-  --color-ink-4: #a19a8e;
-  /* Historical names, now aliases of the stone pair. */
-  --color-olive: #7a7168;
-  --color-clay: #2b2622;
-  --color-persimmon: #8a8178;
+  /* Forest / Mint brand accents. Surfaces stay neutral; score and status
+     colors below retain their semantic meanings. */
+  --color-surface: #f8f8f8;
+  --color-on-surface: #272b30;
+  --color-primary: var(--brand-accent);
+  --color-on-primary: var(--brand-on-accent);
+  --color-secondary: #69716e;
+  --color-accent: var(--brand-accent);
+  --color-tint: var(--brand-accent);
+  --color-tint-ink: var(--brand-accent);
+  --color-muted: #eef0ef;
+  --color-cream: #f8f8f8;
+  --color-cream-2: #eef0ef;
+  --color-paper: #ffffff;
+  --color-line: #e3e6e4;
+  --color-line-2: #d4d9d6;
+  --color-ink: #272b30;
+  --color-ink-2: #48504c;
+  --color-ink-3: #69716e;
+  --color-ink-4: #8b938f;
+  --color-olive: #69716e;
+  --color-clay: var(--brand-accent);
+  --color-persimmon: #69716e;
 
   /* ── Score tier system ──
      The ONE palette for every score-coded surface — chips, rings, map
@@ -80,13 +58,10 @@
   --color-score-mid-bright: #e0b064;
   --color-score-low-bright: #e58273;
 
-  /* ── Recipes accent ──
-     The emerald family used by recipe affordances (Discover recipes tab,
-     Messages recipe pills). `recipes` is the solid accent, `-tint` the
-     soft chip fill, `-ink` readable text on surface/tint. */
-  --color-recipes: #059669;
-  --color-recipes-tint: #ecfdf5;
-  --color-recipes-ink: #047857;
+  /* Recipe navigation shares the brand accent. */
+  --color-recipes: var(--brand-accent);
+  --color-recipes-tint: var(--brand-soft);
+  --color-recipes-ink: var(--brand-accent);
 
   /* Dark canvas behind the reel/post composers — matches the media
      chrome (theme-independent by design, like .bg-media-white). */
@@ -125,6 +100,13 @@
 }
 
 :root {
+  /* Fixed endpoints also serve always-dark Pro/cooking/review surfaces. */
+  --brand-forest: #2e6651;
+  --brand-mint: #a8d0b8;
+  --brand-on-mint: #1e2228;
+  --brand-accent: var(--brand-forest);
+  --brand-on-accent: #ffffff;
+  --brand-soft: #e9f1ec;
   /* Michelin's brand red, lifted in dark the same way the app's own warm
      accents are — #a2191f disappears into the graphite ground. */
   --michelin-red: #a2191f;
@@ -146,35 +128,33 @@
 /* `.ob-night`: onboarding and the Pro flow are always night, whatever the
    theme — a scope that hands them the dark tokens. */
 .dark, .ob-night {
-  /* The ground is a graphite, not a void: near-black surfaces swallowed
-     every card and hairline sitting on them. Elevation reads by lightness
-     — surface (pages) < muted (wells) ≈ paper (cards) — with lines bumped
-     to stay visible on the lighter grounds. */
-  --color-surface: #1b1c20;
-  --color-on-surface: #e9e9ec;
-  --color-muted: #26282d;
-  --color-cream: #202227;
-  --color-cream-2: #2a2c32;
-  --color-paper: #282a30;
-  --color-line: #383b42;
-  --color-line-2: #464a52;
-  --color-ink: #e9e9ec;
-  --color-ink-2: #bfc1c6;
-  --color-ink-3: #888b93;
-  --color-ink-4: #5c5f67;
-  /* The accent by night is a pale slate — far from white, so a filled
-     button is a colour, not a flash. Solids take dark text (`on-primary`)
-     so a primary button inverts with the theme; `clay`/`olive` are
-     aliases of primary/secondary and flip with them. */
-  --color-primary: #aebbd3;
-  --color-on-primary: #161a22;
-  --color-clay: #aebbd3;
-  --color-secondary: #9ea3ae;
-  --color-olive: #9ea3ae;
-  --color-accent: #d8c39c;
-  --color-tint: #aebbd3;
-  --color-tint-ink: #aebbd3;
-  --color-persimmon: #adb2bc;
+  --brand-accent: var(--brand-mint);
+  --brand-on-accent: var(--brand-on-mint);
+  --brand-soft: #293b32;
+  --color-surface: #18191b;
+  --color-on-surface: #eef0f2;
+  --color-muted: #292d2b;
+  --color-cream: #18191b;
+  --color-cream-2: #292d2b;
+  --color-paper: #232629;
+  --color-line: #383d3a;
+  --color-line-2: #4a514c;
+  --color-ink: #eef0f2;
+  --color-ink-2: #c3cbc6;
+  --color-ink-3: #a0aaa3;
+  --color-ink-4: #7b8780;
+  --color-primary: var(--brand-accent);
+  --color-on-primary: var(--brand-on-accent);
+  --color-clay: var(--brand-accent);
+  --color-secondary: #a0aaa3;
+  --color-olive: #a0aaa3;
+  --color-accent: var(--brand-accent);
+  --color-tint: var(--brand-accent);
+  --color-tint-ink: var(--brand-accent);
+  --color-persimmon: #a0aaa3;
+  --color-recipes: var(--brand-accent);
+  --color-recipes-tint: var(--brand-soft);
+  --color-recipes-ink: var(--brand-accent);
   /* Score tiers: solids stay put (fills under white text); tints become
      low-alpha washes over the dark card and inks lighten for contrast. */
   --color-score-high-tint: rgba(64, 145, 108, 0.16);
@@ -183,9 +163,6 @@
   --color-score-high-ink: #6fc49b;
   --color-score-mid-ink: #d9a855;
   --color-score-low-ink: #e08273;
-  /* Recipes accent: tint becomes a low-alpha wash, ink lightens. */
-  --color-recipes-tint: rgba(16, 185, 129, 0.14);
-  --color-recipes-ink: #34d399;
 }
 
 .dark, .ob-night {
@@ -207,20 +184,17 @@
    one place if it ever needs to. `--ob-field` is the iOS-style recessed
    input fill (same recipe as `.ios-search`). */
 :root {
-  /* Glass night — the same by day and by night (the owner's pick for the
-     Pro flow, carried across the whole of onboarding). The ground is a
-     slate glow over graphite (painted by OnboardingScreen), the ink is
-     light, every surface is glass, and the accent is the pale slate of
-     the dark theme's primary. */
+  /* Legacy always-dark Pro surfaces use Mint. Modern onboarding aliases
+     these tokens to the active app theme in Onboarding.css. */
   --ob-bg: #16171b;
   --ob-ink: #e9e9ec;
   --ob-ink-soft: #c7c9cf;
   --ob-secondary: rgba(233, 233, 236, 0.65);
   --ob-label: rgba(233, 233, 236, 0.45);
   --ob-border: rgba(255, 255, 255, 0.14);
-  --ob-terra: #aebbd3;
-  --ob-terra-hover: #c1cce0;
-  --ob-on-terra: #161a22;
+  --ob-terra: var(--brand-mint);
+  --ob-terra-hover: #bdddc9;
+  --ob-on-terra: var(--brand-on-mint);
   --ob-card: rgba(255, 255, 255, 0.07);
   --ob-card-hover: rgba(255, 255, 255, 0.11);
   --ob-ghost: rgba(233, 233, 236, 0.7);
@@ -229,13 +203,13 @@
   --ob-pill-bg: rgba(255, 255, 255, 0.1);
   --ob-pill-bg-hover: rgba(255, 255, 255, 0.16);
   --ob-pill-text: #e9e9ec;
-  --ob-radio-selected: rgba(174, 187, 211, 0.12);
+  --ob-radio-selected: rgba(168, 208, 184, 0.12);
   --ob-radio-ring: rgba(255, 255, 255, 0.35);
-  --ob-badge-bg: rgba(174, 187, 211, 0.14);
+  --ob-badge-bg: rgba(168, 208, 184, 0.14);
   --ob-error: #e08273;
   --ob-success: #6fc49b;
   --ob-success-dot: #5fbe93;
-  --ob-focus-ring: rgba(174, 187, 211, 0.35);
+  --ob-focus-ring: rgba(168, 208, 184, 0.35);
 }
 /* ── Sheets in the top layer ──────────────────────────────────────────
    useBottomSheet lifts a sheet's fixed backdrop layer into the browser's
@@ -806,7 +780,7 @@ input[type="range"].accent-primary::-webkit-slider-thumb {
   height: 24px;
   border-radius: 50%;
   background: var(--color-primary);
-  box-shadow: 0 2px 8px rgba(159, 48, 18, 0.3);
+  box-shadow: 0 2px 8px color-mix(in srgb, var(--brand-accent) 30%, transparent);
   cursor: pointer;
   border: 3px solid white;
 }
@@ -815,7 +789,7 @@ input[type="range"].accent-primary::-moz-range-thumb {
   height: 24px;
   border-radius: 50%;
   background: var(--color-primary);
-  box-shadow: 0 2px 8px rgba(159, 48, 18, 0.3);
+  box-shadow: 0 2px 8px color-mix(in srgb, var(--brand-accent) 30%, transparent);
   cursor: pointer;
   border: 3px solid white;
 }

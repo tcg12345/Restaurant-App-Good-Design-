@@ -2,12 +2,14 @@ import { createClient } from "jsr:@supabase/supabase-js@2";
 import { requireUser, CORS_HEADERS } from "../_shared/auth.ts";
 import { readJsonBody } from "../_shared/limits.ts";
 import {
+  readTastePreferences,
   buildTasteProfile,
   scoreCandidates,
   aggregateGroup,
   groupVeto,
 } from "./scorer.js";
 
+import { customAddPreflight, resolveCustomPlace } from "./custom.ts";
 import { fillShortlist } from "./shortlist.ts";
 
 const json = (body: unknown, status = 200) =>
@@ -16,6 +18,10 @@ const json = (body: unknown, status = 200) =>
     headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
   });
 const allowed = new Set([
+  "custom_add",
+  "custom_remove",
+  "custom_settings",
+  "custom_ready",
   "list",
   "create",
   "join",
@@ -59,6 +65,20 @@ Deno.serve(async (req) => {
   };
   let room: any;
   try {
+    if (action === "custom_add") {
+      const snapshot = await rpc("snapshot", { id: payload.id });
+      if (snapshot.error) return json(snapshot);
+      if (customAddPreflight(snapshot, auth.userId, payload.placeId) === 'existing') return json(snapshot);
+      const caller = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_ANON_KEY')!, { auth: { persistSession: false }, global: { headers: { Authorization: req.headers.get('Authorization')! } } });
+      const quota = await caller.rpc('consume_ai_rate_limit', { p_endpoint: 'group-custom-add', p_max_per_hour: 60 });
+      if (quota.error) return json({ error: 'Restaurant lookup is temporarily unavailable. Try again shortly.' }, 503);
+      if (quota.data !== true) return json({ error: 'Too many restaurant lookups. Try again later.' }, 429);
+      const key = Deno.env.get('GOOGLE_PLACES_API_KEY');
+      if (!key) return json({ error: 'Restaurant lookup is unavailable right now.' }, 503);
+      const place = await resolveCustomPlace(payload.placeId, snapshot.location, key);
+      return json(await rpc('custom_add', { id: snapshot.id, place }));
+    }
+    if (action === 'create' && ((payload.source !== undefined && !['custom', 'recommendations'].includes(payload.source)) || (payload.allowGuestAdds !== undefined && typeof payload.allowGuestAdds !== 'boolean'))) return json({ error: 'Choose a room type and who can add places.' }, 400);
     if (action === "create" || action === "settings") {
       const l = payload.location;
       if (
@@ -107,7 +127,7 @@ Deno.serve(async (req) => {
     const members = Object.entries(room.members) as [string, any][];
     const ids = members.map(([id]) => id);
     // Joining explicitly opts this account into private server-side taste matching.
-    const [profiles, ratingSets] = await Promise.all([
+    const [profiles, ratingSets, privatePreferences] = await Promise.all([
       db
         .from("user_profiles")
         .select("user_id,taste_profile")
@@ -125,15 +145,20 @@ Deno.serve(async (req) => {
             .limit(500),
         ),
       ),
+      db.from("user_app_data").select("user_id,taste_preferences:restaurant_meta->__taste_preferences_v1__").in("user_id", ids),
     ]);
     const ratings = {
       data: ratingSets.flatMap((r) => r.data || []),
       error: ratingSets.find((r) => r.error)?.error,
     };
-    if (profiles.error || ratings.error)
+    if (profiles.error || ratings.error || privatePreferences.error)
       throw Error("Could not load the group’s tastes. Please try again.");
     const people = members.map(([id, m]) => {
       const quiz = profiles.data?.find((p) => p.user_id === id)?.taste_profile;
+      // Room members explicitly opt into server-side taste matching. Only
+      // derived picks leave this function; private notes never enter room data.
+      const saved = readTastePreferences(privatePreferences.data?.find(p=>p.user_id===id)?.taste_preferences,id)?.values;
+      const forTonight = saved ? {...saved, cuisines:m.preferences.cuisines.length?m.preferences.cuisines:saved.cuisines, prices:m.preferences.prices.length?m.preferences.prices:saved.prices, avoidCuisines:saved.avoidCuisines.filter(c=>!m.preferences.cuisines.some((q:string)=>q.toLowerCase()===c.toLowerCase()))} : undefined;
       const history = (ratings.data || [])
         .filter((r) => r.user_id === id)
         .map((r) => ({
@@ -152,11 +177,11 @@ Deno.serve(async (req) => {
       return {
         userId: id,
         name: m.name,
-        profile: buildTasteProfile(history, [], [], [], quiz),
+        profile: buildTasteProfile(history, [], [], [], saved ? null : quiz, {preferences:forTonight}),
         dietary: [
-          ...new Set([...(quiz?.dietary || []), ...m.preferences.dietary]),
+          ...new Set([...(saved?.dietary ?? quiz?.dietary ?? []).map((d:string)=>d.toLowerCase()), ...m.preferences.dietary]),
         ],
-        preferences: m.preferences,
+        preferences: {...m.preferences,cuisines:forTonight?.cuisines??m.preferences.cuisines,prices:forTonight?.prices??m.preferences.prices},
       };
     });
     // AI interprets tonight's notes only. Account histories and identities stay in our scorer.

@@ -1,3 +1,4 @@
+import type { TastePreferencePatch } from '../lib/taste-preferences';
 // LocationPage AI chatbot — floating FAB + chat island.
 //
 // Scoped to /location for now. Sends the current visible-restaurants
@@ -266,12 +267,7 @@ interface LocationChatProps {
     sort?: 'score' | 'recent'; limit?: number;
   }) => Promise<{ rows: Array<{ id: string; name: string; score?: number; cuisine?: string; where?: string }>; matched: number; total: number }>;
   /** Write the user's stated taste profile. */
-  onUpdateTasteProfile?: (patch: {
-    addCuisines?: string[]; removeCuisines?: string[];
-    addAvoid?: string[]; removeAvoid?: string[];
-    dietary?: string[]; pricePrimary?: number; priceSecondary?: number;
-    atmosphere?: string; city?: string;
-  }) => Promise<{ ok: boolean; summary: string }>;
+  onUpdateTasteProfile?: (patch: TastePreferencePatch) => Promise<{ ok: boolean; summary: string }>;
   /** Look up who in the user's circle (friends + followed experts)
    *  rated a specific restaurant. Wired to Claude's get_circle_ratings
    *  tool. Implemented in LocationPage off signals.communityByRestaurant. */
@@ -346,6 +342,7 @@ interface LocationChatProps {
   onClearAttachment?: () => void;
   /** Bumped by a page that wants the panel opened. */
   openRequest?: number;
+  composerDraft?: {id:number;text:string} | null;
 }
 
 // UiMessage / UiBlock / SavedChat and the history persistence helpers live
@@ -1094,6 +1091,7 @@ function countUserMessages(messages: UiMessage[]): number {
 /** The highest `openRequest` this chat has acted on — module scope on
  *  purpose, see the `open` state initialiser inside the component. */
 let handledOpenRequest = 0;
+let handledComposerDraft = 0;
 /** The attachment a mount has already opened FOR. Same reasoning, same
  *  scope: an attachment only clears when the user taps the chip's ×, not
  *  when they close the panel, so without this every later remount (Reels
@@ -1141,6 +1139,7 @@ export const LocationChat: React.FC<LocationChatProps> = ({
   attachment,
   onClearAttachment,
   openRequest,
+  composerDraft,
   hideLauncher,
   fabAboveBottomNav,
   fabOverTakeover,
@@ -1201,6 +1200,7 @@ export const LocationChat: React.FC<LocationChatProps> = ({
   }, [attachment]);
   const [messages, setMessages] = useState<UiMessage[]>([]);
   const [input, setInput] = useState('');
+  useEffect(()=>{if(composerDraft && composerDraft.id>handledComposerDraft){handledComposerDraft=composerDraft.id;setInput(composerDraft.text);}},[composerDraft?.id]);
   const [streaming, setStreaming] = useState(false);
   // Elapsed time changes the status copy during longer responses.
   const [streamElapsed, setStreamElapsed] = useState(0);
@@ -2642,6 +2642,11 @@ export const LocationChat: React.FC<LocationChatProps> = ({
                   priceSecondary: tier(input.price_secondary),
                   atmosphere: typeof input.atmosphere === 'string' ? input.atmosphere : undefined,
                   city: typeof input.city === 'string' ? input.city : undefined,
+                  prices: Array.isArray(input.prices) ? input.prices.filter((p):p is number=>tier(p)!==undefined) : undefined,
+                  notes: typeof input.notes === 'string' ? input.notes : undefined,
+                  cookingMinutes: typeof input.cooking_minutes === 'number' ? input.cooking_minutes : undefined,
+                  goal: ['restaurants','cooking','both'].includes(String(input.goal)) ? input.goal as TastePreferencePatch['goal'] : undefined,
+                  discovery: ['balanced','familiar','adventurous'].includes(String(input.discovery)) ? input.discovery as TastePreferencePatch['discovery'] : undefined,
                 });
                 content = res.ok
                   ? `Taste profile updated. ${res.summary} Tell the user exactly what changed, and that it will shape their recommendations from now on.`

@@ -4,7 +4,7 @@
   --gs-muted: #777e7a;
   --gs-line: #dfe4e0;
   --gs-panel: #fff;
-  --gs-accent: #345f4c;
+  --gs-accent: var(--brand-accent);
   position: fixed;
   inset: 0;
   z-index: 40;
@@ -23,7 +23,7 @@
   --gs-muted: #9ca9a1;
   --gs-line: #303c35;
   --gs-panel: #1b231e;
-  --gs-accent: #abc9b6;
+  --gs-accent: var(--brand-accent);
 }
 .gs-page button,
 .gs-page input,
@@ -149,8 +149,8 @@
   font-size: 15px !important;
 }
 .gs-primary {
-  background: var(--gs-ink);
-  color: var(--gs-bg);
+  background: var(--brand-accent);
+  color: var(--brand-on-accent);
   border: 1px solid transparent;
 }
 .gs-secondary {
@@ -805,7 +805,7 @@
   font-size: 16px;
   margin-bottom: 12px;
 }
-.gs-runners button {
+.gs-runners .gs-runner-entry > button {
   display: flex;
   align-items: center;
   gap: 12px;
@@ -827,7 +827,7 @@
   border-radius: 12px;
   flex-shrink: 0;
 }
-.gs-runners button > span:nth-last-child(2) {
+.gs-runners .gs-runner-entry > button > span:nth-last-child(2) {
   flex: 1;
 }
 .gs-runners strong {
@@ -1138,8 +1138,8 @@
 .gs-pairwise h1 { font-size: clamp(28px, 7.5vw, 40px); margin: 24px 0 10px; line-height: 1.08; letter-spacing: -.055em; }
 .gs-pairwise > p { font-size: 14px; margin: 0 0 24px; }
 .gs-pair-options { position: relative; display: grid; gap: 12px; }
-.gs-pair-options > button { position: relative; height: clamp(150px, 25dvh, 230px); border-radius: 24px; border: 0; overflow: hidden; text-align: left; background: var(--gs-panel); color: white; padding: 0; isolation: isolate; }
-.gs-pair-options > button:disabled { opacity: .7; }
+.gs-pair-entry > button { position: relative; height: clamp(150px, 25dvh, 230px); border-radius: 24px; border: 0; overflow: hidden; text-align: left; background: var(--gs-panel); color: white; padding: 0; isolation: isolate; }
+.gs-pair-entry > button:disabled { opacity: .7; }
 .gs-pair-options .gs-photo { position: absolute; inset: 0; width: 100%; height: 100%; border-radius: 0; }
 .gs-pair-options .gs-photo img { width: 100%; height: 100%; object-fit: cover; }
 .gs-pair-options .gs-photo-credit { top: 10px; bottom: auto; }
@@ -1159,10 +1159,28 @@
  .gs-pairwise { padding-top: 8px; }
  .gs-pairwise h1 { margin-top: 16px; font-size: 28px; }
  .gs-pairwise > p { margin-bottom: 16px; font-size: 12px; }
- .gs-pair-options > button { height: clamp(130px, 23dvh, 170px); }
+ .gs-pair-entry > button { height: clamp(130px, 23dvh, 170px); }
  .gs-pair-copy strong { font-size: 21px; }
  .gs-pair-progress { margin-top: 14px; }
 }
 @media (prefers-reduced-motion: reduce) {
  .gs-discovery *, .gs-pairwise * { animation: none !important; transition: none !important; }
 }
+
+/* Facts and preview actions stay outside the swipe target, so reading and
+   opening details can never accidentally submit a vote. */
+.gs-swiping > .gs-place-info { flex-shrink:0; }
+.gs-swipe-card { flex-shrink:0; }
+.gs-runner-entry { border-bottom:1px solid var(--gs-line); padding-bottom:12px; }
+.gs-runner-entry > .gs-place-info { padding:0 4px 4px; }
+.gs-pair-entry { min-width:0; }
+.gs-pair-entry > button { width:100%; }
+.gs-pair-entry .gs-place-info { padding-inline:4px; }
+.gs-pair-or { display:none; }
+
+/* Room setup starts with the task, with one back action in the toolbar. */
+.gs-page.is-setup .gs-header { padding-top: 8px; padding-bottom: 8px; }
+.gs-page.is-setup .gs-body { padding-top: 8px; }
+.gs-create-form h1 { font-size: 28px; letter-spacing: -.8px; margin: 4px 0 8px; }
+.gs-create-form > p { font-size: 14px; margin: 0 0 16px; }
+.gs-create-form .gs-room-type { margin: 0 0 20px; }

@@ -43,7 +43,7 @@ function isEditableTarget(node: EventTarget | null): boolean {
   let el = node instanceof HTMLElement ? node : null;
   while (el) {
     const tag = el.tagName;
-    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return true;
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || el.hasAttribute('data-keep-keyboard')) return true;
     if (el.isContentEditable) return true;
     el = el.parentElement;
   }
@@ -128,7 +128,12 @@ export async function configureNativeKeyboard(
       // field's bottom is at (or under) the keyboard's top edge.
       const kbTop = window.innerHeight - keyboardHeight;
       const rect = el.getBoundingClientRect();
-      if (rect.bottom <= kbTop - 12 && rect.top >= 0) return;
+      // Onboarding also has a pinned footer above the keyboard. A field
+      // can clear the keyboard and still sit behind that footer.
+      const contentBounds = el.closest('.ob-content')?.getBoundingClientRect();
+      const visibleBottom = Math.min(kbTop, contentBounds?.bottom ?? kbTop) - 12;
+      const visibleTop = Math.max(0, contentBounds?.top ?? 0);
+      if (rect.bottom <= visibleBottom && rect.top >= visibleTop) return;
       try {
         el.scrollIntoView({ block: 'center', behavior: 'smooth' });
       } catch {

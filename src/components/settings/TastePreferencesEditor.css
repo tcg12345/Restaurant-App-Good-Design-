@@ -1,0 +1,270 @@
+.tp-editor {
+  max-width: 600px;
+  margin: auto;
+  padding-bottom: 12px;
+  font-family: -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+}
+.tp-editor :is(h2, h3, button) {
+  font-family: inherit;
+}
+.tp-intro {
+  padding: 12px 2px 28px;
+}
+.tp-intro > span {
+  display: grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  border-radius: 17px;
+  background: var(--color-cream-2);
+  margin-bottom: 18px;
+}
+.tp-intro h2 {
+  font-size: 31px;
+  letter-spacing: -1.1px;
+  font-weight: 600;
+  line-height: 1.1;
+}
+.tp-editor p {
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--color-ink-3);
+  margin-top: 9px;
+}
+.tp-ai {
+  padding: 20px;
+  background: var(--color-paper);
+  border: 1px solid var(--color-line);
+  border-radius: 24px;
+}
+.tp-ai-heading {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+.tp-editor h3 {
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.2px;
+}
+.tp-ai button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 46px;
+  border-radius: 15px;
+  background: var(--color-primary);
+  color: var(--color-on-primary);
+  width: 100%;
+  font-size: 13px;
+  font-weight: 600;
+  margin-top: 12px;
+}
+.tp-ai small {
+  display: block;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--color-ink-3);
+  margin-top: 12px;
+}
+.tp-editor textarea,
+.tp-editor input,
+.tp-editor select {
+  width: 100%;
+  font-size: 16px;
+  line-height: 1.5;
+  min-height: 48px;
+  padding: 12px 14px;
+  border: 1px solid var(--color-line);
+  border-radius: 15px;
+  background: var(--color-paper);
+  color: var(--color-ink);
+  appearance: none;
+  scroll-margin: 100px;
+}
+.tp-editor textarea {
+  resize: vertical;
+  margin-top: 14px;
+}
+.tp-editor :is(input, textarea, select):focus {
+  outline: 2px solid color-mix(in srgb, var(--color-primary) 55%, transparent);
+  outline-offset: 2px;
+}
+.tp-editor button:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+.tp-editor button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.tp-section {
+  margin-top: 30px;
+}
+.tp-goals {
+  display: grid;
+  gap: 8px;
+  margin-top: 13px;
+}
+.tp-goals button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 15px;
+  min-height: 52px;
+  text-align: left;
+  font-size: 13px;
+  border: 1px solid var(--color-line);
+  border-radius: 16px;
+  background: var(--color-paper);
+}
+.tp-goals button[aria-pressed="true"] {
+  border-color: var(--color-primary);
+  background: var(--brand-soft);
+  color: var(--color-primary);
+}
+.tp-cuisine-rows {
+  background: var(--color-paper);
+  border: 1px solid var(--color-line);
+  border-radius: 18px;
+  margin-top: 13px;
+  overflow: hidden;
+}
+.tp-cuisine-rows > div + div {
+  border-top: 1px solid var(--color-line);
+}
+.tp-cuisine-toggle {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 16px;
+  text-align: left;
+}
+.tp-cuisine-toggle > span {
+  flex: 1;
+  min-width: 0;
+}
+.tp-cuisine-toggle strong {
+  display: block;
+  font-size: 13px;
+  font-weight: 550;
+}
+.tp-cuisine-toggle small {
+  display: block;
+  font-size: 12px;
+  color: var(--color-ink-3);
+  line-height: 1.5;
+  margin-top: 4px;
+}
+.tp-picker {
+  padding: 0 14px 16px;
+}
+.tp-picker .tp-chips {
+  max-height: 240px;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+.tp-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin-top: 13px;
+}
+.tp-chips button {
+  min-height: 40px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--color-line);
+  border-radius: 20px;
+  background: var(--color-paper);
+  padding: 8px 13px;
+  font-size: 12px;
+}
+.tp-chips [aria-pressed="true"] {
+  background: var(--color-primary);
+  color: var(--color-on-primary);
+  border-color: var(--color-primary);
+}
+.tp-segments {
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  margin-top: 13px;
+  background: var(--color-cream-2);
+  border-radius: 16px;
+}
+.tp-segments button {
+  flex: 1;
+  min-height: 44px;
+  border-radius: 12px;
+  font-size: 13px;
+  color: var(--color-ink-3);
+}
+.tp-segments [aria-pressed="true"] {
+  background: var(--brand-soft);
+  box-shadow: 0 1px 5px #0000000a;
+  color: var(--color-primary);
+  font-weight: 600;
+}
+.tp-field {
+  display: block;
+  font-size: 12px;
+  color: var(--color-ink-3);
+  margin-top: 16px;
+}
+.tp-field :is(input, select) {
+  display: block;
+  margin-top: 7px;
+}
+.tp-usage {
+  margin: 30px 0;
+  padding: 20px 0;
+  border-top: 1px solid var(--color-line);
+}
+.tp-usage button {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  min-height: 44px;
+  margin-top: 8px;
+  font-size: 12px;
+  font-weight: 550;
+}
+.tp-save {
+  position: sticky;
+  bottom: 0;
+  background: var(--color-surface);
+  padding: 12px 0 max(12px, env(safe-area-inset-bottom));
+  border-top: 1px solid var(--color-line);
+}
+.tp-save > button:first-child {
+  width: 100%;
+  min-height: 52px;
+  border-radius: 17px;
+  background: var(--color-primary);
+  color: var(--color-on-primary);
+  font-size: 14px;
+  font-weight: 600;
+}
+.tp-save .tp-discard {
+  display: block;
+  margin: auto;
+  min-height: 44px;
+  font-size: 12px;
+}
+.tp-save > span {
+  display: block;
+  text-align: center;
+  font-size: 12px;
+  line-height: 1.5;
+  margin-top: 8px;
+  color: var(--color-ink-3);
+}
+.tp-loading {
+  padding: 25px;
+  font-size: 14px;
+  color: var(--color-ink-3);
+}

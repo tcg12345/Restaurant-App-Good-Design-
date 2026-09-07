@@ -13,15 +13,17 @@
  * be told to leave.
  */
 let count = 0;
+let presenterCount = 0;
+const presenterListeners = new Set<OverlayListener>();
 
 type OverlayListener = (open: boolean) => void;
 const listeners = new Set<OverlayListener>();
 
 /** Fire only on the 0↔1 edges — subscribers care whether *anything* is
  *  open, not how many. */
-function notify(was: number, now: number): void {
+function notify(was: number, now: number, subscribers = listeners): void {
   if ((was > 0) === (now > 0)) return;
-  for (const fn of listeners) {
+  for (const fn of subscribers) {
     try {
       fn(now > 0);
     } catch (err) {
@@ -33,10 +35,14 @@ function notify(was: number, now: number): void {
 }
 
 /** Register an open overlay. Returns a release fn (idempotent). */
-export function pushOverlay(): () => void {
+export function pushOverlay({ dimPresenter = true }: { dimPresenter?: boolean } = {}): () => void {
   const was = count;
   count++;
   notify(was, count);
+  if (dimPresenter) {
+    const before = presenterCount++;
+    notify(before, presenterCount, presenterListeners);
+  }
   let released = false;
   return () => {
     if (released) return;
@@ -44,6 +50,10 @@ export function pushOverlay(): () => void {
     const before = count;
     count = Math.max(0, count - 1);
     notify(before, count);
+    if (dimPresenter) {
+      const before = presenterCount--;
+      notify(before, presenterCount, presenterListeners);
+    }
   };
 }
 
@@ -58,4 +68,11 @@ export function subscribeOverlay(fn: OverlayListener): () => void {
   listeners.add(fn);
   fn(count > 0);
   return () => { listeners.delete(fn); };
+}
+
+/** In-place photo reveals own gestures without shrinking their own route. */
+export function subscribePresenterOverlay(fn: OverlayListener): () => void {
+  presenterListeners.add(fn);
+  fn(presenterCount > 0);
+  return () => { presenterListeners.delete(fn); };
 }

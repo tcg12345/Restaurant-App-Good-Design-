@@ -1,3 +1,5 @@
+import { mergeReviewArchives, REVIEW_META_KEY } from '../lib/in-review';
+import { mergeTastePreferences, TASTE_PREFERENCES_KEY } from '../lib/taste-preferences';
 import React, { createContext, useContext, useState, useCallback, useEffect, useMemo, useRef, type ReactNode } from 'react';
 import { supabaseConfigured } from '../lib/supabase';
 import type { RecipeNutrition } from '../lib/nutrition';
@@ -482,6 +484,8 @@ interface ListsContextValue {
   pendingPhotoUploadCount: number;
   /** True once the signed-in user's cloud data has been merged into local state (and localStorage). */
   cloudLoaded: boolean;
+  /** A successful account load; false when cloudLoaded only signals a failed attempt. */
+  cloudSyncReady: boolean;
   /** Re-attempt the Storage upload for every pending inline photo now
    *  (the settings row's "tap to retry"). Safe to call repeatedly. */
   retryPendingPhotoUploads: () => void;
@@ -1134,6 +1138,7 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   const [customOrder, setCustomOrderState] = useState<string[]>(() => loadFromStorage(STORAGE_KEY_CUSTOM_ORDER, []));
   const [homeMeals, setHomeMeals] = useState<HomeMeal[]>(() => migrateHomeMeals(loadFromStorage(STORAGE_KEY_HOME_MEALS, [])));
   const [cloudLoaded, setCloudLoaded] = useState(false);
+  const [cloudSyncReady, setCloudSyncReady] = useState(false);
   // Always-fresh mirrors of `ratings`/`wishlist` for rateRestaurant. Reading
   // the render closure there loses same-tick saves: two rateRestaurant calls
   // in one tick (bulk import, fast double-save) would both derive from the
@@ -1289,6 +1294,7 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   useEffect(() => {
     // Block all cloud writes until THIS user's data has been loaded once.
     cloudReadyRef.current = false;
+    setCloudSyncReady(false);
     dirtyDuringLoadRef.current = false;
     // Deferred photo publishes belong to the previous identity — drop them.
     pendingPhotoPublishRef.current.clear();
@@ -1596,7 +1602,23 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         const localOnlyMeta: Record<string, RestaurantMeta> = {};
         let metaMergedFromLocal = false;
         for (const [mk, mv] of Object.entries(localMetaSnapshot)) {
+          if (mk === TASTE_PREFERENCES_KEY) continue;
           if (!(mk in cloudMeta)) { localOnlyMeta[mk] = mv; metaMergedFromLocal = true; }
+        }
+        if (localMetaSnapshot[TASTE_PREFERENCES_KEY] || cloudMeta[TASTE_PREFERENCES_KEY]) {
+          const merged = mergeTastePreferences(localMetaSnapshot[TASTE_PREFERENCES_KEY], cloudMeta[TASTE_PREFERENCES_KEY], userId);
+          if (merged) {
+            if (JSON.stringify(merged) !== JSON.stringify(cloudMeta[TASTE_PREFERENCES_KEY])) metaMergedFromLocal = true;
+            cloudMeta[TASTE_PREFERENCES_KEY] = merged as unknown as RestaurantMeta;
+          } else if (cloudMeta[TASTE_PREFERENCES_KEY]) {
+            delete cloudMeta[TASTE_PREFERENCES_KEY];
+            metaMergedFromLocal = true;
+          }
+        }
+        if (localMetaSnapshot[REVIEW_META_KEY] || cloudMeta[REVIEW_META_KEY]) {
+          const merged = mergeReviewArchives(localMetaSnapshot[REVIEW_META_KEY], cloudMeta[REVIEW_META_KEY], userId);
+          if (JSON.stringify(merged) !== JSON.stringify(cloudMeta[REVIEW_META_KEY])) metaMergedFromLocal = true;
+          cloudMeta[REVIEW_META_KEY] = merged as unknown as RestaurantMeta;
         }
         // Legacy sync channels: trips and custom order used to be mirrored
         // into the meta blob (__trips__/__custom_order__), which doubled the
@@ -1743,6 +1765,7 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       // Load succeeded (row found, or genuine no-row) — cloud writes are safe.
       cloudLoadFailedRef.current = false;
       cloudReadyRef.current = true;
+      setCloudSyncReady(true);
       setCloudLoaded(true);
 
       // A mutation landed while the load was in flight: its state change was
@@ -3502,7 +3525,7 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       ratings, scoresUnlocked: scoresUnlocked(ratings.length),
       rateRestaurant, updateRating, applySettledScores, removeRating, getRating, deleteVisit,
       pendingPhotoUploadCount, retryPendingPhotoUploads,
-      cloudLoaded,
+      cloudLoaded, cloudSyncReady,
       lists, createList, deleteList, renameList, addToList, removeFromList, addToWishlistInList, removeFromWishlistInList, getListsForRestaurant, setListRating, getListRating,
       restaurantMeta, cacheRestaurantMeta, getRestaurantInfo, stashMetaKey,
       wishlist, addToWishlist, removeFromWishlist, toggleWishlist, isWishlisted, getWishlistItem,

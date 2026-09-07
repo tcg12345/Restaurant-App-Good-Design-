@@ -1,7 +1,7 @@
 import { useDevicePreference } from '../lib/device-preferences';
 import React, { useEffect, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
-import { ArrowUpRight, ChefHat, Compass, BadgeCheck, Sparkles, Pause, Play, Users } from 'lucide-react';
+import { ArrowUpRight, ChevronRight, ChefHat, Compass, BadgeCheck, Sparkles, Pause, Play, Users } from 'lucide-react';
 import { homeHaptic } from '../lib/haptics';
 import { isOverlayOpen } from '../lib/overlay-registry';
 import type { HomeHighlight } from '../lib/home-highlights';
@@ -54,8 +54,8 @@ export function HomeHighlights({ items, active, onOpen, onSeen }: { onSeen?: (it
       if (Math.abs(dx) > 45 && Math.abs(dx) > Math.abs(dy) * 1.3) { suppressClickUntil.current = performance.now() + 500; select(selected + (dx < 0 ? 1 : -1)); }
       touch.current = null;
     }}>
-    <AnimatePresence initial={false} mode="popLayout">
-      <motion.button key={item.id} className="home-highlight" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: reduced ? 0 : .45 }}
+    <AnimatePresence initial={false}>
+      <motion.button key={item.id} className={`home-highlight${item.image ? ' has-image' : ''}`} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: reduced ? 0 : .18 }}
         onClick={() => { if (performance.now() < suppressClickUntil.current) return; homeHaptic(); onOpen(item); }} aria-label={`${item.eyebrow}: ${item.title}. ${item.cta}`}>
         <div className="home-highlight-art" aria-hidden="true"><Icon strokeWidth={1} />{item.image && <img src={item.image} alt="" onError={e => { e.currentTarget.style.display = 'none'; }} />}</div>
         <div className="home-highlight-shade" />
@@ -63,8 +63,9 @@ export function HomeHighlights({ items, active, onOpen, onSeen }: { onSeen?: (it
       </motion.button>
     </AnimatePresence>
     <div className="home-highlight-controls">
-      <div role="group" aria-label="Choose an idea">{items.map((idea, i) => <button key={idea.id} aria-label={`Show idea ${i + 1}: ${idea.title}`} aria-pressed={i === selected} onClick={() => select(i)}><span /></button>)}</div>
+      <span className="home-highlight-count" aria-label={`Idea ${selected + 1} of ${items.length}`}>{selected + 1} / {items.length}</span>
       {!reduced && autoplay && <button className="home-highlight-pause" aria-label={paused ? 'Play ideas' : 'Pause ideas'} onClick={() => setPaused(p => !p)}>{paused ? <Play size={13} /> : <Pause size={13} />}</button>}
+      {items.length > 1 && <button aria-label="Show next idea" onClick={() => select(selected + 1)}><ChevronRight size={16} /></button>}
     </div>
   </section>;
 }

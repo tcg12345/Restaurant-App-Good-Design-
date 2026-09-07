@@ -1,0 +1,9 @@
+# Welcome hero
+
+Asset: `public/images/onboarding/contemporary-dining.jpg`
+
+Generated with the built-in image-generation tool, then encoded as JPEG for the app. This replaces the salmon hero and the rejected rustic restaurant draft.
+
+## Final prompt
+
+Use case: photorealistic-natural. Asset type: welcome hero photograph for a clean modern premium iOS restaurant discovery app. Create a BRIGHT, contemporary editorial hospitality photograph. A sleek modern neighborhood restaurant with large floor-to-ceiling windows, soft natural daylight, smooth ivory walls, curved contemporary cream upholstered chairs, pale terrazzo floor and brushed-metal accents. A pale stone restaurant table is prominent in foreground, with three neatly plated small dishes—fresh sushi, a colorful seasonal salad, and a small pasta dish—plus refined clear water glasses and folded white linen. The modern dining room and attractive architectural space should be as important as the food: roughly the upper 60 percent shows the interior, lower 40 percent the table. Camera at slightly elevated seated eye level, not overhead. Airy, clean, calm, understated luxury, current design-magazine quality, realistic photographed materials, neutral whites and light grays with restrained green from food and one architectural plant. Slightly out-of-focus diners far in the background give a sense of dining out, not a staged home recipe setup. Wide 3:2 composition, central subjects safe for a near-square mobile crop. NO rustic character: no dark brown wood tables, no distressed finishes, no exposed brick or stone walls, no arches, no old-world bistro styling, no warm amber mood lighting, no candles, no vintage furniture. No salmon, no kitchen, no cooking equipment, no text, no logos, no watermark, no UI. Balanced exposure with crisp whites and soft shadows, not sepia, not moody, not overexposed.

@@ -1,3 +1,4 @@
+import { useTastePreferences } from '../hooks/useTastePreferences';
 import React, { useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { buildHomeHighlights, readHighlightHistory, recordHighlight } from '../lib/home-highlights';
@@ -6,9 +7,9 @@ import { useRecipes } from '../contexts/RecipesContext';
 import { useHomeHighlightSocial } from '../hooks/useHomeHighlightSocial';
 import { AnimatePresence } from 'motion/react';
 import { HomeSearchOverlay } from '../components/HomeSearchOverlay';
+import { HomeGuides } from '../components/HomeGuides';
 import { HomeExperience } from '../components/HomeExperience';
 import { SocialFeed, type FeedFilter } from '../components/SocialFeed';
-import { Logo } from '../components/Logo';
 import { Plus, MessageCircle, Users, BadgeCheck, ChefHat } from 'lucide-react';
 import { GlassButton, GlassGroup } from '../lib/glass-buttons';
 import { useAssistantContext } from '../contexts/AssistantContext';
@@ -48,15 +49,17 @@ export const Home: React.FC = () => {
     return () => { clearInterval(timer); document.removeEventListener('visibilitychange', update); };
   }, []);
   const city = home?.location?.label?.split(',')[0] || 'Choose your location';
+  const { preferences } = useTastePreferences();
+  const goal = preferences.goal ?? 'both';
   const highlights = useMemo(() => buildHomeHighlights({
-    userId: user?.id, city, now: clock, social, pendingRequestCount, unreadCount, session: visit.session, history: visit.userId === user?.id ? visit.history : undefined,
+    preferences, goal, userId: user?.id, city, now: clock, social, pendingRequestCount, unreadCount, session: visit.session, history: visit.userId === user?.id ? visit.history : undefined,
     ratings: ratings.map(r => ({ ...r, image: r.photos?.[0]?.url || r.image || restaurantMeta[r.restaurantId]?.image })),
     wishlist,
     recipes: [
       ...homeMeals.filter(m => m.steps?.length || m.ingredients?.length).map(m => ({ id: m.id, title: m.name, image: m.coverPhoto || m.photos?.[0]?.url, cuisine: m.cuisine, minutes: m.prepTime != null && m.cookTime != null ? m.prepTime + m.cookTime : undefined, href: `/recipe/${user?.id}/${encodeURIComponent(m.id)}` })),
       ...myRecipes.filter(r => !r.linkedMealId && r.steps?.length).map(r => ({ id: r.id, title: r.title, image: r.photos?.[0], cuisine: r.cuisine, minutes: r.prepTimeMinutes != null && r.cookTimeMinutes != null ? r.prepTimeMinutes + r.cookTimeMinutes : undefined, href: `/recipe/${encodeURIComponent(r.id)}` })),
     ],
-  }), [user?.id, city, clock, ratings, wishlist, homeMeals, myRecipes, restaurantMeta, social, pendingRequestCount, unreadCount, visit]);
+  }), [preferences, goal, user?.id, city, clock, ratings, wishlist, homeMeals, myRecipes, restaurantMeta, social, pendingRequestCount, unreadCount, visit]);
   const { requireSignIn } = useSignInModal();
   const { requestOpen, setAttachment, setHomeFeedVisible } = useAssistantContext();
   const [filter, setFilter] = useState<FeedFilter>('friends');
@@ -69,6 +72,7 @@ export const Home: React.FC = () => {
       name={profile?.display_name?.split(' ')[0]}
       city={city}
       highlights={highlights}
+      guides={<HomeGuides preferences={preferences} />}
       onHighlightSeen={item => recordHighlight(user?.id, item, 'seen')}
       onHighlightOpen={item => recordHighlight(user?.id, item, 'clicked')}
       onHighlightLink={href => navigate(href)}
@@ -85,17 +89,14 @@ export const Home: React.FC = () => {
         }
         if (action === 'recipes') navigate('/create', { state: { mode: 'recipe' } });
       }}
-      header={<header className="home-topbar">
-        <div className="home-brand"><Logo size={30} /><span>GoodEats</span></div>
-        <nav aria-label="Home shortcuts">
+      header={<nav aria-label="Home shortcuts">
           <GlassButton id="home-create" symbol="plus" label="Create" className="home-glass-button" onClick={() => navigate('/create')}><Plus size={22} /></GlassButton>
           <GlassGroup id="home-social" className="home-glass-social" itemClassName="home-glass-button" items={[
             { id: 'messages', symbol: 'message', label: 'Messages', badge: unreadCount ? String(unreadCount) : undefined, icon: <><MessageCircle size={20} />{unreadCount > 0 && <i />}</>, onClick: () => navigate('/messages') },
             { id: 'circle', symbol: 'person.2', label: 'Your circle', badge: pendingRequestCount ? String(pendingRequestCount) : undefined, icon: <><Users size={20} />{pendingRequestCount > 0 && <i />}</>, onClick: () => navigate('/circle') },
           ]} />
-        </nav>
-      </header>}
-      onPageChange={(page) => setHomeFeedVisible(page === 'feed')}
+        </nav>}
+      onPageChange={(page) => { setHomeFeedVisible(page === 'feed'); }}
       feedFilters={<div className="home-feed-filters" role="group" aria-label="Feed audience">
         {([{ id: 'friends', label: 'Your circle', icon: Users }, { id: 'experts', label: 'Verified', icon: BadgeCheck }, { id: 'recipes', label: 'Cooking', icon: ChefHat }] as const).map(({ id, label, icon: Icon }) =>
           <button key={id} aria-pressed={filter === id} onClick={() => setFilter(id)}><Icon size={15} />{label}</button>)}

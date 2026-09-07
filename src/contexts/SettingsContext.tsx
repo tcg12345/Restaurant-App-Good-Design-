@@ -1,6 +1,8 @@
 import React, { createContext, useContext, useState, useCallback, useEffect, useRef } from 'react';
 import { applyNativeTheme } from '../lib/native-theme';
 
+export type AppearanceMode = 'system' | 'light' | 'dark';
+
 interface SettingsContextType {
   /** True on a real phone — either the Capacitor native runtime or any
    *  browser viewport below the desktop-sidebar breakpoint (<1024px).
@@ -19,6 +21,8 @@ interface SettingsContextType {
    *  while the user is typing. */
   keyboardOpen: boolean;
   setKeyboardOpen: (open: boolean) => void;
+  appearance: AppearanceMode;
+  setAppearance: (mode: AppearanceMode) => void;
   darkMode: boolean;
   toggleDarkMode: () => void;
   setDarkMode: (on: boolean) => void;
@@ -39,6 +43,8 @@ const SettingsContext = createContext<SettingsContextType>({
   setHideBottomNav: () => {},
   keyboardOpen: false,
   setKeyboardOpen: () => {},
+  appearance: 'system',
+  setAppearance: () => {},
   darkMode: false,
   toggleDarkMode: () => {},
   setDarkMode: () => {},
@@ -68,15 +74,12 @@ function isNativePlatform(): boolean {
  *  1023.98px (not 1023px) closes the sub-pixel seam on fractional widths. */
 const NARROW_QUERY = '(max-width: 1023.98px)';
 
-/** The side the user picked in Settings, or null if they never have.
- *  The null case is the whole point: "hasn't chosen" is what lets the app
- *  mirror the system, and it only survives because nothing is written to
- *  storage until the toggle is actually used. */
-function storedDarkMode(): boolean | null {
+/** Keep the existing key so explicit choices survive app updates. */
+function storedAppearance(): AppearanceMode {
   try {
     const raw = localStorage.getItem(DARK_MODE_KEY);
-    return raw === null ? null : raw === '1';
-  } catch { return null; }
+    return raw === '1' ? 'dark' : raw === '0' ? 'light' : 'system';
+  } catch { return 'system'; }
 }
 
 function systemPrefersDark(): boolean {
@@ -88,7 +91,8 @@ function systemPrefersDark(): boolean {
  *  picked a side. (index.html runs this same rule inline so <html> is
  *  already the right colour on the first paint — keep the two in step.) */
 function loadDarkMode(): boolean {
-  return storedDarkMode() ?? systemPrefersDark();
+  const mode = storedAppearance();
+  return mode === 'system' ? systemPrefersDark() : mode === 'dark';
 }
 
 function loadTwoDecimalScores(): boolean {
@@ -119,45 +123,33 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const [darkMode, setDarkModeState] = useState<boolean>(() => loadDarkMode());
   const darkModeRef = useRef(darkMode);
   darkModeRef.current = darkMode;
-  // Whether the user has picked a side. This used to be written on mount,
-  // which meant a first run recorded a "choice" nobody made — after one
-  // launch there was no way to tell "never chose" from "chose light", and
-  // the app could never defer to the system again.
-  const themeChosenRef = useRef<boolean>(storedDarkMode() !== null);
+  const [appearance, setAppearanceState] = useState<AppearanceMode>(storedAppearance);
+  const appearanceRef = useRef(appearance);
+  appearanceRef.current = appearance;
 
-  // Apply the dark class to <html> so Tailwind's @custom-variant dark
-  // selector matches everywhere, and mirror the theme onto the native
-  // chrome (status-bar style + the window's interface style) so it can
-  // never disagree with the page. Persisting is NOT done here — only an
-  // explicit choice is written (see setDarkMode).
   useEffect(() => {
     document.documentElement.classList.toggle('dark', darkMode);
-    void applyNativeTheme(darkMode);
-  }, [darkMode]);
+    // System must clear the native window override; otherwise WebKit reports
+    // the app's forced theme instead of subsequent device appearance changes.
+    void applyNativeTheme(darkMode, appearance === 'system');
+  }, [darkMode, appearance]);
 
-  // Follow the system for as long as the user hasn't picked a side, so a
-  // phone that flips to dark at sunset takes the app with it.
-  //
-  // Native builds effectively only get this at launch: applyNativeTheme
-  // pins the window's overrideUserInterfaceStyle, and from then on the web
-  // view's prefers-color-scheme reports that override rather than the OS.
-  // The window is never overridden before the web app asks for it, so a
-  // cold launch still reads the real system setting — which is the case
-  // that matters here.
   useEffect(() => {
     const mq = window.matchMedia(DARK_QUERY);
     const handler = (e: MediaQueryListEvent) => {
-      if (!themeChosenRef.current) setDarkModeState(e.matches);
+      if (appearanceRef.current === 'system') setDarkModeState(e.matches);
     };
     mq.addEventListener('change', handler);
     return () => mq.removeEventListener('change', handler);
   }, []);
 
-  const setDarkMode = useCallback((on: boolean) => {
-    themeChosenRef.current = true;
-    try { localStorage.setItem(DARK_MODE_KEY, on ? '1' : '0'); } catch { /* private mode: the choice lasts the session */ }
-    setDarkModeState(on);
+  const setAppearance = useCallback((mode: AppearanceMode) => {
+    appearanceRef.current = mode;
+    try { localStorage.setItem(DARK_MODE_KEY, mode === 'system' ? 'system' : mode === 'dark' ? '1' : '0'); } catch { /* Keep the choice for this session if storage is unavailable. */ }
+    setAppearanceState(mode);
+    setDarkModeState(mode === 'system' ? systemPrefersDark() : mode === 'dark');
   }, []);
+  const setDarkMode = useCallback((on: boolean) => setAppearance(on ? 'dark' : 'light'), [setAppearance]);
   const toggleDarkMode = useCallback(() => setDarkMode(!darkModeRef.current), [setDarkMode]);
 
   const [twoDecimalScores, setTwoDecimalScores] = useState<boolean>(() => loadTwoDecimalScores());
@@ -169,7 +161,7 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   }, []);
 
   return (
-    <SettingsContext.Provider value={{ phoneMode, isNative, hideBottomNav, setHideBottomNav, keyboardOpen, setKeyboardOpen, darkMode, toggleDarkMode, setDarkMode, twoDecimalScores, toggleTwoDecimalScores }}>
+    <SettingsContext.Provider value={{ phoneMode, isNative, hideBottomNav, setHideBottomNav, keyboardOpen, setKeyboardOpen, appearance, setAppearance, darkMode, toggleDarkMode, setDarkMode, twoDecimalScores, toggleTwoDecimalScores }}>
       {children}
     </SettingsContext.Provider>
   );

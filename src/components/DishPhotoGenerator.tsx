@@ -6,7 +6,7 @@
 // sheet every AI create uses.
 
 import React, { useEffect, useRef, useState } from 'react';
-import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
+import { motion, useReducedMotion } from 'motion/react';
 import { GlassButton } from '../lib/glass-buttons';
 import { AlertCircle, ArrowRight, Camera, Check, ChefHat, ImagePlus, Loader2, RefreshCw, Sparkles, X } from 'lucide-react';
 import { cn } from '../lib/utils';
@@ -262,7 +262,7 @@ export const DishPhotoGenerator: React.FC<DishPhotoGeneratorProps> = ({
     ? 'Reading the plate — components, sauces, garnish, and how it was cooked.'
     : 'Measuring ingredients, sequencing steps, and dialing in the timing.';
   const pct = Math.round(progress * 100);
-  const transition = { duration: reduceMotion ? 0 : 0.32, ease: [0.22, 1, 0.36, 1] as const };
+  const transition = { duration: reduceMotion ? 0 : 0.14, ease: [0.22, 1, 0.36, 1] as const };
 
   return (
     <div className={`rcx dish-flow${phoneMode ? ' is-phone' : ''}`}>
@@ -278,7 +278,7 @@ export const DishPhotoGenerator: React.FC<DishPhotoGeneratorProps> = ({
         </div>
       </div>
       <div ref={bodyRef} className="rcx-body dish-body">
-        <AnimatePresence mode="wait" initial={false}>
+        <>
           {loading && photo ? (
             <motion.div key="creating" initial={{ opacity: 0, y: reduceMotion ? 0 : 16 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={transition} className="dish-creating">
               <div className="dish-orbit-photo">
@@ -331,7 +331,7 @@ export const DishPhotoGenerator: React.FC<DishPhotoGeneratorProps> = ({
               </div>
             </motion.div>
           )}
-        </AnimatePresence>
+        </>
       </div>
       <div className="dish-footer">
         {!loading && <QuotaMeter feature="recipe-photo" className="dish-quota" />}

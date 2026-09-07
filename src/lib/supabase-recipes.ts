@@ -222,15 +222,15 @@ export async function getRecipe(id: string): Promise<Recipe | null> {
 /* ── Recipe queries ── */
 
 /** Fetch all recipes belonging to a user. */
-export async function getUserRecipes(userId: string): Promise<Recipe[]> {
+export async function getUserRecipes(userId: string, throwOnError = false): Promise<Recipe[]> {
   if (!supabaseConfigured || !userId) return [];
   try {
     const { data, error } = await supabase.from('recipes')
       .select('*').eq('user_id', userId)
       .order('updated_at', { ascending: false });
-    if (error) { console.error('[Recipes] getUserRecipes error:', error); return []; }
+    if (error) { if (throwOnError) throw error; console.error('[Recipes] getUserRecipes error:', error); return []; }
     return dedupeRecipes((data || []).map((r) => rowToRecipe(r as Record<string, unknown>)));
-  } catch (err) { console.error('[Recipes] getUserRecipes exception:', err); return []; }
+  } catch (err) { if (throwOnError) throw err; console.error('[Recipes] getUserRecipes exception:', err); return []; }
 }
 
 /** Fetch public recipes, optionally filtered by cuisine or tags. */

@@ -30,7 +30,7 @@ export const NightPlanCards: React.FC<{ offers: PlanOffer[]; value: PlanKey; onC
           ...glass,
           position: 'relative', color: NIGHT_INK,
           border: `1px solid ${on ? PALE : 'rgba(255,255,255,0.12)'}`,
-          background: on ? 'rgba(174, 187, 211, 0.12)' : 'rgba(255,255,255,0.06)',
+          background: on ? 'rgba(168, 208, 184, 0.12)' : 'rgba(255,255,255,0.06)',
         };
         const check = (
           <span style={{ width: 18, height: 18, borderRadius: 999, flex: 'none', border: `1.6px solid ${on ? PALE : 'rgba(255,255,255,0.35)'}`, background: on ? PALE : 'transparent', color: ON_PALE, display: 'inline-grid', placeItems: 'center' }}>{on && <Check size={11} strokeWidth={3} />}</span>
@@ -108,7 +108,7 @@ export const NightPurchaseFooter: React.FC<{ p: Purchase; ctaLabel?: string }> =
       whileTap={!p.busy ? { scale: 0.97 } : undefined}
       transition={{ duration: 0.2, ease: EASE }}
       className="w-full flex items-center justify-center gap-2 rounded-full disabled:opacity-40"
-      style={{ height: 52, background: PALE, color: ON_PALE, fontSize: '15px', fontWeight: 800, boxShadow: '0 12px 28px -12px rgba(174,187,211,0.6)' }}
+      style={{ height: 52, background: PALE, color: ON_PALE, fontSize: '15px', fontWeight: 800, boxShadow: '0 12px 28px -12px rgba(168,208,184,0.6)' }}
     >
       {p.busy ? <Loader2 size={17} className="animate-spin" /> : (
         <>
@@ -142,7 +142,7 @@ export const NightOutcome: React.FC<{ phase: 'success' | 'web-sent' | 'pending';
   <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5, ease: EASE }} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', padding: '40px 0' }}>
     {phase === 'success' ? (
       <>
-        <span style={{ width: 64, height: 64, borderRadius: 999, background: 'rgba(174,187,211,0.16)', color: PALE, display: 'grid', placeItems: 'center' }}><Check size={28} /></span>
+        <span style={{ width: 64, height: 64, borderRadius: 999, background: 'rgba(168,208,184,0.16)', color: PALE, display: 'grid', placeItems: 'center' }}><Check size={28} /></span>
         <p style={{ marginTop: 18, fontFamily: 'var(--font-display)', fontWeight: 300, fontSize: '30px', color: NIGHT_INK, letterSpacing: '-0.02em' }}>Welcome to <em style={{ fontStyle: 'italic' }}>Pro.</em></p>
         <p style={{ marginTop: 6, fontSize: '13.5px', color: NIGHT_INK_SOFT }}>Everything's unlocked.</p>
       </>
