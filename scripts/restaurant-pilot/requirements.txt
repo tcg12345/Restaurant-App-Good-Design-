@@ -1,0 +1,3 @@
+# Install in the isolated source/document environment, not system Python.
+duckdb==1.5.5
+pypdf==6.18.0
