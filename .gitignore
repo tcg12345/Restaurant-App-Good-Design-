@@ -33,3 +33,7 @@ ios-assets/
 
 # Supabase CLI cache
 supabase/.temp/
+
+# Local restaurant research artifacts and Python runtime caches.
+data/restaurant-pilot/
+__pycache__/
