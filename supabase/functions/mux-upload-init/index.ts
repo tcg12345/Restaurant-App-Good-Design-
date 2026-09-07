@@ -1,3 +1,4 @@
+import { instrumentedFetch as fetch, withRequestTelemetry } from '../_shared/api-telemetry.ts';
 // mux-upload-init — mint a short-lived Mux direct-upload URL.
 //
 // The browser calls this to get a one-time URL it can PUT the raw video to,
@@ -76,7 +77,7 @@ async function rejectForeignRow(rowId: string, callerId: string): Promise<Respon
   return null;
 }
 
-Deno.serve(async (req) => {
+Deno.serve(withRequestTelemetry('mux-upload-init', async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS_HEADERS });
   if (req.method !== 'POST') return json({ error: 'Method not allowed' }, 405);
 
@@ -151,4 +152,4 @@ Deno.serve(async (req) => {
     console.error('[mux-upload-init] exception', err);
     return json({ error: 'Could not start the upload. Please try again.' }, 500);
   }
-});
+}));

@@ -1,3 +1,4 @@
+import { instrumentedFetch as fetch, withRequestTelemetry } from '../_shared/api-telemetry.ts';
 // billing-portal — a Stripe Customer Portal session for the web app.
 //
 // Manage / cancel / update card for a subscription bought on the web. iOS
@@ -20,7 +21,7 @@ function json(status: number, body: Record<string, unknown>): Response {
   return new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json', ...CORS_HEADERS } });
 }
 
-Deno.serve(async (req) => {
+Deno.serve(withRequestTelemetry('billing-portal', async (req) => {
   if (req.method === 'OPTIONS') return new Response(null, { headers: CORS_HEADERS });
   if (req.method !== 'POST') return json(405, { error: 'Method not allowed' });
   const auth = await requireUser(req);
@@ -43,4 +44,4 @@ Deno.serve(async (req) => {
     return json(502, { error: "Couldn't open billing right now." });
   }
   return json(200, { url: data.url });
-});
+}));

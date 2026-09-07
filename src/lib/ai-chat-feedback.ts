@@ -1,3 +1,4 @@
+import { track, trackRestaurant } from './analytics';
 import { supabase, supabaseConfigured } from './supabase';
 
 /**
@@ -52,6 +53,8 @@ export interface ChatFeedbackInput {
 }
 
 export function logChatFeedback({ verdict, turnKey, restaurantIds, userId }: ChatFeedbackInput): void {
+  track('ai_feedback', { feature: 'ai_assistant', properties: { verdict } });
+  for (const id of restaurantIds || []) trackRestaurant('recommendation_feedback', id, undefined, { verdict });
   if (!supabaseConfigured || !turnKey) return;
   void supabase
     .from('ai_chat_feedback')

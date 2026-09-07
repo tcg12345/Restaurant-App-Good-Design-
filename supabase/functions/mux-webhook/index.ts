@@ -1,3 +1,4 @@
+import { withRequestTelemetry } from '../_shared/api-telemetry.ts';
 // mux-webhook — receive Mux asset lifecycle events and record playback ids.
 //
 // Mux calls this (server-to-server) as it ingests/transcodes an upload. We
@@ -76,7 +77,7 @@ function parsePassthrough(raw: string): { owner: string; rowId: string } | null 
   return { owner, rowId };
 }
 
-Deno.serve(async (req) => {
+Deno.serve(withRequestTelemetry('mux-webhook', async (req) => {
   if (req.method !== 'POST') return new Response('Method not allowed', { status: 405 });
 
   const raw = await req.text();
@@ -180,4 +181,4 @@ Deno.serve(async (req) => {
   }
 
   return new Response('ok', { status: 200 });
-});
+}));

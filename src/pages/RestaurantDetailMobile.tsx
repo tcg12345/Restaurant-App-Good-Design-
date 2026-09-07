@@ -547,10 +547,10 @@ export const RestaurantDetailMobile: React.FC = () => {
               {actions.map(({ Icon, label, href, external, onClick, accent }) => {
                 const inner = (<><Icon size={15} />{label}</>);
                 const cls = cn(base, accent ? 'bg-primary/10 border-primary/30 text-primary' : 'bg-transparent border-on-surface/20 text-on-surface');
-                if (onClick) return <button key={label} type="button" onClick={onClick} className={cls} style={font}>{inner}</button>;
+                if (onClick) return <button data-analytics-outbound={label.toLowerCase()} data-analytics-restaurant={place.id} key={label} type="button" onClick={onClick} className={cls} style={font}>{inner}</button>;
                 if (!href) return null;
                 return (
-                  <a key={label} href={href} {...(external ? { target: '_blank', rel: 'noopener noreferrer' } : {})} className={cls} style={font}>
+                  <a data-analytics-outbound={label.toLowerCase()} data-analytics-restaurant={place.id} key={label} href={href} {...(external ? { target: '_blank', rel: 'noopener noreferrer' } : {})} className={cls} style={font}>
                     {inner}
                   </a>
                 );

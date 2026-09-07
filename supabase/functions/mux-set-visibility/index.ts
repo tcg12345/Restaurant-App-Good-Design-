@@ -1,3 +1,4 @@
+import { instrumentedFetch as fetch, withRequestTelemetry } from '../_shared/api-telemetry.ts';
 // mux-set-visibility — align a Mux asset's playback policy with its row's
 // is_public flag after the owner flips a reel / post between public and
 // followers-only.
@@ -84,7 +85,7 @@ async function reconcileAsset(
   return keep;
 }
 
-Deno.serve(async (req) => {
+Deno.serve(withRequestTelemetry('mux-set-visibility', async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS_HEADERS });
   if (req.method !== 'POST') return json({ error: 'Method not allowed' }, 405);
 
@@ -165,4 +166,4 @@ Deno.serve(async (req) => {
   }
 
   return json({ updated });
-});
+}));

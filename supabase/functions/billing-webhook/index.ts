@@ -1,3 +1,4 @@
+import { withRequestTelemetry } from '../_shared/api-telemetry.ts';
 // billing-webhook — RevenueCat tells us a subscription changed.
 //
 // RevenueCat is the one source of purchase truth for every rail (App Store
@@ -80,7 +81,7 @@ function stateFor(ev: RcEvent, prev: PlanState | null): PlanState | null {
   }
 }
 
-Deno.serve(async (req) => {
+Deno.serve(withRequestTelemetry('billing-webhook', async (req) => {
   if (req.method !== 'POST') return new Response('Method not allowed', { status: 405 });
   if (!WEBHOOK_SECRET) {
     console.error('[billing-webhook] REVENUECAT_WEBHOOK_SECRET is not set');
@@ -154,4 +155,4 @@ Deno.serve(async (req) => {
     console.error('[billing-webhook] apply failed:', err);
     return new Response('Apply failed', { status: 500 });
   }
-});
+}));

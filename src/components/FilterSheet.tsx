@@ -1,3 +1,4 @@
+import { track } from '../lib/analytics';
 import React, { createContext, useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence, MotionConfig } from 'motion/react';
@@ -110,7 +111,8 @@ export const FilterSheet: React.FC<FilterSheetProps> = ({
   // can't track a finger-driven transform — and come back at rest.
   const [glassSuspended, setGlassSuspended] = useState(false);
   const { dragProps, sheetRef } = useBottomSheet(open, onClose, activeScrollRef, setGlassSuspended);
-  const handleApply = onApply ?? onClose;
+  const handleApply = () => { track('feature_outcome', { feature: 'filters', properties: { outcome: 'applied' } }); (onApply ?? onClose)(); };
+  useEffect(() => { if (open) track('feature_outcome', { feature: 'filters', properties: { outcome: 'opened' } }); }, [open]);
 
   // ── Drill sub-page state ──
   const [page, setPage] = useState<({ id: string; title: string } & FilterPageMeta) | null>(null);

@@ -1,3 +1,4 @@
+import { track } from '../lib/analytics';
 import { useTastePreferences } from '../hooks/useTastePreferences';
 import { usePageBack } from '../lib/usePageBack';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -2058,6 +2059,7 @@ export const LocationPage: React.FC = () => {
         useRestriction: true,
         priceLevels,
       });
+      track('search_completed', { feature: 'ai_assistant', properties: { query: q, city: targetCity || shortCityName, result_count: res.places.length, source: 'ai_search' } });
       const fresh: PlaceResult[] = [];
       for (const p of res.places) {
         if (seenIdsRef.current.has(p.id)) continue;

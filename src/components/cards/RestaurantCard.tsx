@@ -123,7 +123,7 @@ export const RestaurantCard: React.FC<RestaurantCardProps> = ({
   if (v === 'hero') {
     const safe = safeImage(image);
     return (
-      <CardShell
+      <CardShell data-restaurant-id={id} data-restaurant-name={name}
         as={linkAs}
         to={linkAs === 'a' ? href : undefined}
         onClick={onClick}
@@ -170,7 +170,7 @@ export const RestaurantCard: React.FC<RestaurantCardProps> = ({
   if (v === 'row') {
     const rowSurface = surface ?? (phoneMode ? 'flat-row' : 'boxed');
     return (
-      <CardShell
+      <CardShell data-restaurant-id={id} data-restaurant-name={name}
         as={linkAs}
         to={linkAs === 'a' ? href : undefined}
         onClick={onClick}
@@ -228,7 +228,7 @@ export const RestaurantCard: React.FC<RestaurantCardProps> = ({
   );
 
   return (
-    <CardShell
+    <CardShell data-restaurant-id={id} data-restaurant-name={name}
       as={linkAs}
       to={linkAs === 'a' ? href : undefined}
       onClick={onClick}

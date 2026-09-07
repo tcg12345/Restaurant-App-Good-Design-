@@ -1,3 +1,4 @@
+import { instrumentedFetch as fetch } from '../_shared/api-telemetry.ts';
 export interface SummaryPlace { id: string; name: string; cuisine?: string; address?: string; priceLevel?: number }
 
 /** Select only from the authorized server snapshot; never accept client facts. */

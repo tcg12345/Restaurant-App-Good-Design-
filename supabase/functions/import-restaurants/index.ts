@@ -1,3 +1,4 @@
+import { instrumentedFetch as fetch, withRequestTelemetry, setTelemetryUser } from '../_shared/api-telemetry.ts';
 // AI Restaurant-List Importer — Supabase Edge Function (Deno).
 //
 // Powers the Import page's screenshot path: the user screenshots a
@@ -56,6 +57,7 @@ async function requireUser(
   );
   const { data, error } = await supabase.auth.getUser(token);
   if (error || !data.user) return { response: unauthorized() };
+  setTelemetryUser(data.user.id);
   return { userId: data.user.id };
 }
 
@@ -345,4 +347,4 @@ async function handler(req: Request): Promise<Response> {
   });
 }
 
-Deno.serve(handler);
+Deno.serve(withRequestTelemetry('import-restaurants', handler));

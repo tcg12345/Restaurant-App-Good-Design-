@@ -727,17 +727,17 @@ export const RestaurantDetailDesktop: React.FC = () => {
           <div className={cn(CARD, 'p-4')}>
             <div className="flex justify-around">
               {place.phone && (
-                <a href={`tel:${place.phone}`} className="flex flex-col items-center gap-2 group">
+                <a data-analytics-outbound="call" data-analytics-restaurant={place.id} href={`tel:${place.phone}`} className="flex flex-col items-center gap-2 group">
                   <span className="w-[46px] h-[46px] rounded-full bg-on-surface/[0.05] grid place-items-center text-on-surface group-hover:bg-on-surface/10 transition-colors"><Phone size={19} /></span>
                   <span className="text-[11px] font-semibold text-on-surface/70">Call</span>
                 </a>
               )}
-              <a href={directionsUrl} onClick={(e) => { e.preventDefault(); void openExternalUrl(directionsUrl); }} className="flex flex-col items-center gap-2 group">
+              <a data-analytics-outbound="directions" data-analytics-restaurant={place.id} href={directionsUrl} onClick={(e) => { e.preventDefault(); void openExternalUrl(directionsUrl); }} className="flex flex-col items-center gap-2 group">
                 <span className="w-[46px] h-[46px] rounded-full bg-on-surface/[0.05] grid place-items-center text-on-surface group-hover:bg-on-surface/10 transition-colors"><Navigation size={19} /></span>
                 <span className="text-[11px] font-semibold text-on-surface/70">Route</span>
               </a>
               {place.website && (
-                <a href={place.website} target="_blank" rel="noopener noreferrer" className="flex flex-col items-center gap-2 group">
+                <a data-analytics-outbound="website" data-analytics-restaurant={place.id} href={place.website} target="_blank" rel="noopener noreferrer" className="flex flex-col items-center gap-2 group">
                   <span className="w-[46px] h-[46px] rounded-full bg-on-surface/[0.05] grid place-items-center text-on-surface group-hover:bg-on-surface/10 transition-colors"><Globe size={19} /></span>
                   <span className="text-[11px] font-semibold text-on-surface/70">Web</span>
                 </a>

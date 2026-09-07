@@ -1,3 +1,4 @@
+import { track } from './analytics';
 /**
  * Minimal production crash reporting.
  *
@@ -18,6 +19,7 @@ export function reportClientError(context: string, error: unknown, extra?: strin
     console.error(`[app:${context}]`, error, extra ?? '');
     if (!supabaseConfigured || reportsSent >= MAX_REPORTS_PER_SESSION) return;
     reportsSent++;
+    track('client_error', { properties: { source: context, error_type: error instanceof Error ? error.name : 'UnknownError' } });
     const message = (error instanceof Error ? error.message : String(error)).slice(0, 500);
     const stack = (error instanceof Error ? error.stack || '' : '').slice(0, 4000);
     void supabase.auth.getSession()

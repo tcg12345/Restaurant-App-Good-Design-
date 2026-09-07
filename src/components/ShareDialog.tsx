@@ -1,3 +1,4 @@
+import { trackRestaurant } from '../lib/analytics';
 import { composeShareMessage } from '../lib/share-message';
 /**
  * ShareDialog — single share popup used for reels, posts, restaurants,
@@ -224,6 +225,7 @@ export const ShareDialog: React.FC<ShareDialogProps> = ({ open, onClose, payload
     const sentTo = shareToTargets(targets, { ...payload, text: composeShareMessage(message, payload.text) });
     if (sentTo.length > 0) {
       setPhase('sent');
+      if (payload.sharedRestaurant) trackRestaurant('restaurant_shared', payload.sharedRestaurant.restaurantId, payload.sharedRestaurant.name, { outcome: 'queued', source: 'in_app' });
       sentTimer.current = window.setTimeout(() => onClose(), 900);
     } else {
       setPhase('idle');
@@ -235,6 +237,7 @@ export const ShareDialog: React.FC<ShareDialogProps> = ({ open, onClose, payload
 
   const onCopyLink = async () => {
     const ok = await copyToClipboard(shareUrl);
+    if (ok && payload?.sharedRestaurant) trackRestaurant('restaurant_shared', payload.sharedRestaurant.restaurantId, payload.sharedRestaurant.name, { outcome: 'copied' });
     showToast(ok ? 'Link copied' : "Couldn't copy link");
   };
 
@@ -268,6 +271,7 @@ export const ShareDialog: React.FC<ShareDialogProps> = ({ open, onClose, payload
     if (!payload) return;
     const text = payload.text || payload.sharedReel?.caption || payload.sharedPost?.caption || undefined;
     const result = await shareExternally({ title: computedTitle, text, url: shareUrl });
+    if ((result === 'shared' || result === 'copied') && payload.sharedRestaurant) trackRestaurant('restaurant_shared', payload.sharedRestaurant.restaurantId, payload.sharedRestaurant.name, { outcome: result, source: 'external' });
     if (result === 'copied') showToast('Link copied');
     else if (result === 'unsupported') showToast('Sharing not supported on this device');
   };

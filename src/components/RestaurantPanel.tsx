@@ -1,3 +1,4 @@
+import { useRestaurantAnalytics } from '../lib/useRestaurantAnalytics';
 /**
  * RestaurantPanel — side panel / bottom sheet that opens when a viewer taps
  * a "featured restaurant" card on a reel or post. Shows the restaurant at a
@@ -290,6 +291,7 @@ export const RestaurantPanelBody: React.FC<{
    *  re-implementing the rest of the body. */
   headSlot?: React.ReactNode;
 }> = ({ snapshot, onClose, currentUserId, scrollElRef, glassSuspended, noHero, topChrome, headSlot }) => {
+  useRestaurantAnalytics(snapshot.id, snapshot.name, 'panel');
   const { twoDecimalScores, darkMode } = useSettings();
   const {
     getRating,

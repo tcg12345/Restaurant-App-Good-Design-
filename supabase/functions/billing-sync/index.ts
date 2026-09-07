@@ -1,3 +1,4 @@
+import { instrumentedFetch as fetch, withRequestTelemetry } from '../_shared/api-telemetry.ts';
 // billing-sync — pull the caller's subscription from RevenueCat and write
 // the plan now, instead of waiting for the webhook.
 //
@@ -21,7 +22,7 @@ function json(status: number, body: Record<string, unknown>): Response {
   return new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json', ...CORS_HEADERS } });
 }
 
-Deno.serve(async (req) => {
+Deno.serve(withRequestTelemetry('billing-sync', async (req) => {
   if (req.method === 'OPTIONS') return new Response(null, { headers: CORS_HEADERS });
   if (req.method !== 'POST') return json(405, { error: 'Method not allowed' });
   const auth = await requireUser(req);
@@ -44,4 +45,4 @@ Deno.serve(async (req) => {
     return json(500, { error: "Couldn't save your plan." });
   }
   return json(200, { plan: state.plan, proUntil: state.proUntil, proSource: state.proSource, proWillRenew: state.proWillRenew });
-});
+}));

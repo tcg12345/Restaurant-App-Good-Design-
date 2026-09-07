@@ -1,3 +1,4 @@
+import { track } from './analytics';
 import { supabase, supabaseConfigured } from './supabase';
 
 /**
@@ -35,6 +36,7 @@ export function logOnboardingEvent(event: string, userId?: string | null): void 
   if (!supabaseConfigured) return;
   if (loggedThisSession.has(event)) return;
   loggedThisSession.add(event);
+  track('onboarding_step', { feature: 'onboarding', properties: { stage: event } });
   void supabase
     .from('onboarding_events')
     .insert({ anon_id: anonId(), user_id: userId ?? null, event })
@@ -69,6 +71,7 @@ function sendAbandon(): void {
   if (!currentStep || sentForThisHide || !supabaseConfigured) return;
   sentForThisHide = true;
   const event = `abandon_${currentStep}`;
+  track('onboarding_step', { feature: 'onboarding', properties: { stage: event } });
   // Deliberately NOT via logOnboardingEvent: its once-per-session dedupe is
   // right for step completions and wrong here, where a later abandon at a
   // different step is the more informative row.

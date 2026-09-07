@@ -1,3 +1,4 @@
+import { withRequestTelemetry } from '../_shared/api-telemetry.ts';
 // mux-playback-token — mint short-lived Mux signed-playback tokens.
 //
 // Followers-only reels / post videos use Mux's SIGNED playback policy, so
@@ -41,7 +42,7 @@ function json(body: unknown, status = 200): Response {
 
 interface TokenItem { kind: 'reel' | 'post_item'; id: string }
 
-Deno.serve(async (req) => {
+Deno.serve(withRequestTelemetry('mux-playback-token', async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS_HEADERS });
   if (req.method !== 'POST') return json({ error: 'Method not allowed' }, 405);
 
@@ -146,4 +147,4 @@ Deno.serve(async (req) => {
   }
 
   return json({ tokens });
-});
+}));

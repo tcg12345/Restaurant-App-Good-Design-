@@ -1,3 +1,4 @@
+import { track, trackRestaurant } from '../lib/analytics';
 import { mergeReviewArchives, REVIEW_META_KEY } from '../lib/in-review';
 import { mergeTastePreferences, TASTE_PREFERENCES_KEY } from '../lib/taste-preferences';
 import React, { createContext, useContext, useState, useCallback, useEffect, useMemo, useRef, type ReactNode } from 'react';
@@ -2681,6 +2682,8 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     // (or absent), this call is just editing the current rating in
     // place — we replace the row and leave visit history alone.
     const isNewVisit = options?.isNewVisit === true;
+    trackRestaurant('restaurant_rated', rating.restaurantId, rating.name, { is_new: isNewVisit, outcome: 'local_save' });
+    track('feature_outcome', { feature: 'ratings', properties: { outcome: 'local_save' } });
     // Re-rating a previously-deleted restaurant clears its tombstone so it
     // isn't filtered straight back out on the next load.
     untombstone('restaurants', rating.restaurantId);
@@ -3209,6 +3212,7 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   }, [syncListsToCloud]);
 
   const addToList = useCallback((listId: string, restaurantId: string) => {
+    trackRestaurant('restaurant_list_added', restaurantId, undefined, { outcome: 'local_save' });
     // Re-adding clears any "removed from this list" / "deleted restaurant"
     // tombstone so the load reconciliation won't strip it back out.
     untombstone('members', memberKey(listId, restaurantId));
@@ -3349,6 +3353,7 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
 
   // Wishlist
   const addToWishlist = useCallback((item: WishlistItem) => {
+    if (!wishlistRef.current.some(w => w.restaurantId === item.restaurantId)) trackRestaurant('restaurant_saved', item.restaurantId, item.name, { outcome: 'local_save' });
     untombstone('wishlist', item.restaurantId);
     // Stamp updatedAt: this is the note-edit path (an existing item is replaced
     // with edited notes/listIds), and addedAt alone would tie the stale cloud
@@ -3416,6 +3421,7 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   const toggleWishlist = useCallback((restaurant: RestaurantMeta, opts?: { undoable?: boolean; silent?: boolean }) => {
     cacheRestaurantMeta(restaurant);
     const isOn = wishlist.some((w) => w.restaurantId === restaurant.id);
+    trackRestaurant(isOn ? 'restaurant_unsaved' : 'restaurant_saved', restaurant.id, restaurant.name, { outcome: 'local_save' });
     // Removing tombstones the entry; re-adding clears it.
     if (isOn) tombstone('wishlist', restaurant.id);
     else untombstone('wishlist', restaurant.id);

@@ -1,3 +1,4 @@
+import { withRequestTelemetry } from '../_shared/api-telemetry.ts';
 // Account deletion — Supabase Edge Function (Deno).
 //
 // Permanently deletes the calling user's account and all associated
@@ -82,7 +83,7 @@ async function purgeBucketFolder(
   }
 }
 
-Deno.serve(async (req: Request) => {
+Deno.serve(withRequestTelemetry('delete-account', async (req: Request) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { status: 204, headers: CORS_HEADERS });
   }
@@ -124,4 +125,4 @@ Deno.serve(async (req: Request) => {
   }
 
   return new Response(JSON.stringify({ ok: true }), { status: 200, headers: JSON_HEADERS });
-});
+}));

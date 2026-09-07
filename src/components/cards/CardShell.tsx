@@ -38,6 +38,8 @@ function surfaceClasses(surface: CardSurface, interactive: boolean): string {
 }
 
 interface CardShellProps {
+  'data-restaurant-id'?: string;
+  'data-restaurant-name'?: string;
   surface: CardSurface;
   as?: 'a' | 'button' | 'div';
   to?: string;

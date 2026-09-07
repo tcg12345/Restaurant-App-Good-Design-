@@ -1,3 +1,4 @@
+import { track } from '../lib/analytics';
 // AssistantContext — published state that the global AppAssistant
 // component reads to enrich the AI chat. Pages opt in by calling
 // useSetAssistantPageContext() with their rich data; otherwise the
@@ -118,7 +119,7 @@ export const AssistantProvider: React.FC<{ children: ReactNode }> = ({ children 
   const [attachment, setAttachment] = useState<AssistantAttachment | null>(null);
   const [openRequest, setOpenRequest] = useState(0);
   const [composerDraft,setComposerDraft] = useState<{id:number;text:string}|null>(null);
-  const requestOpen = useCallback((draft?:string) => {if(draft)setComposerDraft({id:Date.now(),text:draft});setOpenRequest(n=>n+1);}, []);
+  const requestOpen = useCallback((draft?:string) => {track('feature_outcome', { feature: 'ai_assistant', properties: { outcome: 'opened' } });if(draft)setComposerDraft({id:Date.now(),text:draft});setOpenRequest(n=>n+1);}, []);
   const value = useMemo<AssistantContextValue>(
     () => ({ homeFeedVisible, setHomeFeedVisible, pageContext, setPageContext, attachment, setAttachment, composerDraft, openRequest, requestOpen }),
     [homeFeedVisible, pageContext, attachment, composerDraft, openRequest, requestOpen],

@@ -1,3 +1,4 @@
+import { setTelemetryUser } from './api-telemetry.ts';
 // Shared CORS + auth helpers for the AI Edge Functions.
 //
 // These functions are deployed with `verify_jwt = false` so that the
@@ -41,5 +42,6 @@ export async function requireUser(
 
   const { data, error } = await supabase.auth.getUser(token);
   if (error || !data.user) return { response: unauthorized() };
+  setTelemetryUser(data.user.id);
   return { userId: data.user.id };
 }

@@ -1,3 +1,4 @@
+import { track } from '../lib/analytics';
 import { useTastePreferences } from '../hooks/useTastePreferences';
 import { patchTastePreferences, tastePreferenceText, type TastePreferencePatch } from '../lib/taste-preferences';
 // AppAssistant — global mount for the AI chatbot. Renders LocationChat
@@ -288,6 +289,7 @@ async function fallbackSearchRestaurants(
       radiusMeters: 19312,
       useRestriction: true,
     });
+    track('search_completed', { feature: 'ai_assistant', properties: { query, city: targetCity || homeLocation?.label, result_count: res.places.length, source: 'ai_search' } });
     return res.places.map<ScoredPlace>((p) => ({
       ...p,
       recScore: p.rating > 0 ? p.rating * 2 : 0,

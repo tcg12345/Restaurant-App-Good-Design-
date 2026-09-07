@@ -1,3 +1,4 @@
+import { instrumentedFetch as fetch, withRequestTelemetry } from '../_shared/api-telemetry.ts';
 // billing-checkout — start a Stripe Checkout for the web app.
 //
 // iOS buys through StoreKit (RevenueCat SDK); the web app buys through
@@ -68,7 +69,7 @@ function safeReturnUrl(raw: unknown, fallbackPath: string): string {
   }
 }
 
-Deno.serve(async (req) => {
+Deno.serve(withRequestTelemetry('billing-checkout', async (req) => {
   if (req.method === 'OPTIONS') return new Response(null, { headers: CORS_HEADERS });
   if (req.method !== 'POST') return json(405, { error: 'Method not allowed' });
   const auth = await requireUser(req);
@@ -123,4 +124,4 @@ Deno.serve(async (req) => {
     console.error('[billing-checkout] failed:', err);
     return json(502, { error: "Couldn't start checkout. Please try again." });
   }
-});
+}));

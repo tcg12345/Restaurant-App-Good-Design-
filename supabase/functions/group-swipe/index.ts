@@ -1,3 +1,4 @@
+import { instrumentedFetch as fetch, withRequestTelemetry } from '../_shared/api-telemetry.ts';
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { requireUser, CORS_HEADERS } from "../_shared/auth.ts";
 import { readJsonBody } from "../_shared/limits.ts";
@@ -37,7 +38,7 @@ const allowed = new Set([
   "remove",
   "settings",
 ]);
-Deno.serve(async (req) => {
+Deno.serve(withRequestTelemetry('group-swipe', async (req) => {
   if (req.method === "OPTIONS")
     return new Response("ok", { headers: CORS_HEADERS });
   if (req.method !== "POST") return json({ error: "Method not allowed" }, 405);
@@ -467,4 +468,4 @@ Deno.serve(async (req) => {
       400,
     );
   }
-});
+}));

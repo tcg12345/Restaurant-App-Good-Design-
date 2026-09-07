@@ -1,3 +1,5 @@
+import { track, trackRestaurant } from './analytics';
+import { trackPlacesResults } from './api-telemetry';
 // Mapbox is used by the location backfill below to reverse-geocode for a
 // neighborhood — Google's addressComponents only ever returns sublocality /
 // locality / state for the places we care about, so we lean on Mapbox to
@@ -117,7 +119,7 @@ interface GooglePlace {
 }
 
 function mapPlaces(places: GooglePlace[]): PlaceResult[] {
-  return (places || []).map((p) => ({
+  const results = (places || []).map((p) => ({
     id: p.id || p.name || crypto.randomUUID(),
     name: p.displayName?.text || 'Unknown',
     lat: p.location?.latitude ?? 0,
@@ -135,6 +137,8 @@ function mapPlaces(places: GooglePlace[]): PlaceResult[] {
     userRatingCount: p.userRatingCount ?? 0,
     hours: p.regularOpeningHours?.weekdayDescriptions,
   }));
+  trackPlacesResults(results);
+  return results;
 }
 
 function deduplicatePlaces(places: PlaceResult[]): PlaceResult[] {
@@ -903,6 +907,7 @@ export async function getPlaceDetails(placeId: string): Promise<PlaceDetails> {
   // Check cache first
   const cached = placeDetailsCache.get(placeId);
   if (cached && Date.now() - cached.ts < DETAIL_CACHE_TTL) {
+    trackRestaurant('api_cache_hit', placeId, cached.data.name, { provider: 'google_places', endpoint: 'details' });
     return cached.data;
   }
 

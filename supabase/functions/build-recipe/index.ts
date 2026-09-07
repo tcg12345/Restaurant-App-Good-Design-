@@ -1,3 +1,4 @@
+import { instrumentedFetch as fetch, withRequestTelemetry } from '../_shared/api-telemetry.ts';
 // AI Recipe Generator — Supabase Edge Function (Deno).
 //
 // Single-shot, structured recipe authoring for the Add Recipe modal's
@@ -608,4 +609,4 @@ async function handler(req: Request): Promise<Response> {
   });
 }
 
-Deno.serve(handler);
+Deno.serve(withRequestTelemetry('build-recipe', handler));

@@ -1,3 +1,4 @@
+import { withRequestTelemetry } from '../_shared/api-telemetry.ts';
 import { createClient } from 'jsr:@supabase/supabase-js@2';
 import { requireUser, CORS_HEADERS } from '../_shared/auth.ts';
 import { readJsonBody } from '../_shared/limits.ts';
@@ -5,7 +6,7 @@ import { generateSummary, selectSummaryPlace } from './summary.ts';
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } });
 // Bounded, short-lived worker cache. No user history is used or cached.
 const cache = new Map<string, { expires: number; value: Promise<string> }>();
-Deno.serve(async req => {
+Deno.serve(withRequestTelemetry('group-place-summary', async req => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS_HEADERS });
   if (req.method !== 'POST') return json({ error: 'Method not allowed' }, 405);
   const auth = await requireUser(req);
@@ -39,4 +40,4 @@ Deno.serve(async req => {
   } catch {
     return json({ error: 'Couldn’t write the overview right now. Please try again.' }, 503);
   }
-});
+}));

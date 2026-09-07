@@ -1,3 +1,4 @@
+import { useRestaurantAnalytics } from '../lib/useRestaurantAnalytics';
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { primaryHex } from '../lib/brand';
 import { useParams, useNavigate } from 'react-router-dom';
@@ -73,6 +74,7 @@ export function useRestaurantDetail() {
   const navigate = useNavigate();
   const { user } = useAuth();
   const [place, setPlace] = useState<PlaceDetails | null>(() => id ? detailMemory.get(id) ?? null : null);
+  useRestaurantAnalytics(place?.id, place?.name, 'detail');
   const [michelin, setMichelin] = useState<MichelinInfo | null>(null);
   /** Cuisine settled through the shared cache (migration 068) — the answer
    *  when Google's payload has none, and the write that gives every other

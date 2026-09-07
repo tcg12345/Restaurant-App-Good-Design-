@@ -1,3 +1,4 @@
+import { track } from './analytics';
 /**
  * Billing analytics — what the paywall did (migration 088).
  *
@@ -23,6 +24,7 @@ export function logBillingEvent(
   userId: string | null,
   fields: { source?: string | null; feature?: string | null; plan?: string | null; meta?: Record<string, unknown> } = {},
 ): void {
+  track('billing_event', { feature: fields.feature || 'billing', properties: { stage: event, source: fields.source, plan: fields.plan } });
   if (!supabaseConfigured || !userId) return;
   void supabase
     .from('billing_events')

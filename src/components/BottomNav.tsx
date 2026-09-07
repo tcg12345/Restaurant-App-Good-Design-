@@ -1,3 +1,5 @@
+import { track } from '../lib/analytics';
+import { FEATURE_ROUTES } from '../lib/analytics-features';
 import React, { useEffect, useState } from 'react';
 import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { Compass, Search, User, ListPlus, Film } from 'lucide-react';
@@ -55,7 +57,7 @@ export const BottomNav: React.FC = () => {
 
   // App.tsx only mounts this component on routes that should show a tab bar,
   // so being mounted at all is the "enabled" signal for the native one.
-  const { profile } = useAuth();
+  const { profile, loading: authLoading, adminChecked } = useAuth();
   const avatarInitial =
     (profile?.display_name || profile?.username || '').trim().charAt(0).toUpperCase() || undefined;
 
@@ -73,8 +75,10 @@ export const BottomNav: React.FC = () => {
     // initial-circle avatar.
     avatarInitial,
     avatarUrl: profile?.avatar_url || undefined,
-    onSelect: (path) => navigate(path, { state: { navigationPresentation: 'tab' } }),
+    onSelect: (path) => { track('feature_used', { feature: FEATURE_ROUTES[path] || 'navigation' }); navigate(path, { state: { navigationPresentation: 'tab' } }); },
   });
+
+  useEffect(() => { if (glass.active && !navHidden && !authLoading) for (const item of navItems) track('feature_seen', { feature: FEATURE_ROUTES[item.path] }); }, [glass.active, navHidden, authLoading, adminChecked]);
 
   // The native bar draws itself over the WebView; rendering the web one too
   // would stack two tab bars.

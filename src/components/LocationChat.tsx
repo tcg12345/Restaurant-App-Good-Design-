@@ -1,3 +1,4 @@
+import { track } from '../lib/analytics';
 import type { TastePreferencePatch } from '../lib/taste-preferences';
 // LocationPage AI chatbot — floating FAB + chat island.
 //
@@ -2018,6 +2019,7 @@ export const LocationChat: React.FC<LocationChatProps> = ({
   // API's role-alternation rules can reject — a 400 on the exact flow retry
   // exists to recover from).
   const sendTurn = useCallback(async (userText: string, historyOverride?: UiMessage[]) => {
+    track('feature_outcome', { feature: 'ai_assistant', properties: { outcome: 'message_submitted' } });
     setError(null);
     setStreaming(true);
     const trimmedUser = userText.trim();
@@ -2998,7 +3000,7 @@ export const LocationChat: React.FC<LocationChatProps> = ({
               id="assistant-fab"
               symbol="sparkles"
               label="Open assistant"
-              onClick={() => setOpen(true)}
+              onClick={() => { track('feature_outcome', { feature: 'ai_assistant', properties: { outcome: 'opened' } }); setOpen(true); }}
               className="lp-chat-fab"
             >
               <Sparkles />

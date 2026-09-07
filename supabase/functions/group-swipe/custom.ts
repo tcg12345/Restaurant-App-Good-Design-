@@ -1,3 +1,4 @@
+import { instrumentedFetch as fetch } from '../_shared/api-telemetry.ts';
 /** Preflight before billable place lookups. The locked SQL mutation rechecks all
  * permissions and counts, so two simultaneous guests cannot bypass the limit. */
 export function customAddPreflight(room: any, actor: string, placeId: unknown): 'existing' | 'add' {

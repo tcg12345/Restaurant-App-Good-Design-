@@ -971,9 +971,7 @@ export const Profile: React.FC = () => {
           <p className="mt-4 text-on-surface/60" style={{ fontSize: '14px', lineHeight: 1.55, textWrap: 'pretty' } as React.CSSProperties}>{bio}</p>
         )}
 
-        {/* Action row — one accent verb, one outlined verb, two outlined
-            circles. The four used to be equal-weight grey rectangles, so
-            nothing said which one you were meant to press. */}
+        {/* Desktop needs its own Settings entry because the mobile header is hidden. */}
         <div ref={createWrapRef} className="profile-actions relative flex items-center gap-2 mt-[22px]">
           {pickerInput}
           <button
@@ -1001,6 +999,12 @@ export const Profile: React.FC = () => {
             if (result === 'copied') showToast('Profile link copied');
             else if (result === 'unsupported') showToast('Sharing isn’t available here');
           }}><Upload size={17} /><span>Share</span></button>
+          {isDesktop && (
+            <button type="button" className="profile-settings" onClick={() => navigate('/settings')}>
+              <Settings size={17} />
+              <span>Settings</span>
+            </button>
+          )}
 
           <AnimatePresence>
             {createMenuOpen && (

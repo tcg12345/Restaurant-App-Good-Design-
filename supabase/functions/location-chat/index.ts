@@ -1,3 +1,4 @@
+import { instrumentedFetch as fetch, withRequestTelemetry } from '../_shared/api-telemetry.ts';
 // LocationPage AI chatbot — Supabase Edge Function (Deno).
 //
 // Proxies the app's chat requests to Anthropic's Messages API and
@@ -1602,4 +1603,4 @@ async function handler(req: Request): Promise<Response> {
   });
 }
 
-Deno.serve(handler);
+Deno.serve(withRequestTelemetry('location-chat', handler));

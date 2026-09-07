@@ -1,3 +1,4 @@
+import { AnalyticsTracker } from './components/AnalyticsTracker';
 import { NotFoundPage } from './pages/NotFoundPage';
 import { InReviewProvider } from './contexts/InReviewContext';
 import { usePageBack } from './lib/usePageBack';
@@ -9,6 +10,7 @@ import { GroupRoomLinks } from './components/GroupRoomLinks';
  */
 
 import React from 'react';
+const AdminAnalytics = React.lazy(() => import('./pages/AdminAnalytics').then(m => ({ default: m.AdminAnalytics })));
 import { BrowserRouter as Router, Routes, Route, useLocation, useNavigate, useNavigationType, Navigate } from 'react-router-dom';
 import { Discover } from './pages/Discover';
 import { DecideTogether } from './pages/DecideTogether';
@@ -653,6 +655,7 @@ const AppContent: React.FC = () => {
           <Route path="/experts" element={<Experts />} />
           <Route path="/verify/apply" element={<RequireAuthRoute reason="Sign in to request verification"><VerificationApply /></RequireAuthRoute>} />
           <Route path="/admin/verification" element={<RequireAuthRoute reason="Sign in to continue"><AdminVerification /></RequireAuthRoute>} />
+          <Route path="/admin/analytics" element={<RequireAuthRoute reason="Sign in to continue"><React.Suspense fallback={<div className="p-8">Loading analytics…</div>}><AdminAnalytics /></React.Suspense></RequireAuthRoute>} />
           <Route path="/admin/cuisine" element={<RequireAuthRoute reason="Sign in to continue"><AdminCuisineSuggestions /></RequireAuthRoute>} />
           <Route path="/profile" element={<RequireAuthRoute reason="Sign in to view your profile"><Profile /></RequireAuthRoute>} />
           <Route path="/settings/:section?" element={<RequireAuthRoute reason="Sign in to manage your account"><SettingsPage /></RequireAuthRoute>} />
@@ -825,6 +828,7 @@ export default function App() {
     <Router>
         <GroupRoomLinks />
       <AuthProvider>
+        <AnalyticsTracker />
         <SettingsProvider>
           <ToastProvider>
             {/* SignInModalProvider sits above the action contexts (Lists/

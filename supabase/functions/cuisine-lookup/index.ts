@@ -1,3 +1,4 @@
+import { instrumentedFetch as fetch, withRequestTelemetry } from '../_shared/api-telemetry.ts';
 // cuisine-lookup — ask OpenStreetMap what a restaurant actually serves.
 //
 // Google describes rural restaurants badly. Measured on this app's own
@@ -108,7 +109,7 @@ async function queryOverpass(query: string): Promise<OsmElement[] | null> {
   return null;
 }
 
-Deno.serve(async (req: Request) => {
+Deno.serve(withRequestTelemetry('cuisine-lookup', async (req: Request) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS_HEADERS });
   if (req.method !== 'POST') return json(405, { error: 'Method not allowed' });
 
@@ -265,4 +266,4 @@ Deno.serve(async (req: Request) => {
     lookedUp: toLookUp.length,
     matched: found.length,
   });
-});
+}));

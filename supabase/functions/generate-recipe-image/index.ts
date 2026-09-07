@@ -1,3 +1,4 @@
+import { instrumentedFetch as fetch, withRequestTelemetry } from '../_shared/api-telemetry.ts';
 // AI Recipe Hero Image Generator — Supabase Edge Function (Deno).
 //
 // Generates a realistic, appetizing photo of a recipe's FINISHED dish for
@@ -205,4 +206,4 @@ async function handler(req: Request): Promise<Response> {
   });
 }
 
-Deno.serve(handler);
+Deno.serve(withRequestTelemetry('generate-recipe-image', handler));

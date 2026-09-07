@@ -1,3 +1,4 @@
+import { analyticsOptedOut, setAnalyticsOptOut } from '../lib/analytics';
 import { TastePreferencesEditor } from '../components/settings/TastePreferencesEditor';
 import { ReviewArchive } from '../components/in-review/ReviewArchive';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
@@ -137,6 +138,7 @@ export const SettingsPage: React.FC = () => {
   const [resetHome, setResetHome] = useState(false);
   const [accountBusy, setAccountBusy] = useState(false);
   const [privacyBusy, setPrivacyBusy] = useState(false);
+  const [analyticsOff, setAnalyticsOff] = useState(analyticsOptedOut);
   const [restoreBusy, setRestoreBusy] = useState(false);
   const { profile, user, signOut, refreshProfile, isAdmin } = useAuth();
   const listsCtx = useLists();
@@ -787,6 +789,7 @@ export const SettingsPage: React.FC = () => {
 
 
       {page === 'privacy' && <>
+        {group('App improvement', <Row icon={<Shield size={19} />} title="Share usage analytics" sub="Help improve GoodEats with page visits and feature activity. Private messages are excluded." toggle on={!analyticsOff} onPress={() => { setAnalyticsOptOut(!analyticsOff); setAnalyticsOff(!analyticsOff); }} />)}
         {group('Who can see you', <Row icon={<Shield size={19} />} title="Private account" sub={profile?.is_verified ? 'Verified profiles are public' : profile?.is_public ? 'Anyone can view your profile' : 'Only approved followers can view your profile'} toggle on={!profile?.is_public} disabled={privacyBusy || !!profile?.is_verified} onPress={() => void togglePrivate()} />)}
         {group('Permissions', <>{canOpenAppSettings() ? <Row icon={<SlidersHorizontal size={19} />} title="Device permissions" sub="Photos, contacts, location and notifications" onPress={() => void openAppSettings()} /> : <div className="settings-explainer">Manage camera, photos, location and notification permissions in your browser’s site settings.</div>}</>)}
         {group('Your information', <Row icon={<Shield size={19} />} title="Privacy policy" onPress={() => void openExternalUrl(PRIVACY_URL)} />)}
@@ -830,7 +833,7 @@ export const SettingsPage: React.FC = () => {
         {group('Here to help', <Row icon={<LifeBuoy size={19} />} title="Contact support" sub="Get help or share feedback" onPress={() => void openExternalUrl(SUPPORT_URL)} />)}
         <section className="settings-section"><h2>Quick answers</h2><div className="settings-group settings-faq"><details><summary>Where are my scores?</summary><p>Numeric scores unlock after 10 rated restaurants. Before then, you’ll see your ranking.</p></details><details><summary>How do I manage permissions?</summary><p>On iPhone, open Settings and find GoodEats. In a browser, open this site’s permission settings.</p></details><details><summary>How do I restore Pro?</summary><p>Open GoodEats Pro in Settings on your iPhone, then choose Restore purchases using the Apple account that purchased it.</p></details></div></section>
         {group('About GoodEats', <><Row icon={<Shield size={19} />} title="Privacy policy" onPress={() => void openExternalUrl(PRIVACY_URL)} /><Row icon={<FileText size={19} />} title="Terms of service" onPress={() => void openExternalUrl(TERMS_URL)} /><div className="settings-version-row"><span>Version</span><span>{pkg.version}</span></div></>)}
-        {isAdmin && group('Administration', <><Row icon={<BadgeCheck size={19} />} title="Verification requests" onPress={() => navigate('/admin/verification')} /><Row icon={<Utensils size={19} />} title="Cuisine suggestions" onPress={() => navigate('/admin/cuisine')} /></>)}
+        {isAdmin && group('Administration', <><Row icon={<BadgeCheck size={19} />} title="Analytics" onPress={() => navigate('/admin/analytics')} /><Row icon={<BadgeCheck size={19} />} title="Verification requests" onPress={() => navigate('/admin/verification')} /><Row icon={<Utensils size={19} />} title="Cuisine suggestions" onPress={() => navigate('/admin/cuisine')} /></>)}
       </>}
       {page === 'delete' && <div className="settings-delete"><span><Trash2 size={28} /></span><h2>Delete your account</h2><p>This permanently removes your profile, ratings, recipes, posts, guides, photos and friends. It can’t be undone.</p><button className="settings-primary settings-danger" onClick={() => setConfirmDelete(true)}>Delete account</button><button className="settings-text-button" onClick={back}>Keep my account</button></div>}
       {page && accountMsg && <p className="settings-feedback" role="status"><Check size={16} />{accountMsg}</p>}
