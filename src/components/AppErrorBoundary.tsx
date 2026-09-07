@@ -114,7 +114,7 @@ function renderDetachedFallback() {
         <p style="margin:0 0 6px;font-family:'Noto Serif',serif;font-size:20px;">Something went wrong</p>
         <p style="margin:0;font-size:14px;opacity:0.6;max-width:280px;">An unexpected error occurred. Reload to pick up where you left off.</p>
       </div>
-      <button id="app-error-reload" style="margin-top:4px;padding:10px 28px;border:none;border-radius:9999px;background:#2b2622;color:#fff;font-size:14px;font-weight:500;font-family:inherit;">Reload</button>
+      <button id="app-error-reload" style="margin-top:4px;padding:10px 28px;border:none;border-radius:9999px;background:#2e6651;color:#fff;font-size:14px;font-weight:500;font-family:inherit;">Reload</button>
     </div>`;
   document.getElementById('app-error-reload')?.addEventListener('click', () => window.location.reload());
 }

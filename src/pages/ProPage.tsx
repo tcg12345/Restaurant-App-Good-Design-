@@ -179,7 +179,7 @@ export const ProPage: React.FC = () => {
         <div className="flex-1 flex flex-col items-center justify-center text-center" style={{ paddingBottom: 60 }}>
           {welcomeState === 'done' ? (
             <>
-              <span style={{ width: 64, height: 64, borderRadius: 999, background: 'rgba(174,187,211,0.16)', color: PALE, display: 'grid', placeItems: 'center' }}><Check size={28} /></span>
+              <span style={{ width: 64, height: 64, borderRadius: 999, background: 'rgba(168,208,184,0.16)', color: PALE, display: 'grid', placeItems: 'center' }}><Check size={28} /></span>
               <h1 style={{ ...headline, fontSize: '32px', marginTop: 20 }}>Welcome to <em style={{ fontStyle: 'italic' }}>Pro.</em></h1>
               <p style={{ marginTop: 8, fontSize: '14px', color: NIGHT_INK_SOFT }}>Everything's unlocked.</p>
               <button type="button" onClick={() => navigate('/')} className="mt-8 rounded-full px-6 h-12" style={{ background: PALE, color: '#161a22', fontSize: '14px', fontWeight: 800 }}>Start exploring</button>

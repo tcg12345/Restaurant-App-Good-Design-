@@ -1,3 +1,5 @@
+import { useTastePreferences } from '../hooks/useTastePreferences';
+import { tastePreferenceText } from '../lib/taste-preferences';
 // "Create with AI" mode of the recipe modal — a minimal, prompt-first
 // surface in the style of a professional AI product: a calm centered
 // canvas (identity line + a few tappable ideas), guideline dropdowns,
@@ -8,7 +10,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { GlassButton } from '../lib/glass-buttons';
-import { motion, AnimatePresence } from 'motion/react';
+import { motion, AnimatePresence, MotionConfig } from 'motion/react';
 import {
   Sparkles,
   ChefHat,
@@ -35,13 +37,15 @@ import {
   type GenExpectation, type GenKind,
 } from '../lib/gen-progress';
 import {
-  GuidelinePills, GenProgressBar,
+  GuidelinePills,
   composeConstraints as composeGuidelineConstraints, hasGuidelines as guidelinesSet, describeGuidelines,
   type Guidelines, type MenuKey,
 } from './recipe-guidelines';
 import { saveIdeasSession, takeIdeasSession } from '../lib/ideas-session';
 import './AdvancedRecipeBuilder.css';
 import './RecipeBuilder.css';
+import { RecipeGeneration } from './RecipeGeneration';
+import './RecipeCreation.css';
 
 interface AiRecipeGeneratorProps {
   /** Called with a fully-formed HomeMeal once the AI finishes. The
@@ -91,6 +95,8 @@ export const AiRecipeGenerator: React.FC<AiRecipeGeneratorProps> = ({
   // A brainstorm parked by "Find existing" (lib/ideas-session): the search
   // page's back arrow reopens this on the ideas view, and everything below
   // seeds from it so the session resumes exactly where it was.
+  const { preferences } = useTastePreferences();
+  const personalize = (request:string) => `${request}\n\nSaved taste preferences (defaults; the explicit request and selected guidelines take priority):\n${tastePreferenceText(preferences)}`;
   const [restored] = useState(() => (initialView === 'ideas' ? takeIdeasSession() : null));
   // Optional guidelines.
   const [difficulty, setDifficulty] = useState(restored?.guidelines.difficulty ?? '');
@@ -238,7 +244,7 @@ export const AiRecipeGenerator: React.FC<AiRecipeGeneratorProps> = ({
     const controller = new AbortController();
     abortRef.current = controller;
     try {
-      const result = await generateRecipe(finalPrompt, controller.signal, {
+      const result = await generateRecipe(personalize(finalPrompt), controller.signal, {
         difficulty: (difficulty || undefined) as 'Easy' | 'Medium' | 'Hard' | undefined,
         constraints: composeConstraints(),
         onProgress,
@@ -268,6 +274,7 @@ export const AiRecipeGenerator: React.FC<AiRecipeGeneratorProps> = ({
     abortRef.current?.abort();
     abortRef.current = null;
     setLoading(false);
+    setIdeasLoading(false);
   };
 
   /* ── Ideas handlers ── */
@@ -287,7 +294,7 @@ export const AiRecipeGenerator: React.FC<AiRecipeGeneratorProps> = ({
     if (typed) { setIdeasPrompt(typed); setPrompt(''); }
     const controller = new AbortController();
     abortRef.current = controller;
-    const res = await generateRecipeIdeas(mood, {
+    const res = await generateRecipeIdeas(personalize(mood), {
       difficulty: (difficulty || undefined) as 'Easy' | 'Medium' | 'Hard' | undefined,
       constraints: composeConstraints(),
       avoidTitles: shownTitles,
@@ -328,7 +335,7 @@ export const AiRecipeGenerator: React.FC<AiRecipeGeneratorProps> = ({
   /** One idea → the full recipe, through the ordinary create pipeline
    *  (same loading orb, same draft-sheet landing). */
   const handleCreateFromIdea = async (idea: RecipeIdea) => {
-    if (loading || combining) return;
+    if (loading || combining || ideasLoading) return;
     setError(null);
     setOpenMenu(null);
     setLoading(true);
@@ -337,7 +344,7 @@ export const AiRecipeGenerator: React.FC<AiRecipeGeneratorProps> = ({
     abortRef.current = controller;
     try {
       const ideaPrompt = `${idea.title} — ${idea.blurb}`;
-      const result = await generateRecipe(ideaPrompt, controller.signal, {
+      const result = await generateRecipe(personalize(ideaPrompt), controller.signal, {
         difficulty: (difficulty || idea.difficulty) as 'Easy' | 'Medium' | 'Hard',
         constraints: composeConstraints(),
         onProgress,
@@ -375,7 +382,7 @@ export const AiRecipeGenerator: React.FC<AiRecipeGeneratorProps> = ({
       const result = await combineRecipes(
         chosen.map((idea) => ({ kind: 'idea' as const, idea })),
         {
-          notes: combineNotes,
+          notes: personalize(combineNotes),
           difficulty: (difficulty || undefined) as 'Easy' | 'Medium' | 'Hard' | undefined,
           constraints: composeConstraints(),
           signal: controller.signal,
@@ -444,11 +451,11 @@ export const AiRecipeGenerator: React.FC<AiRecipeGeneratorProps> = ({
     ? !loading && !ideasLoading && !combining
     : (prompt.trim().length > 0 || hasGuidelines) && !loading;
   const handleSubmit = () => (view === 'ideas' ? void handleBrainstorm() : void handleGenerate());
-  const loadingTitle = elapsed >= 18 ? 'Almost there…' : elapsed >= 8 ? 'Writing the steps…' : 'Drafting your recipe…';
+
 
 
   return (
-    <div className={`rcx rcxa${phoneMode ? ' is-phone' : ''}`}>
+    <MotionConfig reducedMotion="user"><div className={`rcx rcxa recipe-create${phoneMode ? ' is-phone' : ''}`}>
       {/* ── Header — navigation only; the canvas carries the identity. ── */}
       <div className="rcx-head rcxa-head">
         <div className="rcx-head-row">
@@ -463,6 +470,7 @@ export const AiRecipeGenerator: React.FC<AiRecipeGeneratorProps> = ({
                 type="button"
                 className={`rcxa-mode-btn${view === key ? ' is-on' : ''}`}
                 aria-pressed={view === key}
+                disabled={loading || ideasLoading || combining}
                 onClick={() => { setView(key); setError(null); }}
               >
                 {key === 'ideas' ? <Lightbulb size={12} strokeWidth={2.2} /> : <Sparkles size={12} strokeWidth={2.2} />}
@@ -486,7 +494,7 @@ export const AiRecipeGenerator: React.FC<AiRecipeGeneratorProps> = ({
 
       {/* ── Canvas ── */}
       <div className="rcxa-canvas">
-        <AnimatePresence mode="wait" initial={false}>
+        <>
           {!loading && view === 'ideas' ? (
             <motion.div
               key="ideas"
@@ -494,7 +502,7 @@ export const AiRecipeGenerator: React.FC<AiRecipeGeneratorProps> = ({
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -6 }}
-              transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] }}
+              transition={{ duration: 0.14, ease: [0.22, 1, 0.36, 1] }}
             >
               {ideas.length === 0 && !ideasLoading ? (
                 <div className="rcxa-hero rcxa-hero-ideas">
@@ -506,11 +514,7 @@ export const AiRecipeGenerator: React.FC<AiRecipeGeneratorProps> = ({
                   </p>
                 </div>
               ) : ideas.length === 0 ? (
-                <div className="rcx-ai-loading">
-                  <div className="rcx-ai-orb"><Lightbulb size={30} /></div>
-                  <div className="rcx-ai-loading-title">Brainstorming…</div>
-                  <GenProgressBar progress={progress} remainingMs={remainingMs} elapsed={elapsed} />
-                </div>
+                <RecipeGeneration kind="ideas" elapsed={elapsed} progress={progress} remainingMs={remainingMs} onCancel={handleCancel} />
               ) : (
                 <>
                   <div className="rcxa-grid-head">
@@ -530,7 +534,7 @@ export const AiRecipeGenerator: React.FC<AiRecipeGeneratorProps> = ({
                           aria-pressed={on}
                           className={`rcxa-card${on ? ' is-on' : ''}`}
                           onClick={() => toggleIdea(idea.title)}
-                          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleIdea(idea.title); } }}
+                          onKeyDown={(e) => { if (e.target !== e.currentTarget) return; if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleIdea(idea.title); } }}
                         >
                           <span className="rcxa-card-body">
                             <span className="rcxa-card-title">{idea.title}</span>
@@ -559,6 +563,7 @@ export const AiRecipeGenerator: React.FC<AiRecipeGeneratorProps> = ({
                       );
                     })}
                   </div>
+                  {ideasLoading && <RecipeGeneration kind="ideas" compact elapsed={elapsed} progress={progress} remainingMs={remainingMs} onCancel={handleCancel} />}
                   <div className="rcxa-grid-cta">
                     <button
                       type="button"
@@ -566,12 +571,13 @@ export const AiRecipeGenerator: React.FC<AiRecipeGeneratorProps> = ({
                       onClick={() => void handleBrainstorm()}
                       disabled={ideasLoading}
                     >
-                      {ideasLoading ? `Thinking… ${Math.round(progress * 100)}%` : 'More ideas'}
+                      {ideasLoading ? 'Finding more ideas…' : 'More ideas'}
                     </button>
                     {selectedTitles.length === 1 && (
                       <button
                         type="button"
                         className="rcxa-cta"
+                        disabled={ideasLoading}
                         onClick={() => void handleCreateFromIdea(selectedIdeas[0])}
                       >
                         <Sparkles size={14} /> Create this recipe
@@ -581,6 +587,7 @@ export const AiRecipeGenerator: React.FC<AiRecipeGeneratorProps> = ({
                       <button
                         type="button"
                         className="rcxa-cta"
+                        disabled={ideasLoading}
                         onClick={() => { if (!requirePro('recipe-combine')) return; setError(null); setCombineOpen(true); }}
                       >
                         <Sparkles size={14} />
@@ -598,18 +605,10 @@ export const AiRecipeGenerator: React.FC<AiRecipeGeneratorProps> = ({
               initial={{ opacity: 0, scale: 0.98 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0 }}
-              transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
+              transition={{ duration: 0.16, ease: [0.22, 1, 0.36, 1] }}
               className="rcx-ai-loading"
             >
-              <div className="rcx-ai-orb"><ChefHat size={30} /></div>
-              <div className="rcx-ai-loading-title">{loadingTitle}</div>
-              <p className="rcx-ai-loading-sub">
-                Measuring ingredients, sequencing steps, and dialing in the timing.
-              </p>
-              <GenProgressBar progress={progress} remainingMs={remainingMs} elapsed={elapsed} />
-              <button type="button" className="rcxa-cancel" onClick={handleCancel}>
-                Cancel
-              </button>
+              <RecipeGeneration kind="recipe" elapsed={elapsed} progress={progress} remainingMs={remainingMs} onCancel={handleCancel} />
             </motion.div>
           ) : (
             <motion.div
@@ -618,7 +617,7 @@ export const AiRecipeGenerator: React.FC<AiRecipeGeneratorProps> = ({
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -6 }}
-              transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] }}
+              transition={{ duration: 0.14, ease: [0.22, 1, 0.36, 1] }}
             >
               <div className="rcxa-orb"><Sparkles size={20} strokeWidth={1.9} /></div>
               <h3 className="rcxa-title">What should we cook?</h3>
@@ -627,14 +626,14 @@ export const AiRecipeGenerator: React.FC<AiRecipeGeneratorProps> = ({
                 complete draft to review and edit before publishing.
               </p>
               <div className="rcxa-ideas">
-                {EXAMPLES.map((ex, i) => (
+                {EXAMPLES.map((ex) => (
                   <motion.button
                     key={ex}
                     type="button"
                     className="rcxa-idea"
                     initial={{ opacity: 0, y: 8 }}
                     animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: 0.12 + i * 0.05, duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
+                    transition={{ duration: 0.14, ease: [0.22, 1, 0.36, 1] }}
                     onClick={() => pickIdea(ex)}
                   >
                     <Sparkles size={12} />
@@ -644,19 +643,19 @@ export const AiRecipeGenerator: React.FC<AiRecipeGeneratorProps> = ({
               </div>
             </motion.div>
           )}
-        </AnimatePresence>
+        </>
       </div>
 
       {/* ── Dock — guideline dropdowns + the floating prompt bar ── */}
       <AnimatePresence initial={false}>
-        {!loading && (
+        {!loading && !ideasLoading && (
           <motion.div
             key="dock"
             className="rcxa-dock"
             initial={{ opacity: 0, y: 14 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: 14 }}
-            transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
+            transition={{ duration: 0.16, ease: [0.22, 1, 0.36, 1] }}
           >
             {/* The allowance, once it's nearly spent: 5 builds a week, 5
                 ideas a day on the free plan. Quiet until then. */}
@@ -676,7 +675,7 @@ export const AiRecipeGenerator: React.FC<AiRecipeGeneratorProps> = ({
               )}
             </AnimatePresence>
 
-            <GuidelinePills
+            <GuidelinePills appearance="modern"
               value={guidelines}
               onChange={applyGuidelines}
               openMenu={openMenu}
@@ -698,6 +697,7 @@ export const AiRecipeGenerator: React.FC<AiRecipeGeneratorProps> = ({
               <textarea
                 ref={textareaRef}
                 className="rcxa-input"
+                aria-label={view === 'ideas' ? 'Describe your recipe ideas' : 'Describe your recipe'}
                 value={prompt}
                 onChange={(e) => { setPrompt(e.target.value); if (error) setError(null); }}
                 onKeyDown={handleKeyDown}
@@ -746,21 +746,14 @@ export const AiRecipeGenerator: React.FC<AiRecipeGeneratorProps> = ({
               initial={{ opacity: 0, y: 18, scale: 0.98 }}
               animate={{ opacity: 1, y: 0, scale: 1 }}
               exit={{ opacity: 0, y: 12, scale: 0.98 }}
-              transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
+              transition={{ duration: 0.16, ease: [0.22, 1, 0.36, 1] }}
               onClick={(e) => e.stopPropagation()}
             >
               <h4 className="rcxa-combine-title">
                 Combine {selectedIdeas.slice(0, 3).map((i) => i.title).join(' + ')}
               </h4>
               {combining ? (
-                <div className="rcxa-combine-progress">
-                  <div className="rcx-ai-orb"><ChefHat size={24} /></div>
-                  <p>{elapsed >= 18 ? 'Almost there…' : 'Merging them into one dish…'}</p>
-                  <GenProgressBar progress={progress} remainingMs={remainingMs} elapsed={elapsed} />
-                  <button type="button" className="rcxa-cancel" onClick={handleCancelCombine}>
-                    Cancel
-                  </button>
-                </div>
+                <RecipeGeneration kind="combine" compact elapsed={elapsed} progress={progress} remainingMs={remainingMs} onCancel={handleCancelCombine} />
               ) : (
                 <>
                   <p className="rcxa-combine-sub">What do you want from each? <span>Optional — leave it blank and the kitchen decides.</span></p>
@@ -787,6 +780,6 @@ export const AiRecipeGenerator: React.FC<AiRecipeGeneratorProps> = ({
           </motion.div>
         )}
       </AnimatePresence>
-    </div>
+    </div></MotionConfig>
   );
 };

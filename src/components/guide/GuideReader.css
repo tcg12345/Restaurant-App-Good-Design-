@@ -46,7 +46,7 @@
 .guide-reader-list-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; padding: 16px 0 5px; border-top: 1px solid var(--gr-line); }
 .guide-reader-list-heading h2 { font-family: inherit; font-size: 16px; font-weight: 650; letter-spacing: -.02em; margin: 0; }
 .guide-reader-list-heading > span { color: var(--gr-muted); font-size: 12px; font-variant-numeric: tabular-nums; }
-.guide-reader-entry { padding: 20px 0 12px; border-bottom: 1px solid var(--gr-line); scroll-margin-top: calc(84px + env(safe-area-inset-top, 0px)); }
+.guide-reader-entry { padding: 24px 0 18px; border-bottom: 1px solid var(--gr-line); scroll-margin-top: calc(84px + env(safe-area-inset-top, 0px)); }
 .guide-reader-place { display: flex; width: 100%; gap: 10px; align-items: flex-start; text-align: left; color: inherit; min-height: 48px; }
 .guide-reader-number { width: 21px; flex: none; font-size: 12px; color: var(--gr-muted); font-weight: 500; font-variant-numeric: tabular-nums; padding-top: 4px; }
 .guide-reader-place-copy { flex: 1; min-width: 0; }
@@ -54,19 +54,24 @@
 .guide-reader-meta { display: block; margin-top: 5px; font-size: 12.5px; line-height: 1.5; color: var(--gr-muted); overflow-wrap: anywhere; }
 .guide-reader-score { display: flex; align-items: center; justify-content: center; width: 39px; height: 39px; border: 1px solid; border-radius: 50%; flex: none; font-size: 13px; font-weight: 650; font-variant-numeric: tabular-nums; margin-top: 1px; }
 .guide-reader-chevron { align-self: center; flex: none; color: var(--gr-muted); }
-.guide-reader-photo { width: 100%; display: block; border-radius: 18px; overflow: hidden; margin-bottom: 14px; }
+.guide-reader-photo { width: 100%; display: block; border-radius: 18px; overflow: hidden; margin: 16px 0 0; background: var(--gr-wash); }
 .guide-reader-photo:not(:has(img)) { display: none; }
 .guide-reader-entry-image { display: block; width: 100%; aspect-ratio: 16/9; max-height: 320px; object-fit: cover; }
-.guide-reader-note { font-size: 13px; line-height: 1.55; color: var(--gr-muted); margin: 10px 0 0 31px; white-space: pre-line; overflow-wrap: anywhere; }
-.guide-reader-entry-bottom { margin-left: 31px; display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; }
+.guide-reader-note { font-size: 14px; line-height: 1.65; color: var(--gr-ink); margin: 16px 0 0; white-space: pre-line; overflow-wrap: anywhere; }
+.guide-reader-entry-bottom { margin-top: 12px; display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; }
 .guide-reader-entry-actions { display: flex; align-items: center; gap: 8px; margin-left: auto; }
 .guide-reader-entry-actions button { display: flex; align-items: center; justify-content: center; gap: 5px; min-width: 44px; min-height: 44px; font-size: 12px; color: var(--gr-muted); border-radius: 12px; transition: background .18s, transform .18s; }
 .guide-reader-entry-actions button:first-child { padding: 0 8px; }
 .guide-reader-entry-actions button.is-saved { color: var(--color-primary); }
 .guide-reader-entry-actions button:active { background: var(--gr-wash); transform: scale(.95); }
-.guide-reader-details > summary { min-height: 44px; display: flex; align-items: center; gap: 5px; font-size: 12px; color: var(--gr-muted); }
-.guide-reader-details[open] { flex-basis: 100%; }
-.guide-reader :is(.guide-reader-details, .guide-reader-about) > summary svg { transition: transform .2s; }
+.guide-reader-entry-bottom:empty { display: none; }
+.guide-reader-entry-insights { display: grid; gap: 16px; margin-top: 18px; padding-left: 14px; border-left: 2px solid var(--gr-line); font-size: 13px; line-height: 1.6; color: var(--gr-muted); overflow-wrap: anywhere; }
+.guide-reader-entry-insights h3 { margin: 0 0 3px; font: inherit; font-size: 12px; font-weight: 650; color: var(--gr-ink); }
+.guide-reader-entry-insights p { margin: 0; white-space: pre-line; }
+.guide-reader-entry-insights :is(ul, ol) { margin: 0; padding-left: 18px; }
+.guide-reader-entry-insights ul { list-style: disc; }
+.guide-reader-entry-insights ol { list-style: decimal; }
+.guide-reader-about > summary svg { transition: transform .2s; }
 .guide-reader details[open] > summary svg { transform: rotate(180deg); }
 .guide-reader-detail-content { display: grid; gap: 14px; padding: 4px 0 16px; font-size: 13px; line-height: 1.6; color: var(--gr-muted); animation: guide-detail-in .2s ease-out; overflow-wrap: anywhere; }
 .guide-reader-detail-content p { margin: 0; white-space: pre-line; }

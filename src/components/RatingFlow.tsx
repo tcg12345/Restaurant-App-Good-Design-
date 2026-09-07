@@ -10,8 +10,8 @@ import { useLists, type PhotoItem, type RestaurantRating } from '../contexts/Lis
 import { settleScores } from '../lib/settleScores';
 import { useSubmitOnce } from '../lib/useSubmitOnce';
 import { motion, useReducedMotion } from 'motion/react';
-import { useBottomSheet, liftOverlayToTopLayer } from '../lib/useBottomSheet';
-import { GlassButton } from '../lib/glass-buttons';
+import { useBottomSheet, liftOverlayToTopLayer, acquireHardScrollLock } from '../lib/useBottomSheet';
+import { GlassButton, useGlassOccluder } from '../lib/glass-buttons';
 import { RatingCompletion, type CompletedRating } from './RatingCompletion';
 import { ALL_TAGS, PRICE_RANGES, priceIndexFromAmount, Calendar } from './RatingShared';
 import {
@@ -63,11 +63,16 @@ const fmtDate = (iso: string) => {
   return `${['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][m - 1]} ${d}`;
 };
 
-export const RatingFlow: React.FC = () => {
+export const RatingFlow: React.FC = () => <RatingFlowSheet state={useLists()} />;
+
+/** Shared editor separated from its store so every entry path can be exercised in isolation. */
+export const RatingFlowSheet: React.FC<{ state: Pick<ReturnType<typeof useLists>,
+  'addRestaurantModalOpen' | 'addRestaurantModalMeta' | 'addRestaurantModalInitialPage' | 'closeAddRestaurantModal' |
+  'rateRestaurant' | 'getRating' | 'removeRating' | 'ratings' | 'getRestaurantInfo' | 'scoresUnlocked'> }> = ({ state }) => {
   const {
     addRestaurantModalOpen, addRestaurantModalMeta, addRestaurantModalInitialPage, closeAddRestaurantModal,
     rateRestaurant, getRating, removeRating, ratings, getRestaurantInfo, scoresUnlocked,
-  } = useLists();
+  } = state;
   const { submitting: saving, tryLock, release } = useSubmitOnce(addRestaurantModalOpen);
 
   const existing = addRestaurantModalMeta ? getRating(addRestaurantModalMeta.id) : undefined;
@@ -84,7 +89,18 @@ export const RatingFlow: React.FC = () => {
   const dismissCompletion = useCallback(() => setCompletion(null), []);
   const [dragging, setDragging] = useState(false);
   const dialogRef = useRef<HTMLDivElement>(null);
-  useLayoutEffect(() => { if (addRestaurantModalOpen) liftOverlayToTopLayer(dialogRef.current); }, [addRestaurantModalOpen]);
+  const occludeGlass = useGlassOccluder();
+  const setDialogRef = useCallback((element: HTMLDivElement | null) => {
+    dialogRef.current = element;
+    occludeGlass(element);
+  }, [occludeGlass]);
+  useLayoutEffect(() => {
+    if (!addRestaurantModalOpen) return;
+    liftOverlayToTopLayer(dialogRef.current);
+    // iOS can scroll the document to reveal an input despite overflow:hidden.
+    // Keep the page fixed for the full editor session, including its exit.
+    return acquireHardScrollLock();
+  }, [addRestaurantModalOpen]);
   const revealFrame = useRef(0);
   const pickTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pickLocked = useRef(false);
@@ -93,7 +109,7 @@ export const RatingFlow: React.FC = () => {
   const photoSession = useRef(0);
   const [flowError, setFlowError] = useState('');
   const [wouldReturn, setWouldReturn] = useState(true);
-  const [viewport, setViewport] = useState<{ height: number; top: number } | null>(null);
+  const [viewport, setViewport] = useState<{ width: number; height: number; left: number; top: number } | null>(null);
   const cancelPending = useCallback(() => {
     cancelAnimationFrame(revealFrame.current);
     if (pickTimer.current) clearTimeout(pickTimer.current);
@@ -215,7 +231,7 @@ export const RatingFlow: React.FC = () => {
     photoSession.current += 1;
     if (!addRestaurantModalOpen) return;
     const before = document.activeElement as HTMLElement | null;
-    const update = () => setViewport(window.visualViewport ? { height: window.visualViewport.height, top: window.visualViewport.offsetTop } : null);
+    const update = () => setViewport(window.visualViewport ? { width: window.visualViewport.width, height: window.visualViewport.height, left: window.visualViewport.offsetLeft, top: window.visualViewport.offsetTop } : null);
     update(); window.visualViewport?.addEventListener('resize', update); window.visualViewport?.addEventListener('scroll', update);
     const focus = requestAnimationFrame(() => dialogRef.current?.focus());
     return () => {
@@ -469,9 +485,9 @@ export const RatingFlow: React.FC = () => {
   return createPortal(
     <div
       className={cn("rf-scrim", closing && "is-closing")}
-      ref={dialogRef}
+      ref={setDialogRef}
       tabIndex={-1}
-      style={viewport ? { height: viewport.height, top: viewport.top, bottom: 'auto' } : undefined}
+      style={viewport ? { width: viewport.width, height: viewport.height, left: viewport.left, top: viewport.top, right: 'auto', bottom: 'auto' } : undefined}
       /* Tap-outside-to-close, and ONLY that. Closing on any click that
          reaches this element meant the hidden file input below — a child
          of the scrim — dismissed the whole flow the instant

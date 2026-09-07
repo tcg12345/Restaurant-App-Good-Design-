@@ -296,7 +296,7 @@ export const Sidebar: React.FC = () => {
         <ul className="space-y-1">
           {/* Discover */}
           <li>
-            <NavLink to="/" className={navRowClass(isHomeActive)} title={collapsed ? 'Discover' : undefined}>
+            <NavLink state={{ navigationPresentation: 'tab' }} to="/" className={navRowClass(isHomeActive)} title={collapsed ? 'Discover' : undefined}>
               <Compass size={20} strokeWidth={isHomeActive ? 2.4 : 1.9} className={cn('flex-shrink-0', isHomeActive ? 'text-on-surface' : 'text-on-surface/65')} />
               {!collapsed && <span className="truncate">Discover</span>}
             </NavLink>
@@ -306,7 +306,7 @@ export const Sidebar: React.FC = () => {
               friends). Replaces the search input that lived in the old
               desktop top bar. */}
           <li>
-            <NavLink to="/search/main" className={navRowClass(isSearchActive)} title={collapsed ? 'Search' : undefined}>
+            <NavLink state={{ navigationPresentation: 'tab' }} to="/search/main" className={navRowClass(isSearchActive)} title={collapsed ? 'Search' : undefined}>
               <Search size={20} strokeWidth={isSearchActive ? 2.4 : 1.9} className={cn('flex-shrink-0', isSearchActive ? 'text-on-surface' : 'text-on-surface/65')} />
               {!collapsed && <span className="truncate">Search</span>}
             </NavLink>
@@ -314,7 +314,7 @@ export const Sidebar: React.FC = () => {
 
           {/* Map */}
           <li>
-            <NavLink to="/map" className={navRowClass(isMapActive)} title={collapsed ? 'Map' : undefined}>
+            <NavLink state={{ navigationPresentation: 'tab' }} to="/map" className={navRowClass(isMapActive)} title={collapsed ? 'Map' : undefined}>
               <MapIcon size={20} strokeWidth={isMapActive ? 2.4 : 1.9} className={cn('flex-shrink-0', isMapActive ? 'text-on-surface' : 'text-on-surface/65')} />
               {!collapsed && <span className="truncate">Map</span>}
             </NavLink>
@@ -322,7 +322,7 @@ export const Sidebar: React.FC = () => {
 
           {/* Reels */}
           <li>
-            <NavLink to="/reels" className={navRowClass(isReelsActive)} title={collapsed ? 'Reels' : undefined}>
+            <NavLink state={{ navigationPresentation: 'tab' }} to="/reels" className={navRowClass(isReelsActive)} title={collapsed ? 'Reels' : undefined}>
               <Film size={20} strokeWidth={isReelsActive ? 2.4 : 1.9} className={cn('flex-shrink-0', isReelsActive ? 'text-on-surface' : 'text-on-surface/65')} />
               {!collapsed && <span className="truncate">Reels</span>}
             </NavLink>
@@ -331,7 +331,7 @@ export const Sidebar: React.FC = () => {
           {/* Pantry — single nav row. Restaurants/Recipes tabs and
               per-tab list management live on the page itself. */}
           <li>
-            <NavLink to="/pantry" className={navRowClass(isPantryActive)} title={collapsed ? 'Pantry' : undefined}>
+            <NavLink state={{ navigationPresentation: 'tab' }} to="/pantry" className={navRowClass(isPantryActive)} title={collapsed ? 'Pantry' : undefined}>
               <Bookmark size={20} strokeWidth={isPantryActive ? 2.4 : 1.9} className={cn('flex-shrink-0', isPantryActive ? 'text-on-surface' : 'text-on-surface/65')} />
               {!collapsed && <span className="truncate">Pantry</span>}
             </NavLink>
@@ -406,7 +406,7 @@ export const Sidebar: React.FC = () => {
 
           {/* Profile */}
           <li>
-            <NavLink to="/profile" className={navRowClass(isProfileActive)} title={collapsed ? 'Profile' : undefined}>
+            <NavLink state={{ navigationPresentation: 'tab' }} to="/profile" className={navRowClass(isProfileActive)} title={collapsed ? 'Profile' : undefined}>
               <User size={20} strokeWidth={isProfileActive ? 2.4 : 1.9} className={cn('flex-shrink-0', isProfileActive ? 'text-on-surface' : 'text-on-surface/65')} />
               {!collapsed && <span className="truncate">Profile</span>}
             </NavLink>

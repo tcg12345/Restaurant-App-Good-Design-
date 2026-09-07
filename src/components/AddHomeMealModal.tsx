@@ -17,7 +17,7 @@
 import React, { useRef, useLayoutEffect, useState, useEffect } from 'react';
 import { GlassButton } from '../lib/glass-buttons';
 import { useNavigate } from 'react-router-dom';
-import { motion, AnimatePresence, MotionConfig } from 'motion/react';
+import { motion, AnimatePresence, MotionConfig, useReducedMotion } from 'motion/react';
 import { Sparkles, Link2, Camera, ScanLine, PenLine, ClipboardType, ChevronLeft, ChevronRight, X } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useLists, type HomeMeal, type HomeMealMethod, type DishPhotoRef } from '../contexts/ListsContext';
@@ -121,6 +121,7 @@ export const AddHomeMealModal: React.FC = () => {
     createHomeMeal, addRecipeToList,
   } = useLists();
   const { phoneMode } = useSettings();
+  const reduced = useReducedMotion();
   const { showToast } = useToast();
   const { addGeneratedRecipeChat } = useAiChatHistory();
   const navigate = useNavigate();
@@ -159,7 +160,7 @@ export const AddHomeMealModal: React.FC = () => {
   // resuming a draft skips the chooser; a preselected method (from the
   // Create page's embedded surface) jumps straight into that flow; new
   // recipes otherwise start on the chooser.
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!homeMealModalOpen) return;
     setAiView(homeMealModalInitialAiView);
     setDishSeed(homeMealModalDishPhoto);
@@ -433,49 +434,30 @@ export const AddHomeMealModal: React.FC = () => {
         {homeMealModalOpen && (
           <motion.div
             initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            transition={{ duration: reduced ? 0 : .16 }}
             ref={overlayRef}
             className={cn('fixed inset-0 bg-black/60 backdrop-blur-sm z-[100] flex justify-center',
               phoneMode ? 'items-end' : 'items-end sm:items-center'
             )}
             onClick={closeHomeMealModal}
           >
-            <AnimatePresence mode="wait">
-              {stage === 'choose' ? (
-                <motion.div
-                  key="chooser"
-                  ref={phoneMode ? (sheetRef as React.RefObject<HTMLDivElement>) : undefined}
-                  initial={phoneMode ? { y: '100%' } : { opacity: 0, scale: 0.94, y: 14 }}
-                  animate={phoneMode ? { y: 0 } : { opacity: 1, scale: 1, y: 0 }}
-                  exit={phoneMode ? { y: '100%' } : { opacity: 0, scale: 0.96, y: 8 }}
-                  transition={phoneMode
-                    ? { duration: 0.42, ease: [0.32, 0.72, 0, 1] as const }
-                    : { duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
-                  {...(phoneMode ? dragProps : {})}
-                  onClick={(e) => e.stopPropagation()}
-                  className={cn('w-full overflow-hidden',
-                    phoneMode
-                      ? 'rounded-t-3xl'
-                      : 'sm:max-w-[560px] rounded-t-3xl sm:rounded-3xl'
-                  )}
-                >
-                  <MethodChooser phoneMode={phoneMode} onPick={handlePickMethod} onClose={closeHomeMealModal} />
-                </motion.div>
-              ) : (
-                <motion.div
-                  key={`flow-${mode}`}
-                  initial={phoneMode ? { y: '100%' } : { opacity: 0, scale: 0.97, y: 10 }}
-                  animate={phoneMode ? { y: 0 } : { opacity: 1, scale: 1, y: 0 }}
-                  exit={phoneMode ? { y: '100%' } : { opacity: 0, scale: 0.97, y: 8 }}
-                  transition={phoneMode
-                    ? { type: 'spring', damping: 30, stiffness: 300 }
-                    : { duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
-                  onClick={(e) => e.stopPropagation()}
-                  className={cn('bg-surface w-full overflow-hidden flex flex-col',
-                    phoneMode
-                      ? 'h-full rounded-none'
-                      : 'h-full sm:max-w-[760px] sm:max-h-[92vh] sm:h-[92vh] rounded-none sm:rounded-3xl'
-                  )}
-                >
+            {/* One surface owns entrance/exit. Switching methods never queues two sheet animations. */}
+            <motion.div
+              ref={sheetRef as React.RefObject<HTMLDivElement>}
+              data-sheet-capped={stage === 'choose' ? '' : undefined}
+              initial={reduced ? false : phoneMode ? { y: '100%' } : { opacity: 0, y: 12 }}
+              animate={{ y: 0, opacity: 1 }}
+              exit={{ y: reduced ? 0 : phoneMode ? '100%' : 8, opacity: phoneMode ? 1 : 0, transition: { duration: reduced ? 0 : .16, ease: [.32, .72, 0, 1] } }}
+              transition={{ type: 'tween', duration: reduced ? 0 : .22, ease: [.22, 1, .36, 1] }}
+              {...(phoneMode && stage === 'choose' ? dragProps : {})}
+              onClick={event => event.stopPropagation()}
+              className={cn('recipe-builder-surface w-full overflow-hidden flex flex-col',
+                stage === 'choose'
+                  ? phoneMode ? 'rounded-t-3xl' : 'sm:max-w-[560px] rounded-t-3xl sm:rounded-3xl'
+                  : phoneMode ? 'bg-surface h-full rounded-none' : 'bg-surface h-full sm:max-w-[760px] sm:max-h-[92vh] sm:h-[92vh] rounded-none sm:rounded-3xl'
+              )}
+            >
+              {stage === 'choose' ? <MethodChooser phoneMode={phoneMode} onPick={handlePickMethod} onClose={closeHomeMealModal} /> : <>
                   {mode === 'advanced' ? (
                     <AdvancedRecipeBuilder
                       key={seed ? seed.id : 'fresh'}
@@ -514,9 +496,8 @@ export const AddHomeMealModal: React.FC = () => {
                       initialTab={importTab}
                     />
                   )}
-                </motion.div>
-              )}
-            </AnimatePresence>
+              </>}
+            </motion.div>
           </motion.div>
         )}
       </AnimatePresence>

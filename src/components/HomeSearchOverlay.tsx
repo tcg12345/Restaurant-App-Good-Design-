@@ -1,4 +1,4 @@
-import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { motion, useReducedMotion } from 'motion/react';
 import { Navigation, X } from 'lucide-react';
 import { SearchMain } from '../pages/SearchMain';
@@ -6,8 +6,7 @@ import { SearchField } from './SearchField';
 import { HomeLocationBar, isExactAddress } from './HomeLocationBar';
 import { useHomeLocation } from '../contexts/HomeLocationContext';
 import { GlassButton, useGlassButtonsActive } from '../lib/glass-buttons';
-import { acquireHardScrollLock, liftOverlayToTopLayer } from '../lib/useBottomSheet';
-import { pushOverlay } from '../lib/overlay-registry';
+import { acquireHardScrollLock, liftOverlayToTopLayer, mergeRefs, useBottomSheet } from '../lib/useBottomSheet';
 import './HomeSearchOverlay.css';
 
 /** The same live results as Search, presented above the retained Home tab. */
@@ -17,6 +16,9 @@ export function HomeSearchOverlay({ active, onClose }: { active: boolean; onClos
   const home = useHomeLocation();
   const input = useRef<HTMLInputElement>(null);
   const root = useRef<HTMLDivElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const { sheetRef, dragProps } = useBottomSheet(active && !locationOpen, onClose, scrollRef);
+  const mergedRef = useMemo(() => mergeRefs<HTMLDivElement>(root, sheetRef), [sheetRef]);
   const reduced = useReducedMotion();
   const glass = useGlassButtonsActive();
   const parts = home?.location?.label.split(',').map(part => part.trim()) ?? [];
@@ -28,13 +30,11 @@ export function HomeSearchOverlay({ active, onClose }: { active: boolean; onClos
     if (!active) return;
     const node = root.current;
     liftOverlayToTopLayer(node);
-    const releaseOverlay = pushOverlay();
     const releaseScroll = acquireHardScrollLock();
     return () => {
       if (node?.contains(document.activeElement)) (document.activeElement as HTMLElement)?.blur();
       if (node?.matches(':popover-open')) node.hidePopover();
       releaseScroll();
-      releaseOverlay();
     };
   }, [active]);
   useEffect(() => {
@@ -46,10 +46,10 @@ export function HomeSearchOverlay({ active, onClose }: { active: boolean; onClos
     };
   }, []);
 
-  return <motion.div ref={root} role="dialog" aria-modal="true" aria-label="Search" className="home-search-overlay kb-pad"
-    initial={{ opacity: 0, y: reduced ? 0 : -24 }} animate={{ opacity: 1, y: 0 }}
-    exit={{ opacity: 0, y: reduced ? 0 : -16 }}
-    transition={{ duration: reduced ? .12 : .3, ease: [.22, 1, .36, 1] }}
+  return <motion.div {...dragProps} dragMomentum={false} ref={mergedRef} role="dialog" aria-modal="true" aria-label="Search" className="home-search-overlay kb-pad"
+    initial={{ opacity: 1, y: reduced ? 0 : '100%' }} animate={{ opacity: 1, y: 0 }}
+    exit={{ opacity: reduced ? 0 : 1, y: reduced ? 0 : '100%' }}
+    transition={{ duration: reduced ? 0 : .24, ease: [.22, 1, .36, 1] }}
     onAnimationComplete={() => { if (active && !glass && !locationOpen && !query) input.current?.focus({ preventScroll: true }); }}
     onKeyDown={event => {
       // Nested portaled sheets handle their own keyboard navigation.
@@ -71,7 +71,7 @@ export function HomeSearchOverlay({ active, onClose }: { active: boolean; onClos
         inputRef={input} autoFocus={glass && active} placeholder="Restaurants, recipes, people" aria-label="Search"
         onSubmit={() => input.current?.blur()} />
     </div>
-    <div className="home-search-overlay-results">
+    <div ref={scrollRef} className="home-search-overlay-results">
       <SearchMain embedded query={query} onQueryChange={setQuery} inputRef={glass ? undefined : input} />
     </div>
     {home && <HomeLocationBar variant="headless" open={active && locationOpen} onOpenChange={setLocationOpen} sheetZ="z-[220]"

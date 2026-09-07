@@ -3,11 +3,11 @@
   --ds-muted: color-mix(in srgb, var(--ds-ink) 64%, var(--color-surface));
   --ds-line: color-mix(in srgb, var(--ds-ink) 9%, transparent);
   --ds-panel: color-mix(in srgb, var(--ds-ink) 5%, var(--color-surface));
-  --ds-accent: #3f6555;
+  --ds-accent: var(--brand-accent);
   color: var(--ds-ink); font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'Manrope', sans-serif;
   overflow: hidden; border: 1px solid var(--ds-line); border-bottom: 0;
 }
-.dark .discover-sheet { --ds-accent: #b2d3c0; }
+.dark .discover-sheet { --ds-accent: var(--brand-accent); }
 .discover-sheet :is(h2,h3) { font-family: inherit; }
 .discover-sheet button { -webkit-tap-highlight-color: transparent; }
 .discover-sheet button:focus-visible, .ds-grab:focus-visible { outline: 2px solid var(--ds-accent); outline-offset: -2px; }

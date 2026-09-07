@@ -9,8 +9,8 @@
   --dish-ink: #1c2028;
   --dish-muted: #6c7380;
   --dish-line: #e5e8ee;
-  --dish-tint: #edf0f8;
-  --dish-accent: #53668d;
+  --dish-tint: var(--brand-soft);
+  --dish-accent: var(--brand-accent);
   background: var(--dish-bg);
   color: var(--dish-ink);
 }
@@ -20,8 +20,8 @@
   --dish-ink: #f4f5f8;
   --dish-muted: #a1a7b3;
   --dish-line: #30353e;
-  --dish-tint: #292f3e;
-  --dish-accent: #b7c6e9;
+  --dish-tint: var(--brand-soft);
+  --dish-accent: var(--brand-accent);
 }
 .dish-flow .rcx-head { border: 0; padding: 16px 24px 0; }
 .dish-flow.is-phone .rcx-head { padding-top: calc(env(safe-area-inset-top, 0px) + 12px); }

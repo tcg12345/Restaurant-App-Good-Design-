@@ -1,21 +1,13 @@
-/**
- * Glass night — the Pro flow's own look, the same in both themes.
- *
- * The owner chose it from the studio: always dark, a slate glow at the
- * top, one floating glass object per page, a thin serif, lots of air.
- * These are literals on purpose: the pages don't follow the app theme,
- * so they can't read the theme tokens. The pale slate is the dark
- * theme's `--color-primary`; the ground is its `--color-surface`.
- */
+/** Always-dark Pro surfaces use the shared Mint endpoint in both themes. */
 import type React from 'react';
 
-export const NIGHT_BG = 'radial-gradient(90% 55% at 50% 0%, #3a4762 0%, #1b1c20 60%, #121316 100%)';
+export const NIGHT_BG = 'radial-gradient(90% 55% at 50% 0%, #304b3d 0%, #1b1c20 60%, #121316 100%)';
 export const NIGHT_INK = '#e9e9ec';
 export const NIGHT_INK_SOFT = 'rgba(233, 233, 236, 0.65)';
 export const NIGHT_INK_FAINT = 'rgba(233, 233, 236, 0.45)';
-export const PALE = '#aebbd3';
-export const ON_PALE = '#161a22';
-export const GOLD = '#d8c39c';
+export const PALE = 'var(--brand-mint)';
+export const ON_PALE = 'var(--brand-on-mint)';
+export const GOLD = 'var(--brand-mint)';
 
 export const glass: React.CSSProperties = {
   background: 'rgba(255, 255, 255, 0.07)',
@@ -32,7 +24,7 @@ export const eyebrow: React.CSSProperties = {
   letterSpacing: '0.18em',
   textTransform: 'uppercase',
   color: PALE,
-  background: 'rgba(174, 187, 211, 0.14)',
+  background: 'rgba(168, 208, 184, 0.14)',
   padding: '5px 10px',
   borderRadius: 999,
   display: 'inline-flex',

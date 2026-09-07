@@ -5,6 +5,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { PRIVACY_URL, TERMS_URL, openExternalUrl } from '../lib/external-links';
 import { logOnboardingEvent } from '../lib/onboarding-events';
 import { toE164, deviceRegion, type CountryCode } from '../lib/phone';
+import { getCountries, getCountryCallingCode } from 'libphonenumber-js/min';
 // A shared responsive presentation for every sign-in method.
 import * as OB from '../components/onboarding/OnboardingKit';
 
@@ -15,7 +16,7 @@ const EyeToggle: React.FC<{ shown: boolean; onClick: () => void }> = ({ shown, o
     onClick={onClick}
     aria-label={shown ? 'Hide password' : 'Show password'}
     className="flex items-center justify-center cursor-pointer bg-transparent border-none p-0"
-    style={{ width: 38, height: 38, color: 'var(--ob-secondary)' }}
+    style={{ width: 44, height: 44, color: 'var(--ob-secondary)' }}
   >
     {shown ? <EyeOff size={18} /> : <Eye size={18} />}
   </button>
@@ -104,6 +105,10 @@ export const Auth: React.FC<{
   const lockedToSignIn = !!signInOnly && !signupUnlocked;
   const unlockSignup = useCallback(() => { setSignupUnlocked(true); setError(''); }, []);
   const [region, setRegion] = useState<CountryCode>(() => deviceRegion());
+  const countries = useMemo(() => {
+    const names = new Intl.DisplayNames(['en'], { type: 'region' });
+    return getCountries().map(code => ({ code, label: names.of(code) || code, calling: getCountryCallingCode(code) })).sort((a, b) => a.label.localeCompare(b.label));
+  }, []);
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
@@ -496,14 +501,14 @@ export const Auth: React.FC<{
   // Welcome
   if (step === 'email') {
     return (
-      <OB.OnboardingScreen>
+      <OB.OnboardingScreen contentKey={step}>
         <FadeStep stepKey="email">
           <OB.BrandMark size={54} />
           <div style={{ marginTop: 24 }}>
             {saveTasteFraming ? (
               <>
-                <OB.Title>Save your<br /><em>taste profile</em></OB.Title>
-                <OB.Subtitle>Create a free account to keep your picks and start rating — or sign in.</OB.Subtitle>
+                <OB.Title>Good taste.<br />All yours.</OB.Title>
+                <OB.Subtitle>Save your preferences, collect your favorite places, and take your taste with you.</OB.Subtitle>
               </>
             ) : (
               <>
@@ -532,22 +537,27 @@ export const Auth: React.FC<{
               onClick={() => handleOAuth('google')} disabled={oauthPending !== null || submitting}
             >Continue with Google</OB.SocialButton>
           </div>
-          <OB.Divider>OR</OB.Divider>
-          <form onSubmit={(e) => { e.preventDefault(); handleIdentifierContinue(); }} style={{ marginTop: 28 }}>
+          <OB.Divider>or</OB.Divider>
+          <form noValidate onSubmit={(e) => { e.preventDefault(); handleIdentifierContinue(); }}>
             {channel === 'phone' ? (
               <>
-                <OB.FieldLabel>Phone number</OB.FieldLabel>
+                <label className="ob-country-label">Country or region
+                  <select value={region} onChange={e => { setRegion(e.target.value as CountryCode); setError(''); }} autoComplete="country">
+                    {countries.map(c => <option key={c.code} value={c.code}>{c.label} (+{c.calling})</option>)}
+                  </select>
+                </label>
                 <OB.Field
-                  type="tel" name="phone" value={phone} onChange={(v) => { setPhone(v); setError(''); }}
-                  placeholder="(555) 123-4567" icon={<Phone size={18} strokeWidth={1.6} />}
+                  invalid={!!error}
+                  label="Phone number" type="tel" name="phone" value={phone} onChange={(v) => { setPhone(v); setError(''); }}
+                  placeholder="Your phone number" icon={<Phone size={18} strokeWidth={1.6} />}
                   autoComplete="tel" inputMode="tel" autoCapitalize="off"
                 />
               </>
             ) : (
               <>
-                <OB.FieldLabel>Email</OB.FieldLabel>
                 <OB.Field
-                  type="email" name="email" value={email} onChange={(v) => { setEmail(v); setError(''); }}
+                  invalid={!!error}
+                  label="Email address" type="email" name="email" value={email} onChange={(v) => { setEmail(v); setError(''); }}
                   placeholder="you@example.com" icon={<Mail size={18} strokeWidth={1.6} />}
                   autoComplete="email" inputMode="email" autoCapitalize="off"
                 />
@@ -578,18 +588,19 @@ export const Auth: React.FC<{
   // Sign in (returning)
   if (step === 'password') {
     return (
-      <OB.OnboardingScreen>
+      <OB.OnboardingScreen contentKey={step}>
         <FadeStep stepKey="password">
           <OB.RoundBackButton onClick={handleBack} />
           <div style={{ marginTop: 24 }}><OB.BrandMark size={50} /></div>
           <OB.Title size={30}>Welcome <em>back</em></OB.Title>
           <div style={{ marginTop: 14 }}><OB.EmailPill email={identifierDisplay} onClick={handleBack} /></div>
-          <form onSubmit={(e) => { e.preventDefault(); handleSignIn(); }} style={{ marginTop: 24 }}>
+          <form noValidate onSubmit={(e) => { e.preventDefault(); handleSignIn(); }} style={{ marginTop: 24 }}>
             <OB.FieldLabel>Password</OB.FieldLabel>
             <OB.Field
+                  invalid={!!error}
               type={showPassword ? 'text' : 'password'} name="password" value={password}
               onChange={(v) => { setPassword(v); setError(''); }} placeholder="Enter your password"
-              icon={<Lock size={16} strokeWidth={1.7} />} autoFocus autoComplete="current-password"
+              icon={<Lock size={16} strokeWidth={1.7} />} autoComplete="current-password"
               rightSlot={<EyeToggle shown={showPassword} onClick={() => setShowPassword(!showPassword)} />}
               onSubmit={handleSignIn}
             />
@@ -601,11 +612,11 @@ export const Auth: React.FC<{
                 style={{ fontSize: 14.5, color: codeSending ? 'var(--ob-label)' : OB.TERRA, fontWeight: 600 }}
                 className="cursor-pointer bg-transparent border-none p-0 disabled:cursor-default"
               >
-                {codeSending ? 'Sending code…' : 'Email me a sign-in code'}
+                {codeSending ? 'Sending code…' : channel === 'phone' ? 'Text me a sign-in code' : 'Email me a sign-in code'}
               </button>
               <button
                 type="button"
-                onClick={() => { void handleForgotPassword(); }}
+                onClick={handleForgotPasswordForChannel}
                 disabled={resetSending}
                 style={{ fontSize: 14.5, color: resetSending ? 'var(--ob-label)' : OB.TERRA, fontWeight: 600 }}
                 className="cursor-pointer bg-transparent border-none p-0 disabled:cursor-default"
@@ -632,14 +643,14 @@ export const Auth: React.FC<{
   // Verify — enter the 6-digit code we emailed or texted
   if (step === 'verify') {
     return (
-      <OB.OnboardingScreen>
+      <OB.OnboardingScreen contentKey={step}>
         <FadeStep stepKey="verify">
           <OB.RoundBackButton onClick={handleBack} />
           <div style={{ marginTop: 24 }}><OB.BrandMark size={50} /></div>
           <OB.Title size={30}>Check your <em>{channel === 'phone' ? 'texts' : 'email'}</em></OB.Title>
           <OB.Subtitle>{verifyNotice || 'We sent a 6-digit code to'}</OB.Subtitle>
           <div style={{ marginTop: 10 }}><OB.EmailPill email={identifierDisplay} onClick={handleBack} /></div>
-          <form onSubmit={(e) => { e.preventDefault(); handleVerify(); }} style={{ marginTop: 24 }} className="flex flex-1 flex-col">
+          <form noValidate onSubmit={(e) => { e.preventDefault(); handleVerify(); }} style={{ marginTop: 24 }} className="flex flex-1 flex-col">
             <OB.FieldLabel>Verification code</OB.FieldLabel>
             <input
               type="text"
@@ -650,8 +661,9 @@ export const Auth: React.FC<{
               placeholder="123456"
               autoComplete="one-time-code"
               inputMode="numeric"
-              autoFocus
-              className="w-full rounded-2xl border text-center focus:outline-none"
+              maxLength={6}
+              enterKeyHint="done"
+              className="ob-code-input w-full rounded-2xl border text-center focus:outline-none"
               // The kit's own field fill. This read `--ob-field-bg`, a token
               // that never existed, so it fell back to a 70% white box — on
               // the dark theme, near-white ink on a near-white field.
@@ -684,7 +696,7 @@ export const Auth: React.FC<{
   // Choose a password (email already verified by code; session exists) —
   // also the set-NEW-password screen a forgot-password link lands on.
   return (
-    <OB.OnboardingScreen>
+    <OB.OnboardingScreen contentKey={step}>
       <FadeStep stepKey="setpassword">
         <div style={{ marginTop: 26 }}><OB.BrandMark size={50} /></div>
         <OB.Title size={30}>{passwordSetupMode === 'recovery' ? <>Set a new <em>password</em></> : <>Choose a <em>password</em></>}</OB.Title>
@@ -698,12 +710,13 @@ export const Auth: React.FC<{
             <span style={{ fontSize: 14, color: 'var(--ob-success)', fontWeight: 600 }}>{identifierDisplay} verified</span>
           </div>
         )}
-        <form onSubmit={(e) => { e.preventDefault(); handleSetPassword(); }} style={{ marginTop: 24 }} className="flex flex-1 flex-col">
+        <form noValidate onSubmit={(e) => { e.preventDefault(); handleSetPassword(); }} style={{ marginTop: 24 }} className="flex flex-1 flex-col">
           <OB.FieldLabel>Password</OB.FieldLabel>
           <OB.Field
+                  invalid={!!error}
             type={showPassword ? 'text' : 'password'} name="password" value={password}
             onChange={(v) => { setPassword(v); setError(''); }} placeholder="Choose a password"
-            icon={<Lock size={16} strokeWidth={1.7} />} autoFocus autoComplete="new-password"
+            icon={<Lock size={16} strokeWidth={1.7} />} autoComplete="new-password"
             rightSlot={<EyeToggle shown={showPassword} onClick={() => setShowPassword(!showPassword)} />}
             onSubmit={handleSetPassword}
           />

@@ -1,3 +1,5 @@
+import { useTastePreferences } from '../hooks/useTastePreferences';
+import { recipePreferenceScore } from '../lib/taste-preferences';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowRight, ArrowUpDown, BookOpen, Bookmark, Cake, Check, ChefHat, ChevronLeft, Clock, LayoutGrid, List, Plus, Search, SlidersHorizontal, Soup, Sun, UtensilsCrossed, Wheat, Wine, X } from 'lucide-react';
@@ -16,8 +18,8 @@ import { cn } from '../lib/utils';
 import './RecipesForYou.css';
 
 type Source = 'all' | 'friend' | 'expert' | 'saved';
-type Filters = { meal: string; cuisines: string[]; tags: string[]; quick: boolean; easy: boolean; sort: 'recent' | 'quick' | 'az' };
-const defaults = (): Filters => ({ meal: '', cuisines: [], tags: [], quick: false, easy: false, sort: 'recent' });
+type Filters = { meal: string; cuisines: string[]; tags: string[]; quick: boolean; easy: boolean; sort: 'recommended' | 'recent' | 'quick' | 'az' };
+const defaults = (): Filters => ({ meal: '', cuisines: [], tags: [], quick: false, easy: false, sort: 'recommended' });
 const meals = [
   { key: 'breakfast', label: 'Breakfast', icon: Sun }, { key: 'lunch', label: 'Lunch', icon: Soup },
   { key: 'dinner', label: 'Dinner', icon: UtensilsCrossed }, { key: 'dessert', label: 'Dessert', icon: Cake },
@@ -107,6 +109,7 @@ export const RecipesForYou: React.FC<RecipesForYouProps> = ({ embedded = false, 
   const navigate = useNavigate();
   const goBack = usePageBack('/pantry');
   const { user, isSignedIn } = useAuth();
+  const { preferences } = useTastePreferences();
   const { requireSignIn } = useSignInModal();
   const { lists, addRecipeToList, removeRecipeFromList } = useLists();
   const { setOverride: setPageAddAction } = usePageAddAction();
@@ -193,7 +196,7 @@ export const RecipesForYou: React.FC<RecipesForYouProps> = ({ embedded = false, 
   };
   const openRecipe = (r: Recipe) => navigate(r.userId ? `/recipe/${r.userId}/${r.id}` : `/recipe/${r.id}`);
   const library = useMemo(() => recipes.filter(r => r.title?.trim() && r.userId !== user?.id)
-    .sort((a, b) => (Date.parse(b.createdAt) || 0) - (Date.parse(a.createdAt) || 0)), [recipes, user?.id]);
+    .sort((a, b) => recipePreferenceScore(preferences,b)-recipePreferenceScore(preferences,a) || (Date.parse(b.createdAt) || 0) - (Date.parse(a.createdAt) || 0)), [recipes, user?.id, preferences]);
   const cuisines = useMemo(() => [...new Set(library.map(r => r.cuisine).filter(Boolean))].sort(), [library]);
   const tags = useMemo(() => [...new Set(library.flatMap(r => r.tags ?? []))].sort(), [library]);
   const availableMeals = meals.filter(m => library.some(r => recipeMeal(r) === m.key));
@@ -212,6 +215,7 @@ export const RecipesForYou: React.FC<RecipesForYouProps> = ({ embedded = false, 
       const haystack = [r.title, r.description, r.cuisine, ...(r.tags ?? []), ...(r.ingredients ?? []).map(i => i.name), author?.display_name, author?.username].join(' ').toLowerCase();
       return terms.every(term => haystack.includes(term));
     });
+    if (f.sort === 'recent') result.sort((a,b)=>Date.parse(b.createdAt)-Date.parse(a.createdAt));
     if (f.sort === 'az') result.sort((a, b) => a.title.localeCompare(b.title));
     if (f.sort === 'quick') result.sort((a, b) => (totalMinutes(a) || Infinity) - (totalMinutes(b) || Infinity));
     return result;
@@ -264,7 +268,7 @@ export const RecipesForYou: React.FC<RecipesForYouProps> = ({ embedded = false, 
       </section>
       {!loading && !searching && <button className="rd-create" onClick={createRecipe}><span className="rd-create-icon"><BookOpen size={23} /></span><span><strong>Have something good to share?</strong><small>Add your own recipe to the kitchen.</small></span><Plus size={20} /></button>}
       <FilterSheet open={sheetOpen} onClose={() => setSheetOpen(false)} title="Recipe filters" subtitle="Find what fits your kitchen" onReset={() => setDraft(defaults())} applyLabel={`Show ${matches(draft).length} recipes`} onApply={() => { setFilters(draft); setSheetOpen(false); }}>
-        <FilterSection label="Sort by"><PillRow>{([['recent', 'Newest'], ['quick', 'Quickest'], ['az', 'A–Z']] as const).map(([key, label]) => <Pill key={key} active={draft.sort === key} onClick={() => setDraft(f => ({ ...f, sort: key }))}>{label}</Pill>)}</PillRow></FilterSection>
+        <FilterSection label="Sort by"><PillRow>{([['recommended', 'For you'], ['recent', 'Newest'], ['quick', 'Quickest'], ['az', 'A–Z']] as const).map(([key, label]) => <Pill key={key} active={draft.sort === key} onClick={() => setDraft(f => ({ ...f, sort: key }))}>{label}</Pill>)}</PillRow></FilterSection>
         <FilterSection label="Keep it simple"><PillRow><Pill active={draft.quick} onClick={() => setDraft(f => ({ ...f, quick: !f.quick }))}>30 minutes or less</Pill><Pill active={draft.easy} onClick={() => setDraft(f => ({ ...f, easy: !f.easy }))}>Easy to make</Pill></PillRow></FilterSection>
         {availableMeals.length > 0 && <FilterSection label="Meal"><PillRow><Pill active={!draft.meal} onClick={() => setDraft(f => ({ ...f, meal: '' }))}>Any</Pill>{availableMeals.map(m => <Pill key={m.key} active={draft.meal === m.key} onClick={() => setDraft(f => ({ ...f, meal: f.meal === m.key ? '' : m.key }))}>{m.label}</Pill>)}</PillRow></FilterSection>}
         {cuisines.length > 0 && <FilterDrillSection id="recipe-cuisines" label="Cuisine" options={cuisines.map(value => ({ value, label: value }))} selected={draft.cuisines} onToggle={value => setDraft(f => ({ ...f, cuisines: toggleValue(f.cuisines, value) }))} searchPlaceholder="Search cuisines" />}

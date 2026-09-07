@@ -21,6 +21,8 @@ import type { HomeMeal } from '../contexts/ListsContext';
 import { importRecipe, compressImportPhoto, type ImportSource } from '../lib/import-recipe-client';
 import './AdvancedRecipeBuilder.css';
 import './RecipeBuilder.css';
+import { RecipeGeneration, RecipeSourceIntro } from './RecipeGeneration';
+import './RecipeCreation.css';
 
 type SourceTab = 'link' | 'photo' | 'text';
 
@@ -42,7 +44,7 @@ const MAX_PHOTOS = 3;
 /** Phone-mode page title per source (desktop keeps the tabs + generic title). */
 const TITLE_BY_TAB: Record<SourceTab, string> = {
   link: 'Import from a link',
-  photo: 'Import from a photo',
+  photo: 'Scan a recipe',
   text: 'Import from text',
 };
 
@@ -105,12 +107,7 @@ export const ImportRecipePanel: React.FC<ImportRecipePanelProps> = ({
     : tab === 'photo' ? (photos.length > 0 ? 'Import recipe' : 'Add at least one photo')
     : (text.trim() ? 'Import recipe' : 'Paste the recipe text');
 
-  const loadingTitle =
-    tab === 'photo'
-      ? (elapsed >= 10 ? 'Almost there…' : 'Reading your photos…')
-      : tab === 'link'
-        ? (elapsed < 5 ? 'Fetching the page…' : elapsed >= 15 ? 'Almost there…' : 'Reading the recipe…')
-        : (elapsed >= 15 ? 'Almost there…' : 'Reading the recipe…');
+  const cancelImport = () => { abortRef.current?.abort(); abortRef.current = null; setBusy(false); };
 
   const handlePasteClipboard = async () => {
     try {
@@ -168,7 +165,7 @@ export const ImportRecipePanel: React.FC<ImportRecipePanelProps> = ({
   ];
 
   return (
-    <div className={`rcx${phoneMode ? ' is-phone' : ''}`}>
+    <div className={`rcx recipe-create recipe-import${phoneMode ? ' is-phone' : ''}`}>
       {/* ── Header ── */}
       <div className="rcx-head">
         <div className="rcx-head-row">
@@ -191,16 +188,9 @@ export const ImportRecipePanel: React.FC<ImportRecipePanelProps> = ({
       </div>
 
       {/* ── Body ── */}
-      <div className="rcx-body" style={{ paddingBottom: 'calc(120px + var(--kb-height, 0px))' }}>
+      <div className="rcx-body">
         {busy ? (
-          <div className="rcx-ai-loading">
-            <div className="rcx-ai-orb"><FileText size={30} /></div>
-            <div className="rcx-ai-loading-title">{loadingTitle}</div>
-            <p className="rcx-ai-loading-sub">
-              Transcribing the original faithfully — ingredients, steps, timings, and the author's notes.
-            </p>
-            {elapsed >= 3 && <span className="rcx-ai-loading-secs">{elapsed}s</span>}
-          </div>
+          <RecipeGeneration kind={tab} elapsed={elapsed} onCancel={cancelImport} />
         ) : (
           <div className="rcx-step-anim rcx-ai-stack">
             {/* Desktop keeps the source switcher; on phone each source is
@@ -223,6 +213,7 @@ export const ImportRecipePanel: React.FC<ImportRecipePanelProps> = ({
               </div>
             )}
 
+            <RecipeSourceIntro source={tab} />
             {tab === 'link' && (
               <div>
                 <div className="rcx-kicker">Recipe link</div>
@@ -233,6 +224,7 @@ export const ImportRecipePanel: React.FC<ImportRecipePanelProps> = ({
                     onChange={(e) => { setUrl(e.target.value); setError(null); }}
                     onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleImport(); } }}
                     placeholder="foodblog.com/best-carbonara"
+                    aria-label="Recipe web link"
                     inputMode="url"
                     autoCapitalize="off"
                     autoCorrect="off"
@@ -249,7 +241,7 @@ export const ImportRecipePanel: React.FC<ImportRecipePanelProps> = ({
                   )}
                 </div>
                 <div className="rcx-hint">
-                  Works with most recipe sites and food blogs — the page's own recipe data is used when it has it.
+                  Paste a direct link to the recipe. You can review everything before saving.
                 </div>
               </div>
             )}
@@ -260,18 +252,16 @@ export const ImportRecipePanel: React.FC<ImportRecipePanelProps> = ({
                   Photos<span className="rcx-kicker-opt"> · up to {MAX_PHOTOS}</span>
                 </div>
                 {photos.length === 0 ? (
-                  <div
+                  <button type="button"
                     className="rcx-photo-slot"
                     onClick={() => fileRef.current?.click()}
-                    role="button"
-                    tabIndex={0}
                   >
                     <span className="rcx-photo-slot-icon"><Camera size={18} /></span>
                     <span className="rcx-photo-slot-text"><strong>Add photos</strong> of the recipe</span>
                     <span className="rcx-photo-slot-sub">
                       A cookbook page, a screenshot, or a handwritten card all work.
                     </span>
-                  </div>
+                  </button>
                 ) : (
                   <div className="rcx-import-thumbs">
                     {photos.map((p, i) => (
@@ -312,9 +302,10 @@ export const ImportRecipePanel: React.FC<ImportRecipePanelProps> = ({
                 <div className="rcx-kicker">Recipe text</div>
                 <textarea
                   className="rcx-prompt"
+                  aria-label="Recipe text"
                   value={text}
                   onChange={(e) => { setText(e.target.value); setError(null); }}
-                  placeholder={'Paste the whole thing — title, ingredients, and steps.\n\nGrandma\'s Sunday Ragù\n2 lbs beef chuck…'}
+                  placeholder={'Recipe name\n\nIngredients…\n\nHow to make it…'}
                   rows={8}
                 />
               </div>
@@ -330,18 +321,18 @@ export const ImportRecipePanel: React.FC<ImportRecipePanelProps> = ({
       </div>
 
       {/* ── Footer ── */}
-      <div className="rcx-foot">
+      {!busy && <div className="rcx-foot">
         {tab !== 'photo' && <QuotaMeter feature={tab === 'link' ? 'recipe-import-link' : 'recipe-import-text'} className="rcx-foot-meter" />}
         <button
           type="button"
           className={cn('rcx-foot-cta', !canSubmit && !busy && 'is-disabled', (canSubmit || busy) && 'is-publish', busy && 'is-busy')}
           onClick={handleImport}
-          disabled={busy}
+          disabled={!canSubmit}
         >
           {busy ? <Loader2 size={15} className="rcx-spin" /> : canSubmit ? <Download size={14} /> : null}
           {ctaLabel}
         </button>
-      </div>
+      </div>}
     </div>
   );
 };

@@ -41,11 +41,13 @@ const SuggestionRow: React.FC<{
   const [primary, secondary] = splitLabel(label);
   return (
     <motion.button
+      data-keep-keyboard
       type="button"
       initial={{ opacity: 0, y: 6 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.16, delay: Math.min(index, 5) * 0.025 }}
-      onMouseDown={(e) => { e.preventDefault(); onPick(); }}
+      onPointerDown={(e) => e.preventDefault()}
+      onClick={onPick}
       className="w-full flex items-center gap-3 text-left cursor-pointer border-none transition-colors"
       style={{ padding: '12.5px 16px', background: 'var(--ob-card)', borderTop: divider ? '1px solid var(--ob-divider)' : 'none' }}
       onMouseEnter={(e) => ((e.currentTarget as HTMLButtonElement).style.background = 'var(--ob-card-hover)')}
@@ -81,7 +83,7 @@ export const CityAutocomplete: React.FC<{
   const [searching, setSearching] = useState(false);
   const [open, setOpen] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const skipNext = useRef(false);
+  const lastQuery = useRef(value);
   // Only the newest query may write results — a slow early request must not
   // land after a faster later one and repopulate the list with stale cities.
   const seq = useRef(0);
@@ -105,7 +107,7 @@ export const CityAutocomplete: React.FC<{
         // resolving takes a second or two, and someone already typing a
         // city by hand must never be overwritten mid-keystroke.
         if (!valueRef.current.trim()) {
-          skipNext.current = true;
+          lastQuery.current = loc.label;
           onChange(loc.label);
           onPick(loc);
         }
@@ -137,17 +139,18 @@ export const CityAutocomplete: React.FC<{
   }, [wizard]);
 
   useEffect(() => {
-    if (skipNext.current) { skipNext.current = false; return; }
+    if (lastQuery.current === value) return;
+    lastQuery.current = value;
     const q = value.trim();
     if (timer.current) clearTimeout(timer.current);
-    if (q.length < 2) { setSuggestions([]); setSearching(false); setOpen(false); return; }
     const mine = ++seq.current;
+    if (q.length < 2) { setSuggestions([]); setSearching(false); setOpen(false); return; }
     // Open on the FIRST keystroke that can search, showing "Searching…" —
     // waiting for results made the field look like a plain text box.
     setSearching(true);
     setOpen(true);
     timer.current = setTimeout(async () => {
-      const res = await searchLocations(q);
+      const res = await searchLocations(q).catch(() => []);
       if (seq.current !== mine) return;
       setSuggestions(res);
       setSearching(false);
@@ -156,7 +159,7 @@ export const CityAutocomplete: React.FC<{
   }, [value]);
 
   const pick = (loc: HomeLocation) => {
-    skipNext.current = true;
+    lastQuery.current = loc.label;
     seq.current++; // invalidate anything still in flight
     onChange(loc.label);
     onPick(loc);
@@ -177,8 +180,8 @@ export const CityAutocomplete: React.FC<{
     <div className="relative">
       {wizard ? (
         <OB.Field
-          value={value} onChange={onChange} placeholder="e.g. New York"
-          icon={<MapPin size={16} strokeWidth={1.6} />} autoFocus autoCapitalize="words"
+          value={value} onChange={onChange} label="Home city" name="city" placeholder="Search for your city"
+          icon={<MapPin size={16} strokeWidth={1.6} />} autoCapitalize="words"
           autoComplete="off"
           onSubmit={onSubmit}
           onFocus={reopen}
@@ -233,13 +236,13 @@ export const CityAutocomplete: React.FC<{
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -6 }}
             transition={{ duration: 0.16 }}
-            className="absolute left-0 right-0 z-20 overflow-y-auto overscroll-contain no-scrollbar"
+            className={`${wizard ? "relative mt-3" : "absolute left-0 right-0"} z-20 overflow-y-auto overscroll-contain no-scrollbar`}
             style={
               wizard
                 // Capped and self-scrolling: the wizard's content pane is a
                 // fixed-height scroll region, so an unbounded dropdown gets
                 // clipped by it and the last result is unreachable.
-                ? { top: 'calc(100% + 10px)', maxHeight: 316, borderRadius: 20, background: 'var(--ob-card)', border: `1px solid ${OB.BORDER}`, boxShadow: '0 20px 48px rgba(0,0,0,0.16)' }
+                ? { maxHeight: 280, borderRadius: 20, background: 'var(--ob-card)', border: `1px solid ${OB.BORDER}`, boxShadow: '0 20px 48px rgba(0,0,0,0.16)' }
                 : { top: 'calc(100% + 6px)', maxHeight: 300, borderRadius: 16, background: 'var(--color-surface, #fff)', border: '1px solid rgba(0,0,0,0.06)', boxShadow: '0 16px 40px rgba(0,0,0,0.12)' }
             }
           >
@@ -278,7 +281,8 @@ export const CityAutocomplete: React.FC<{
                 <button
                   key={`${s.label}-${i}`}
                   type="button"
-                  onMouseDown={(e) => { e.preventDefault(); pick(s); }}
+                  onPointerDown={(e) => e.preventDefault()}
+                  onClick={() => pick(s)}
                   className="w-full flex items-center gap-2.5 text-left cursor-pointer border-none transition-colors"
                   style={{ padding: '12px 16px', background: 'transparent', borderTop: i === 0 ? 'none' : '1px solid var(--ob-divider)' }}
                   onMouseEnter={(e) => ((e.currentTarget as HTMLButtonElement).style.background = 'rgba(0,0,0,0.04)')}
@@ -299,7 +303,7 @@ export const CityAutocomplete: React.FC<{
             )}
             {!searching && suggestions.length === 0 && value.trim().length >= 2 && (
               <div style={{ padding: '12px 16px', fontSize: 14, color: 'var(--ob-label)', borderTop: (wizard && showDetectedRow) ? '1px solid var(--ob-divider)' : 'none' }}>
-                No matches — you can still type your city.
+                No matches. Try a nearby city or a different spelling.
               </div>
             )}
           </motion.div>

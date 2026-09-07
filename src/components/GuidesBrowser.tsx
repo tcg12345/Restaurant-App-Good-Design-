@@ -1,25 +1,14 @@
+import { MobilePageSheet } from './MobilePageSheet';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'motion/react';
-import { ArrowLeft, Bookmark, BookOpen, Clock, Search, X } from 'lucide-react';
+import { ChevronDown, Bookmark, BookOpen, Clock, Search, X } from 'lucide-react';
 import { useSettings } from '../contexts/SettingsContext';
 import { cn } from '../lib/utils';
 import { avatarHue } from '../lib/avatar';
 import { GlassButton } from '../lib/glass-buttons';
 
-/* ── Browse-all guides popup ─────────────────────────────────────────────────
-   Opened from the "Browse all" affordance on the Discover and Location
-   guide rails. Content is still placeholder (same fiction as the rails
-   themselves) but the surface is fully functional: search, filter by
-   author, and re-sort all work against the filler pool so the real data
-   hookup later is just a prop swap.
-
-   Chrome follows the app's two established popup modes:
-   - Desktop: centered spotlight card — same backdrop, position, radius
-     and shadow as the change-location picker (HomeLocationBar).
-   - Mobile: full-page slide-up panel with a back arrow, since a browse
-     grid wants the whole viewport rather than a half sheet.
-   ──────────────────────────────────────────────────────────────────────── */
+/** Real guide collection, shared by the routed collection and contextual sheets. */
 
 export interface BrowseGuide {
   id: string;
@@ -27,6 +16,7 @@ export interface BrowseGuide {
   author: string;
   image: string;
   count: number;
+  type?: 'restaurants' | 'recipes';
   /** Days since last update — drives the recency sort + "Updated" label. */
   daysAgo: number;
   /** Bookmark count from saved_guides (guide_save_counts RPC). Absent
@@ -46,7 +36,7 @@ function agoLabel(daysAgo: number): string {
 type SortKey = 'recent' | 'spots' | 'alpha';
 const SORTS: Array<{ key: SortKey; label: string }> = [
   { key: 'recent', label: 'Newest' },
-  { key: 'spots', label: 'Most spots' },
+  { key: 'spots', label: 'Most entries' },
   { key: 'alpha', label: 'A–Z' },
 ];
 
@@ -64,13 +54,16 @@ interface GuidesBrowserProps {
   onOpenGuide?: (id: string) => void;
   /** Parent-supplied mobile signal (each page already has its own). */
   isMobile: boolean;
+  loading?: boolean;
+  variant?: 'popup' | 'page';
 }
 
-export const GuidesBrowser: React.FC<GuidesBrowserProps> = ({ open, onClose, cityName, realGuides, onOpenGuide, isMobile }) => {
+export const GuidesBrowser: React.FC<GuidesBrowserProps> = ({ open, onClose, cityName, realGuides, onOpenGuide, isMobile, loading = false, variant = 'popup' }) => {
   const { setHideBottomNav } = useSettings();
   const [query, setQuery] = useState('');
   const [selectedAuthors, setSelectedAuthors] = useState<Set<string>>(new Set());
   const [sortBy, setSortBy] = useState<SortKey>('recent');
+  const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const guides = useMemo(() => realGuides ?? [], [realGuides]);
@@ -98,13 +91,14 @@ export const GuidesBrowser: React.FC<GuidesBrowserProps> = ({ open, onClose, cit
 
   // The mobile full-pager covers the bottom nav's space — hide it.
   useEffect(() => {
+    if (variant === 'page') return;
     setHideBottomNav(open && isMobile);
     return () => setHideBottomNav(false);
-  }, [open, isMobile, setHideBottomNav]);
+  }, [open, isMobile, setHideBottomNav, variant]);
 
   useEffect(() => {
     if (!open) return;
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && !scrollRef.current?.closest('[inert]')) onClose(); };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [open, onClose]);
@@ -235,8 +229,8 @@ export const GuidesBrowser: React.FC<GuidesBrowserProps> = ({ open, onClose, cit
   // vs. everything filtered out by the search / author chips.
   const filtersActive = query.trim() !== '' || selectedAuthors.size > 0;
   const grid = (
-    <div className="flex-1 overflow-y-auto px-5 pb-safe-5 pt-4">
-      {visible.length === 0 ? (
+    <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 pb-safe-5 pt-4">
+      {loading ? <div role="status" className="py-16 text-center text-on-surface/55">Loading guides…</div> : visible.length === 0 ? (
         guides.length === 0 ? (
           <div className="py-16 flex flex-col items-center text-center px-6">
             <div className="w-12 h-12 rounded-2xl bg-on-surface/[0.05] grid place-items-center text-on-surface/40">
@@ -276,9 +270,13 @@ export const GuidesBrowser: React.FC<GuidesBrowserProps> = ({ open, onClose, cit
           {visible.map((g) => (
             <article
               key={g.id}
-              onClick={onOpenGuide ? () => { onOpenGuide(g.id); onClose(); } : undefined}
+              role={onOpenGuide ? 'button' : undefined}
+              tabIndex={onOpenGuide ? 0 : undefined}
+              aria-label={onOpenGuide ? `Open guide: ${g.title}` : undefined}
+              onKeyDown={e => { if (onOpenGuide && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); onOpenGuide(g.id); if (variant !== 'page') onClose(); } }}
+              onClick={onOpenGuide ? () => { onOpenGuide(g.id); if (variant !== 'page') onClose(); } : undefined}
               className={cn(
-                'bg-white border border-on-surface/[0.08] rounded-2xl overflow-hidden transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_6px_18px_-8px_rgba(31,26,23,0.12),0_1px_2px_rgba(31,26,23,0.04)] hover:border-on-surface/15',
+                'bg-surface border border-on-surface/[0.08] rounded-2xl overflow-hidden transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_6px_18px_-8px_rgba(31,26,23,0.12),0_1px_2px_rgba(31,26,23,0.04)] hover:border-on-surface/15',
                 onOpenGuide && 'cursor-pointer',
               )}
             >
@@ -306,7 +304,7 @@ export const GuidesBrowser: React.FC<GuidesBrowserProps> = ({ open, onClose, cit
                 />
                 <span className="absolute bottom-2.5 left-2.5 inline-flex items-center gap-1.5 px-2 py-[3px] rounded-full bg-white/92 backdrop-blur text-[10px] font-bold uppercase tracking-[0.08em] text-on-surface">
                   <BookOpen size={11} className="text-primary" />
-                  Guide · {g.count} spots
+                  Guide · {g.count} {g.type === 'recipes' ? 'recipes' : 'places'}
                 </span>
               </div>
               <div className="px-3.5 pt-3 pb-3.5">
@@ -336,22 +334,10 @@ export const GuidesBrowser: React.FC<GuidesBrowserProps> = ({ open, onClose, cit
     </div>
   );
 
-  return createPortal(
-    <AnimatePresence>
-      {open && (
-        isMobile ? (
-          /* Mobile: full-page slide-up panel. No backdrop — it covers
-             the whole viewport, dismissed via the back arrow. */
-          <motion.div
-            initial={{ y: '100%' }}
-            animate={{ y: 0 }}
-            exit={{ y: '100%' }}
-            transition={{ type: 'spring' as const, damping: 28, stiffness: 300 }}
-            className="fixed inset-0 z-50 bg-surface flex flex-col"
-          >
-            <div className="pt-safe-4 pl-2 pr-4 pb-2 flex items-center gap-1 flex-shrink-0">
-              <GlassButton id="guides-back" symbol="arrow.left" label="Back" onClick={onClose} className="hit-44 flex-none w-11 h-11 rounded-full flex items-center justify-center text-on-surface/80 transition-transform active:scale-95">
-                <ArrowLeft size={18} />
+  const mobileContent = <>
+            <div data-route-drag-handle="" className="pt-safe-4 pl-2 pr-4 pb-2 flex items-center gap-1 flex-shrink-0">
+              <GlassButton id="guides-back" symbol="chevron.down" label="Close guides" onClick={onClose} className="hit-44 flex-none w-11 h-11 rounded-full flex items-center justify-center text-on-surface/80 transition-transform active:scale-95">
+                <ChevronDown size={18} />
               </GlassButton>
               <h3 className="flex-1 min-w-0 font-serif font-semibold text-[19px] tracking-[-0.015em] text-on-surface truncate">
                 {title}
@@ -362,7 +348,17 @@ export const GuidesBrowser: React.FC<GuidesBrowserProps> = ({ open, onClose, cit
             </div>
             {controls}
             {grid}
-          </motion.div>
+  </>;
+  if (variant === 'page') return <div className="relative flex h-[100dvh] flex-col bg-surface" aria-label="Guides">
+    {mobileContent}
+  </div>;
+  return createPortal(
+    <AnimatePresence>
+      {open && (
+        isMobile ? (
+          <MobilePageSheet label="Guides" onClose={onClose} scrollRef={scrollRef}>
+            {mobileContent}
+          </MobilePageSheet>
         ) : (
           /* Desktop: backdrop + centered spotlight card, mirroring the
              change-location picker's chrome. */
@@ -406,6 +402,6 @@ export const GuidesBrowser: React.FC<GuidesBrowserProps> = ({ open, onClose, cit
         )
       )}
     </AnimatePresence>,
-    document.getElementById('phone-frame-root') ?? document.body,
+    document.body,
   );
 };

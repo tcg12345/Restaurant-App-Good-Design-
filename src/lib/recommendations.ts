@@ -1,4 +1,5 @@
 import type { PlaceResult } from './places';
+import { cuisinePreference, tasteRankingKey, type TastePreferences } from './taste-preferences';
 import { extractCityState, CUISINE_TYPES, searchPlacesByText, searchPlacesByTextPaged, isFoodPlace, isLodgingPlace, isVenuePlace, TEXT_EXACT_SUFFICIENT_POOL } from './places';
 import type { CommunityRating } from './supabase-community';
 import {
@@ -47,6 +48,8 @@ export function recsUnlocked(ratingCount: number): boolean {
 }
 
 export interface TasteProfile {
+  /** Private, explicit preferences affect suggestions only, never earned metrics. */
+  preferences?: TastePreferences;
   cuisineScore: Record<string, number>;
   /** How much EVIDENCE backs each cuisine's score — real ratings count 1,
    *  wishlist intent 0.5, a stated quiz cuisine `2 × quizMass`. Drives the
@@ -296,6 +299,7 @@ export function buildTasteProfile(
   recentViews: Array<{ id: string }>,
   quiz?: TasteQuizSignals | null,
   opts?: {
+    preferences?: TastePreferences;
     /** Cached coordinates per rated restaurant (ListsContext.restaurantMeta).
      *  The Michelin matcher is far more reliable with them — name+address
      *  alone under-counted a real account's Guide restaurants 4×. */
@@ -665,6 +669,7 @@ export function buildTasteProfile(
     cuisineCounts,
     priceScore,
     priceCounts: priceScore,
+    preferences: opts?.preferences,
     pairScore,
     pairCounts,
     tagScore,
@@ -716,11 +721,12 @@ export function recPrefsHashForProfile(profile: TasteProfile, radiusMeters: numb
     profile.topCuisines,
     profile.topPrices,
     radiusMeters,
-    preferredPriceTiers(profile).join(''),
+    preferredPriceTiers(profile).join('') + tasteRankingKey(profile.preferences),
   );
 }
 
 export function preferredPriceTiers(profile: TasteProfile): number[] {
+  if (profile.preferences?.prices.length) return profile.preferences.prices;
   const dist = profile.priceDist;
   if (!dist) return [];
   const tiers = [1, 2, 3, 4].filter((t) => dist.share[t - 1] >= 0.15);
@@ -738,10 +744,10 @@ export function buildCandidateQueries(
   opts?: { priceTiers?: number[]; moodTerms?: string[] },
 ): RecQuery[] {
   const { topCuisines, topPrices, topPairs, priceDist } = profile;
-  const stated = (opts?.priceTiers ?? []).filter((t) => t >= 1 && t <= 4);
+  const stated = (opts?.priceTiers?.length ? opts.priceTiers : profile.preferences?.prices ?? []).filter((t) => t >= 1 && t <= 4);
   // At most three, or the phrase stops being a search and starts being a
   // sentence Google matches nothing against.
-  const moodTerms = (opts?.moodTerms ?? []).slice(0, 3);
+  const moodTerms = (opts?.moodTerms?.length ? opts.moodTerms : [profile.preferences?.atmosphere, ...(profile.preferences?.dietary ?? [])].filter((s):s is string=>!!s)).slice(0, 3);
   const label = target.label.trim();
   const isCurrent = !label || label === 'Current Location';
   const city = isCurrent
@@ -795,6 +801,9 @@ export function buildCandidateQueries(
     }
   }
 
+  for (const cuisine of profile.preferences?.cuisines ?? []) {
+    push(`${cuisine} restaurants${city ? ' in ' + city : ''}`, restrict ? allowedTiers : undefined);
+  }
   // Tier 1: pairs — restricted to the pair's own tier when restricting.
   // Under a STATED price the pair's tier is replaced outright: the cuisines
   // still say what the user likes, but tonight's budget says where.
@@ -1165,6 +1174,7 @@ export function scoreCandidates(
     // every $$$-centered profile — center 3.0 put $$ exactly 1.0 away.)
     if (
       enforcePriceBand &&
+      !profile.preferences?.prices.length &&
       dist &&
       dist.n >= 8 &&
       c.priceLevel >= 1 &&
@@ -1189,7 +1199,16 @@ export function scoreCandidates(
     let personalFit = 0;
     let genericQuality = 0;
     const sources: ScoredPlace['sources'] = ['google'];
-  const reasons: Array<{ w: number; label: string; taste?: boolean }> = [];
+    const reasons: Array<{ w: number; label: string; taste?: boolean }> = [];
+    if (profile.preferences) {
+      const p = profile.preferences;
+      const fit = cuisinePreference(p, cuisine);
+      personalFit += fit;
+      if (fit > 0) reasons.push({w:fit,label:'Matches your preferences',taste:true});
+      if (p.prices.length && price >= 1 && price <= 4) personalFit += p.prices.includes(price) ? 1.5 : -2;
+      if (p.discovery === 'adventurous' && !profile.topCuisines.some(t=>t.toLowerCase()===cuisine.toLowerCase())) personalFit += .8;
+      if (p.discovery === 'familiar' && profile.topCuisines.some(t=>t.toLowerCase()===cuisine.toLowerCase())) personalFit += .8;
+    }
 
     // ── Taste match ──
     if (ramp > 0) {
@@ -1850,6 +1869,16 @@ function emptySignals(): CandidateSignals {
   };
 }
 
+/** Temporary search choices override saved defaults without persisting changes. */
+export function withPreferenceOverrides(profile: TasteProfile, priceTiers: number[] = [], cuisines: string[] = []): TasteProfile {
+  if (!profile.preferences || (!priceTiers.length && !cuisines.length)) return profile;
+  const requested = new Set(cuisines.map(c => c.toLowerCase()));
+  return {...profile, preferences: {...profile.preferences,
+    ...(priceTiers.length ? {prices: priceTiers.filter(p => Number.isInteger(p) && p >= 1 && p <= 4)} : {}),
+    ...(cuisines.length ? {cuisines, avoidCuisines: profile.preferences.avoidCuisines.filter(c => !requested.has(c.toLowerCase()))} : {}),
+  }};
+}
+
 /**
  * Full pipeline: gather a pool, rank it. A cache hit skips the Google spend,
  * never the scoring — results always carry recScore / reasons / predicted,
@@ -1861,7 +1890,7 @@ export async function getRecommendations(opts: RecOptions): Promise<ScoredPlace[
   if (opts.signal?.aborted) return [];
   return scoreCandidates(
     pool.candidates,
-    opts.profile,
+    withPreferenceOverrides(opts.profile, opts.priceTiersOverride),
     pool.signals,
     opts.target,
     opts.radiusMeters,
@@ -1869,7 +1898,7 @@ export async function getRecommendations(opts: RecOptions): Promise<ScoredPlace[
       limit,
       skipUserHistory: true,
       keepWishlisted: opts.keepWishlisted,
-      enforcePriceBand: opts.enforcePriceBand ?? true,
+      enforcePriceBand: opts.priceTiersOverride?.length ? false : opts.enforcePriceBand ?? true,
     },
   );
 }

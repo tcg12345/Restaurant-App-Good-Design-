@@ -153,6 +153,7 @@ export const PullToRefresh: FC<Props> = ({ enabled, onRefresh, container, topOff
     const onStart = (e: TouchEvent) => {
       if (refreshing || e.touches.length !== 1) return;
       if (scrollTop() > 0) return; // not at the top
+      if (e.target instanceof Element && e.target.closest('[data-no-pull-refresh]')) return;
       if (innerScroller(e.target)) return; // inside a modal / inner list
       startY = e.touches[0].clientY;
       startX = e.touches[0].clientX;
@@ -165,6 +166,7 @@ export const PullToRefresh: FC<Props> = ({ enabled, onRefresh, container, topOff
 
     function onMove(e: TouchEvent) {
       if (!tracking || refreshing) return;
+      if (e.defaultPrevented || e.touches.length !== 1) { settle(); unbindMove(); return; }
       const dy = e.touches[0].clientY - startY;
       const dx = e.touches[0].clientX - startX;
       if (!pulling) {
@@ -200,14 +202,16 @@ export const PullToRefresh: FC<Props> = ({ enabled, onRefresh, container, topOff
       }
     };
 
+    const onCancel = () => { unbindMove(); if (!refreshing) settle(); };
+
     target.addEventListener('touchstart', onStart as EventListener, { passive: true });
     target.addEventListener('touchend', onEnd, { passive: true });
-    target.addEventListener('touchcancel', onEnd, { passive: true });
+    target.addEventListener('touchcancel', onCancel, { passive: true });
     return () => {
       target.removeEventListener('touchstart', onStart as EventListener);
       unbindMove();
       target.removeEventListener('touchend', onEnd);
-      target.removeEventListener('touchcancel', onEnd);
+      target.removeEventListener('touchcancel', onCancel);
     };
   }, [enabled, overlayOpen, container]);
 

@@ -1,0 +1,33 @@
+.location-picker-layer { position: fixed; inset: 0; display: flex; align-items: flex-end; justify-content: center; padding: max(12px, env(safe-area-inset-top)) 0 0; background: #0005; backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px); color: var(--color-on-surface); font-family: -apple-system,BlinkMacSystemFont,'Inter',sans-serif; overflow: hidden; }
+.location-picker-sheet { width: 100%; max-width: 520px; height: min(680px,100%); max-height: 100%; display: flex; flex-direction: column; min-height: 0; overflow: hidden; outline: none; background: var(--color-surface); border-radius: 28px 28px 0 0; border: 1px solid color-mix(in srgb,var(--color-on-surface) 8%,transparent); border-bottom: 0; box-shadow: 0 -12px 50px #0002; }
+.location-picker-sheet[data-sheet-capped] { max-height: 100%; }
+.location-picker-grabber { height: 22px; display: grid; place-items: center; flex: none; touch-action: none; }
+.location-picker-grabber span { width: 32px; height: 4px; border-radius: 4px; background: color-mix(in srgb,var(--color-on-surface) 18%,transparent); }
+.location-picker-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 0 18px 12px 22px; flex: none; touch-action: none; }
+.location-picker-header h2 { font-family: inherit; font-size: 22px; font-weight: 650; letter-spacing: -.6px; margin: 0; }
+.location-picker-header button { display: grid; place-items: center; width: 44px; height: 44px; border-radius: 50%; background: var(--color-muted); color: var(--color-ink-3); }
+.location-picker-search-wrap { padding: 0 20px 16px; flex: none; }
+.location-picker-search { display: flex; align-items: center; gap: 10px; padding: 0 13px; min-height: 48px; border-radius: 16px; background: color-mix(in srgb,var(--color-on-surface) 5%,transparent); border: 1px solid color-mix(in srgb,var(--color-on-surface) 8%,transparent); color: var(--color-ink-3); }
+.location-picker-search:focus-within { border-color: var(--color-primary); box-shadow: 0 0 0 3px color-mix(in srgb,var(--color-primary) 8%,transparent); }
+.location-picker-search input { font: inherit; font-size: 16px; min-width: 0; width: 100%; height: 46px; background: transparent; border: 0; padding: 0; color: var(--color-on-surface); outline: none; }
+.location-picker-search input::-webkit-search-cancel-button { display: none; }
+.location-picker-search button { display: grid; place-items: center; flex: none; width: 32px; height: 44px; }
+.location-picker-content { overflow-y: auto; overscroll-behavior: contain; min-height: 0; flex: 1; padding-bottom: calc(18px + env(safe-area-inset-bottom,0px)); }
+.location-picker-current { display: flex; align-items: center; gap: 12px; margin: 0 20px; padding: 14px; border-radius: 18px; border: 1px solid color-mix(in srgb,var(--color-primary) 15%,transparent); background: color-mix(in srgb,var(--color-primary) 5%,transparent); }
+.location-picker-current > svg { color: var(--color-primary); flex: none; }
+.location-picker-current > span { flex: 1; min-width: 0; }
+.location-picker-current small { display: block; font-size: 11px; color: var(--color-ink-3); margin-bottom: 3px; }
+.location-picker-current strong { display: block; font-size: 15px; font-weight: 600; line-height: 1.4; overflow-wrap: anywhere; }
+.location-picker-nearby { display: flex; width: 100%; align-items: center; gap: 13px; padding: 18px 24px; text-align: left; color: var(--color-primary); }
+.location-picker-nearby > span { flex: 1; }
+.location-picker-nearby strong { font-size: 14px; font-weight: 600; display: block; }
+.location-picker-nearby small { display: block; margin-top: 3px; color: var(--color-ink-3); font-size: 12px; }
+.location-picker-notice { padding: 16px 24px; font-size: 13px; line-height: 1.5; color: var(--color-ink-3); }
+.location-picker-notice button { display: block; padding-block: 10px; min-height: 44px; color: var(--color-primary); font-weight: 600; }
+.location-picker-section { padding: 14px 24px 6px; display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.location-picker-section p { display: flex; align-items: center; gap: 7px; font-size: 12px; font-weight: 600; color: var(--color-ink-3); }
+.location-picker-section > button { min-height: 32px; }
+.location-picker-sheet button { -webkit-tap-highlight-color: transparent; }
+.location-picker-sheet button:focus-visible { outline: 2px solid var(--color-primary); outline-offset: -2px; }
+.location-picker-layer.is-phone .location-picker-sheet { max-width: none; }
+@media(prefers-reduced-motion:reduce) { .location-picker-layer * { transition: none !important; animation: none !important; } }

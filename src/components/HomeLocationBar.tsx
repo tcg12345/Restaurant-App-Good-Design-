@@ -1,13 +1,11 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
-import { ChevronDown, ChevronRight, MapPin, MapPinOff, X, Navigation, Loader2, Check, History, Building2, LocateFixed } from 'lucide-react';
-import { motion, AnimatePresence } from 'motion/react';
+import { ChevronDown, ChevronRight, MapPin, X, Loader2, Check, History, Building2, LocateFixed } from 'lucide-react';
+import { AnimatePresence } from 'motion/react';
 import { MAPBOX_TOKEN } from '../lib/keys';
 import { useSettings } from '../contexts/SettingsContext';
-import { useBottomSheet } from '../lib/useBottomSheet';
 import { cn } from '../lib/utils';
-import { SearchField } from './SearchField';
-import { GlassButton } from '../lib/glass-buttons';
+import { LocationPickerSurface } from './LocationPickerSurface';
 import {
   type HomeLocation,
   type GeoPermission,
@@ -318,6 +316,8 @@ export const HomeLocationBar: React.FC<Props> = ({ location, onChange, onUseCurr
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<HomeLocation[]>([]);
   const [searching, setSearching] = useState(false);
+  const [searchError, setSearchError] = useState<string | null>(null);
+  const [searchAttempt, setSearchAttempt] = useState(0);
   const [recents, setRecents] = useState<HomeLocation[]>(() => loadRecentLocations());
   const [currentLoading, setCurrentLoading] = useState(false);
   const [currentError, setCurrentError] = useState<string | null>(null);
@@ -326,10 +326,7 @@ export const HomeLocationBar: React.FC<Props> = ({ location, onChange, onUseCurr
      that can only fail. 'unknown' stays optimistic — see
      geolocationPermission. */
   const [geoPerm, setGeoPerm] = useState<GeoPermission>('unknown');
-  const sheetScrollRef = useRef<HTMLDivElement | null>(null);
-  const { dragProps, sheetRef } = useBottomSheet(open, () => setOpen(false), sheetScrollRef);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
 
   // Hide the floating bottom nav while the picker is open so it doesn't
   // overlap the sheet content.
@@ -345,17 +342,20 @@ export const HomeLocationBar: React.FC<Props> = ({ location, onChange, onUseCurr
     setRecents(loadRecentLocations());
     let cancelled = false;
     void geolocationPermission().then((p) => { if (!cancelled) setGeoPerm(p); });
-    const t = setTimeout(() => inputRef.current?.focus(), 180);
-    return () => { cancelled = true; clearTimeout(t); };
+    return () => { cancelled = true; };
   }, [open]);
 
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
-    if (!query.trim()) {
+    setSearchError(null);
+    setResults([]);
+    if (!open || !query.trim()) {
       setResults([]);
       setSearching(false);
       return;
     }
+    let cancelled = false;
+    const controller = new AbortController();
     setSearching(true);
     debounceRef.current = setTimeout(async () => {
       try {
@@ -382,9 +382,10 @@ export const HomeLocationBar: React.FC<Props> = ({ location, onChange, onUseCurr
         const LANG = '&language=en';
         const proximity = location ? `&proximity=${location.lng},${location.lat}` : '';
         const [placeRes, addressRes] = await Promise.all([
-          fetch(`https://api.mapbox.com/geocoding/v5/mapbox.places/${encoded}.json?access_token=${MAPBOX_TOKEN}&types=place,locality,neighborhood,district${LANG}&limit=6`),
-          fetch(`https://api.mapbox.com/geocoding/v5/mapbox.places/${encoded}.json?access_token=${MAPBOX_TOKEN}&types=address,postcode${LANG}&limit=4${proximity}`),
+          fetch(`https://api.mapbox.com/geocoding/v5/mapbox.places/${encoded}.json?access_token=${MAPBOX_TOKEN}&types=place,locality,neighborhood,district${LANG}&limit=6`, { signal: controller.signal }),
+          fetch(`https://api.mapbox.com/geocoding/v5/mapbox.places/${encoded}.json?access_token=${MAPBOX_TOKEN}&types=address,postcode${LANG}&limit=4${proximity}`, { signal: controller.signal }),
         ]);
+        if (!placeRes.ok || !addressRes.ok) throw new Error('Search unavailable');
         const [placeData, addressData] = await Promise.all([placeRes.json(), addressRes.json()]);
         const toItems = (data: any): HomeLocation[] =>
           (data.features || []).map((f: any) => ({
@@ -392,17 +393,20 @@ export const HomeLocationBar: React.FC<Props> = ({ location, onChange, onUseCurr
             lat: f.center[1],
             lng: f.center[0],
           }));
-        setResults([...toItems(placeData), ...toItems(addressData)]);
+        if (cancelled) return;
+        const items = [...toItems(placeData), ...toItems(addressData)];
+        setResults(items.filter((item, index) => items.findIndex(other => sameLoc(item, other)) === index));
       } catch {
-        setResults([]);
+        if (!cancelled) { setResults([]); setSearchError('Location search is unavailable'); }
       } finally {
-        setSearching(false);
+        if (!cancelled) setSearching(false);
       }
-    }, 300);
+    }, 220);
     return () => {
+      cancelled = true; controller.abort();
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
-  }, [query, location]);
+  }, [open, query, location, searchAttempt]);
 
   const select = useCallback(
     (loc: HomeLocation) => {
@@ -419,7 +423,7 @@ export const HomeLocationBar: React.FC<Props> = ({ location, onChange, onUseCurr
       setQuery('');
       setResults([]);
     },
-    [recents, onChange],
+    [recents, onChange, setOpen],
   );
 
   const removeRecent = useCallback(
@@ -459,7 +463,9 @@ export const HomeLocationBar: React.FC<Props> = ({ location, onChange, onUseCurr
     } finally {
       setCurrentLoading(false);
     }
-  }, [onUseCurrent]);
+  }, [onUseCurrent, setOpen]);
+
+  const visibleRecents = recents.filter(recent => !location || !sameLoc(location, recent));
 
   // Show up to three label chunks so a reverse-geocoded street address
   // ("123 Main St, San Francisco, CA") fits without losing the state.
@@ -505,213 +511,14 @@ export const HomeLocationBar: React.FC<Props> = ({ location, onChange, onUseCurr
         </button>
       )}
 
-      {/* Picker sheet is rendered through a portal so its
-          `position: fixed` is relative to the viewport — when this
-          component is mounted inside the sticky DesktopHeader (which
-          uses backdrop-blur, creating a containing block), the sheet
-          would otherwise get trapped inside the topbar's height.
-          In phone-frame preview mode (desktop with phoneMode on) we
-          target the phone-frame container so the sheet stays inside
-          the simulated device rather than spanning the full desktop. */}
-      {createPortal(
-      <AnimatePresence>
-        {open && (
-          <>
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              className={cn(
-                'fixed inset-0',
-                sheetZ,
-                phoneMode
-                  ? 'bg-black/30 backdrop-blur-sm'
-                  : 'bg-black/45 backdrop-blur-md flex items-start justify-center pt-[9vh] px-5',
-              )}
-              onClick={() => setOpen(false)}
-            />
-            <motion.div
-              ref={phoneMode ? (sheetRef as React.RefObject<HTMLDivElement>) : undefined}
-              {...(phoneMode
-                ? {
-                    initial: { y: '100%' },
-                    animate: { y: 0 },
-                    exit: { y: '100%' },
-                    transition: { duration: 0.42, ease: [0.32, 0.72, 0, 1] as const },
-                    ...dragProps,
-                  }
-                : {
-                    initial: { opacity: 0, scale: 0.96, y: -8 },
-                    animate: { opacity: 1, scale: 1, y: 0 },
-                    exit: { opacity: 0, scale: 0.97, y: -4 },
-                    transition: { duration: 0.22, ease: [0.16, 1, 0.3, 1] as const },
-                  })}
-              onClick={(e: React.MouseEvent) => { if (!phoneMode) e.stopPropagation(); }}
-              // On the phone the close floats ABOVE the sheet's top edge, so
-              // the root clips with clip-path (rounded top, open strip above)
-              // rather than overflow: hidden.
-              style={phoneMode ? { clipPath: 'inset(-80px 0 0 0 round 28px 28px 0 0)' } : undefined}
-              className={cn(
-                'bg-surface flex flex-col',
-                phoneMode ? 'overflow-visible' : 'overflow-hidden',
-                sheetZ,
-                phoneMode
-                  // A FIXED height, not max-h. Sizing to content meant the
-                  // sheet resized under the finger the moment you typed —
-                  // eight popular cities collapsing to two matches yanked
-                  // the whole surface (and the field you were typing in)
-                  // down the screen. A picker that changes size while you
-                  // use it is worse than one with room to spare at the
-                  // bottom, so the height is settled once, on open.
-                  ? 'fixed bottom-0 left-0 right-0 rounded-t-[28px] h-[88vh] shadow-[0_-16px_48px_rgba(0,0,0,0.35)]'
-                  // Spotlight-style centered card. Position fixed with
-                  // explicit centering rather than wrapping in a flex
-                  // container so the backdrop above stays clickable to
-                  // dismiss.
-                  : 'fixed left-1/2 -translate-x-1/2 top-[9vh] w-full max-w-2xl max-h-[82vh] rounded-3xl shadow-[0_30px_80px_-16px_rgba(28,24,22,0.42)] ring-1 ring-on-surface/[0.06]',
-              )}
-            >
-              {phoneMode && (
-                <div className="absolute right-3 top-[-56px] z-30">
-                  <GlassButton
-                    id="location-picker-close"
-                    symbol="xmark"
-                    label="Close"
-                    onClick={() => setOpen(false)}
-                    className="w-11 h-11 rounded-full flex items-center justify-center bg-black/55 text-white ring-1 ring-white/[0.16]"
-                  >
-                    <X size={17} />
-                  </GlassButton>
-                </div>
-              )}
-              {phoneMode && (
-                <div className="flex justify-center pt-2.5 pb-1 flex-shrink-0 cursor-grab active:cursor-grabbing">
-                  <div className="h-[5px] w-10 rounded-full bg-on-surface/20" />
-                </div>
-              )}
-              {/* A plain title. The old header led with WHERE YOU ARE at
-                  headline size, then repeated it in Recent and again in
-                  Popular with checkmarks — three copies of the answer before
-                  the question. The current place now has exactly one home,
-                  the "Browsing now" row under the search. */}
-              <div className="flex items-center justify-between gap-3 px-5 pt-1.5 pb-3.5 flex-shrink-0">
-                <h3 className="font-serif font-bold text-[22px] leading-tight tracking-[-0.02em] text-on-surface">
-                  Where to?
-                </h3>
-                {!phoneMode && (
-                  <GlassButton
-                    id="location-picker-close"
-                    symbol="xmark"
-                    label="Close"
-                    onClick={() => setOpen(false)}
-                    className="hit-44 flex-none w-11 h-11 rounded-full flex items-center justify-center text-on-surface/70 active:scale-95 transition-transform"
-                  >
-                    <X size={16} />
-                  </GlassButton>
-                )}
-              </div>
-
-              <div className="px-5 pb-4 flex-shrink-0">
-                <SearchField
-                  glassId="location-picker-search"
-                  inputRef={inputRef}
-                  value={query}
-                  onChange={setQuery}
-                  placeholder="Search city, neighborhood, or address"
-                  aria-label="Search locations"
-                />
-              </div>
-
-              {/* Pinned under the search: the one place that is the answer
-                  right now, and the one-tap way to change it. One grouped
-                  card — the same row language as the chat's Find-a-place
-                  sheet that opens this picker, so the two read as a family. */}
-              {!query.trim() && (
-                <div className="flex-shrink-0 px-5 pb-4">
-                  <div className="overflow-hidden rounded-[22px] bg-on-surface/[0.04]">
-                    {location?.label && (
-                      <>
-                        <div className="flex items-center gap-3.5 px-4 py-3.5">
-                          <span className="grid h-10 w-10 flex-none place-items-center rounded-[14px] bg-primary text-on-primary shadow-[0_1px_2px_rgba(0,0,0,0.12)]">
-                            <MapPin size={17} />
-                          </span>
-                          <span className="min-w-0 flex-1">
-                            <span className="block text-[11px] font-bold uppercase tracking-[0.12em] text-primary">Browsing now</span>
-                            <span className="mt-[2px] block truncate text-[15px] font-semibold text-on-surface">{primaryOf(location.label)}</span>
-                            {location.label.includes(',') && (
-                              <span className="block truncate text-[12.5px] text-on-surface/50">
-                                {location.label.split(',').map((x) => x.trim()).filter(Boolean).slice(1).join(', ')}
-                              </span>
-                            )}
-                          </span>
-                          <Check size={18} strokeWidth={2.6} className="flex-none text-primary" />
-                        </div>
-                        <div className="mx-4 h-px bg-on-surface/[0.07]" />
-                      </>
-                    )}
-
-                    {geoPerm === 'denied' ? (
-                      /* Denied is a dead end unless the app points out of it:
-                         iOS grants one dialog per permission, so "Use my
-                         current location" can only fail from here. The row
-                         becomes the way back instead — the same Settings
-                         deep link the photo and contacts primers use. */
-                      <div className="flex items-start gap-3.5 px-4 py-3.5">
-                        <span className="grid h-10 w-10 flex-none place-items-center rounded-[14px] bg-surface text-on-surface/45 shadow-[0_1px_2px_rgba(0,0,0,0.12)]">
-                          <MapPinOff size={17} />
-                        </span>
-                        <div className="min-w-0 flex-1">
-                          <span className="block text-[15px] font-semibold text-on-surface">Location is off for GoodEats</span>
-                          <span className="mt-[2px] block text-[12.5px] leading-snug text-on-surface/50">
-                            {canOpenAppSettings()
-                              ? 'Turn it on in Settings to see places around you — or pick a city below.'
-                              : 'Allow location for this site in your browser, or pick a city below.'}
-                          </span>
-                          {canOpenAppSettings() && (
-                            <button
-                              type="button"
-                              onClick={() => { void openAppSettings(); }}
-                              className="mt-2.5 inline-flex h-9 items-center rounded-full bg-primary px-4 text-[12.5px] font-bold text-on-primary active:opacity-80 transition-opacity"
-                            >
-                              Open Settings
-                            </button>
-                          )}
-                        </div>
-                      </div>
-                    ) : (
-                      <>
-                        <button
-                          type="button"
-                          onClick={useCurrent}
-                          disabled={currentLoading}
-                          className="flex w-full items-center gap-3.5 px-4 py-3.5 text-left transition-colors active:bg-on-surface/[0.04] disabled:opacity-60"
-                        >
-                          <span className="grid h-10 w-10 flex-none place-items-center rounded-[14px] bg-surface text-primary shadow-[0_1px_2px_rgba(0,0,0,0.12)]">
-                            {currentLoading
-                              ? <Loader2 size={17} className="animate-spin" />
-                              : <LocateFixed size={17} />}
-                          </span>
-                          <span className="min-w-0 flex-1">
-                            <span className="block text-[15px] font-semibold text-on-surface">
-                              {currentLoading ? 'Locating…' : 'Use my current location'}
-                            </span>
-                            <span className="mt-[2px] block text-[12.5px] text-on-surface/50">Places around you right now</span>
-                          </span>
-                          <ChevronRight size={16} className="flex-none text-on-surface/30" />
-                        </button>
-                        {currentError && (
-                          <p className="px-4 pb-3 text-[12px] leading-snug text-red-600">{currentError}</p>
-                        )}
-                      </>
-                    )}
-                  </div>
-                </div>
-              )}
-
-              {/* Lists run edge to edge under the card, separated by space
-                  and small-caps captions rather than tinted bands and double
-                  hairlines. */}
-              <div ref={sheetScrollRef} className="flex-1 min-h-0 overflow-y-auto pb-safe-5">
+      {createPortal(<AnimatePresence>
+        {open && <LocationPickerSurface phoneMode={phoneMode} sheetZ={sheetZ} query={query} onQueryChange={setQuery} onClose={() => setOpen(false)}>
+          {!query.trim() && <>
+            {location?.label && <div className="location-picker-current"><MapPin size={21} /><span><small>Browsing in</small><strong>{location.label}</strong></span><Check size={18} /></div>}
+            {geoPerm === 'denied' ? <div className="location-picker-notice"><strong>Location access is off</strong><p>{canOpenAppSettings() ? 'Enable location in Settings, or choose a place below.' : 'Allow location in your browser, or choose a place below.'}</p>{canOpenAppSettings() && <button onClick={() => void openAppSettings()}>Open Settings</button>}</div>
+              : <button className="location-picker-nearby" onClick={useCurrent} disabled={currentLoading}>{currentLoading ? <Loader2 size={21} className="animate-spin" /> : <LocateFixed size={21} />}<span><strong>{currentLoading ? 'Finding your location…' : 'Use current location'}</strong><small>Discover places around you</small></span><ChevronRight size={17} /></button>}
+            {currentError && <p className="location-picker-notice" role="alert">{currentError}</p>}
+          </>}
                 {query.trim() ? (
                   searching && results.length === 0 ? (
                     <div className="flex items-center gap-2.5 px-5 py-4">
@@ -720,8 +527,8 @@ export const HomeLocationBar: React.FC<Props> = ({ location, onChange, onUseCurr
                     </div>
                   ) : results.length === 0 ? (
                     <div className="px-5 py-10 text-center">
-                      <p className="font-serif font-bold text-[16px] tracking-[-0.02em] text-on-surface">No matches</p>
-                      <p className="mt-1 text-[12.5px] text-on-surface/45">Try a city, neighborhood, or street address.</p>
+                      <p className="font-semibold text-[16px] text-on-surface">{searchError || 'No matching locations'}</p>
+                      <p className="mt-1 text-[12.5px] text-on-surface/45">Try a city, neighborhood, or street address.</p>{searchError && <button className="text-primary p-3" onClick={() => setSearchAttempt(value => value + 1)}>Try again</button>}
                     </div>
                   ) : (
                     results.map((r, i) => (
@@ -730,12 +537,12 @@ export const HomeLocationBar: React.FC<Props> = ({ location, onChange, onUseCurr
                   )
                 ) : (
                   <>
-                    {recents.length > 0 && (
+                    {visibleRecents.length > 0 && (
                       <>
                         <SectionLabel icon={<History size={12} />} action={<button onClick={clearRecents} className="text-[12.5px] font-bold text-primary active:opacity-70">Clear</button>}>
                           Recent
                         </SectionLabel>
-                        {recents.map((r, i) => (
+                        {visibleRecents.map((r, i) => (
                           <LocationRow
                             key={`r-${r.label}-${i}`}
                             location={r}
@@ -748,22 +555,14 @@ export const HomeLocationBar: React.FC<Props> = ({ location, onChange, onUseCurr
                     )}
 
                     <SectionLabel icon={<Building2 size={12} />}>Popular cities</SectionLabel>
-                    {/* The current place already has its home in the card
-                        above; listing it again here with a second check was
-                        the old sheet's third copy of the same answer. Recent
-                        keeps it — that list is history, not a menu. */}
+                    {/* The selected location appears only in the current-location card. */}
                     {POPULAR_CITIES.filter((c) => !(location && sameLoc(location, c))).map((c) => (
                       <LocationRow key={c.label} location={c} onClick={() => select(c)} />
                     ))}
                   </>
                 )}
-              </div>
-            </motion.div>
-          </>
-        )}
-      </AnimatePresence>,
-      document.getElementById('phone-frame-root') ?? document.body,
-      )}
+        </LocationPickerSurface>}
+      </AnimatePresence>, document.body)}
     </>
   );
 };
@@ -775,8 +574,8 @@ const primaryOf = (label?: string): string =>
 /** A section caption with an optional icon and trailing action. Space and
  *  small caps do the separating — no tinted band, no double hairline. */
 const SectionLabel: React.FC<{ children: React.ReactNode; icon?: React.ReactNode; action?: React.ReactNode }> = ({ children, icon, action }) => (
-  <div className="flex items-center justify-between gap-3 px-5 pt-4 pb-1.5">
-    <p className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-[0.12em] text-on-surface/40">
+  <div className="location-picker-section">
+    <p>
       {icon}
       {children}
     </p>

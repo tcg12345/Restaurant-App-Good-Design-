@@ -8,7 +8,7 @@
   --rcx-chip: #edf1ef; --gcx-chip: #edf1ef;
   --rcx-hairline: #e0e7e3; --gcx-hairline: #e0e7e3;
   --rcx-hairline-strong: #d3ddd7; --gcx-hairline-strong: #d3ddd7;
-  --rcx-accent: #335e4d; --gcx-accent: #335e4d;
+  --rcx-accent: var(--brand-accent); --gcx-accent: var(--brand-accent);
   --rcx-serif: -apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif;
   --gcx-serif: -apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif;
   font-family: -apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif;
@@ -19,7 +19,7 @@
   --rcx-ink: #eff4f1; --gcx-ink: #eff4f1; --rcx-secondary: #b0bdb6; --gcx-secondary: #b0bdb6;
   --rcx-faint: #9aaaa1; --gcx-faint: #9aaaa1; --rcx-chip: #2a3730; --gcx-chip: #2a3730;
   --rcx-hairline: #35433b; --gcx-hairline: #35433b; --rcx-hairline-strong: #46574c; --gcx-hairline-strong: #46574c;
-  --rcx-accent: #bdd9c8; --gcx-accent: #bdd9c8; --rcx-green: #a4d6b6; --gcx-green: #a4d6b6;
+  --rcx-accent: var(--brand-accent); --gcx-accent: var(--brand-accent); --rcx-green: #a4d6b6; --gcx-green: #a4d6b6;
 }
 :is(.rcx.recipe-studio,.gcx.guide-studio) :is(h1,h2,h3,h4,input,textarea,button,select) { font-family: inherit; }
 :is(.rcx.recipe-studio,.gcx.guide-studio) :is(input,textarea,select) { font-size: 16px; }

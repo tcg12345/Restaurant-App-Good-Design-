@@ -3,8 +3,8 @@
   --color-surface: #f7f8fa;
   --color-paper: #fff;
   --color-on-surface: #20252b;
-  --color-primary: #354e44;
-  --color-on-primary: #fff;
+  --color-primary: var(--brand-accent);
+  --color-on-primary: var(--brand-on-accent);
   --social-secondary: #69727c;
   --social-line: #e5e8eb;
   --social-ease: cubic-bezier(.22,1,.36,1);
@@ -17,8 +17,8 @@
   --color-surface: #111417;
   --color-paper: #1d2227;
   --color-on-surface: #f1f4f6;
-  --color-primary: #c4dace;
-  --color-on-primary: #1a2821;
+  --color-primary: var(--brand-accent);
+  --color-on-primary: var(--brand-on-accent);
   --social-secondary: #a1aab3;
   --social-line: #2a3036;
 }

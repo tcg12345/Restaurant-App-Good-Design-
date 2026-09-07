@@ -1,0 +1,76 @@
+// Run against an in-memory PostgreSQL engine, never the linked Supabase project.
+// Usage: node scripts/test-group-custom.mjs /path/to/pglite/dist/index.js
+import { readFile } from 'node:fs/promises';
+const { PGlite } = await import(process.argv[2] || '@electric-sql/pglite');
+const db = new PGlite();
+await db.exec(`CREATE ROLE anon; CREATE ROLE authenticated; CREATE ROLE service_role;
+CREATE SCHEMA auth; CREATE TABLE auth.users(id uuid PRIMARY KEY);
+CREATE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql AS $$ SELECT null::uuid $$;
+CREATE TABLE public.user_profiles(user_id uuid PRIMARY KEY, display_name text, username text, plan text, pro_until timestamptz);
+CREATE TABLE public.pro_grants(user_id uuid, expires_at timestamptz);
+INSERT INTO auth.users SELECT ('00000000-0000-0000-0000-' || lpad(i::text,12,'0'))::uuid FROM generate_series(1,4) i;
+INSERT INTO public.user_profiles SELECT id, 'Test '||id::text, 'test', 'pro', null FROM auth.users;`);
+for (const name of ['20260905133738_group_swipe.sql','20260905184247_group_pairwise_ranking.sql','20260907013128_group_custom_shortlist.sql']) {
+  const sql = (await readFile(`supabase/migrations/${name}`, 'utf8')).replace('alter publication supabase_realtime add table public.group_room_events;', '');
+  await db.exec(sql);
+}
+await db.exec(await readFile('supabase/tests/group-pairwise.sql','utf8'));
+console.log('Existing pairwise and permission regression SQL passed.');
+const ids = ['00000000-0000-0000-0000-000000000001','00000000-0000-0000-0000-000000000002','00000000-0000-0000-0000-000000000003','00000000-0000-0000-0000-000000000004'];
+const [host,guest,other,outsider] = ids;
+const call = async (actor,action,payload={}) => (await db.query('SELECT public.group_room_action($1::uuid,$2,$3::jsonb) AS room',[actor,action,JSON.stringify(payload)])).rows[0].room;
+const assert = (value,msg) => { if(!value)throw Error(msg); };
+const rejects = async (work,part) => { try { await work(); } catch(e) { assert(e.message.includes(part), `Expected ${part}: ${e.message}`); return; } throw Error(`Expected rejection: ${part}`); };
+const create = () => call(host,'create',{location:{label:'Test city',lat:40.7,lng:-74},count:8,radius:5000,source:'custom',allowGuestAdds:false});
+const place = id => ({id,name:`Restaurant ${id}`,address:'1 Main St',lat:40.7,lng:-74,priceLevel:2,rating:4,photoUrl:null,distance:100,fit:99,reason:'Untrusted fit',addedBy:outsider});
+let room = await create(); const id = room.id;
+assert(room.source==='custom'&&room.count===0&&room.shortlistVersion===0, 'custom room starts with empty list');
+await call(guest,'join',{code:room.code}); await call(other,'join',{code:room.code});
+await rejects(()=>call(outsider,'snapshot',{id}),'not in this room');
+await rejects(()=>call(guest,'custom_add',{id,place:place('guest-one')}),'Only the host');
+await rejects(()=>call(guest,'custom_settings',{id,allowGuestAdds:true}),'Only the host');
+await rejects(()=>call(host,'generate',{id}),'own restaurants');
+room=await call(host,'custom_add',{id,place:place('host-one')});
+assert(room.deck[0].addedBy===host&&room.deck[0].fit===0, 'server attribution and neutral fit');
+const version=room.shortlistVersion;
+room=await call(host,'custom_add',{id,place:place('host-one')});
+assert(room.count===1&&room.shortlistVersion===version,'duplicate is idempotent');
+await rejects(()=>call(host,'start',{id,version}),'at least two');
+room=await call(host,'custom_settings',{id,allowGuestAdds:true});
+room=await call(guest,'custom_add',{id,place:place('guest-one')});
+room=await call(guest,'custom_add',{id,place:place('guest-two')});
+await rejects(()=>call(guest,'custom_add',{id,place:place('guest-three')}),'up to two');
+await rejects(()=>call(other,'custom_remove',{id,place:'guest-one'}),'own suggestions');
+room=await call(guest,'custom_remove',{id,place:'guest-one'});
+room=await call(guest,'custom_add',{id,place:place('guest-three')});
+await rejects(()=>call(guest,'custom_ready',{id,version:room.shortlistVersion-1}),'shortlist changed');
+room=await call(guest,'custom_ready',{id,version:room.shortlistVersion});
+assert(room.members[guest].ready,'guest can mark ready');
+room=await call(host,'custom_add',{id,place:place('host-two')});
+assert(!room.members[guest].ready,'edits reset readiness');
+await rejects(()=>call(host,'start',{id,version:room.shortlistVersion}),'Wait for everyone');
+await rejects(()=>call(guest,'preferences',{id,preferences:{}}),'custom shortlist');
+await call(guest,'custom_ready',{id,version:room.shortlistVersion});
+await call(other,'custom_ready',{id,version:room.shortlistVersion});
+room=await call(host,'custom_settings',{id,allowGuestAdds:false});
+assert(room.deck.some(p=>p.addedBy===guest)&&!room.members[guest].ready,'locking additions retains existing picks and resets readiness');
+await rejects(()=>call(guest,'custom_add',{id,place:place('later')}),'Only the host');
+room=await call(host,'remove',{id,member:guest});
+assert(!room.members[guest]&&!room.deck.some(p=>p.addedBy===guest),'removed members cannot leave orphaned suggestions');
+await call(other,'custom_ready',{id,version:room.shortlistVersion});
+room=await call(host,'start',{id,version:room.shortlistVersion});
+assert(room.status==='swiping'&&room.count===2,'custom start goes straight to shared voting');
+await rejects(()=>call(host,'custom_add',{id,place:place('locked')}),'before voting');
+await rejects(()=>call(host,'custom_remove',{id,place:'host-one'}),'before voting');
+for(const actor of [host,other]) {
+  await call(actor,'vote',{id,round:1,place:'host-one',vote:'yes'});
+  room=await call(actor,'vote',{id,round:1,place:'host-two',vote:'no'});
+}
+assert(room.status==='results'&&room.results[0].id==='host-one'&&room.results[0].score===100,'custom votes use real ranking score');
+room=await create();
+for(let i=0;i<15;i++)room=await call(host,'custom_add',{id:room.id,place:place(`full-${i}`)});
+await rejects(()=>call(host,'custom_add',{id:room.id,place:place('overflow')}),'15 restaurants');
+const perms=await db.query("SELECT proname FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE proname LIKE 'group_custom%' AND (prosecdef OR has_function_privilege('authenticated',p.oid,'EXECUTE') OR has_function_privilege('anon',p.oid,'EXECUTE'))");
+assert(perms.rows.length===0,'custom helpers cannot be invoked by clients or bypass RLS');
+console.log('Custom room SQL passed: creation, permissions, per-guest cap, duplicates, ownership, swaps, stale readiness, policy changes, removals, locked voting, results and total cap.');
+await db.close();

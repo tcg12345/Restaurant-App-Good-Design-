@@ -4,7 +4,7 @@ import { build } from "esbuild";
 const result = await build({
   stdin: {
     contents:
-      "export { buildTasteProfile, scoreCandidates, buildCandidateQueries } from './src/lib/recommendations'; export { aggregateGroup, groupVeto } from './src/lib/group-recs';",
+      "export { buildTasteProfile, scoreCandidates, buildCandidateQueries } from './src/lib/recommendations'; export { readTastePreferences, TASTE_PREFERENCES_KEY } from './src/lib/taste-preferences'; export { aggregateGroup, groupVeto } from './src/lib/group-recs';",
     resolveDir: process.cwd(),
   },
   bundle: true,

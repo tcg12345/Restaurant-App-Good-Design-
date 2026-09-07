@@ -17,7 +17,7 @@ function GuideImage({ src, className }: { src: string; className: string }) {
   return <img className={className} src={src} alt="" loading="lazy" referrerPolicy="no-referrer" onError={() => setFailed(true)} />;
 }
 
-const ReaderEntry: React.FC<{
+export const GuideReaderEntry: React.FC<{
   entry: GuideEntry; index: number; guide: Guide; theme: GuideTheme; actions: EntryActionAdapter;
 }> = ({ entry, index, guide, theme, actions }) => {
   const v = theme.visibility;
@@ -30,20 +30,13 @@ const ReaderEntry: React.FC<{
   const sections = (entry.customSections || []).filter(section => section.body?.trim());
   const extra = (v.entryMustOrder && !!dishes?.length) || (v.entryBestFor && !!entry.bestFor)
     || (v.entryTip && !!entry.insiderTip) || (v.entryHours && !!entry.hours) || !!sections.length;
-  const longNotes = (entry.notes?.length || 0) > 180;
   const score = typeof entry.score === 'number' && Number.isFinite(entry.score) ? entry.score : null;
   const tint = score !== null ? scoreTintStyle(score) : null;
   const canOpen = !!actions.onView;
-  const repeatsCover = guide.entries.length === 1 && entry.image === guide.coverPhoto && theme.heroLayout !== 'minimal';
   const saved = !!actions.isSaved?.(entry);
 
   return (
     <article className="guide-reader-entry" id={`reader-${guide.id}-${index}`}>
-      {guide.includePhotos && theme.entryShowPhoto && entry.image && !repeatsCover && (
-        <button type="button" className="guide-reader-photo" disabled={!canOpen} onClick={() => actions.onView?.(entry)} aria-label={`Open ${entry.name}`}>
-          <GuideImage src={entry.image} className="guide-reader-entry-image" />
-        </button>
-      )}
       <button type="button" className="guide-reader-place" disabled={!canOpen} onClick={() => actions.onView?.(entry)} aria-label={`Open ${entry.name}`}>
         <span className="guide-reader-number">{String(index + 1).padStart(2, '0')}</span>
         <span className="guide-reader-place-copy">
@@ -53,26 +46,27 @@ const ReaderEntry: React.FC<{
         {v.entryScore && score !== null && tint && <span className="guide-reader-score" style={{ color: tint.color, background: tint.background, borderColor: tint.ring }} aria-label={`Author's score: ${score.toFixed(1)} out of 10`}>{score.toFixed(1)}</span>}
         {canOpen && <ChevronRight size={15} className="guide-reader-chevron" />}
       </button>
-      {entry.notes && !longNotes && <p className="guide-reader-note">{entry.notes}</p>}
+      {guide.includePhotos && entry.image && (
+        <button type="button" className="guide-reader-photo" disabled={!canOpen} onClick={() => actions.onView?.(entry)} aria-label={`View ${entry.name}`}>
+          <GuideImage src={entry.image} className="guide-reader-entry-image" />
+        </button>
+      )}
+      {entry.notes?.trim() && <p className="guide-reader-note">{entry.notes}</p>}
+      {extra && (
+        <div className="guide-reader-entry-insights">
+          {v.entryMustOrder && !!dishes?.length && <div><h3>{restaurant ? 'What to order' : 'Key ingredients'}</h3><p>{dishes.join(' · ')}</p></div>}
+          {v.entryBestFor && entry.bestFor && <div><h3>Best for</h3><p>{entry.bestFor}</p></div>}
+          {v.entryTip && entry.insiderTip && <div className="guide-reader-tip"><h3>Insider tip</h3><p>{entry.insiderTip}</p></div>}
+          {v.entryHours && entry.hours && <div><h3>Hours</h3><p>{entry.hours}</p></div>}
+          {sections.map(section => <div key={section.id}>
+            {section.header && <h3>{section.header}</h3>}
+            {section.format === 'paragraph' ? <p>{section.body}</p>
+              : section.format === 'numbered' ? <ol>{section.body.split(/\r?\n/).filter(line => line.trim()).map((line, i) => <li key={i}>{line}</li>)}</ol>
+                : <ul>{section.body.split(/\r?\n/).filter(line => line.trim()).map((line, i) => <li key={i}>{line}</li>)}</ul>}
+          </div>)}
+        </div>
+      )}
       <div className="guide-reader-entry-bottom">
-        {(extra || longNotes) && (
-          <details className="guide-reader-details">
-            <summary>{longNotes ? 'Notes & details' : 'Details'}<ChevronDown size={14} /></summary>
-            <div className="guide-reader-detail-content">
-              {longNotes && <p>{entry.notes}</p>}
-              {v.entryMustOrder && !!dishes?.length && <div><h3>{restaurant ? 'What to order' : 'Key ingredients'}</h3><p>{dishes.join(' · ')}</p></div>}
-              {v.entryBestFor && entry.bestFor && <div><h3>Best for</h3><p>{entry.bestFor}</p></div>}
-              {v.entryTip && entry.insiderTip && <div><h3>Insider tip</h3><p>{entry.insiderTip}</p></div>}
-              {v.entryHours && entry.hours && <div><h3>Hours</h3><p>{entry.hours}</p></div>}
-              {sections.map(section => <div key={section.id}>
-                {section.header && <h3>{section.header}</h3>}
-                {section.format === 'paragraph' ? <p>{section.body}</p>
-                  : section.format === 'numbered' ? <ol>{section.body.split(/\r?\n/).filter(line => line.trim()).map((line, i) => <li key={i}>{line}</li>)}</ol>
-                    : <ul>{section.body.split(/\r?\n/).filter(line => line.trim()).map((line, i) => <li key={i}>{line}</li>)}</ul>}
-              </div>)}
-            </div>
-          </details>
-        )}
         {restaurant && v.entryActions && <div className="guide-reader-entry-actions">
           {actions.onAdd && <button type="button" onClick={() => actions.onAdd?.(entry)} aria-label={`Add ${entry.name} to a list`}><Plus size={16} /><span>Add to list</span></button>}
           {actions.onSave && <button type="button" className={saved ? 'is-saved' : ''} onClick={() => actions.onSave?.(entry)} aria-label={saved ? `Unsave ${entry.name}` : `Save ${entry.name}`} aria-pressed={saved}><Bookmark size={18} fill={saved ? 'currentColor' : 'none'} /></button>}
@@ -161,7 +155,7 @@ export function GuideReader({ guide, theme, author, authorHref, authorBio, saved
           e.target.value = '';
         }}><option value="" disabled>Choose an entry</option>{guide.entries.map((entry, index) => <option key={entry.id} value={index}>{index + 1}. {entry.name}</option>)}</select>
       </label>}
-      <div className="guide-reader-entries">{guide.entries.map((entry, index) => <ReaderEntry key={entry.id} entry={entry} index={index} guide={guide} theme={theme} actions={actions} />)}</div>
+      <div className="guide-reader-entries">{guide.entries.map((entry, index) => <GuideReaderEntry key={entry.id} entry={entry} index={index} guide={guide} theme={theme} actions={actions} />)}</div>
       {!guide.entries.length && <p className="guide-reader-empty">No {guide.type === 'recipes' ? 'recipes' : 'places'} added yet.</p>}
     </main>
   </div>;

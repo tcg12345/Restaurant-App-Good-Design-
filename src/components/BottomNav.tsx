@@ -73,7 +73,7 @@ export const BottomNav: React.FC = () => {
     // initial-circle avatar.
     avatarInitial,
     avatarUrl: profile?.avatar_url || undefined,
-    onSelect: (path) => navigate(path),
+    onSelect: (path) => navigate(path, { state: { navigationPresentation: 'tab' } }),
   });
 
   // The native bar draws itself over the WebView; rendering the web one too
@@ -97,6 +97,7 @@ export const BottomNav: React.FC = () => {
         <NavLink
           key={item.label}
           to={item.path}
+          state={{ navigationPresentation: 'tab' }}
           end={item.path === '/'}
           aria-label={item.label}
           // One ink for every tab, selected or not: the weight of the stroke

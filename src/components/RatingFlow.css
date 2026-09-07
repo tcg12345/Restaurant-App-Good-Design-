@@ -1,9 +1,10 @@
-/* A steady, tactile sheet. Only the contents move between rating steps. */
+/* Explicit viewport width prevents top-layer popover intrinsic sizing on WebKit.
+   A steady sheet: only the contents move between rating steps. */
 .rf-scrim {
   --color-surface: #f6f8f8; --color-paper: #fff; --color-on-surface: #202a29;
-  --color-primary: #2f5147; --color-on-primary: #fff; --color-line: #e2e8e5; --color-line-2: #d4dfd9;
+  --color-primary: var(--brand-accent); --color-on-primary: var(--brand-on-accent); --color-line: #e2e8e5; --color-line-2: #d4dfd9;
   --color-ink-2: #42504d; --color-ink-3: #73817b; --color-ink-4: #83918b; --color-cream-2: #eef2f0;
-  position: fixed; inset: 0; z-index: 200; display: flex; align-items: center; justify-content: center;
+  position: fixed; inset: 0; width: 100%; max-width: none; margin: 0; border: 0; overflow: hidden; z-index: 200; display: flex; align-items: center; justify-content: center;
   padding: max(12px,env(safe-area-inset-top)) 16px max(12px,env(safe-area-inset-bottom));
   background: #0b19174d; backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
   font-family: -apple-system,BlinkMacSystemFont,'SF Pro Display','Helvetica Neue',sans-serif;
@@ -11,7 +12,7 @@
 }
 .dark .rf-scrim {
   --color-surface: #151e1c; --color-paper: #202c28; --color-on-surface: #f1f6f3;
-  --color-primary: #b4d8c7; --color-on-primary: #15271f; --color-line: #2b3a33; --color-line-2: #42554b;
+  --color-primary: var(--brand-accent); --color-on-primary: var(--brand-on-accent); --color-line: #2b3a33; --color-line-2: #42554b;
   --color-ink-2: #c8d4cd; --color-ink-3: #a0b0a7; --color-ink-4: #8d9e94; --color-cream-2: #1b2722;
   background: #0009;
 }
@@ -20,7 +21,7 @@
   display: flex; flex-direction: column; overflow: hidden; padding: 0 22px 18px;
   background: var(--color-surface); border-radius: 32px; border: 1px solid color-mix(in srgb,var(--color-line) 80%,transparent);
   box-shadow: 0 32px 90px #06181040, inset 0 1px 0 #ffffff33;
-  animation: rf-sheet-in .42s cubic-bezier(.22,.8,.22,1) both;
+  /* Motion owns this transform, including drag and dismissal. */
 }
 .rf-card::before { content: ''; position: absolute; inset: 0 0 auto; height: 160px; background: radial-gradient(ellipse at 85% 0%,#a7d2be26,transparent 70%); pointer-events: none; }
 .rf-card :is(.font-serif,button,input,textarea) { font-family: inherit; }
@@ -97,7 +98,6 @@
 .rf-error { flex-shrink: 0; font-size: 12px; line-height: 1.4; padding: 10px; border-radius: 12px; margin-bottom: 10px; background: #b8443914; color: var(--color-on-surface); }
 @media (max-width: 600px) { .rf-scrim { align-items: flex-end; padding-inline: 0; padding-bottom: 0; }.rf-card { max-width: none; height: min(750px,100%); border-radius: 32px 32px 0 0; padding-bottom: max(16px,env(safe-area-inset-bottom)); } }
 @media (max-height: 660px) { .rf-progress { margin-bottom: 13px; }.rf-stage-gut .rf-step > div:first-child { padding-top: 0; }.rf-stage-gut .rf-step > div:nth-child(2) { margin-top: 15px; gap: 8px; }.rf-gut-btn { padding: 11px 14px; }.rf-score-orbit { width: 125px; height: 125px; font-size: 48px; }.rf-comp-btn { min-height: 95px; padding: 14px; } }
-@keyframes rf-sheet-in { from { opacity: 0; transform: translateY(35px) scale(.985); } to { opacity: 1; transform: none; } }
 @keyframes rf-scrim-in { from { opacity: 0; } to { opacity: 1; } }
 @keyframes rf-content-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
 @keyframes rf-check-pop { from { opacity: 0; transform: scale(.7); } to { opacity: 1; transform: scale(1); } }

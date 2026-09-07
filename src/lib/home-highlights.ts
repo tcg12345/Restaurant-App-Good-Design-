@@ -1,3 +1,5 @@
+import { cuisinePreference, type TastePreferences } from './taste-preferences';
+import type { AppGoal } from './app-goal';
 export type HomeAction = 'find' | 'rate' | 'recs' | 'chat' | 'recipes' | 'group';
 export type HighlightFamily = 'restaurants' | 'recipes' | 'friends' | 'experts' | 'taste' | 'discover';
 export interface HomeHighlight {
@@ -25,7 +27,8 @@ export interface HighlightHistory {
 }
 export const emptyHighlightHistory = (): HighlightHistory => ({ seen: {}, clicked: {}, interests: {} });
 interface Input {
-  userId?: string; city: string; ratings: HighlightPlace[]; wishlist: HighlightPlace[]; recipes: HighlightRecipe[];
+  preferences?: TastePreferences;
+  goal?: AppGoal; userId?: string; city: string; ratings: HighlightPlace[]; wishlist: HighlightPlace[]; recipes: HighlightRecipe[];
   pendingRequestCount?: number; unreadCount?: number;
   social?: HighlightSocial; history?: HighlightHistory; session?: number; now?: Date;
 }
@@ -51,7 +54,7 @@ export function highlightActivityAge(createdAt: number | undefined, visitDate: s
 
 /** Fresh social evidence comes first. Personal history informs taste, but is
  * never recycled as a news item. With no fresh evidence, offer honest actions. */
-export function buildHomeHighlights({ userId, city, ratings: rawRatings, recipes: rawRecipes, social: rawSocial, pendingRequestCount = 0, unreadCount = 0, history = emptyHighlightHistory(), session = 0, now = new Date() }: Input): HomeHighlight[] {
+export function buildHomeHighlights({ preferences, goal, userId, city, ratings: rawRatings, recipes: rawRecipes, social: rawSocial, pendingRequestCount = 0, unreadCount = 0, history = emptyHighlightHistory(), session = 0, now = new Date() }: Input): HomeHighlight[] {
   const ratings = userId ? rawRatings : [], recipes = userId ? rawRecipes : [];
   const social = userId ? rawSocial : undefined;
   const seed = `${userId || 'guest'}:${now.toDateString()}:${Math.floor(now.getHours() / 4)}:${session}`;
@@ -62,7 +65,7 @@ export function buildHomeHighlights({ userId, city, ratings: rawRatings, recipes
   for (const r of ratings) if (r.wouldReturn !== false && (r.score ?? 0) >= 7.5) {
     for (const c of cuisines(r.cuisine)) affinity.set(c, (affinity.get(c) || 0) + (r.score! - 6));
   }
-  const fit = (c?: string) => Math.min(12, cuisines(c).reduce((sum, key) => sum + (affinity.get(key) || 0), 0));
+  const fit = (c?: string) => Math.min(12, cuisines(c).reduce((sum, key) => sum + (affinity.get(key) || 0), 0)) + (preferences ? cuisinePreference(preferences,c || '') * 6 : 0);
   const local = (address?: string) => city !== 'Choose your location' && !!address?.toLowerCase().includes(city.toLowerCase());
   const age = (p: { createdAt?: number; visitDate?: string }) => highlightActivityAge(p.createdAt, p.visitDate, now);
   const when = (days: number) => days < 1 ? 'today' : days < 2 ? 'yesterday' : `${Math.floor(days)} days ago`;
@@ -114,7 +117,11 @@ export function buildHomeHighlights({ userId, city, ratings: rawRatings, recipes
     const clickAge = (now.getTime() - (history.clicked[card.id] || 0)) / 3600000;
     const repeatPenalty = seenAge < 4 ? 34 : seenAge < 24 ? 20 : seenAge < 72 ? 8 : 0;
     const interest = Math.min(10, history.interests[card.family] || 0);
-    return { ...card, rank: card.weight + (hash(`${seed}:${card.id}`) % 600) / 100 + interest - repeatPenalty - (clickAge < 24 ? 30 : 0) };
+    // A stated goal gives relevant suggestions a modest boost alongside
+    // freshness and activity signals. Never hide the other mode.
+    const goalBoost = goal === 'cooking' && card.family === 'recipes' ? 24
+      : goal === 'restaurants' && (card.family === 'restaurants' || card.id === 'discover') ? 24 : 0;
+    return { ...card, rank: card.weight + goalBoost + (hash(`${seed}:${card.id}`) % 600) / 100 + interest - repeatPenalty - (clickAge < 24 ? 30 : 0) };
   }).sort((a,b) => b.rank - a.rank || a.id.localeCompare(b.id));
   const selected: HomeHighlight[] = [], categories = new Set<string>(), entities = new Set<string>(), families = new Map<string, number>();
   for (const card of scored) {

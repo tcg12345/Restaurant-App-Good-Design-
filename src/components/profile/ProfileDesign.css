@@ -1,10 +1,10 @@
 .profile-design, .taste-design, .profile-taste-card {
-  --profile-ink: #24282b; --profile-muted: #737b80; --profile-line: #e4e8e8; --profile-canvas: #f6f7f8; --profile-paper: #fff; --profile-accent: #456c61;
+  --profile-ink: #24282b; --profile-muted: #737b80; --profile-line: #e4e8e8; --profile-canvas: #f6f7f8; --profile-paper: #fff; --profile-accent: var(--brand-accent);
   font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Helvetica Neue', sans-serif;
   color: var(--profile-ink);
 }
 .dark :is(.profile-design,.taste-design,.profile-taste-card) {
-  --profile-ink: #f2f4f4; --profile-muted: #a0a8ab; --profile-line: #303638; --profile-canvas: #111517; --profile-paper: #1d2426; --profile-accent: #a6cbbd;
+  --profile-ink: #f2f4f4; --profile-muted: #a0a8ab; --profile-line: #303638; --profile-canvas: #111517; --profile-paper: #1d2426; --profile-accent: var(--brand-accent);
 }
 .profile-design, .taste-design { background: var(--profile-canvas); }
 :is(.profile-design,.taste-design) :is(h1,h2,h3,button,.font-serif) { font-family: inherit; }
@@ -27,7 +27,7 @@
 .profile-hero > p { margin-top: 12px; font-size: 13px !important; }
 .profile-actions { margin-top: 16px; gap: 8px; }
 .profile-actions > button { min-height: 44px; border-radius: 15px; padding: 10px 14px; font-size: 13px !important; font-weight: 600 !important; }
-.profile-actions > button:nth-of-type(1) { background: var(--profile-ink); color: var(--profile-canvas); }
+.profile-actions > button:nth-of-type(1) { background: var(--brand-accent); color: var(--brand-on-accent); }
 .profile-actions > button:nth-of-type(2) { flex: 1; justify-content: center; background: var(--profile-paper); border-color: var(--profile-line); }
 .profile-share { display: flex; align-items: center; justify-content: center; gap: 7px; background: var(--profile-paper); border: 1px solid var(--profile-line); }
 .profile-actions [role=menu] { border-radius: 22px; background: var(--profile-paper); color: var(--profile-ink); padding: 4px; }

@@ -1,3 +1,5 @@
+import { backCoordinate, backTranslation, backReveal, atVerticalStart, type BackGestureDirection } from '../lib/back-gesture';
+import { allowBackNavigation } from '../lib/back-navigation';
 import React, { useEffect, useLayoutEffect, useRef, type ReactNode } from 'react';
 import { isOverlayOpen } from '../lib/overlay-registry';
 import { setPageScroll, getPrimaryScroller } from '../lib/page-scroll';
@@ -16,8 +18,9 @@ const prefersReducedMotion = () =>
  * settles with the Web Animations API (GPU-composited), with the duration
  * scaled to the remaining distance and release velocity.
  *
- * Activation has two zones — an always-back left edge (<= EDGE px) and an
- * intent zone everywhere else that only claims on a clear rightward swipe.
+ * Pushed pages return rightward, Create returns leftward, and route sheets
+ * dismiss downward. Horizontal routes reserve their leading return edge;
+ * clear directional intent elsewhere leaves nested media gestures alone.
  * Vertical scroll and horizontal scrollers (carousels) keep their gestures;
  * the non-passive touchmove listener is bound per-touch and dropped the
  * moment a touch is ruled out, so ordinary scrolling is never tied to the
@@ -217,6 +220,7 @@ interface Props {
   onBack: () => void;
   previewPush?: boolean;
   edgeOnly?: boolean;
+  direction?: BackGestureDirection;
   onLockTransition: (locked: boolean) => void;
   children: ReactNode;
 }
@@ -246,7 +250,7 @@ function txOf(el: Element): number {
 
 export const SwipeBackContainer: React.FC<Props> = ({
   enabled, navKey, locationKey, snapshotable, revealSnapshotKey, backIsPop,
-  onBack, onLockTransition, previewPush = false, edgeOnly = false, children,
+  onBack, onLockTransition, previewPush = false, edgeOnly = false, direction = 'right', children,
 }) => {
   const rootRef = useRef<HTMLDivElement>(null);
   const pageRef = useRef<HTMLDivElement>(null);
@@ -254,6 +258,8 @@ export const SwipeBackContainer: React.FC<Props> = ({
   const revealRef = useRef<HTMLDivElement>(null);
   const shadowRef = useRef<HTMLDivElement>(null);
 
+  const directionRef = useRef(direction); directionRef.current = direction;
+  const suppressClickUntil = useRef(0);
   const enabledRef = useRef(enabled); enabledRef.current = enabled;
   const onBackRef = useRef(onBack); onBackRef.current = onBack;
   const onLockRef = useRef(onLockTransition); onLockRef.current = onLockTransition;
@@ -267,6 +273,7 @@ export const SwipeBackContainer: React.FC<Props> = ({
   const rebuildRef = useRef<() => void>(() => {});
 
   const g = useRef({
+    direction: 'right' as BackGestureDirection,
     commitBack: null as (() => void) | null,
     tracking: false, claimed: false, busy: false, moveBound: false,
     sx: 0, sy: 0, lx: 0, lt: 0, vx: 0, claimDx: 0, w: 0,
@@ -306,7 +313,8 @@ export const SwipeBackContainer: React.FC<Props> = ({
     const reveal = revealRef.current;
     const shadow = shadowRef.current;
     if (!root || !page || !front || !reveal || !shadow) return;
-    const width = () => root.clientWidth || window.innerWidth;
+    const width = () => g.current.direction === 'down' ? window.innerHeight : root.clientWidth || window.innerWidth;
+    const coordinate = (t: { clientX: number; clientY: number }) => backCoordinate(t.clientX, t.clientY, g.current.direction);
 
     const hideFront = () => {
       front.style.visibility = 'hidden';
@@ -339,14 +347,14 @@ export const SwipeBackContainer: React.FC<Props> = ({
       if (!s.revealActive || !s.destWrap || !s.scrim) return;
       const w = s.w || 1;
       const p = Math.max(0, Math.min(1, x / w));
-      s.destWrap.style.transform = `translateX(${-PARALLAX * w * (1 - p)}px)`;
+      s.destWrap.style.transform = backReveal(p, w, s.direction);
       s.scrim.style.opacity = String(SCRIM_MAX * (1 - p));
     };
 
     const flush = () => {
       g.current.raf = 0;
       const x = g.current.x;
-      front.style.transform = x === 0 ? '' : `translateX(${x}px)`;
+      front.style.transform = x === 0 ? '' : backTranslation(x, g.current.direction);
       paintReveal(x);
     };
     const schedule = (x: number) => {
@@ -536,7 +544,7 @@ export const SwipeBackContainer: React.FC<Props> = ({
       // Keep the page off-screen (the snapshot underneath shows the
       // destination) while the real route swaps in, then drop the now-real
       // page to 0 and remove the snapshot.
-      front.style.transform = `translateX(${w}px)`;
+      front.style.transform = backTranslation(w, s.direction);
       s.finalizing = true;
       s.finFromLocKey = locationKeyRef.current;
       s.finKey = revealKeyRef.current;
@@ -581,6 +589,8 @@ export const SwipeBackContainer: React.FC<Props> = ({
 
     const settle = (toX: number, commit: boolean) => {
       const s = g.current;
+      // Local steps and unsaved-work handlers have the same precedence as Back.
+      if (commit && !allowBackNavigation()) { commit = false; toX = 0; }
       const w = s.w || width();
       if (s.raf) { cancelAnimationFrame(s.raf); s.raf = 0; }
       s.busy = true;
@@ -603,14 +613,14 @@ export const SwipeBackContainer: React.FC<Props> = ({
       )));
       const anims: Animation[] = [];
       anims.push(front.animate(
-        [{ transform: `translateX(${s.x}px)` }, { transform: `translateX(${toX}px)` }],
+        [{ transform: backTranslation(s.x, s.direction) }, { transform: backTranslation(toX, s.direction) }],
         { duration: dur, easing: EASE, fill: 'both' },
       ));
       if (s.revealActive && s.destWrap && s.scrim) {
         const pFrom = Math.max(0, Math.min(1, s.x / w));
         const pTo = commit ? 1 : 0;
         anims.push(s.destWrap.animate(
-          [{ transform: `translateX(${-PARALLAX * w * (1 - pFrom)}px)` }, { transform: `translateX(${-PARALLAX * w * (1 - pTo)}px)` }],
+          [{ transform: backReveal(pFrom, w, s.direction) }, { transform: backReveal(pTo, w, s.direction) }],
           { duration: dur, easing: EASE, fill: 'both' },
         ));
         anims.push(s.scrim.animate(
@@ -628,7 +638,7 @@ export const SwipeBackContainer: React.FC<Props> = ({
         // preview left and re-tint it for the whole finalize.
         if (s.revealActive && s.destWrap && s.scrim) {
           const pEnd = commit ? 1 : 0;
-          s.destWrap.style.transform = `translateX(${-PARALLAX * w * (1 - pEnd)}px)`;
+          s.destWrap.style.transform = backReveal(pEnd, w, s.direction);
           s.scrim.style.opacity = String(SCRIM_MAX * (1 - pEnd));
         }
         // Cancelling releases the WAAPI style overrides; the inline styles
@@ -655,19 +665,20 @@ export const SwipeBackContainer: React.FC<Props> = ({
     const grab = (t: Touch, now: number) => {
       const s = g.current;
       s.disarmSettle?.(); s.disarmSettle = null;
-      const cur = txOf(front);
+      const matrix = new DOMMatrixReadOnly(getComputedStyle(front).transform === 'none' ? undefined : getComputedStyle(front).transform);
+      const cur = backCoordinate(matrix.m41, matrix.m42, s.direction);
       for (const a of s.anims) a.cancel();
       s.anims = [];
       s.busy = false;
       s.settleMode = 'none';
       s.x = cur;
-      front.style.transform = `translateX(${cur}px)`;
+      front.style.transform = backTranslation(cur, s.direction);
       paintReveal(cur);
       s.tracking = true; s.claimed = true;
       if (!s.glassHeld) { s.glassHeld = true; holdGlass(); }
-      s.sx = t.clientX; s.sy = t.clientY;
+      s.sx = coordinate(t); s.sy = s.direction === 'down' ? t.clientX : t.clientY;
       s.claimDx = -cur; // continue the drag from where we caught it
-      s.lx = t.clientX; s.lt = now; s.vx = 0;
+      s.lx = coordinate(t); s.lt = now; s.vx = 0;
       s.w = s.w || width();
       s.reduce = prefersReducedMotion();
       bindMove();
@@ -686,15 +697,18 @@ export const SwipeBackContainer: React.FC<Props> = ({
       }
       if (!enabledRef.current || isOverlayOpen()) return;
       const target = e.target instanceof Element ? e.target : null;
-      const fromEdge = t.clientX <= EDGE;
-      if (target?.closest('input, textarea, select, [contenteditable="true"], [role="slider"], [data-swipe-back="off"]')) return;
-      if (!fromEdge && (edgeOnlyRef.current || target?.closest('[data-horizontal-gesture]') || findHScrollable(e.target, root))) return;
-      if (Array.from<HTMLElement>(page.querySelectorAll<HTMLElement>('[data-route-stack]')).some(el => Math.abs(txOf(el)) > 2)) return;
+      s.direction = directionRef.current;
+      const fromEdge = s.direction === 'left' ? t.clientX >= (root.clientWidth || window.innerWidth) - EDGE : t.clientX <= EDGE;
+      if (target?.closest('dialog, input, textarea, select, [contenteditable="true"], [role="slider"], [data-swipe-back="off"], [data-sheet-panel], [role="dialog"]')) return;
+      if (s.direction === 'down' && !atVerticalStart(target, root)) return;
+      if (!fromEdge && (edgeOnlyRef.current || target?.closest('[data-horizontal-gesture], [data-card-swipe], .mapboxgl-map, video, canvas, [draggable=true]') || findHScrollable(e.target, root))) return;
+      if (Array.from<HTMLElement>(page.querySelectorAll<HTMLElement>('[data-route-stack]')).some(el => !el.closest('[inert], [aria-hidden="true"]') && Math.abs(txOf(el)) > 2)) return;
       s.commitBack = onBackRef.current;
       s.tracking = true; s.claimed = false;
-      s.sx = t.clientX; s.sy = t.clientY; s.lx = t.clientX; s.lt = e.timeStamp || Date.now();
+      s.sx = coordinate(t); s.sy = s.direction === 'down' ? t.clientX : t.clientY; s.lx = coordinate(t); s.lt = e.timeStamp || Date.now();
       s.vx = 0; s.claimDx = 0; s.w = width();
-      s.fromEdge = t.clientX <= EDGE;
+      s.fromEdge = fromEdge;
+      front.style.boxShadow = s.direction === 'down' ? '0 -12px 32px #0003' : s.direction === 'left' ? '12px 0 32px #0003' : '-12px 0 32px #0003';
       s.reduce = prefersReducedMotion();
       s.deferEl = findHScrollable(e.target, root);
       // An edge touch is very likely a back-swipe: promote the page to its
@@ -710,8 +724,8 @@ export const SwipeBackContainer: React.FC<Props> = ({
       if (!s.tracking || s.busy) return;
       if (e.touches.length !== 1) { cancelGesture(); return; }
       const t = e.touches[0];
-      const dx = t.clientX - s.sx;
-      const dy = t.clientY - s.sy;
+      const dx = coordinate(t) - s.sx;
+      const dy = (s.direction === 'down' ? t.clientX : t.clientY) - s.sy;
 
       if (!s.claimed) {
         if (Math.abs(dx) < SLOP && Math.abs(dy) < SLOP) return;
@@ -734,16 +748,16 @@ export const SwipeBackContainer: React.FC<Props> = ({
         showReveal();
       }
 
-      e.preventDefault();
+      if (e.cancelable) e.preventDefault();
       const now = e.timeStamp || Date.now();
       const dt = now - s.lt;
       if (dt > 0) {
         // Low-pass the velocity — raw two-sample deltas are too noisy to
         // decide flick-commit vs flick-cancel reliably.
-        const inst = (t.clientX - s.lx) / dt;
+        const inst = (coordinate(t) - s.lx) / dt;
         s.vx = s.vx === 0 ? inst : s.vx * 0.6 + inst * 0.4;
       }
-      s.lx = t.clientX; s.lt = now;
+      s.lx = coordinate(t); s.lt = now;
       schedule(Math.max(0, Math.min(s.w, dx - s.claimDx)));
     };
 
@@ -756,12 +770,14 @@ export const SwipeBackContainer: React.FC<Props> = ({
         if (!s.busy) front.style.willChange = '';
         return;
       }
+      suppressClickUntil.current = performance.now() + 600;
       // A held finger is no longer a flick. Old velocity used to commit even
       // after a deliberate pause or cancelled intention.
       if ((event.timeStamp || Date.now()) - s.lt > 100) s.vx = 0;
       const flickBack = s.vx > FLICK_VELOCITY;
       const flickForward = s.vx < CANCEL_VELOCITY;
-      const commit = flickBack || (!flickForward && s.x > s.w * COMMIT_RATIO);
+      const distanceReached = s.x > (s.direction === 'down' ? Math.min(120, s.w * .2) : s.w * COMMIT_RATIO);
+      const commit = flickBack || (!flickForward && distanceReached);
       settle(commit ? s.w : 0, commit);
     };
 
@@ -785,6 +801,7 @@ export const SwipeBackContainer: React.FC<Props> = ({
       event.preventDefault();
       if (g.current.busy || g.current.tracking) return;
       const s = g.current;
+      s.direction = directionRef.current;
       s.w = width(); s.x = 0; s.vx = 0; s.reduce = prefersReducedMotion();
       s.commitBack = (event as CustomEvent<{ perform: () => void }>).detail.perform;
       if (!s.glassHeld) { s.glassHeld = true; holdGlass(); }
@@ -826,6 +843,7 @@ export const SwipeBackContainer: React.FC<Props> = ({
       clearPush();
       g.current.reduce = prefersReducedMotion();
       if (g.current.reduce) return;
+      g.current.direction = 'right';
       buildPrep(); showReveal();
       const s = g.current;
       if (!s.destWrap || !s.scrim) return;
@@ -873,7 +891,7 @@ export const SwipeBackContainer: React.FC<Props> = ({
   useEffect(() => { rebuildRef.current(); }, [navKey, enabled, revealSnapshotKey]);
 
   return (
-    <div ref={rootRef} style={{ position: 'relative', minHeight: '100dvh', background: 'var(--color-surface)' }}>
+    <div ref={rootRef} data-back-gesture={enabled ? direction : undefined} onClickCapture={e => { if (performance.now() < suppressClickUntil.current) { e.preventDefault(); e.stopPropagation(); } }} style={{ position: 'relative', minHeight: '100dvh', background: 'var(--color-surface)' }}>
       <LeaveSnapshot navKey={navKey} snapshotable={snapshotable} getNode={() => pageRef.current} />
       {/* Destination snapshot lives here, behind the page. Prebuilt (hidden)
           at idle after each navigation; shown the moment a back-swipe claims. */}

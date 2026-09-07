@@ -115,3 +115,22 @@ describe('device-local highlight memory', () => {
     } finally { vi.unstubAllGlobals(); }
   });
 });
+
+
+describe('onboarding goal personalization', () => {
+  const input = { city: 'New York', ratings: [], wishlist: [], recipes: [], now: new Date('2026-09-06T12:00:00'), session: 0 };
+  it('puts recipe inspiration first for a new cooking-focused user', () => {
+    const cards = buildHomeHighlights({ ...input, userId: 'new-user', goal: 'cooking' });
+    expect(cards[0].id).toBe('recipe-ideas');
+    expect(cards.some(card => card.id === 'discover')).toBe(true);
+  });
+  it('puts restaurant discovery first for a new dining-focused user', () => {
+    const cards = buildHomeHighlights({ ...input, userId: 'new-user', goal: 'restaurants' });
+    expect(cards[0].id).toBe('discover');
+    expect(cards.some(card => card.family === 'recipes')).toBe(true);
+  });
+  it('also respects a guest’s goal and leaves both or skipped goals balanced', () => {
+    expect(buildHomeHighlights({ ...input, goal: 'cooking' })[0].id).toBe('recipe-ideas');
+    expect(buildHomeHighlights({ ...input, goal: 'both' })).toEqual(buildHomeHighlights(input));
+  });
+});

@@ -68,3 +68,7 @@ verify_jwt = false
 # Authenticated inside the handler; OPTIONS preflight is public.
 [functions.group-swipe]
 verify_jwt = false
+
+# JWT validated with requireUser; membership checked against the room snapshot.
+[functions.group-place-summary]
+verify_jwt = false

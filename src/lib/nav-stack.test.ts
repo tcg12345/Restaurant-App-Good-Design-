@@ -177,3 +177,30 @@ describe('consistent app-wide return paths', () => {
     expect(backTargetFor(1, '/circle', '')).toEqual({ kind: 'pop' });
   });
 });
+
+import { routeBackGesture, isSheetPath } from './nav-stack';
+describe('route presentation gestures', () => {
+  it('matches left-entering Create and bottom-entering collections', () => {
+    expect(routeBackGesture('/create', '', null, true)).toBe('left');
+    expect(routeBackGesture('/guides', '', null, true)).toBe('down');
+    expect(routeBackGesture('/user/a/followers', '', null, true)).toBe('down');
+    expect(isSheetPath('/guides/g')).toBe(false);
+  });
+  it('supports every pushed route family including pages launched from Home', () => {
+    for (const path of ['/decide', '/circle', '/messages', '/settings/taste', '/pantry/recommended', '/guides/g', '/restaurant/r', '/restaurant/r/circle', '/recipe/u/r', '/meal/u/m', '/user/a', '/profile/top/a', '/activity/saved', '/verify/apply', '/import', '/reorder', '/recipes-for-you', '/location', '/location/map', '/pro', '/pro/intro', '/experts', '/r/video', '/admin/cuisine', '/search', '/search/main', '/map', '/reels', '/profile', '/pantry']) {
+      expect(routeBackGesture(path, '', null, true), path).toBe('right');
+    }
+  });
+  it('keeps explicit tab switches still, but supports pushed tab subviews', () => {
+    for (const path of ['/search', '/search/main', '/profile', '/pantry', '/map', '/reels']) expect(routeBackGesture(path, '', {navigationPresentation:'tab'}, true)).toBeNull();
+    expect(routeBackGesture('/pantry', '?list=abc', {navigationPresentation:'tab'}, true)).toBe('right');
+    expect(routeBackGesture('/', '', null, true)).toBeNull();
+    expect(routeBackGesture('/decide', '', null, false)).toBeNull();
+  });
+  it('returns from a guide to its collection, then to the collection presenter', () => {
+    resetWith('/'); recordNavEntry(1, {pathname:'/guides', search:''}, 'PUSH'); recordNavEntry(2, {pathname:'/guides/g', search:''}, 'PUSH');
+    expect(backTargetFor(2, '/guides/g', '')).toEqual({kind:'pop'});
+    expect(navEntryAt(1)?.pathname).toBe('/guides');
+    expect(backTargetFor(1, '/guides', '')).toEqual({kind:'pop'});
+  });
+});

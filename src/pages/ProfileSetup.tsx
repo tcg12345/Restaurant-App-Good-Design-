@@ -10,17 +10,16 @@ import { CityAutocomplete } from '../components/CityAutocomplete';
 // One responsive setup flow across phones, tablets, and desktop.
 import * as OB from '../components/onboarding/OnboardingKit';
 import {
-  CuisineGrid, PriceStep, DietaryStep,
+  CuisineGrid, PriceStep, AtmosphereStep,
   TASTE_CUISINES,
 } from '../components/onboarding/TasteSteps';
 import { saveTasteQuiz, getTasteQuiz } from '../lib/taste-quiz';
 import { getPreauthCity } from '../lib/preauth';
 import { logOnboardingEvent, markOnboardingStep } from '../lib/onboarding-events';
-import { usePlan } from '../contexts/PlanContext';
-import { billingAvailable } from '../lib/billing';
-import { ProIntroStep } from '../components/onboarding/ProIntroStep';
+import { GoalStep, GOAL_TITLE, GOAL_SUBTITLE } from '../components/onboarding/GoalStep';
+import { pendingTasteQuestions, type TasteQuestion } from '../lib/onboarding-progress';
 
-type StepKey = 'handle' | 'city' | 'cuisines' | 'prices' | 'dietary' | 'pro';
+type StepKey = 'handle' | TasteQuestion;
 
 /**
  * Save failures are shown verbatim to someone in the middle of creating an
@@ -94,6 +93,7 @@ export const ProfileSetup: React.FC = () => {
     answers: getTasteQuiz(profile),
     city: getPreauthCity(),
   }));
+  const [goal, setGoal] = useState(preauth.answers?.goal);
   const [cuisineSel, setCuisineSel] = useState<string[]>(preauth.answers?.cuisines ?? []);
   const [pricePrimary, setPricePrimary] = useState<number | undefined>(
     preauth.answers?.pricePrimary ?? preauth.answers?.prices?.[0],
@@ -101,9 +101,7 @@ export const ProfileSetup: React.FC = () => {
   const [priceSecondary, setPriceSecondary] = useState<number | undefined>(
     preauth.answers?.priceSecondary ?? preauth.answers?.prices?.[1],
   );
-  // Dietary preferences — asked here, after the account exists, never in
-  // the pre-auth stretch (three questions is that flow's whole promise).
-  const [dietarySel, setDietarySel] = useState<string[]>(preauth.answers?.dietary ?? []);
+
   // Profile photo. Uploaded on pick (processPhoto → the `photos` bucket, the
   // same path Settings uses), so what they see is what gets saved; the row
   // takes the URL on the handle step's "Save & continue". Untouched means
@@ -129,9 +127,7 @@ export const ProfileSetup: React.FC = () => {
     }
     setAvatarBusy(false);
   };
-  const plan = usePlan();
-  const proOffered = useRef(false);
-  if (plan.checked && plan.gatesEnabled && !plan.isPro && billingAvailable()) proOffered.current = true;
+  const [atmosphere, setAtmosphere] = useState(preauth.answers?.atmosphere);
   useEffect(() => { logOnboardingEvent('wizard_start', user?.id); }, [user?.id]);
   // Track abandonment against the screen actually being shown.
   const stepKeyRef = useRef<string | undefined>(undefined);
@@ -189,21 +185,11 @@ export const ProfileSetup: React.FC = () => {
     return { ok: result.success, error: result.error };
   }, [user, profile, homeCity, homeGeo, displayName, username, isPublic, visibilityTouched, avatarUrl, avatarTouched]);
 
-  const hasPreauthCuisines = (preauth.answers?.cuisines?.length ?? 0) > 0;
-  const hasPreauthPrices = (preauth.answers?.prices?.length ?? 0) > 0;
-  // Already-answered questions stay out of the way.
-  const steps: StepKey[] = [
-    'handle' as const,
-    // A known city from EITHER source skips the question. The old
-    // predicate (`preauth.city && !profile?.home_city`) inverted the
-    // second half: a profile that already carried home_city ADDED the
-    // step — more information produced more questions.
-    ...(preauth.city || profile?.home_city ? [] : ['city' as const]),
-    ...(hasPreauthCuisines ? [] : ['cuisines' as const]),
-    ...(hasPreauthPrices ? [] : ['prices' as const]),
-    'dietary' as const,
-    ...(proOffered.current ? ['pro' as const] : []),
-  ];
+  // Freeze the route at entry: saving a profile must never shorten the
+  // array under the current index. Explicit skips are already completed.
+  const [steps] = useState<StepKey[]>(() => [
+    'handle', ...pendingTasteQuestions(preauth.answers, !!(preauth.city || profile?.home_city)),
+  ]);
 
   const offset = 0;
   const total = offset + steps.length;
@@ -224,17 +210,19 @@ export const ProfileSetup: React.FC = () => {
     // the very fields that switch on the price-restricted queries and
     // seed city affinity in lib/recommendations.
     await saveTasteQuiz(user?.id, {
+      goal,
       cuisines: cuisineSel,
       prices,
       pricePrimary,
       priceSecondary,
       city: homeGeo?.label ?? (homeCity.trim() || undefined),
-      atmosphere: preauth.answers?.atmosphere,
+      atmosphere,
+      completedSteps: Array.from(new Set([...(preauth.answers?.completedSteps ?? []), ...steps.slice(0, pStep + 1).filter((s): s is Exclude<StepKey, 'handle'> => s !== 'handle')])),
       avoidCuisines: preauth.answers?.avoidCuisines,
-      dietary: dietarySel,
+      dietary: preauth.answers?.dietary,
       completedAt: Date.now(),
-    });
-  }, [user?.id, cuisineSel, pricePrimary, priceSecondary, dietarySel, preauth.answers, homeGeo, homeCity]);
+    }, { requireRemote: true });
+  }, [user?.id, goal, cuisineSel, pricePrimary, priceSecondary, preauth.answers, homeGeo, homeCity, atmosphere, steps, pStep]);
 
   const saving = useRef(false);
   const finishWizard = async () => {
@@ -298,16 +286,16 @@ export const ProfileSetup: React.FC = () => {
   const footer = <>
     {error && <OB.ErrorRow>{error}</OB.ErrorRow>}
     {stepKey !== 'handle' && <OB.GhostButton onClick={() => { void finishWizard(); }}>Finish setup</OB.GhostButton>}
-    <OB.PrimaryButton onClick={() => { void next(); }} loading={submitting} disabled={avatarBusy}>
-      {isLast ? 'Start exploring' : stepKey === 'dietary' ? 'Continue' : 'Save & continue'}
+    <OB.PrimaryButton onClick={() => { void next(); }} loading={submitting} disabled={avatarBusy || (stepKey === 'handle' && (!displayName.trim() || !usernameValid || availability === 'taken' || availability === 'checking'))}>
+      {isLast ? 'Start exploring' : 'Continue'}
     </OB.PrimaryButton>
   </>;
 
-  if (stepKey === 'pro') return <ProIntroStep onDone={() => { void finishWizard(); }} finishing={submitting} error={error} />;
 
   return (
     <OB.OnboardingScreen
-      header={<OB.ProgressHeader step={offset + pStep + 1} total={total} onBack={back} />}
+      contentKey={stepKey}
+      header={<OB.ProgressHeader step={offset + pStep + 1} total={total} label="Your account" onBack={back} />}
       footer={footer}
     >
       <div className="flex flex-1 flex-col">
@@ -326,7 +314,7 @@ export const ProfileSetup: React.FC = () => {
           >
             {stepKey === 'handle' && (
               <div className="flex flex-1 flex-col">
-                <OB.StepHeader title={<>Set up <em>your profile</em></>} subtitle="A few details, then you’re in." />
+                <OB.StepHeader title="Make yourself at home." subtitle={steps.length === 1 ? "Your taste profile is ready. Just add your name and a handle to make it yours." : "Start with your profile, then we’ll tailor your first picks."} />
                 {/* The photo, on the one step every signup sees (the name
                     step is skipped when Apple or Google already gave us
                     one). A social app whose new accounts are all
@@ -367,8 +355,8 @@ export const ProfileSetup: React.FC = () => {
                   </button>
                 </OB.Reveal>
                 <OB.Reveal i={2} style={{ marginTop: 16 }}>
-                  <div style={{ marginBottom: 12 }}><OB.Field value={displayName} onChange={setDisplayName} placeholder="Your name" name="name" autoComplete="name" autoCapitalize="words" /></div>
-                  <OB.Field value={username} onChange={(v) => { setUsername(v.replace(/\s/g, '').replace(/[^a-zA-Z0-9_]/g, '')); setError(''); }} placeholder="username" prefix="@" autoComplete="username" autoCapitalize="off" onSubmit={next} />
+                  <div style={{ marginBottom: 12 }}><OB.Field value={displayName} onChange={setDisplayName} label="Your name" placeholder="First and last name" name="name" autoComplete="name" autoCapitalize="words" /></div>
+                  <OB.Field value={username} onChange={(v) => { setUsername(v.replace(/\s/g, '').replace(/[^a-zA-Z0-9_]/g, '')); setError(''); }} label="Username" name="username" placeholder="Choose a handle" prefix="@" autoComplete="username" autoCapitalize="off" onSubmit={next} />
                   <div className="flex items-center justify-between" style={{ marginTop: 11 }}>
                     <div style={{ fontSize: 13.5, color: 'var(--ob-label)' }}>Your handle: <span style={{ color: OB.TERRA, fontWeight: 600 }}>{handle}</span></div>
                     {availability === 'checking' && (
@@ -433,18 +421,23 @@ export const ProfileSetup: React.FC = () => {
               </div>
             )}
 
+            {stepKey === 'goal' && <div>
+              <OB.StepHeader title={GOAL_TITLE} subtitle={GOAL_SUBTITLE} />
+              <div className="ob-question-body"><GoalStep selected={goal} onChange={setGoal} /></div>
+            </div>}
+
             {stepKey === 'city' && (
               <div className="flex flex-1 flex-col">
-                <OB.StepHeader title={<>Where do you <em>eat?</em></>} subtitle="We'll surface tables near you — change it anytime." />
+                <OB.StepHeader title="Great food starts nearby." subtitle="Choose your home city. You can explore anywhere, anytime." />
                 <OB.Reveal i={2} style={{ marginTop: 30 }}>
-                  <CityAutocomplete value={homeCity} onChange={(v) => { setHomeCity(v); setHomeGeo(null); }} onPick={setHomeGeo} onSubmit={next} />
+                  <CityAutocomplete value={homeCity} onChange={(v) => { setHomeCity(v); setHomeGeo(null); }} onPick={(loc) => { setHomeGeo(loc); setHomeCity(loc.label); }} onSubmit={next} />
                 </OB.Reveal>
               </div>
             )}
 
             {stepKey === 'cuisines' && (
               <div className="flex flex-1 flex-col">
-                <OB.StepHeader title={<>Which cuisines do you <em>love?</em></>} subtitle="Pick as many as you like." />
+                <OB.StepHeader title="What sounds good to you?" subtitle="Pick the flavors you love. We’ll take it from here." />
                 <div style={{ marginTop: 22 }}>
                   <CuisineGrid
                     options={TASTE_CUISINES}
@@ -457,7 +450,7 @@ export const ProfileSetup: React.FC = () => {
 
             {stepKey === 'prices' && (
               <div className="flex flex-1 flex-col">
-                <OB.StepHeader title={<>What do you usually <em>spend?</em></>} subtitle="Your usual budget. Optional." />
+                <OB.StepHeader title="Your kind of night out." subtitle="What feels comfortable for an everyday meal?" />
                 <OB.Reveal i={2} style={{ marginTop: 26 }}>
                   <PriceStep
                     primary={pricePrimary}
@@ -468,17 +461,11 @@ export const ProfileSetup: React.FC = () => {
               </div>
             )}
 
-            {stepKey === 'dietary' && (
-              <div className="flex flex-1 flex-col">
-                <OB.StepHeader title={<>Anything to <em>keep in mind?</em></>} subtitle="Optional — we'll favor places with good options for you." />
-                <div style={{ marginTop: 24 }}>
-                  <DietaryStep
-                    selected={dietarySel}
-                    onToggle={(id) => setDietarySel((prev) => prev.includes(id) ? prev.filter((d) => d !== id) : [...prev, id])}
-                  />
-                </div>
-              </div>
-            )}
+            {stepKey === 'atmosphere' && <div>
+              <OB.StepHeader title="Set the mood." subtitle="Pick the feeling you come back for." />
+              <div className="ob-question-body"><AtmosphereStep selected={atmosphere} onChange={setAtmosphere} /></div>
+            </div>}
+
 
           </motion.div>
 

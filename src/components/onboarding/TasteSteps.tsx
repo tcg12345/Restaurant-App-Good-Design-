@@ -1,9 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Check, Search, Sparkles, Star } from 'lucide-react';
+import { Check, Search, Sparkles, Star, X, Plus, Heart, Moon, Wine, Coffee } from 'lucide-react';
 import { cn } from '../../lib/utils';
-import { GlassButton } from '../../lib/glass-buttons';
-import { SearchField } from '../SearchField';
 import * as OB from './OnboardingKit';
 import { useAuth } from '../../contexts/AuthContext';
 import { useLists } from '../../contexts/ListsContext';
@@ -68,56 +66,44 @@ export const PriceStep: React.FC<{
   secondary?: number;
   onChange: (primary: number | undefined, secondary: number | undefined) => void;
 }> = ({ primary, secondary, onChange }) => {
-  const options = TASTE_PRICES.map((t) => ({ id: String(t.tier), label: t.label, sub: t.sub }));
-  return (
-    <div className="flex flex-col" style={{ gap: 28 }}>
-      <div>
-        <OB.FieldLabel>A normal night out</OB.FieldLabel>
-        <TastePillGrid
-          options={options}
-          selected={primary !== undefined ? [String(primary)] : []}
-          onToggle={(id) => {
-            const tier = Number(id);
-            onChange(tier === primary ? undefined : tier, secondary);
-          }}
-        />
-      </div>
-      <div>
-        <OB.FieldLabel>And when you're celebrating · optional</OB.FieldLabel>
-        <TastePillGrid
-          dense
-          options={options}
-          selected={secondary !== undefined ? [String(secondary)] : []}
-          onToggle={(id) => {
-            const tier = Number(id);
-            onChange(primary, tier === secondary ? undefined : tier);
-          }}
-        />
-      </div>
+  const [occasionOpen, setOccasionOpen] = useState(secondary !== undefined);
+  return <div className="ob-budget">
+    <div className="ob-choice-list" role="group" aria-label="Everyday budget">
+      {TASTE_PRICES.map((t) => <motion.button type="button" key={t.tier}
+        className="ob-budget-card" aria-pressed={primary === t.tier}
+        whileTap={{ scale: .985 }} onClick={() => onChange(primary === t.tier ? undefined : t.tier, secondary)}>
+        <span className="ob-price-symbol">{t.label}</span>
+        <span><strong>{t.sub}</strong><small>{['Easy, everyday favorites', 'A relaxed meal out', 'Something a little special', 'The full dining experience'][t.tier - 1]}</small></span>
+        <span className="ob-selection-indicator">{primary === t.tier && <Check size={14} />}</span>
+      </motion.button>)}
     </div>
-  );
+    <button type="button" className="ob-disclosure" aria-expanded={occasionOpen} onClick={() => setOccasionOpen(!occasionOpen)}>
+      <Plus size={16} /><span>A different budget for celebrations?</span>
+    </button>
+    {occasionOpen && <div className="ob-occasion"><OB.FieldLabel>For special occasions · optional</OB.FieldLabel>
+      <TastePillGrid options={TASTE_PRICES.map(t => ({ id: String(t.tier), label: t.label }))}
+        selected={secondary ? [String(secondary)] : []}
+        onToggle={id => onChange(primary, Number(id) === secondary ? undefined : Number(id))} />
+    </div>}
+    <p className="ob-hint">A starting point, never a limit. You can explore every price range.</p>
+  </div>;
 };
 
-/** ids MUST be keys of DIETARY_TAG_PRIORS (lib/recommendations.ts) — each
- *  one lands as a tag prior on real ALL_TAGS tokens, which is the admission
- *  rule for asking at all. Preferences, not health data: coarse on
- *  purpose, optional on purpose. */
-export const DIETARY_OPTIONS: Array<{ id: string; title: string; description: string }> = [
-  { id: 'vegetarian', title: 'Vegetarian', description: 'Favor places with a real meat-free menu, not one token dish.' },
-  { id: 'vegan', title: 'Vegan', description: 'Plant-based options come first.' },
-  { id: 'healthy', title: 'Eating light', description: 'Fresh, wholesome, and not always a splurge.' },
+export const ATMOSPHERE_OPTIONS = [
+  { id: 'intimate', title: 'Cozy & intimate', description: 'Good conversation, a table for two.', icon: Heart },
+  { id: 'vibrant', title: 'Lively & social', description: 'A little buzz, a great night out.', icon: Wine },
+  { id: 'minimalist', title: 'Calm & relaxed', description: 'Quiet corners and room to unwind.', icon: Moon },
+  { id: 'rustic', title: 'Warm & welcoming', description: 'Neighborhood charm. Come as you are.', icon: Coffee },
 ];
-
-export const DietaryStep: React.FC<{
-  selected: string[];
-  onToggle: (id: string) => void;
-}> = ({ selected, onToggle }) => (
-  <div className="flex flex-col" style={{ gap: 10 }}>
-    {DIETARY_OPTIONS.map((o, i) => (
-      <OB.Reveal key={o.id} i={i + 1}>
-        <OB.RadioCard multi selected={selected.includes(o.id)} onClick={() => onToggle(o.id)} title={o.title} description={o.description} />
-      </OB.Reveal>
-    ))}
+export const AtmosphereStep: React.FC<{ selected?: string; onChange: (id: string | undefined) => void }> = ({ selected, onChange }) => (
+  <div className="ob-vibe-grid" role="group" aria-label="Dining atmosphere">
+    {ATMOSPHERE_OPTIONS.map(({ id, title, description, icon: Icon }) => <motion.button
+      key={id} type="button" className="ob-vibe-card" aria-pressed={selected === id}
+      whileTap={{ scale: .97 }} onClick={() => onChange(selected === id ? undefined : id)}>
+      <span className="ob-vibe-icon"><Icon size={25} strokeWidth={1.4} /></span>
+      <strong>{title}</strong><small>{description}</small>
+      <span className="ob-selection-indicator">{selected === id && <Check size={14} />}</span>
+    </motion.button>)}
   </div>
 );
 
@@ -145,7 +131,7 @@ export const TastePillGrid: React.FC<{
           key={o.id}
           type="button"
           onClick={() => onToggle(o.id)}
-          layout="position"
+          aria-pressed={sel}
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
           exit={{ opacity: 0, scale: 0.9 }}
@@ -153,7 +139,7 @@ export const TastePillGrid: React.FC<{
           whileTap={{ scale: 0.95 }}
           className="inline-flex items-center gap-2 rounded-full cursor-pointer"
           style={{
-            minHeight: dense ? 38 : 46,
+            minHeight: 44,
             padding: dense ? '0 15px' : '0 18px',
             fontSize: dense ? 13.5 : 14.5,
             fontWeight: 600,
@@ -194,137 +180,32 @@ export const TastePillGrid: React.FC<{
   </div>
 );
 
-/**
- * How many chips show before you search. The point of the browsable grid is
- * to fill the screen once, not to become a scrolling list — TASTE_CUISINES
- * is deliberately longer than this, and search is how you reach the tail.
- * The first entries in TASTE_CUISINES are the common ones, so the visible
- * set is the useful set.
- */
-const CUISINE_VISIBLE_CAP = 30;
-
-/** The cuisines question's own grid: TastePillGrid, dense, with a search
- *  trigger that morphs into a liquid-glass filter bar. The full list (far
- *  longer than a "pick a few" question usually has) is what makes typing
- *  three letters faster than scanning for it — the icon starts collapsed
- *  so the question still reads as approachable, not like a search page.
- *
- *  Anything already selected is always shown, even when it sits past the
- *  cap: a chip must never disappear because of where it happens to fall in
- *  the source list, or closing the search would look like it dropped a pick. */
+/** Stable, always-visible search: no native overlay, focus handoff or
+ * animated field replacement while the user is typing. */
 export const CuisineGrid: React.FC<{
-  options: string[];
-  selected: string[];
-  onToggle: (id: string) => void;
+  options: string[]; selected: string[]; onToggle: (id: string) => void;
 }> = ({ options, selected, onToggle }) => {
-  const [searchOpen, setSearchOpen] = useState(false);
   const [query, setQuery] = useState('');
-  // searchCuisines, not a bare `includes`: it ranks prefix matches first and
-  // resolves the app's cuisine aliases, so "barbecue" finds BBQ and "med"
-  // finds Mediterranean.
-  const matches = searchCuisines(query, options);
+  const [expanded, setExpanded] = useState(false);
   const searching = query.trim().length > 0;
-  const filtered = searching
-    ? matches
-    : (() => {
-        const head = options.slice(0, CUISINE_VISIBLE_CAP);
-        const shown = new Set(head);
-        // Keep source order so chips don't reshuffle as picks change.
-        return options.filter((c) => shown.has(c) || selected.includes(c));
-      })();
-  const hiddenCount = searching ? 0 : options.length - filtered.length;
-
-  return (
-    <div>
-      <div className="flex items-center justify-end" style={{ marginBottom: 12, minHeight: 44 }}>
-        <AnimatePresence mode="wait" initial={false}>
-          {searchOpen ? (
-            <motion.div
-              key="bar"
-              initial={{ opacity: 0, scale: 0.94 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.96 }}
-              transition={OB.SPRING}
-              className="flex items-center gap-2"
-              style={{ width: '100%' }}
-            >
-              {/* The app's own field, handed to the native glass layer by
-                  `glassId` — a real UIGlassEffect capsule on iOS 26, the
-                  shared `.ios-search` material everywhere else. Hand-rolling
-                  `.glass-control` here looked flat: that class is only the
-                  fallback, and its backdrop-filter has nothing to refract
-                  against a plain onboarding background. */}
-              <SearchField
-                className="flex-1 min-w-0"
-                glassId="onboarding-cuisine-search"
-                value={query}
-                onChange={setQuery}
-                placeholder="Search cuisines"
-                aria-label="Search cuisines"
-                leadingIcon={<Search size={20} strokeWidth={2.4} />}
-                autoFocus
-              />
-              {/* Plain text, not a second glass capsule — glass beside glass
-                  reads as two objects fighting, and iOS puts a flat Cancel
-                  next to a search bar for exactly this reason. */}
-              <button
-                type="button"
-                onClick={() => { setSearchOpen(false); setQuery(''); }}
-                className="bg-transparent border-none cursor-pointer flex-shrink-0 p-0"
-                style={{ fontSize: 15, fontWeight: 600, color: OB.TERRA }}
-              >
-                Cancel
-              </button>
-            </motion.div>
-          ) : (
-            <motion.div
-              key="icon"
-              initial={{ opacity: 0, scale: 0.8 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.8 }}
-              transition={OB.SPRING}
-            >
-              <GlassButton
-                id="cuisine-search-open"
-                symbol="magnifyingglass"
-                label="Search cuisines"
-                onClick={() => setSearchOpen(true)}
-                className="flex items-center justify-center rounded-full border-none cursor-pointer active:scale-90 transition-transform"
-                // 44, the size the rest of the app's glass chrome uses: a
-                // lens needs enough of itself for the material to read, and
-                // it lands on the minimum touch target.
-                style={{ width: 44, height: 44 }}
-              >
-                <Search size={20} strokeWidth={2.2} style={{ color: 'var(--ob-ink-soft)' }} />
-              </GlassButton>
-            </motion.div>
-          )}
-        </AnimatePresence>
-      </div>
-      {filtered.length > 0 ? (
-        <TastePillGrid
-          dense
-          options={filtered.map((c) => ({ id: c, label: c }))}
-          selected={selected}
-          onToggle={onToggle}
-        />
-      ) : (
-        <p style={{ fontSize: 14, color: 'var(--ob-label)', padding: '8px 2px' }}>
-          No cuisines match "{query.trim()}".
-        </p>
-      )}
-      {hiddenCount > 0 && !searchOpen && (
-        <button
-          type="button"
-          onClick={() => setSearchOpen(true)}
-          className="bg-transparent border-none cursor-pointer p-0"
-          style={{ marginTop: 12, fontSize: 12.5, fontWeight: 600, color: OB.TERRA }}
-        >
-          + {hiddenCount} more — search to find yours
-        </button>
-      )}
+  const filtered = searching ? searchCuisines(query, options)
+    : options.filter((c, i) => expanded || i < 10 || selected.includes(c));
+  return <div className="ob-cuisines">
+    <OB.Field value={query} onChange={setQuery} placeholder="Find a cuisine" name="Search cuisines"
+      icon={<Search size={19} />} autoCapitalize="off" autoComplete="off"
+      rightSlot={query ? <button type="button" className="ob-clear" aria-label="Clear search" onClick={() => setQuery('')}><X size={16} /></button> : undefined} />
+    <div className="ob-selection-caption" aria-live="polite"><span>{searching ? `${filtered.length} ${filtered.length === 1 ? 'result' : 'results'}` : 'Pick a few favorites'}</span><span>{selected.length} selected</span></div>
+    <div className="ob-cuisine-grid" role="group" aria-label="Favorite cuisines">
+      {filtered.map(c => <motion.button type="button" key={c} className="ob-cuisine-card"
+        aria-pressed={selected.includes(c)} whileTap={{ scale: .97 }} onClick={() => onToggle(c)}>
+        <span>{c}</span><span className="ob-selection-indicator">{selected.includes(c) ? <Check size={13} /> : <Plus size={13} />}</span>
+      </motion.button>)}
     </div>
-  );
+    {filtered.length === 0 && <p className="ob-hint">No cuisines found. Try another name.</p>}
+    {!searching && <button type="button" className="ob-disclosure" onClick={() => setExpanded(!expanded)} aria-expanded={expanded}>
+      {expanded ? 'Show fewer cuisines' : `Explore all ${options.length} cuisines`}<span aria-hidden>↗</span>
+    </button>}
+  </div>;
 };
 
 /** People-to-follow list for the wizard: a full vertical stack (not a rail —

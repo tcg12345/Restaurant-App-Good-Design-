@@ -20,10 +20,10 @@ import { Capacitor } from '@capacitor/core';
 import { StatusBar, Style } from '@capacitor/status-bar';
 
 interface AppThemePlugin {
-  setTheme(options: { dark: boolean }): Promise<void>;
+  setTheme(options: { dark: boolean; system: boolean }): Promise<void>;
 }
 
-export async function applyNativeTheme(dark: boolean): Promise<void> {
+export async function applyNativeTheme(dark: boolean, system = false): Promise<void> {
   if (!Capacitor.isNativePlatform()) return;
 
   try {
@@ -38,7 +38,7 @@ export async function applyNativeTheme(dark: boolean): Promise<void> {
     const plugins = (window as unknown as {
       Capacitor?: { Plugins?: { AppTheme?: AppThemePlugin } };
     }).Capacitor?.Plugins;
-    await plugins?.AppTheme?.setTheme({ dark });
+    await plugins?.AppTheme?.setTheme({ dark, system });
   } catch (err) {
     console.warn('[theme] AppTheme.setTheme failed:', err);
   }

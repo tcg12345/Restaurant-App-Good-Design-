@@ -1,427 +1,175 @@
-import React, { useEffect, useMemo, useState, useRef } from 'react';
-import { motion } from 'motion/react';
-import { Star, LogIn } from 'lucide-react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { motion, useReducedMotion } from 'motion/react';
+import { ArrowUpRight, Check, ChevronRight, Coffee, Compass, MapPin, Sparkles, Star, Utensils } from 'lucide-react';
+import { GoalStep, GOAL_TITLE, GOAL_SUBTITLE } from './GoalStep';
+import { APP_GOAL_LABELS } from '../../lib/app-goal';
 import * as OB from './OnboardingKit';
-import { CuisineGrid, PriceStep, TASTE_CUISINES } from './TasteSteps';
+import { AtmosphereStep, ATMOSPHERE_OPTIONS, CuisineGrid, PriceStep, TASTE_CUISINES } from './TasteSteps';
 import { CityAutocomplete } from '../CityAutocomplete';
-import { savePickedLocation, geocodePlace } from '../HomeLocationBar';
-import { saveTasteQuiz, getTasteQuiz } from '../../lib/taste-quiz';
-import { savePreauthCity, markPreauthDone, savePreauthOutcome, getPreauthCity } from '../../lib/preauth';
+import { savePickedLocation, geocodePlace, type HomeLocation } from '../HomeLocationBar';
+import { saveTasteQuiz, getTasteQuiz, type TasteQuizAnswers } from '../../lib/taste-quiz';
+import { TASTE_QUESTION_ORDER, type TasteQuestion } from '../../lib/onboarding-progress';
+import { savePreauthCity, markPreauthDone, savePreauthOutcome, getPreauthCity, clearPreauthCity } from '../../lib/preauth';
 import { logOnboardingEvent, markOnboardingStep } from '../../lib/onboarding-events';
 import { fetchTastePreview } from '../../lib/taste-preview';
 import type { ScoredPlace } from '../../lib/recommendations';
 import { priceLevelToString } from '../../lib/places';
 import { cuisineLabel } from '../../lib/cuisine';
-import type { HomeLocation } from '../HomeLocationBar';
 
-/**
- * The pre-auth onboarding: taste questions BEFORE the account gate, with a
- * personalized preview as the payoff, so the signup ask arrives after the
- * app has shown what it can do — "save your taste profile", not "create an
- * account to find out".
- *
- * Everything collected here is device-local (lib/taste-quiz's local mirror
- * plus lib/preauth) and flows into the post-signup wizard: ProfileSetup
- * reads the answers, skips the questions already answered, prefills the
- * city, and stamps the profile row once it exists.
- *
- * The preview runs the REAL cold-start recommendation path — the quiz-
- * seeded taste profile through buildCandidateQueries and scoreCandidates —
- * not a canned list. What they see is what the app will actually do with
- * their answers, which is the only honest version of this screen.
- *
- * Escapes on the first and last screens: returning users go straight to
- * sign-in, and "Browse without an account" stays reachable (App Store
- * 5.1.1(v)). Leaving in any direction marks the flow done for this device.
- */
+type Step = 'welcome' | TasteQuestion | 'review';
+const ORDER: Step[] = ['welcome', ...TASTE_QUESTION_ORDER, 'review'];
+const COPY: Record<TasteQuestion, { title: string; sub: string; section: string }> = {
+  goal: { title: GOAL_TITLE, sub: GOAL_SUBTITLE, section: 'Your way to GoodEats' },
+  city: { title: 'Great food starts nearby.', sub: 'Choose your home city. You can explore anywhere, anytime.', section: 'Your neighborhood' },
+  cuisines: { title: 'What sounds good to you?', sub: 'The flavors you love help us find your next favorite.', section: 'Your favorites' },
+  prices: { title: 'Your kind of night out.', sub: 'What feels comfortable for an everyday meal?', section: 'Your budget' },
+  atmosphere: { title: 'Set the mood.', sub: 'Pick the feeling you come back for. We’ll use it to guide your recommendations.', section: 'Your atmosphere' },
+};
 
-type PreStep = 'welcome' | 'cuisines' | 'prices' | 'city' | 'preview';
-const ORDER: PreStep[] = ['welcome', 'cuisines', 'prices', 'city', 'preview'];
-
-/**
- * The welcome screen's one visual: three rows of a ranked list, scores
- * worn as discs. It says what the app IS — a ladder you build, not a
- * directory you browse — before a single question is asked, and it fills
- * the two-thirds of the screen that used to sit empty under the headline.
- * Real places, so the list reads like one a person would actually keep.
- */
-const TEASER_ROWS = [
-  { rank: 1, name: 'Lucali', sub: 'Pizza · $$', score: '9.4' },
-  { rank: 2, name: 'Via Carota', sub: 'Italian · $$$', score: '9.1' },
-  { rank: 3, name: "Xi'an Famous Foods", sub: 'Chinese · $', score: '8.7' },
-];
-
-const TeaserStack: React.FC = () => (
-  <div>
-    <OB.Reveal i={3}>
-      <div style={{ fontSize: 11, letterSpacing: '1.4px', fontWeight: 700, color: 'var(--ob-label)', textTransform: 'uppercase', marginBottom: 12 }}>
-        A taste of your list
-      </div>
-    </OB.Reveal>
-    <div className="flex flex-col" style={{ gap: 8 }} aria-hidden>
-      {TEASER_ROWS.map((row, i) => (
-        <motion.div
-          key={row.name}
-          initial={{ opacity: 0, y: 16 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.55, delay: 0.32 + i * 0.09, ease: OB.EASE }}
-          className="flex items-center gap-3 rounded-2xl"
-          style={{ padding: '11px 14px', background: 'var(--ob-card)', border: '1px solid var(--ob-border)', boxShadow: '0 1px 2px rgba(0,0,0,0.03)' }}
-        >
-          <span className="flex-none tabular-nums" style={{ width: 18, fontSize: 13, fontWeight: 700, color: 'var(--ob-label)' }}>{row.rank}</span>
-          <span className="flex-1 min-w-0">
-            <span className="block truncate font-serif font-bold" style={{ fontSize: 15.5, lineHeight: 1.2, color: 'var(--ob-ink)' }}>{row.name}</span>
-            <span className="block truncate" style={{ fontSize: 12.5, marginTop: 2, color: 'var(--ob-label)' }}>{row.sub}</span>
-          </span>
-          <motion.span
-            initial={{ scale: 0.6, opacity: 0 }}
-            animate={{ scale: 1, opacity: 1 }}
-            transition={{ ...OB.SPRING_SOFT, delay: 0.55 + i * 0.09 }}
-            className="flex-none flex items-center justify-center rounded-full tabular-nums"
-            style={{ width: 40, height: 40, fontSize: 13.5, fontWeight: 700, background: OB.TERRA, color: OB.ON_TERRA }}
-          >
-            {row.score}
-          </motion.span>
-        </motion.div>
-      ))}
-    </div>
-  </div>
-);
-
-const PreviewCard: React.FC<{ place: ScoredPlace; index: number; picked: string[]; celebrate?: number }> = ({ place, index, picked, celebrate }) => {
-  const cuisine = cuisineLabel(place);
-  const price = priceLevelToString(place.priceLevel);
-  const sub = [cuisine, price].filter(Boolean).join(' · ');
-  // This screen's headline is "built from your answers", so lead with a
-  // reason that actually came from them. Google's star count is true but
-  // says nothing about the person — leading with it is how the old preview
-  // made a personalization claim it couldn't support. And when the place
-  // is one of the cuisines they just tapped, SAY that: the engine's own
-  // ordering put "In your price range" on every card, because at cold
-  // start the cuisine term is confidence-halved and price is not.
-  const pickedMatch = cuisine && picked.find((p) => cuisine.toLowerCase().includes(p.toLowerCase()));
-  // The occasion tier carries half the usual tier's weight, so it never
-  // clears the engine's reason threshold on its own — name it here, or a
-  // $$$$ pick shows up explained by nothing but its star count.
-  const isCelebration = celebrate !== undefined && price.length === celebrate;
-  const why = pickedMatch
-    ? `${pickedMatch} — one of your picks`
-    : isCelebration
-      ? `For when you're celebrating (${price})`
-      : place.tasteReasons?.[0] ?? place.reasons?.[0];
-  return (
-    <motion.div
-      initial={{ opacity: 0, y: 14 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.45, delay: index * 0.07, ease: OB.EASE }}
-      className="rounded-2xl"
-      style={{ padding: '13px 16px', background: 'var(--ob-card)', border: '1px solid var(--ob-border)', boxShadow: '0 1px 2px rgba(0,0,0,0.03)' }}
-    >
-      <div className="flex items-center gap-3">
-        <span className="flex-1 min-w-0">
-          <span className="block truncate font-serif font-bold" style={{ fontSize: 15.5, lineHeight: 1.2, color: 'var(--ob-ink)' }}>{place.name}</span>
-          <span className="block truncate" style={{ fontSize: 12.5, marginTop: 3, color: 'var(--ob-label)' }}>{sub}</span>
-        </span>
-        {place.rating > 0 && (
-          <span className="flex-none inline-flex items-center gap-1" style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--ob-ink)' }}>
-            <Star size={12} fill="currentColor" strokeWidth={0} style={{ color: OB.TERRA }} />
-            {place.rating.toFixed(1)}
-          </span>
-        )}
-      </div>
-      {why && (
-        <span className="mt-2 inline-block rounded-full" style={{ padding: '4px 10px', fontSize: 11.5, fontWeight: 600, color: OB.TERRA, background: 'var(--ob-badge-bg)' }}>
-          {why}
-        </span>
-      )}
-    </motion.div>
-  );
+const WelcomeVisual = () => {
+  const reduce = useReducedMotion();
+  return <div className="ob-welcome-visual">
+  <motion.div className="ob-food-frame" initial={reduce ? false : { opacity: 0, scale: .97 }} animate={{ opacity: 1, scale: 1 }} transition={{ duration: .65, ease: OB.EASE }}><img src="/images/onboarding/contemporary-dining.jpg" alt="A bright contemporary restaurant with sushi, salad and pasta served at a shared table" />
+  </motion.div>
+  <motion.div className="ob-floating-note" initial={reduce ? false : { opacity: 0, y: 14, rotate: -5 }} animate={{ opacity: 1, y: 0, rotate: -3 }} transition={{ ...OB.SPRING_SOFT, delay: reduce ? 0 : .15 }}><span className="ob-note-icon"><Compass size={20} strokeWidth={1.5} /></span><span><strong>Find your next favorite table</strong><small>Discover, save, and dine out.</small></span><ArrowUpRight size={18} /></motion.div>
+  <div className="ob-visual-caption"><span /><span>Discover. Save. Make it yours.</span></div>
+</div>;
 };
 
 export const PreAuthFlow: React.FC<{
-  /** Leave for the Auth screen — 'signup' framed as saving the profile,
-   *  'signin' for the returning-user escape. */
   onExit: (mode: 'signup' | 'signin') => void;
   onBrowseAsGuest?: () => void;
 }> = ({ onExit, onBrowseAsGuest }) => {
-  const [step, setStep] = useState<PreStep>('welcome');
-  // +1 forward, -1 back — the entrance slide matches travel direction.
-  const [dir, setDir] = useState(1);
+  const reduce = useReducedMotion();
   const [saved] = useState(() => getTasteQuiz(null));
-  const [cuisineSel, setCuisineSel] = useState<string[]>(saved?.cuisines ?? []);
-  // The usual tier and the occasional one — stated as such, not inferred
-  // from tap order (see PriceStep).
-  const [pricePrimary, setPricePrimary] = useState<number | undefined>(saved?.pricePrimary);
-  const [priceSecondary, setPriceSecondary] = useState<number | undefined>(saved?.priceSecondary);
-  const priceSel = useMemo(
-    () => [pricePrimary, priceSecondary].filter((n): n is number => n !== undefined),
-    [pricePrimary, priceSecondary],
-  );
-  const [cityText, setCityText] = useState(getPreauthCity()?.label ?? '');
-  const [cityGeo, setCityGeo] = useState<HomeLocation | null>(() => getPreauthCity());
+  const [step, setStep] = useState<Step>('welcome');
+  const [dir, setDir] = useState(1);
+  const [editing, setEditing] = useState(false);
+  const [goal, setGoal] = useState(saved?.goal);
+  const [cuisines, setCuisines] = useState(saved?.cuisines ?? []);
+  const [primary, setPrimary] = useState(saved?.pricePrimary ?? saved?.prices?.[0]);
+  const [secondary, setSecondary] = useState(saved?.priceSecondary ?? saved?.prices?.[1]);
+  const [atmosphere, setAtmosphere] = useState(saved?.atmosphere);
+  const [completed, setCompleted] = useState<TasteQuestion[]>(saved?.completedSteps ?? []);
+  const [city, setCity] = useState<HomeLocation | null>(() => getPreauthCity());
+  const [cityText, setCityText] = useState(getPreauthCity()?.label ?? saved?.city ?? '');
+  const [busy, setBusy] = useState(false);
+  const busyRef = useRef(false);
+  const [error, setError] = useState('');
   const [preview, setPreview] = useState<ScoredPlace[] | null>(null);
+  const [previewAttempt, setPreviewAttempt] = useState(0);
+  const prices = useMemo(() => [primary, secondary].filter((n): n is number => n !== undefined), [primary, secondary]);
+  const answers = useMemo<TasteQuizAnswers>(() => ({
+    ...saved, goal, cuisines, prices, pricePrimary: primary, priceSecondary: secondary,
+    atmosphere, city: city?.label, completedSteps: completed,
+  }), [saved, goal, cuisines, prices, primary, secondary, atmosphere, city, completed]);
 
   useEffect(() => { logOnboardingEvent('preauth_start'); }, []);
-  // Which screen an abandon would be attributed to.
   useEffect(() => { markOnboardingStep(`preauth_${step}`); }, [step]);
-
-  const idx = ORDER.indexOf(step);
-  const go = (next: PreStep) => {
-    logOnboardingEvent(`preauth_${step}_done`);
-    setDir(1);
-    setStep(next);
-  };
-  const back = () => { if (cityBusy.current) return; if (idx > 0) { setDir(-1); setStep(ORDER[idx - 1]); } };
-
-  /** Persist answers to the local mirror (no user yet) — ProfileSetup
-   *  reads them back after signup and stamps the row. */
-  const persistAnswers = (geoOverride?: HomeLocation | null) => {
-    const geo = geoOverride ?? cityGeo;
-    if (cuisineSel.length === 0 && priceSel.length === 0 && !geo) return;
-    void saveTasteQuiz(undefined, {
-      cuisines: cuisineSel,
-      // Both shapes: the flat array for anything still reading it, and the
-      // primary/secondary split the pair + price priors actually want.
-      prices: priceSel,
-      pricePrimary,
-      priceSecondary,
-      city: geo?.label,
-      completedAt: Date.now(),
-    });
-  };
-
-  const leave = (mode: 'signup' | 'signin' | 'guest') => {
-    persistAnswers();
-    markPreauthDone();
-    // Durable, unlike App's `preauthExited` React state: a relaunch on the
-    // gate must still show the "save what you just built" ask, and a guest
-    // is owed one follow-up offer on a later launch.
-    savePreauthOutcome(mode);
-    // Left on purpose — not an abandon. The wizard re-registers on mount.
-    markOnboardingStep(null);
-    logOnboardingEvent(`preauth_gate_${mode}`);
-    if (mode === 'guest') onBrowseAsGuest?.();
-    else onExit(mode);
-  };
-
-  // Preview data — fires when the step is reached with a real city.
+  // Persist every edit, including empty choices. The account handoff reads
+  // this exact draft, so an optional skip never causes a repeated question.
   useEffect(() => {
-    if (step !== 'preview' || !cityGeo) return;
-    setPreview(null);
+    if (step !== 'welcome') void saveTasteQuiz(undefined, answers);
+  }, [answers, step]);
+  useEffect(() => {
+    if (step !== 'review' || !city) return;
     let cancelled = false;
+    setPreview(null);
     const timer = window.setTimeout(() => { if (!cancelled) { cancelled = true; setPreview([]); } }, 12000);
-    fetchTastePreview({ cuisines: cuisineSel, prices: priceSel }, cityGeo)
-      .then((places) => {
-        if (cancelled) return;
-        setPreview(places);
-        if (places.length > 0) logOnboardingEvent('preauth_preview_shown');
-      }).catch(() => { if (!cancelled) setPreview([]); }).finally(() => window.clearTimeout(timer));
+    fetchTastePreview({ ...answers, cuisines, prices }, city).then(places => {
+      if (!cancelled) setPreview(places);
+    }).catch(() => { if (!cancelled) setPreview([]); }).finally(() => window.clearTimeout(timer));
     return () => { cancelled = true; window.clearTimeout(timer); };
-  }, [step, cityGeo, cuisineSel, priceSel]);
+  }, [step, city, answers, cuisines, prices, previewAttempt]);
 
-  const [resolvingCity, setResolvingCity] = useState(false);
-  const cityBusy = useRef(false);
-  const [cityError, setCityError] = useState('');
-  const advanceFromCity = async () => {
-    if (cityBusy.current) return;
-    cityBusy.current = true;
-    setResolvingCity(true);
-    setCityError('');
-    try {
-      const geo = cityGeo ?? (cityText.trim() ? await geocodePlace(cityText.trim()) : null);
-      if (!geo && cityText.trim()) { setCityError('Choose a city from the suggestions, or skip for now.'); return; }
-      if (geo) {
-        setCityGeo(geo); setCityText(geo.label);
-        savePreauthCity(geo); savePickedLocation(geo);
-      }
-      persistAnswers(geo);
-      go('preview');
-    } catch { setCityError('Couldn’t find that city. Try again or skip for now.'); }
-    finally { cityBusy.current = false; setResolvingCity(false); }
+  const go = (next: Step, direction = 1) => {
+    (document.activeElement as HTMLElement | null)?.blur();
+    setError(''); setDir(direction); setStep(next);
   };
+  const complete = (key: TasteQuestion, cityOverride?: HomeLocation | null) => {
+    const nextCompleted = Array.from(new Set([...completed, key]));
+    setCompleted(nextCompleted);
+    void saveTasteQuiz(undefined, { ...answers, completedSteps: nextCompleted,
+      ...(cityOverride !== undefined ? { city: cityOverride?.label } : {}) });
+    logOnboardingEvent(`preauth_${key}_done`);
+    go(editing ? 'review' : ORDER[ORDER.indexOf(key) + 1]);
+    setEditing(false);
+  };
+  const next = async () => {
+    if (busyRef.current || step === 'welcome' || step === 'review') return;
+    if (step !== 'city') { complete(step); return; }
+    busyRef.current = true; setBusy(true); setError('');
+    try {
+      const picked = city ?? (cityText.trim() ? await geocodePlace(cityText.trim()) : null);
+      if (cityText.trim() && !picked) { setError('Choose a city from the results, or leave it for later.'); return; }
+      setCity(picked);
+      if (picked) { setCityText(picked.label); savePreauthCity(picked); savePickedLocation(picked); }
+      else clearPreauthCity();
+      complete('city', picked);
+    } catch { setError('We couldn’t find that city. Try again, or skip for now.'); }
+    finally { busyRef.current = false; setBusy(false); }
+  };
+  const leave = (mode: 'signup' | 'signin' | 'guest') => {
+    if (step !== 'welcome') void saveTasteQuiz(undefined, { ...answers, completedAt: Date.now() });
+    markPreauthDone(); savePreauthOutcome(mode); markOnboardingStep(null);
+    logOnboardingEvent(`preauth_gate_${mode}`);
+    if (mode === 'guest') onBrowseAsGuest?.(); else onExit(mode);
+  };
+  const edit = (key: TasteQuestion) => { setEditing(true); go(key, -1); };
+  const toggle = (setter: React.Dispatch<React.SetStateAction<string[]>>, id: string) => setter(prev => prev.includes(id) ? prev.filter(v => v !== id) : [...prev, id]);
+  const summary = [
+    { key: 'goal' as const, label: 'Here for', value: goal ? APP_GOAL_LABELS[goal] : 'Exploring everything', icon: Compass },
+    { key: 'city' as const, label: 'Home city', value: city?.label || 'Choose later', icon: MapPin },
+    { key: 'cuisines' as const, label: 'Favorite cuisines', value: cuisines.join(', ') || 'Open to everything', icon: Utensils },
+    { key: 'prices' as const, label: 'Everyday budget', value: primary ? `${'$'.repeat(primary)}${secondary ? ` · ${'$'.repeat(secondary)} for occasions` : ''}` : 'All price ranges', icon: Star },
+    { key: 'atmosphere' as const, label: 'Atmosphere', value: ATMOSPHERE_OPTIONS.find(a => a.id === atmosphere)?.title || 'A little of everything', icon: Sparkles },
+  ];
+  const footer = step === 'welcome' ? <>
+    <p className="ob-footer-note">Five quick questions. A world of better picks.</p>
+    <OB.PrimaryButton onClick={() => go('goal')}>Find my favorites</OB.PrimaryButton>
+    {onBrowseAsGuest && <OB.GhostButton onClick={() => leave('guest')}>Just looking? Explore first</OB.GhostButton>}
+  </> : step === 'review' ? <>
+    <OB.PrimaryButton onClick={() => leave('signup')}>Save & create account</OB.PrimaryButton>
+    {onBrowseAsGuest && <OB.GhostButton onClick={() => leave('guest')}>Explore without an account</OB.GhostButton>}
+  </> : <>
+    {error && <OB.ErrorRow>{error}</OB.ErrorRow>}
+    <OB.PrimaryButton onClick={() => void next()} loading={busy}>{editing ? 'Save changes' : step === 'atmosphere' ? 'See my taste profile' : 'Continue'}</OB.PrimaryButton>
+    <button className="ob-skip" type="button" disabled={busy} onClick={() => {
+      if (step === 'city') { setCity(null); setCityText(''); clearPreauthCity(); complete(step, null); }
+      else complete(step);
+    }}>{editing ? 'Keep these preferences' : 'Skip for now'}</button>
+  </>;
 
-  // One footer per step, keyed so it re-plays its entrance on every step
-  // change (the content pane remounts the same way via `key={step}`) — but
-  // rendered OUTSIDE the scrollable pane, so "Continue" lands on the exact
-  // same pixel on 'cuisines' as it does on the much longer 'preview' list.
-  //
-  // The primary button is always the LAST element in the footer, never the
-  // first: a footer is only as tall as what's actually in it, so a ghost
-  // link stacked BELOW the button would push the button itself up on
-  // exactly the steps that have one — the same drifting-button bug one
-  // level down. Anything secondary goes ABOVE it instead, so the button's
-  // distance from the bottom edge never depends on what else is on screen.
-  const footer = (() => {
-    switch (step) {
-      case 'welcome':
-        return (
-          <OB.Reveal key={step} i={3}>
-            {/* Sign in is a real button, not a line of grey text: half of
-                everyone landing here already has an account, and making
-                them hunt for eight-word ghost copy was burying the second
-                most important action on the screen. Still secondary — the
-                bordered pill, never a second terracotta. */}
-            {onBrowseAsGuest && (
-              <div style={{ marginBottom: 4 }}>
-                <OB.GhostButton onClick={() => leave('guest')}>Browse without an account</OB.GhostButton>
-              </div>
-            )}
-            <div style={{ marginBottom: 10 }}>
-              <OB.SecondaryButton icon={<LogIn size={16} strokeWidth={2} />} onClick={() => leave('signin')}>
-                Sign in
-              </OB.SecondaryButton>
-            </div>
-            <OB.PrimaryButton onClick={() => go('cuisines')}>Get started</OB.PrimaryButton>
-          </OB.Reveal>
-        );
-      case 'cuisines':
-        return (
-          <OB.Reveal key={step} i={3}>
-            <OB.PrimaryButton onClick={() => go('prices')}>Continue</OB.PrimaryButton>
-          </OB.Reveal>
-        );
-      case 'prices':
-        return (
-          <OB.Reveal key={step} i={3}>
-            <OB.PrimaryButton onClick={() => go('city')}>Continue</OB.PrimaryButton>
-          </OB.Reveal>
-        );
-      case 'city':
-        return (
-          <OB.Reveal key={step} i={3}>
-            {/* Skip disappears once a city exists — with one picked, the
-                only honest action left is showing the picks, and a skip
-                that DISCARDED a chosen city was exactly the bug here. */}
-            {!resolvingCity && (
-              <div style={{ marginBottom: 4 }}>
-                <OB.GhostButton onClick={() => { persistAnswers(); go('preview'); }}>Skip for now</OB.GhostButton>
-              </div>
-            )}
-            {cityError && <OB.ErrorRow>{cityError}</OB.ErrorRow>}
-            <OB.PrimaryButton onClick={() => { void advanceFromCity(); }} loading={resolvingCity}>
-              {cityGeo ? 'Show my picks' : 'Continue'}
-            </OB.PrimaryButton>
-          </OB.Reveal>
-        );
-      case 'preview':
-        return (
-          <OB.Reveal key={step} i={3}>
-            {onBrowseAsGuest && <OB.GhostButton onClick={() => leave('guest')}>Explore first</OB.GhostButton>}
-            <OB.PrimaryButton onClick={() => leave('signup')} trailing="check">Save my taste profile</OB.PrimaryButton>
-          </OB.Reveal>
-        );
-    }
-  })();
-
-  return (
-    <OB.OnboardingScreen
-      header={step !== 'welcome' && <OB.ProgressHeader step={idx} total={ORDER.length - 1} onBack={back} />}
-      footer={footer}
-    >
-      {/* Keyed div, no AnimatePresence — entrance plays per step (direction-
-          aware) and nothing gates on an exit animation completing. */}
-      <motion.div
-        key={step}
-        initial={{ opacity: 0, x: 24 * dir }}
-        animate={{ opacity: 1, x: 0 }}
-        transition={OB.SPRING}
-        className="flex flex-1 flex-col"
-      >
-        {step === 'welcome' && (
-          <div className="flex flex-1 flex-col">
-            <motion.div
-              initial={{ opacity: 0, scale: 0.6 }}
-              animate={{ opacity: 1, scale: 1 }}
-              transition={{ ...OB.SPRING_SOFT, delay: 0.05 }}
-              style={{ marginTop: 24 }}
-            >
-              <OB.BrandMark size={56} />
-            </motion.div>
-            <div style={{ marginTop: 26 }}>
-              <OB.Reveal blur i={1}><OB.Title size={36}>Find your next <em>favorite table</em></OB.Title></OB.Reveal>
-              <OB.Reveal i={2}><OB.Subtitle>A couple quick questions, and we'll show you where to eat.</OB.Subtitle></OB.Reveal>
-            </div>
-            {/* Pushed to the bottom of the scroll region so it sits just
-                above the actions, whatever the screen height. */}
-            <div style={{ marginTop: 'auto', paddingTop: 36, paddingBottom: 8 }}>
-              <TeaserStack />
-            </div>
-          </div>
-        )}
-
-        {step === 'cuisines' && (
-          <div className="flex flex-1 flex-col">
-            <OB.StepHeader
-              title="Which cuisines do you love?"
-              subtitle={cuisineSel.length > 0
-                ? `${cuisineSel.length} picked — add as many as you like.`
-                : 'Pick as many as you like.'}
-            />
-            <div style={{ marginTop: 22 }}>
-              <CuisineGrid
-                options={TASTE_CUISINES}
-                selected={cuisineSel}
-                onToggle={(id) => setCuisineSel((prev) => prev.includes(id) ? prev.filter((c) => c !== id) : [...prev, id])}
-              />
-            </div>
-          </div>
-        )}
-
-        {step === 'prices' && (
-          <div className="flex flex-1 flex-col">
-            <OB.StepHeader title={<>What do you usually <em>spend?</em></>} subtitle="Your usual budget. Optional." />
-            <OB.Reveal i={2} style={{ marginTop: 26 }}>
-              <PriceStep
-                primary={pricePrimary}
-                secondary={priceSecondary}
-                onChange={(p, s) => { setPricePrimary(p); setPriceSecondary(s); }}
-              />
-            </OB.Reveal>
-          </div>
-        )}
-
-        {step === 'city' && (
-          <div className="flex flex-1 flex-col">
-            <OB.StepHeader title={<>Where do you <em>eat?</em></>} subtitle="Your first picks come from here." />
-            <OB.Reveal i={2} style={{ marginTop: 26 }}>
-              <CityAutocomplete
-                value={cityText}
-                onChange={(v) => { setCityText(v); setCityGeo(null); }}
-                onPick={(loc) => { setCityText(loc.label); setCityGeo(loc); }}
-                onSubmit={advanceFromCity}
-              />
-            </OB.Reveal>
-          </div>
-        )}
-
-        {step === 'preview' && (
-          <div className="flex flex-1 flex-col">
-            <OB.StepHeader
-              title={cityGeo ? 'Your first picks' : 'Your taste profile is ready'}
-              subtitle={cityGeo
-                ? `Near ${cityGeo.label.split(',')[0]} — built from your answers.`
-                : "Save it and we'll surface tables that fit it, wherever you are."}
-            />
-            {cityGeo && (
-              <div className="flex flex-col gap-2.5" style={{ marginTop: 22 }}>
-                {preview === null ? (
-                  [0, 1, 2].map((i) => (
-                    <div key={i} className="animate-pulse rounded-2xl" style={{ height: 74, background: 'var(--ob-divider)' }} />
-                  ))
-                ) : preview.length > 0 ? (
-                  preview.slice(0, 4).map((p, i) => (
-                    <PreviewCard key={p.id} place={p} index={i} picked={cuisineSel} celebrate={priceSecondary} />
-                  ))
-                ) : (
-                  <p style={{ fontSize: 14, lineHeight: 1.5, color: 'var(--ob-label)' }}>
-                    We couldn't pull picks for that area just now — your taste profile is saved and ready either way.
-                  </p>
-                )}
-              </div>
-            )}
-          </div>
-        )}
-      </motion.div>
-    </OB.OnboardingScreen>
-  );
+  return <OB.OnboardingScreen contentKey={step} header={step === 'welcome' ? <div className="ob-wordmark"><span><OB.BrandMark size={30} />GoodEats<span className="ob-wordmark-dot">.</span></span><button type="button" onClick={() => leave('signin')}>Sign in <ArrowUpRight size={14} /></button></div>
+    : <OB.ProgressHeader step={step === 'review' ? TASTE_QUESTION_ORDER.length + 1 : TASTE_QUESTION_ORDER.indexOf(step) + 1} total={TASTE_QUESTION_ORDER.length + 1}
+      label={step === 'review' ? 'Made for you' : COPY[step].section}
+      onBack={() => { if (!busyRef.current) { go(editing ? 'review' : ORDER[ORDER.indexOf(step) - 1], -1); setEditing(false); } }} />}
+    footer={footer}>
+    <motion.div key={step} className="ob-step" initial={reduce ? false : { opacity: 0, x: 18 * dir }} animate={{ opacity: 1, x: 0 }} transition={{ duration: .3, ease: OB.EASE }}>
+      {step === 'welcome' ? <div className="ob-welcome">
+        <WelcomeVisual />
+        <div className="ob-welcome-copy"><span className="ob-kicker">Good taste. Great places.</span><OB.Title size={40}>Life’s too short<br />for ordinary food.</OB.Title><OB.Subtitle>Discover places you’ll love, keep your favorites close, and make every meal a good one.</OB.Subtitle></div>
+      </div> : step === 'review' ? <>
+        <div className="ob-ready-icon"><Check size={26} strokeWidth={1.6} /></div>
+        <OB.StepHeader topGap={14} title="A taste of what’s to come." subtitle="Your starting point, shaped by you. Tap any detail to fine-tune it." />
+        <div className="ob-summary">{summary.map(({ key, label, value, icon: Icon }) => <button type="button" key={key} onClick={() => edit(key)} aria-label={`Edit ${label}`}><Icon size={19} strokeWidth={1.5} /><span><small>{label}</small><strong>{value}</strong></span><ChevronRight size={16} /></button>)}</div>
+        {city && <section className="ob-preview"><div className="ob-section-heading"><span>Worth a first look</span><span>{city.label.split(',')[0]}</span></div>
+          {preview === null ? <div role="status" aria-label="Finding nearby restaurants" className="ob-preview-loading"><span /><span /><span /></div>
+          : preview.length ? preview.slice(0, 3).map(p => <div key={p.id} className="ob-preview-row"><span><strong>{p.name}</strong><small>{[cuisineLabel(p), priceLevelToString(p.priceLevel)].filter(Boolean).join(' · ')}</small></span>{p.rating > 0 && <span className="ob-preview-rating"><Star size={12} />{p.rating.toFixed(1)}<small>Google</small></span>}</div>)
+          : <div className="ob-hint">Nearby picks are taking a little longer. Your preferences are saved.<button type="button" className="ob-disclosure" onClick={() => setPreviewAttempt(n => n + 1)}>Try again</button></div>}
+        </section>}
+      </> : <>
+        <OB.StepHeader title={COPY[step].title} subtitle={COPY[step].sub} />
+        <div className="ob-question-body">
+          {step === 'goal' && <GoalStep selected={goal} onChange={setGoal} />}
+          {step === 'city' && <><div className="ob-city-art" aria-hidden><div className="ob-map-streets" /><span className="ob-map-pin ob-map-pin-small"><Utensils size={16} /></span><span className="ob-map-pin ob-map-pin-main"><MapPin size={29} strokeWidth={1.6} /></span><span className="ob-map-pin ob-map-pin-side"><Coffee size={17} strokeWidth={1.5} /></span><span className="ob-map-caption">Your next favorite is out there.</span></div>
+            <CityAutocomplete value={cityText} onChange={v => { setCityText(v); setCity(null); clearPreauthCity(); }} onPick={loc => { setCity(loc); setCityText(loc.label); }} onSubmit={() => void next()} />
+            <p className="ob-hint">Only your city is saved to your profile.</p></>}
+          {step === 'cuisines' && <CuisineGrid options={TASTE_CUISINES} selected={cuisines} onToggle={id => toggle(setCuisines, id)} />}
+          {step === 'prices' && <PriceStep primary={primary} secondary={secondary} onChange={(p, s) => { setPrimary(p); setSecondary(s); }} />}
+          {step === 'atmosphere' && <AtmosphereStep selected={atmosphere} onChange={setAtmosphere} />}
+        </div>
+      </>}
+    </motion.div>
+  </OB.OnboardingScreen>;
 };

@@ -1,3 +1,4 @@
+import { useLocalBack } from '../lib/back-navigation';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import { motion, useReducedMotion } from 'motion/react';
@@ -597,8 +598,10 @@ export const Create: React.FC = () => {
     setMode(next);
   };
   useEffect(() => { if (initial === 'guide') { setMode(null); openGuideCreator(); } }, []);
+  const navigationOwner = useRef<HTMLDivElement>(null);
+  useLocalBack(mode !== null, () => setMode(null), navigationOwner);
   const current = CREATION_CHOICES.find(choice => choice.id === mode);
-  return <div className="create-studio">
+  return <div ref={navigationOwner} className="create-studio">
     {mode !== 'post' && <header className="create-studio-header">
       <GlassButton id="create-back" symbol={mode ? 'chevron.left' : 'xmark'} label={mode ? 'Back to Create' : 'Close Create'} onClick={mode ? () => setMode(null) : goBack} className="create-studio-back">
         {mode ? <ArrowLeft size={21} /> : <X size={22} />}

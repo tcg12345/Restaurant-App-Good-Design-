@@ -267,7 +267,8 @@ export function useBottomSheet(
       onDragStart: () => onDragStateChange?.(true),
       onDragEnd: (_event, info) => {
         onDragStateChange?.(false);
-        if (info.offset.y > 100 || info.velocity.y > 300) onClose();
+        if ((_event as Event)?.type === 'pointercancel' || (_event as Event)?.type === 'touchcancel') return;
+        if (info.offset.y > 100 || (info.offset.y > 0 && info.velocity.y > 300)) onClose();
       },
     }),
     [onClose, dragControls, onDragStateChange],
@@ -310,6 +311,8 @@ export function useBottomSheet(
     let started = false;
     let startX = 0;
     let startY = 0;
+    let beganInScroller = false;
+    let beganScrolled = false;
 
     const decide = (x: number, y: number) => {
       if (phase !== 'undecided') return;
@@ -319,12 +322,18 @@ export function useBottomSheet(
       if (Math.abs(dx) > Math.abs(dy)) { phase = 'browser'; return; }
       if (dy < 0) { phase = 'browser'; return; }
       const scroller = scrollRef?.current;
-      if (scroller && scroller.scrollTop > 0) { phase = 'browser'; return; }
+      if (beganScrolled || (beganInScroller && scroller && scroller.scrollTop > 0)) { phase = 'browser'; return; }
       phase = 'sheet';
     };
 
     const onPointerDown = (e: PointerEvent) => {
-      if (e.pointerType === 'mouse' && e.button !== 0) return;
+      if ((e.pointerType === 'mouse' && e.button !== 0) || e.isPrimary === false) return;
+      if (e.target instanceof Element && e.target.closest('input,textarea,select,[contenteditable=true],[role=slider],[data-sheet-no-drag],[data-horizontal-gesture],video,canvas')) { phase = 'browser'; return; }
+      beganInScroller = !!(e.target instanceof Node && scrollRef?.current?.contains(e.target));
+      beganScrolled = false;
+      for (let node = e.target instanceof Element ? e.target : null; node && node !== root; node = node.parentElement) {
+        if (node.scrollTop > 0 && /(auto|scroll)/.test(getComputedStyle(node).overflowY)) beganScrolled = true;
+      }
       phase = 'undecided';
       started = false;
       startX = e.clientX;
@@ -340,6 +349,7 @@ export function useBottomSheet(
     };
 
     const onTouchMove = (e: TouchEvent) => {
+      if (e.touches.length !== 1) { phase = 'browser'; return; }
       const t = e.touches[0];
       if (t) decide(t.clientX, t.clientY);
       // The veto. Once any touchmove is canceled, WebKit abandons native

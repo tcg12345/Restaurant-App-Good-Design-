@@ -1,3 +1,4 @@
+import { allowBackNavigation } from './back-navigation';
 import { useCallback } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { backTargetFor } from './nav-stack';
@@ -8,6 +9,7 @@ export function usePageBack(fallback: string) {
   const location = useLocation();
   const navigate = useNavigate();
   return useCallback(() => {
+    if (!allowBackNavigation()) return;
     const idx = typeof window.history.state?.idx === 'number' ? window.history.state.idx : 0;
     const perform = () => {
       const target = backTargetFor(idx, location.pathname, location.search, fallback);

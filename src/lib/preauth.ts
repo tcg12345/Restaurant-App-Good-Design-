@@ -93,3 +93,7 @@ export function shouldAskGuestToSave(): boolean {
 export function noteGuestAsked(): void {
   try { localStorage.setItem(GUEST_ASKED_KEY, '1'); } catch { /* storage off */ }
 }
+
+export function clearPreauthCity(): void {
+  try { localStorage.removeItem(CITY_KEY); } catch { /* storage off */ }
+}

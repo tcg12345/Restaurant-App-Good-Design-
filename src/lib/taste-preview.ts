@@ -55,7 +55,7 @@ export const __testing = { matchesStatedCuisine };
 
 /** At most 3 billed text searches, behind the search memo. */
 export async function fetchTastePreview(
-  answers: { cuisines: string[]; prices: number[] },
+  answers: { cuisines: string[]; prices: number[]; pricePrimary?: number; priceSecondary?: number; atmosphere?: string; dietary?: string[] },
   city: HomeLocation,
   opts?: { limit?: number },
 ): Promise<ScoredPlace[]> {
@@ -64,8 +64,10 @@ export async function fetchTastePreview(
   const profile = buildTasteProfile([], [], [], [], {
     cuisines: answers.cuisines,
     prices: answers.prices,
-    pricePrimary: answers.prices[0],
-    priceSecondary: answers.prices[1],
+    pricePrimary: answers.pricePrimary ?? answers.prices[0],
+    priceSecondary: answers.priceSecondary ?? answers.prices[1],
+    atmosphere: answers.atmosphere,
+    dietary: answers.dietary,
     city: city.label,
   });
   const queries = buildCandidateQueries(profile, city).slice(0, 3);

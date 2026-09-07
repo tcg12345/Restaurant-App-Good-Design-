@@ -91,6 +91,7 @@ export function fallbackForPath(pathname: string, search = ''): string | null {
   if (pathname.startsWith('/restaurant/')) return '/search/main';
   if (/^\/(recipe|meal|import|reorder|recipes-for-you)(\/|$)/.test(pathname)) return '/pantry';
   if (pathname.startsWith('/user/')) return '/circle';
+  if (pathname.startsWith('/guides/')) return '/guides';
   if (pathname === '/settings' || pathname === '/activity') return '/profile';
   return '/';
 }
@@ -109,7 +110,7 @@ export function backTargetFor(idx: number, pathname: string, search: string, fal
  * which are a modal view of that profile rather than a destination.
  */
 export function isSheetPath(pathname: string): boolean {
-  return /^\/user\/[^/]+\/(followers|following|rated)$/.test(pathname);
+  return pathname === '/guides' || /^\/user\/[^/]+\/(followers|following|rated)$/.test(pathname);
 }
 
 /**
@@ -126,4 +127,11 @@ export function stackKeyFor(pathname: string, search = ''): string {
   }
   const sheet = /^(\/user\/[^/]+)\/(followers|following|rated)$/.exec(pathname);
   return sheet ? `${sheet[1]}#sheet` : pathname;
+}
+
+/** Presentation, not the destination's name, decides its return gesture. */
+export function routeBackGesture(pathname: string, search: string, state: { navigationPresentation?: string } | null, hasBack: boolean): 'right' | 'left' | 'down' | null {
+  if (!hasBack || pathname === '/' || (state?.navigationPresentation === 'tab' && isTabRootLocation(pathname, search))) return null;
+  if (isSheetPath(pathname)) return 'down';
+  return pathname === '/create' ? 'left' : 'right';
 }
