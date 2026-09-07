@@ -9,7 +9,7 @@ export type AnalyticsFields = { restaurant_id?: string; restaurant_name?: string
 type Event = AnalyticsFields & { user_id: string | null; id: string; event: string; occurred_at: string; anon_id: string; session_id: string; page: string; platform: string; app_version: string };
 let queue: Event[] = [];
 let posthogQueue: Event[] = [];
-let flushing = false;
+let pendingFlush: Promise<boolean> | undefined;
 let userId: string | null = null;
 let blocked = false;
 let identityReady = false;
@@ -70,16 +70,41 @@ function enqueue(event: string, fields: AnalyticsFields = {}) {
 export function track(event: string, fields: AnalyticsFields = {}) {
   try { enqueue(event, fields); } catch { /* Analytics must never interrupt the product. */ }
 }
-export async function flushAnalytics() {
-  if (flushing || !supabaseConfigured || !queue.length || blocked || optedOut()) return;
-  flushing = true;
+export function flushAnalytics(): Promise<boolean> {
+  if (pendingFlush) return pendingFlush;
+  if (!supabaseConfigured || !queue.length || blocked || optedOut()) return Promise.resolve(false);
   const batch = queue.splice(0, 40);
   const actor = userId;
+  pendingFlush = (async () => {
+    try {
+      const { error } = await supabase.rpc('analytics_collect', { events: batch });
+      if (error && actor === userId && !blocked && !optedOut()) queue = [...batch, ...queue].slice(-300);
+      return !error;
+    } catch {
+      if (actor === userId && !blocked && !optedOut()) queue = [...batch, ...queue].slice(-300);
+      return false;
+    }
+  })().finally(() => { pendingFlush = undefined; });
+  return pendingFlush;
+}
+
+/** Send final actions while the current JWT is still available. A slow or
+ * offline analytics endpoint must not prevent the user from signing out. */
+export async function flushAnalyticsBeforeSignOut(timeoutMs = 1500) {
+  const actor = userId;
+  let expired = false;
+  let timer: ReturnType<typeof setTimeout>;
+  const drain = async () => {
+    while (!expired && actor === userId && (queue.length || pendingFlush)) {
+      if (!await flushAnalytics()) break;
+    }
+  };
   try {
-    const { error } = await supabase.rpc('analytics_collect', { events: batch });
-    if (error && actor === userId && !blocked && !optedOut()) queue = [...batch, ...queue].slice(-300);
-  } catch { if (actor === userId && !blocked && !optedOut()) queue = [...batch, ...queue].slice(-300); }
-  finally { flushing = false; }
+    await Promise.race([
+      drain(),
+      new Promise<void>(resolve => { timer = setTimeout(() => { expired = true; resolve(); }, timeoutMs); }),
+    ]);
+  } finally { clearTimeout(timer!); }
 }
 export function startAnalytics() {
   if (started || !analyticsEnabled) return;

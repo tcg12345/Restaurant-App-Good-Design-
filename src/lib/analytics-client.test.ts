@@ -4,8 +4,36 @@ const {rpc}=vi.hoisted(()=>({rpc:vi.fn()}));
 vi.mock('./supabase',()=>({supabaseConfigured:true,supabase:{rpc}}));
 vi.mock('./native-oauth',()=>({isNativeRuntime:()=>false}));
 beforeEach(()=>{vi.resetModules();vi.stubEnv('VITE_ANALYTICS_ENABLED','true');vi.stubEnv('VITE_ANALYTICS_SEARCH_TERMS','false');vi.stubEnv('VITE_ANALYTICS_INCLUDE_ADMINS','false');localStorage.clear();rpc.mockReset();rpc.mockResolvedValue({error:null});});
-afterEach(()=>{vi.unstubAllEnvs();});
+afterEach(()=>{vi.unstubAllEnvs();vi.useRealTimers();});
 describe('client analytics lifecycle',()=>{
+ it('flushes a final save before sign-out, including when another batch is in flight',async()=>{
+  const a=await import('./analytics');a.setAnalyticsIdentity('user',false);a.setAnalyticsPage('/restaurant/cottage');
+  let finish!: (value: {error:null})=>void;
+  rpc.mockImplementationOnce(()=>new Promise(resolve=>{finish=resolve;}));
+  a.track('page_view');const first=a.flushAnalytics();
+  a.trackRestaurant('restaurant_saved','cottage','The Cottage');
+  const exiting=a.flushAnalyticsBeforeSignOut();
+  expect(rpc).toHaveBeenCalledTimes(1);
+  finish({error:null});await first;await exiting;
+  expect(rpc).toHaveBeenCalledTimes(2);
+  expect(rpc.mock.calls[1][1].events).toEqual([expect.objectContaining({event:'restaurant_saved',user_id:'user',restaurant_id:'cottage'})]);
+ });
+ it('lets sign-out proceed when analytics stalls and does not drain under the next account',async()=>{
+  vi.useFakeTimers();
+  const a=await import('./analytics');a.setAnalyticsIdentity('user',false);
+  let finish!: (value: {error:null})=>void;
+  rpc.mockImplementationOnce(()=>new Promise(resolve=>{finish=resolve;}));
+  a.track('page_view');const first=a.flushAnalytics();a.trackRestaurant('restaurant_saved','cottage');
+  const exiting=a.flushAnalyticsBeforeSignOut();
+  await vi.advanceTimersByTimeAsync(1500);await exiting;
+  a.setAnalyticsIdentity('next-user',false);finish({error:null});await first;
+  expect(rpc).toHaveBeenCalledTimes(1);
+ });
+ it('does not repeatedly retry a failed batch while signing out',async()=>{
+  const a=await import('./analytics');a.setAnalyticsIdentity('user',false);a.track('page_view');
+  rpc.mockResolvedValue({error:{message:'offline'}});
+  await a.flushAnalyticsBeforeSignOut();expect(rpc).toHaveBeenCalledTimes(1);
+ });
  it('retries the same event ID, strips private properties and keeps search text disabled',async()=>{
   const a=await import('./analytics');a.setAnalyticsIdentity(null,false);a.setAnalyticsPage('/search/main?token=secret');
   a.track('search_completed',{properties:{query:'private search',result_count:4,prompt:'do not collect'}});

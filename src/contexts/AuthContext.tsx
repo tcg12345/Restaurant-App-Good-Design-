@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { supabase, supabaseConfigured, SESSION_STORAGE_KEY } from '../lib/supabase';
 import { isNativeRuntime, signInWithOAuthNative, completeOAuthFromLaunchUrl } from '../lib/native-oauth';
+import { flushAnalyticsBeforeSignOut } from '../lib/analytics';
 import { signInWithAppleNative } from '../lib/native-apple';
 import { fetchProfile, getPendingRequests, type UserProfile } from '../lib/supabase-community';
 import { isAppAdmin } from '../lib/supabase-verification';
@@ -688,6 +689,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const signOut = useCallback(async () => {
     if (!supabaseConfigured) return;
+    await flushAnalyticsBeforeSignOut();
     await supabase.auth.signOut();
     markNeedsPassword(false);
     clearGuest();

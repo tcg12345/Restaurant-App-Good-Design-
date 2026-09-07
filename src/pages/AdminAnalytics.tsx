@@ -37,7 +37,7 @@ export function AdminAnalytics() {
  return <AnalyticsDashboard isAdmin={isAdmin} adminChecked={adminChecked} authLoading={authLoading} />;
 }
 
-export function AnalyticsDashboard({ isAdmin, adminChecked, authLoading }: { isAdmin: boolean; adminChecked: boolean; authLoading: boolean }) {
+export function AnalyticsDashboard({ isAdmin, adminChecked, authLoading }: { isAdmin: boolean; adminChecked: boolean | 'unknown'; authLoading: boolean }) {
  const [tab,setTab]=useState<Tab>('Overview');
  const [days,setDays]=useState(30); const [platform,setPlatform]=useState('');
  const [report,setReport]=useState<Report|null>(null); const [busy,setBusy]=useState(false); const [error,setError]=useState(''); const [refresh,setRefresh]=useState(0);
@@ -75,7 +75,7 @@ export function AnalyticsDashboard({ isAdmin, adminChecked, authLoading }: { isA
   const {data,error}=await supabase.rpc('analytics_user_activity',{actor_id:actor,before_time:last.created_at,before_id:last.id});
   if(requested!==actorRef.current)return;setTimelineBusy(false);if(error)setTimelineError(error.message);else{setTimeline(t=>[...t,...(data||[])]);setMore(data?.length===100);}
  }
- if(authLoading||!adminChecked) return <div className="analytics-loading">Checking access…</div>;
+ if(authLoading||adminChecked === 'unknown') return <div className="analytics-loading">Checking access…</div>;
  if(!isAdmin) return <div className="analytics-loading">Page not found. <Link to="/">Go home</Link></div>;
  const o=report?.overview||{};
  const selected:Row[]=report?.[({Pages:'pages',Features:'features',Restaurants:'restaurants',APIs:'apis',Users:'users',Search:'searches',Outcomes:'outcomes'} as any)[tab]]||[];

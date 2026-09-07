@@ -11,9 +11,10 @@ export function AnalyticsTracker() {
   const location = useLocation();
   const previous = useRef('');
   useEffect(() => { startAnalytics(); }, []);
-  useEffect(() => { if (!loading && (!user || adminChecked)) setAnalyticsIdentity(user?.id ?? null, isAdmin); }, [user?.id, isAdmin, adminChecked, loading]);
+  // `false` is a completed check for a regular user; only 'unknown' is pending.
+  useEffect(() => { if (!loading && (!user || adminChecked !== 'unknown')) setAnalyticsIdentity(user?.id ?? null, isAdmin); }, [user?.id, isAdmin, adminChecked, loading]);
   useEffect(() => {
-    if (!analyticsEnabled || loading || (user && !adminChecked)) return;
+    if (!analyticsEnabled || loading || (user && adminChecked === 'unknown')) return;
     const page = pageName(location.pathname);
     setAnalyticsPage(location.pathname);
     if (previous.current.split('|')[0] !== location.key) {
@@ -39,7 +40,7 @@ export function AnalyticsTracker() {
     return () => { account(); clearInterval(timer); document.removeEventListener('visibilitychange', visibility); for (const name of ['pointerdown', 'keydown', 'scroll']) window.removeEventListener(name, activity, true); void native?.then(h => h.remove()); };
   }, [location.key, location.pathname, loading, user?.id, adminChecked]);
   useEffect(() => {
-    if (!analyticsEnabled || loading || (user && !adminChecked)) return;
+    if (!analyticsEnabled || loading || (user && adminChecked === 'unknown')) return;
     const seen = new WeakSet<Element>();
     const observer = new IntersectionObserver(entries => {
       for (const e of entries) {

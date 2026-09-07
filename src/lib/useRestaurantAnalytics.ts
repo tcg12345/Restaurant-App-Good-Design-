@@ -7,7 +7,7 @@ export function useRestaurantAnalytics(id?: string, name?: string, surface = 'de
  const { loading, user, adminChecked } = useAuth();
  const last = useRef('');
  useEffect(()=>{
-  if (!id || loading || (user && !adminChecked)) return;
+  if (!id || loading || (user && adminChecked === 'unknown')) return;
   if (surface === 'detail' && !route.pathname.startsWith('/restaurant/')) return;
   if (surface === 'detail' && decodeURIComponent(route.pathname.split('/')[2] || '') !== id && !route.pathname.includes('michelin')) return;
   const key = `${route.key}:${id}:${surface}`;
