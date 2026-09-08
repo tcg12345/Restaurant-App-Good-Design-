@@ -1,3 +1,4 @@
+import { FeedbackForm } from '../components/FeedbackForm';
 import { analyticsOptedOut, setAnalyticsOptOut } from '../lib/analytics';
 import { TastePreferencesEditor } from '../components/settings/TastePreferencesEditor';
 import { ReviewArchive } from '../components/in-review/ReviewArchive';
@@ -48,7 +49,7 @@ import pkg from '../../package.json';
 
 /** Focused settings routes share one consistent navigation and form shell. */
 
-const PAGE_TITLES = { taste: 'Taste profile settings', reviews: 'GoodEats in Review', edit: 'Edit profile', account: 'Account & security', email: 'Email address', phone: 'Phone number', password: 'Password', privacy: 'Privacy & permissions', appearance: 'Appearance & feedback', ratings: 'Rating preferences', home: 'Home & personalization', subscription: 'GoodEats Pro', data: 'Your data', support: 'Help & about', verification: 'Verification', delete: 'Delete account' } as const;
+const PAGE_TITLES = { feedback: 'Feedback & suggestions', taste: 'Taste profile settings', reviews: 'GoodEats in Review', edit: 'Edit profile', account: 'Account & security', email: 'Email address', phone: 'Phone number', password: 'Password', privacy: 'Privacy & permissions', appearance: 'Appearance & feedback', ratings: 'Rating preferences', home: 'Home & personalization', subscription: 'GoodEats Pro', data: 'Your data', support: 'Help & about', verification: 'Verification', delete: 'Delete account' } as const;
 type SubPage = keyof typeof PAGE_TITLES;
 
 /** Human names for the profile columns saveProfile may have to skip, so a
@@ -447,6 +448,7 @@ export const SettingsPage: React.FC = () => {
     { page: 'home', title: 'Home & personalization', sub: 'Make it feel like you', icon: <SlidersHorizontal size={19} />, group: 'Your experience', keywords: 'carousel autoplay rotate reset algorithm' },
     { page: 'subscription', title: 'GoodEats Pro', sub: plan.subscribed ? 'Your membership' : 'Plan and purchases', icon: <Sparkles size={19} />, group: 'More from GoodEats' },
     { page: 'data', title: 'Your data', sub: 'Import, export and photo uploads', icon: <Download size={19} />, group: 'More from GoodEats' },
+    { page: 'feedback', title: 'Feedback & suggestions', sub: 'Share an idea or report a problem', icon: <SquarePen size={19} />, group: 'More from GoodEats', keywords: 'bug feature request suggestion issue' },
     { page: 'support', title: 'Help & about', sub: 'Support and app information', icon: <LifeBuoy size={19} />, group: 'More from GoodEats', keywords: 'terms policy version legal' },
   ];
   const searchable = [...links,
@@ -829,11 +831,13 @@ export const SettingsPage: React.FC = () => {
         {group('Take a copy', <><Row icon={<Download size={19} />} title="Export everything" sub="Ratings, lists, trips and recipes · JSON" tag={proLocked ? <ProTag /> : undefined} onPress={() => exportData('json')} /><Row icon={<Download size={19} />} title="Export ratings" sub="Ready for a spreadsheet · CSV" tag={proLocked ? <ProTag /> : undefined} onPress={() => exportData('csv')} /></>, isNativeRuntime() ? 'Exports open in the web app.' : undefined)}
         {group('Photo uploads', pendingUploads > 0 ? <Row icon={<UploadCloud size={19} />} title={`${pendingUploads} waiting to upload`} sub="Your photos are kept on this device" onPress={listsCtx.retryPendingPhotoUploads} /> : <div className="settings-explainer settings-upload-status"><Check size={20} />No photos waiting to upload</div>)}
       </>}
+      {page === 'feedback' && <FeedbackForm />}
       {page === 'support' && <>
+        {group('Share your thoughts', <Row icon={<SquarePen size={19} />} title="Feedback & suggestions" sub="Help shape what comes next" onPress={() => go('feedback')} />)}
         {group('Here to help', <Row icon={<LifeBuoy size={19} />} title="Contact support" sub="Get help or share feedback" onPress={() => void openExternalUrl(SUPPORT_URL)} />)}
         <section className="settings-section"><h2>Quick answers</h2><div className="settings-group settings-faq"><details><summary>Where are my scores?</summary><p>Numeric scores unlock after 10 rated restaurants. Before then, you’ll see your ranking.</p></details><details><summary>How do I manage permissions?</summary><p>On iPhone, open Settings and find GoodEats. In a browser, open this site’s permission settings.</p></details><details><summary>How do I restore Pro?</summary><p>Open GoodEats Pro in Settings on your iPhone, then choose Restore purchases using the Apple account that purchased it.</p></details></div></section>
         {group('About GoodEats', <><Row icon={<Shield size={19} />} title="Privacy policy" onPress={() => void openExternalUrl(PRIVACY_URL)} /><Row icon={<FileText size={19} />} title="Terms of service" onPress={() => void openExternalUrl(TERMS_URL)} /><div className="settings-version-row"><span>Version</span><span>{pkg.version}</span></div></>)}
-        {isAdmin && group('Administration', <><Row icon={<BadgeCheck size={19} />} title="Analytics" onPress={() => navigate('/admin/analytics')} /><Row icon={<BadgeCheck size={19} />} title="Verification requests" onPress={() => navigate('/admin/verification')} /><Row icon={<Utensils size={19} />} title="Cuisine suggestions" onPress={() => navigate('/admin/cuisine')} /></>)}
+        {isAdmin && group('Administration', <><Row icon={<SquarePen size={19} />} title="Feedback inbox" onPress={() => navigate('/admin/feedback')} /><Row icon={<BadgeCheck size={19} />} title="Analytics" onPress={() => navigate('/admin/analytics')} /><Row icon={<BadgeCheck size={19} />} title="Verification requests" onPress={() => navigate('/admin/verification')} /><Row icon={<Utensils size={19} />} title="Cuisine suggestions" onPress={() => navigate('/admin/cuisine')} /></>)}
       </>}
       {page === 'delete' && <div className="settings-delete"><span><Trash2 size={28} /></span><h2>Delete your account</h2><p>This permanently removes your profile, ratings, recipes, posts, guides, photos and friends. It can’t be undone.</p><button className="settings-primary settings-danger" onClick={() => setConfirmDelete(true)}>Delete account</button><button className="settings-text-button" onClick={back}>Keep my account</button></div>}
       {page && accountMsg && <p className="settings-feedback" role="status"><Check size={16} />{accountMsg}</p>}

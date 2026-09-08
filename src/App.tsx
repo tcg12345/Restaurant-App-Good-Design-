@@ -1,3 +1,4 @@
+import { AdminFeedback } from './pages/AdminFeedback';
 import { AnalyticsTracker } from './components/AnalyticsTracker';
 import { NotFoundPage } from './pages/NotFoundPage';
 import { InReviewProvider } from './contexts/InReviewContext';
@@ -169,9 +170,10 @@ function useIsDesktop(): boolean {
 // it to RequireAuthRoute as `redirect` so a hidden (inactive) layer renders
 // null for guests instead of a <Navigate> that re-fires on every location
 // change and permanently hijacks navigation back to Home.
-const keepAliveElement = (path: string, active: boolean): React.ReactNode => {
+const keepAliveElement = (path: string, active: boolean, phoneMode: boolean): React.ReactNode => {
   switch (path) {
-    case '/': return <Home />;
+    // Preserve the mobile launch/feed experience; desktop keeps its original discovery layout.
+    case '/': return phoneMode ? <Home /> : <Discover mode="home" />;
     case '/search': return <Search />;
     case '/search/main': return <SearchMain />;
     case '/pantry': return <RequireAuthRoute reason="Sign in to open your lists" redirect={active}><Pantry /></RequireAuthRoute>;
@@ -584,7 +586,7 @@ const AppContent: React.FC = () => {
               inert={!active}
               data-kept-page={path}
             >
-              {keepAliveElement(path, active)}
+              {keepAliveElement(path, active, phoneMode)}
             </div>
           );
         })}
@@ -626,7 +628,7 @@ const AppContent: React.FC = () => {
         >
         <React.Fragment key={refreshKeyFor(location.pathname)}>
         <Routes location={location}>
-          <Route path="/" element={<Discover mode="home" />} />
+          <Route path="/" element={phoneMode ? <Home /> : <Discover mode="home" />} />
           <Route path="/map" element={<Discover mode="map" />} />
           <Route path="/auth" element={<Navigate to="/" replace />} />
           {/* Public on purpose: guests can read what Pro is; buying asks
@@ -656,6 +658,7 @@ const AppContent: React.FC = () => {
           <Route path="/verify/apply" element={<RequireAuthRoute reason="Sign in to request verification"><VerificationApply /></RequireAuthRoute>} />
           <Route path="/admin/verification" element={<RequireAuthRoute reason="Sign in to continue"><AdminVerification /></RequireAuthRoute>} />
           <Route path="/admin/analytics" element={<RequireAuthRoute reason="Sign in to continue"><React.Suspense fallback={<div className="p-8">Loading analytics…</div>}><AdminAnalytics /></React.Suspense></RequireAuthRoute>} />
+          <Route path="/admin/feedback" element={<RequireAuthRoute reason="Sign in to continue"><AdminFeedback /></RequireAuthRoute>} />
           <Route path="/admin/cuisine" element={<RequireAuthRoute reason="Sign in to continue"><AdminCuisineSuggestions /></RequireAuthRoute>} />
           <Route path="/profile" element={<RequireAuthRoute reason="Sign in to view your profile"><Profile /></RequireAuthRoute>} />
           <Route path="/settings/:section?" element={<RequireAuthRoute reason="Sign in to manage your account"><SettingsPage /></RequireAuthRoute>} />

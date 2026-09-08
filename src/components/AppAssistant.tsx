@@ -1090,7 +1090,7 @@ export const AppAssistant: React.FC = () => {
           lists.openHomeMealModal(undefined, { initialMethod: feature === 'dish' ? 'dish' : 'ai', initialAiView: 'recipe' });
         } else navigate(feature === 'group' ? '/decide' : '/pantry/recommended');
       }}
-      hideLauncher={shouldHideFab(location.pathname) || (location.pathname === '/' && !homeFeedVisible)}
+      hideLauncher={shouldHideFab(location.pathname) || (settings.phoneMode && location.pathname === '/' && !homeFeedVisible)}
       fabAboveBottomNav={fabAboveBottomNav}
       fabOverTakeover={onSearchMap && takeoverOpen}
       fabHidden={fabHidden}

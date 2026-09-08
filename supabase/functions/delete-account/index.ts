@@ -8,7 +8,7 @@ import { withRequestTelemetry } from '../_shared/api-telemetry.ts';
 //
 // What gets removed:
 //   1. Storage objects — the user's folders in the `reels-videos` and
-//      `post-media` buckets (storage does not cascade from auth.users).
+//      `post-media` and `feedback-screenshots` buckets (storage does not cascade from auth.users).
 //   2. The auth.users row via the admin API. Every application table
 //      (user_app_data, user_profiles, user_friends, community_ratings,
 //      community_photos, recipes, recipe_reviews, posts/*, reels/*,
@@ -52,7 +52,7 @@ async function getCallerId(req: Request): Promise<string | null> {
 }
 
 /** Buckets that store per-user media under a `{userId}/...` prefix. */
-const USER_BUCKETS = ['reels-videos', 'post-media'];
+const USER_BUCKETS = ['reels-videos', 'post-media', 'feedback-screenshots'];
 
 /** Remove every object under the user's folder in one bucket. Paged so
  *  prolific posters (>100 objects, the default list page size) are fully

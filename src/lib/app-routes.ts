@@ -27,6 +27,7 @@ const ROUTE_PATTERNS: string[] = [
   '/experts',
   '/verify/apply',
   '/admin/verification',
+  '/admin/feedback',
   '/profile',
   '/profile/taste',
   '/profile/top/:listKey',
