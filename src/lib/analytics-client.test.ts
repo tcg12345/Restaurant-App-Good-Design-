@@ -6,6 +6,18 @@ vi.mock('./native-oauth',()=>({isNativeRuntime:()=>false}));
 beforeEach(()=>{vi.resetModules();vi.stubEnv('VITE_ANALYTICS_ENABLED','true');vi.stubEnv('VITE_ANALYTICS_SEARCH_TERMS','false');vi.stubEnv('VITE_ANALYTICS_INCLUDE_ADMINS','false');localStorage.clear();rpc.mockReset();rpc.mockResolvedValue({error:null});});
 afterEach(()=>{vi.unstubAllEnvs();vi.useRealTimers();});
 describe('client analytics lifecycle',()=>{
+ it('sends a save immediately even when an earlier request is in flight',async()=>{
+  const a=await import('./analytics');a.setAnalyticsIdentity('user',false);a.setAnalyticsPage('/restaurant/jungsik');
+  let finish!: (value:{error:null})=>void;
+  rpc.mockImplementationOnce(()=>new Promise(resolve=>{finish=resolve;}));
+  a.track('page_view');const first=a.flushAnalytics();
+  a.trackRestaurant('restaurant_saved','jungsik','Jungsik');
+  expect(rpc).toHaveBeenCalledTimes(1);
+  finish({error:null});await first;
+  expect(rpc).toHaveBeenCalledTimes(2);
+  expect(rpc.mock.calls[1][1].events).toContainEqual(expect.objectContaining({event:'restaurant_saved',restaurant_id:'jungsik'}));
+  await a.flushAnalytics();
+ });
  it('flushes a final save before sign-out, including when another batch is in flight',async()=>{
   const a=await import('./analytics');a.setAnalyticsIdentity('user',false);a.setAnalyticsPage('/restaurant/cottage');
   let finish!: (value: {error:null})=>void;

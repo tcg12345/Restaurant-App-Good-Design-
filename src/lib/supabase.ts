@@ -2,6 +2,7 @@ import { createClient } from '@supabase/supabase-js';
 import { Capacitor } from '@capacitor/core';
 import { App } from '@capacitor/app';
 import { authStorage, authStorageKey } from './auth-storage';
+import { supabaseFetch } from './supabase-fetch';
 
 export const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || '';
 export const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
@@ -17,6 +18,7 @@ export const supabase = createClient(
   supabaseUrl || 'https://placeholder.supabase.co',
   supabaseAnonKey || 'placeholder',
   {
+    global: { fetch: supabaseFetch },
     auth: {
       // PKCE works for both the web redirect and the native (Capacitor)
       // deep-link flow: the provider returns a `?code=` that we exchange

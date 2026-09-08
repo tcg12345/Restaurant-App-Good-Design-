@@ -20,6 +20,7 @@ let anonId = '';
 let posthog: typeof import('posthog-js').default | undefined;
 let started = false;
 let memoryOptOut = false;
+const immediateEvents = new Set(['restaurant_saved', 'restaurant_unsaved', 'restaurant_rated', 'restaurant_list_added']);
 
 function optedOut() {
   try { return memoryOptOut || localStorage.getItem('goodeats-analytics-optout') === 'true'; } catch { return memoryOptOut; }
@@ -61,11 +62,14 @@ function enqueue(event: string, fields: AnalyticsFields = {}) {
   const properties = safeProperties(fields.properties);
   if (!searchTermsEnabled) delete properties.query;
   const row: Event = { user_id: userId, id: crypto.randomUUID(), event: event.slice(0, 64), occurred_at: new Date().toISOString(), ...identity(), page: currentPage, platform: isNativeRuntime() ? 'ios' : 'web', app_version: import.meta.env.VITE_APP_VERSION || '1.0.0', ...fields, restaurant_id: fields.restaurant_id?.slice(0,160), restaurant_name: fields.restaurant_name?.slice(0,160), feature: fields.feature?.slice(0,80), properties };
-  queue.push(row);
+  // Keep business actions ahead of high-volume API telemetry, and start
+  // sending them before a back navigation/reload can discard this document.
+  if (immediateEvents.has(event)) queue.unshift(row);
+  else queue.push(row);
   if (queue.length > 300) queue = queue.slice(-300);
   if (posthog) { try { posthog.capture(event, row); } catch { /* optional sink */ } }
   else { posthogQueue.push(row); if (posthogQueue.length>300) posthogQueue.shift(); }
-  if (queue.length >= 40) void flushAnalytics();
+  if (immediateEvents.has(event) || queue.length >= 40) void flushAnalytics();
 }
 export function track(event: string, fields: AnalyticsFields = {}) {
   try { enqueue(event, fields); } catch { /* Analytics must never interrupt the product. */ }
@@ -75,16 +79,23 @@ export function flushAnalytics(): Promise<boolean> {
   if (!supabaseConfigured || !queue.length || blocked || optedOut()) return Promise.resolve(false);
   const batch = queue.splice(0, 40);
   const actor = userId;
+  let succeeded = false;
   pendingFlush = (async () => {
     try {
       const { error } = await supabase.rpc('analytics_collect', { events: batch });
       if (error && actor === userId && !blocked && !optedOut()) queue = [...batch, ...queue].slice(-300);
-      return !error;
+      succeeded = !error;
+      return succeeded;
     } catch {
       if (actor === userId && !blocked && !optedOut()) queue = [...batch, ...queue].slice(-300);
       return false;
     }
-  })().finally(() => { pendingFlush = undefined; });
+  })().finally(() => {
+    pendingFlush = undefined;
+    // A save may have arrived while another batch was already in flight.
+    // Drain it as soon as that request finishes, but do not spin on errors.
+    if (succeeded && actor === userId && queue.some(row => immediateEvents.has(row.event))) void flushAnalytics();
+  });
   return pendingFlush;
 }
 
@@ -111,6 +122,7 @@ export function startAnalytics() {
   started = true;
   window.setInterval(() => void flushAnalytics(), 10_000);
   document.addEventListener('visibilitychange', () => { if (document.hidden) void flushAnalytics(); });
+  window.addEventListener('pagehide', () => { void flushAnalytics(); });
   const key = import.meta.env.VITE_POSTHOG_KEY;
   if (key) void import('posthog-js').then(({ default: ph }) => {
     posthog = ph;

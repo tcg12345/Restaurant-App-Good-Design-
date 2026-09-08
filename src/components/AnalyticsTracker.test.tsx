@@ -16,7 +16,28 @@ vi.mock('../contexts/AuthContext', () => ({ useAuth: () => auth }));
 vi.mock('../lib/supabase', () => ({ supabaseConfigured: true, supabase: { rpc } }));
 vi.mock('../lib/native-oauth', () => ({ isNativeRuntime: () => false }));
 vi.mock('@capacitor/core', () => ({ Capacitor: { isNativePlatform: () => false } }));
+vi.mock('../contexts/ToastContext', () => ({ useToast: () => ({ showToast: vi.fn() }) }));
+vi.mock('../contexts/SignInModalContext', () => ({ useSignInModal: () => ({ requireSignIn: vi.fn() }) }));
+vi.mock('../lib/supabase-db', () => ({
+  loadUserData: vi.fn().mockResolvedValue(null), saveRatings: vi.fn().mockResolvedValue(true),
+  saveLists: vi.fn().mockResolvedValue(true), saveWishlistData: vi.fn().mockResolvedValue(true),
+  saveMetaData: vi.fn().mockResolvedValue(true), saveUserData: vi.fn().mockResolvedValue(true),
+  saveRecentViews: vi.fn().mockResolvedValue(true), saveTrips: vi.fn().mockResolvedValue(true),
+  saveHomeMeals: vi.fn().mockResolvedValue(true), saveCustomOrder: vi.fn().mockResolvedValue(true),
+  saveVisitHistoryColumn: vi.fn().mockResolvedValue(true),
+}));
+vi.mock('../lib/supabase-community', () => ({
+  getUserRatings: vi.fn().mockResolvedValue([]), getVisitHistory: vi.fn().mockResolvedValue([]),
+  listMyCommunityRestaurantIds: vi.fn().mockResolvedValue([]), getMyCommunityPhotoUrls: vi.fn().mockResolvedValue([]),
+}));
+vi.mock('../lib/restaurant-cuisine', () => ({
+  getRestaurantCuisineBatch: vi.fn().mockResolvedValue(new Map()), getRestaurantCuisine: vi.fn().mockResolvedValue(null),
+  publishRestaurantCuisine: vi.fn().mockResolvedValue(undefined), PERSIST_CONFIDENCE_FLOOR: 0.8,
+}));
+vi.mock('../lib/cuisine-lookup', () => ({ lookupCuisines: vi.fn().mockResolvedValue([]) }));
 import { AnalyticsTracker } from './AnalyticsTracker';
+import { ListsProvider, useLists } from '../contexts/ListsContext';
+import { saveWishlistData } from '../lib/supabase-db';
 import { useRestaurantAnalytics } from '../lib/useRestaurantAnalytics';
 import { flushAnalytics, setAnalyticsIdentity, setAnalyticsOptOut, setAnalyticsPage, trackRestaurant } from '../lib/analytics';
 
@@ -25,19 +46,20 @@ let host: HTMLDivElement, root: Root;
 let intersections: Array<{ callback: IntersectionObserverCallback; nodes: Set<Element> }>;
 
 function Flow() {
+  const { toggleWishlist, isWishlisted } = useLists();
   const route = useLocation();
   const navigate = useNavigate();
   const detail = route.pathname.startsWith('/restaurant/');
   useRestaurantAnalytics(detail ? restaurantId : undefined, 'The Cottage');
   return detail
-    ? <button onClick={() => trackRestaurant('restaurant_saved', restaurantId, 'The Cottage')}>Save to wishlist</button>
+    ? <button onClick={() => toggleWishlist({ id: restaurantId, name: 'The Cottage', image: '', cuisine: 'American', price: '$$', address: 'Westport' })}>{isWishlisted(restaurantId) ? 'Remove from wishlist' : 'Save to wishlist'}</button>
     : <button data-restaurant-id={restaurantId} data-restaurant-name="The Cottage" onClick={() => {
         trackRestaurant('restaurant_search_selected', restaurantId, 'The Cottage');
         navigate(`/restaurant/${restaurantId}`);
       }}>The Cottage</button>;
 }
 async function render() {
-  await act(async () => root.render(<MemoryRouter initialEntries={['/search/main']}><AnalyticsTracker /><Flow /></MemoryRouter>));
+  await act(async () => root.render(<MemoryRouter initialEntries={['/search/main']}><AnalyticsTracker /><ListsProvider><Flow /></ListsProvider></MemoryRouter>));
 }
 function exposeResults() {
   for (const observer of intersections) {
@@ -88,6 +110,11 @@ describe('analytics for ordinary signed-in users', () => {
     exposeResults(); // the same visible card is counted once
     await act(async () => host.querySelector('button')!.click());
     await act(async () => host.querySelector('button')!.click());
+    // This is the real provider action used by the detail-page button.
+    // Both the wishlist and analytics must be sent without advancing the 10s timer.
+    expect(host.querySelector('button')!.textContent).toBe('Remove from wishlist');
+    expect(saveWishlistData).toHaveBeenCalledWith('regular-user', expect.arrayContaining([expect.objectContaining({ restaurantId })]));
+    expect(events()).toContainEqual(expect.objectContaining({ event: 'restaurant_saved', restaurant_id: restaurantId }));
     await flushAnalytics();
     const rows = events();
     for (const [event, page] of [
@@ -105,7 +132,7 @@ describe('analytics for ordinary signed-in users', () => {
 
   it('records a detail visit when a regular account is already resolved at mount', async () => {
     auth.adminChecked = false;
-    await act(async () => root.render(<MemoryRouter initialEntries={[`/restaurant/${restaurantId}`]}><AnalyticsTracker /><Flow /></MemoryRouter>));
+    await act(async () => root.render(<MemoryRouter initialEntries={[`/restaurant/${restaurantId}`]}><AnalyticsTracker /><ListsProvider><Flow /></ListsProvider></MemoryRouter>));
     await flushAnalytics();
     expect(events()).toContainEqual(expect.objectContaining({ event: 'restaurant_opened', user_id: 'regular-user', page: 'restaurant_detail' }));
   });
