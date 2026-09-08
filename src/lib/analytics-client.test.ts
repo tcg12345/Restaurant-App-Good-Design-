@@ -65,3 +65,38 @@ describe('client analytics lifecycle',()=>{
   a.setAnalyticsOptOut(false);a.setAnalyticsPage('/admin/analytics');a.track('page_view');await a.flushAnalytics();expect(rpc).not.toHaveBeenCalled();
  });
 });
+
+describe('analytics audit regressions',()=>{
+ it('keeps a critical save when hundreds of API events saturate the buffer',async()=>{
+  const a=await import('./analytics');a.setAnalyticsIdentity('user',false);
+  let finish!: (value:{error:null})=>void;
+  rpc.mockImplementationOnce(()=>new Promise(resolve=>{finish=resolve;}));
+  a.track('page_view');const first=a.flushAnalytics();
+  for(let i=0;i<350;i++) a.track('api_request',{properties:{status:200}});
+  a.trackRestaurant('restaurant_saved','saved');
+  finish({error:null});await first;await a.flushAnalytics();
+  expect(rpc.mock.calls.flatMap(([,args])=>args.events)).toContainEqual(expect.objectContaining({event:'restaurant_saved',restaurant_id:'saved'}));
+ });
+ it('bounds long field-mask batches so keepalive and collector payload limits are respected',async()=>{
+  const a=await import('./analytics');a.setAnalyticsIdentity('user',false);
+  for(let i=0;i<40;i++) a.track('api_request',{properties:{provider:'google_places',field_mask:'x'.repeat(1200),source:'s'.repeat(160),endpoint:'d'.repeat(160)}});
+  await a.flushAnalytics();await a.flushAnalytics();
+  expect(rpc.mock.calls.flatMap(([,args])=>args.events)).toHaveLength(40);
+  for(const [,args] of rpc.mock.calls) expect(new TextEncoder().encode(JSON.stringify(args)).byteLength).toBeLessThan(48*1024);
+ });
+ it('preserves data origin across returned, opened and saved events without inventing API requests',async()=>{
+  const a=await import('./analytics');const p=await import('./restaurant-provenance');
+  a.setAnalyticsIdentity('user',false);
+  p.rememberRestaurantSource('google','google_places');p.rememberRestaurantSource('catalog','own_data');
+  for(const id of ['google','catalog','old']) {
+   a.trackRestaurant('restaurant_returned',id);a.trackRestaurant('restaurant_opened',id);a.trackRestaurant('restaurant_saved',id);
+  }
+  await a.flushAnalytics();await a.flushAnalytics();
+  const rows=rpc.mock.calls.flatMap(([,args])=>args.events);
+  for(const [id,source] of [['google','google_places'],['catalog','own_data'],['old','unknown']]) {
+   expect(rows.filter(r=>r.restaurant_id===id)).toHaveLength(3);
+   expect(rows.filter(r=>r.restaurant_id===id).every(r=>r.properties.data_source===source)).toBe(true);
+  }
+  expect(rows.some(r=>r.event==='api_request')).toBe(false);
+ });
+});

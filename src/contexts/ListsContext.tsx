@@ -1,3 +1,4 @@
+import { rememberRestaurantSource, type RestaurantProvenance } from '../lib/restaurant-provenance';
 import { track, trackRestaurant } from '../lib/analytics';
 import { mergeReviewArchives, REVIEW_META_KEY } from '../lib/in-review';
 import { mergeTastePreferences, TASTE_PREFERENCES_KEY } from '../lib/taste-preferences';
@@ -85,7 +86,7 @@ export interface RestaurantRating {
   ratingMethod?: 'h2h' | 'slider' | 'import';
 }
 
-export interface RestaurantMeta {
+export interface RestaurantMeta extends RestaurantProvenance {
   id: string;
   name: string;
   image: string;
@@ -2494,6 +2495,7 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
 
   // Restaurant metadata cache
   const cacheRestaurantMeta = useCallback((meta: Partial<RestaurantMeta> & { id: string }) => {
+    meta = { ...meta, dataSource: rememberRestaurantSource(meta.id, meta.dataSource || restaurantMetaRef.current[meta.id]?.dataSource) };
     // Defensively strip any Google Places photo URL so we never persist a
     // URL whose render would trigger a billed Google API call.
     const cleaned: Partial<RestaurantMeta> & { id: string } = {
@@ -2518,6 +2520,7 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
           } as RestaurantMeta
         : ({
             id: cleaned.id,
+            dataSource: cleaned.dataSource,
             name: cleaned.name ?? '',
             image: cleaned.image ?? '',
             cuisine: cleaned.cuisine ?? '',
@@ -2537,6 +2540,7 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   }, [commitMeta]);
 
   const getRestaurantInfo = useCallback((restaurantId: string): RestaurantMeta | undefined => {
+    rememberRestaurantSource(restaurantId, restaurantMetaRef.current[restaurantId]?.dataSource);
     const rated = ratings.find((r) => r.restaurantId === restaurantId);
     const wished = wishlist.find((w) => w.restaurantId === restaurantId);
     const cached = restaurantMeta[restaurantId];
@@ -3359,6 +3363,7 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     // with edited notes/listIds), and addedAt alone would tie the stale cloud
     // copy in the merge and lose the edit.
     const stamped: WishlistItem = { ...item, updatedAt: Date.now() };
+    wishlistRef.current = [stamped, ...wishlistRef.current.filter(w => w.restaurantId !== item.restaurantId)];
     setWishlist((prev) => {
       const existing = prev.find((w) => w.restaurantId === stamped.restaurantId);
       const next = existing
@@ -3388,6 +3393,9 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   }, [cacheRestaurantMeta, syncWishlistToCloud, syncListsToCloud, untombstone]);
 
   const removeFromWishlist = useCallback((restaurantId: string) => {
+    const saved = wishlistRef.current.find(w => w.restaurantId === restaurantId);
+    if (saved) trackRestaurant('restaurant_unsaved', restaurantId, saved.name, { outcome: 'local_save' });
+    wishlistRef.current = wishlistRef.current.filter(w => w.restaurantId !== restaurantId);
     tombstone('wishlist', restaurantId);
     setWishlist((prev) => {
       const next = prev.filter((w) => w.restaurantId !== restaurantId);
@@ -3420,8 +3428,9 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   // itself so reversing doesn't spawn another toast).
   const toggleWishlist = useCallback((restaurant: RestaurantMeta, opts?: { undoable?: boolean; silent?: boolean }) => {
     cacheRestaurantMeta(restaurant);
-    const isOn = wishlist.some((w) => w.restaurantId === restaurant.id);
-    trackRestaurant(isOn ? 'restaurant_unsaved' : 'restaurant_saved', restaurant.id, restaurant.name, { outcome: 'local_save' });
+    const isOn = wishlistRef.current.some((w) => w.restaurantId === restaurant.id);
+    wishlistRef.current = isOn ? wishlistRef.current.filter(w => w.restaurantId !== restaurant.id) : [{ restaurantId: restaurant.id, name: restaurant.name, image: safeImage(restaurant.image), cuisine: restaurant.cuisine, price: restaurant.price, address: restaurant.address, notes: '', listIds: [], addedAt: Date.now() }, ...wishlistRef.current];
+    trackRestaurant(isOn ? 'restaurant_unsaved' : 'restaurant_saved', restaurant.id, restaurant.name, { outcome: 'local_save', data_source: restaurant.dataSource });
     // Removing tombstones the entry; re-adding clears it.
     if (isOn) tombstone('wishlist', restaurant.id);
     else untombstone('wishlist', restaurant.id);

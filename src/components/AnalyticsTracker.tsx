@@ -9,7 +9,7 @@ import { analyticsEnabled, setAnalyticsIdentity, setAnalyticsPage, startAnalytic
 export function AnalyticsTracker() {
   const { user, isAdmin, adminChecked, loading } = useAuth();
   const location = useLocation();
-  const previous = useRef('');
+  const previous = useRef({ key: '', actor: '', page: '', visitId: '' });
   useEffect(() => { startAnalytics(); }, []);
   // `false` is a completed check for a regular user; only 'unknown' is pending.
   useEffect(() => { if (!loading && (!user || adminChecked !== 'unknown')) setAnalyticsIdentity(user?.id ?? null, isAdmin); }, [user?.id, isAdmin, adminChecked, loading]);
@@ -17,16 +17,19 @@ export function AnalyticsTracker() {
     if (!analyticsEnabled || loading || (user && adminChecked === 'unknown')) return;
     const page = pageName(location.pathname);
     setAnalyticsPage(location.pathname);
-    if (previous.current.split('|')[0] !== location.key) {
-      track('page_view', { feature: page, properties: { source: previous.current.split('|')[1] || 'entry' } });
-      previous.current = `${location.key}|${page}`;
+    const actor = user?.id || 'anonymous';
+    if (previous.current.key !== location.key || previous.current.actor !== actor) {
+      const visitId = crypto.randomUUID();
+      track('page_view', { feature: page, properties: { visit_id: visitId, source: previous.current.actor === actor ? previous.current.page || 'entry' : 'entry' } });
+      previous.current = { key: location.key, actor, page, visitId };
     }
+    const visitId = previous.current.visitId;
     let last = Date.now(), lastInput = Date.now(), foreground = !document.hidden;
     const account = () => {
       const now = Date.now();
       const ms = foreground ? Math.max(0, Math.min(now, lastInput + 60_000) - last) : 0;
       last = now;
-      if (ms > 0) track('page_engagement', { feature: page, duration_ms: Math.min(ms, 30_000) });
+      if (ms > 0) track('page_engagement', { page, feature: page, properties: { visit_id: visitId }, duration_ms: Math.min(ms, 30_000) });
     };
     const input = () => { account(); lastInput = Date.now(); };
     const visibility = () => { account(); foreground = !document.hidden; last = Date.now(); if (foreground) lastInput = last; };
@@ -41,13 +44,14 @@ export function AnalyticsTracker() {
   }, [location.key, location.pathname, loading, user?.id, adminChecked]);
   useEffect(() => {
     if (!analyticsEnabled || loading || (user && adminChecked === 'unknown')) return;
-    const seen = new WeakSet<Element>();
+    const seen = new WeakMap<Element, string>();
     const observer = new IntersectionObserver(entries => {
       for (const e of entries) {
         const node = e.target as HTMLElement;
-        if (!e.isIntersecting || e.intersectionRatio < .5 || document.hidden || !node.getClientRects().length || node.closest('[inert], [aria-hidden="true"]') || seen.has(node)) continue;
-        seen.add(node);
-        if (node.dataset.restaurantId) trackRestaurant('restaurant_seen', node.dataset.restaurantId, node.dataset.restaurantName);
+        const signature = `${node.dataset.restaurantId || ''}|${node.dataset.analyticsFeature || ''}`;
+        if (!e.isIntersecting || e.intersectionRatio < .5 || document.hidden || !node.getClientRects().length || node.closest('[inert], [aria-hidden="true"]') || seen.get(node) === signature) continue;
+        seen.set(node, signature);
+        if (node.dataset.restaurantId) trackRestaurant('restaurant_seen', node.dataset.restaurantId, node.dataset.restaurantName, { data_source: node.dataset.restaurantSource });
         if (node.dataset.analyticsFeature) track('feature_seen', { feature: node.dataset.analyticsFeature });
       }
     }, { threshold: .5 });
@@ -62,7 +66,15 @@ export function AnalyticsTracker() {
       }
     };
     watch(document.body);
-    const mutations = new MutationObserver(records => { for (const r of records) for (const node of r.addedNodes) if (node instanceof Element) watch(node); }); mutations.observe(document.body, { childList: true, subtree: true });
+    const mutations = new MutationObserver(records => {
+      for (const r of records) {
+        if (r.type === 'attributes' && r.target instanceof Element) {
+          observer.unobserve(r.target); observed.delete(r.target); watch(r.target);
+        }
+        for (const node of r.addedNodes) if (node instanceof Element) watch(node);
+      }
+    });
+    mutations.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['data-restaurant-id'] });
     const click = (event: MouseEvent) => {
       const target = (event.target as Element)?.closest?.('[data-analytics-feature]') as HTMLElement | null;
       if (target) track('feature_used', { feature: target.dataset.analyticsFeature });

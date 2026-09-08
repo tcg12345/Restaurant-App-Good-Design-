@@ -585,6 +585,7 @@ function cuisineToTypes(cuisine: string): string[] {
  */
 export function michelinToPlaceResult(info: MichelinInfo): PlaceResult {
   return {
+    dataSource: 'own_data',
     id: michelinSyntheticId(info),
     name: info.name,
     lat: info.lat,

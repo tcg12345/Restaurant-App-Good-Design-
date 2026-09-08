@@ -74,7 +74,7 @@ export function useRestaurantDetail() {
   const navigate = useNavigate();
   const { user } = useAuth();
   const [place, setPlace] = useState<PlaceDetails | null>(() => id ? detailMemory.get(id) ?? null : null);
-  useRestaurantAnalytics(place?.id, place?.name, 'detail');
+  useRestaurantAnalytics(place?.id, place?.name, 'detail', place?.dataSource);
   const [michelin, setMichelin] = useState<MichelinInfo | null>(null);
   /** Cuisine settled through the shared cache (migration 068) — the answer
    *  when Google's payload has none, and the write that gives every other
@@ -367,6 +367,7 @@ export function useRestaurantDetail() {
     if (!place?.id || !Number.isFinite(place.lat) || !Number.isFinite(place.lng)) return;
     cacheRestaurantMeta({
       id: place.id,
+      dataSource: place.dataSource,
       name: place.name,
       image: place.photoUrl || '',
       cuisine: cuisine || getCuisineLabel(place),

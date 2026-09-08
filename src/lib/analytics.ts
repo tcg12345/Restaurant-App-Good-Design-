@@ -1,3 +1,4 @@
+import { restaurantDataSource } from './restaurant-provenance';
 import { supabase, supabaseConfigured } from './supabase';
 import { isNativeRuntime } from './native-oauth';
 import { pageName, safeProperties } from '../../supabase/functions/_shared/analytics-schema';
@@ -5,7 +6,7 @@ import { pageName, safeProperties } from '../../supabase/functions/_shared/analy
 export { pageName, safeProperties };
 export const analyticsEnabled = import.meta.env.VITE_ANALYTICS_ENABLED === 'true';
 export const searchTermsEnabled = import.meta.env.VITE_ANALYTICS_SEARCH_TERMS === 'true';
-export type AnalyticsFields = { restaurant_id?: string; restaurant_name?: string; feature?: string; duration_ms?: number; properties?: Record<string, unknown> };
+export type AnalyticsFields = { page?: string; restaurant_id?: string; restaurant_name?: string; feature?: string; duration_ms?: number; properties?: Record<string, unknown> };
 type Event = AnalyticsFields & { user_id: string | null; id: string; event: string; occurred_at: string; anon_id: string; session_id: string; page: string; platform: string; app_version: string };
 let queue: Event[] = [];
 let posthogQueue: Event[] = [];
@@ -21,6 +22,14 @@ let posthog: typeof import('posthog-js').default | undefined;
 let started = false;
 let memoryOptOut = false;
 const immediateEvents = new Set(['restaurant_saved', 'restaurant_unsaved', 'restaurant_rated', 'restaurant_list_added']);
+
+// Retain business actions before background traffic when offline or saturated.
+function boundedQueue(rows: Event[]) {
+  if (rows.length <= 300) return rows;
+  const actions = rows.filter(row => immediateEvents.has(row.event)).slice(0, 300);
+  const remaining = 300 - actions.length;
+  return remaining ? [...actions, ...rows.filter(row => !immediateEvents.has(row.event)).slice(-remaining)] : actions;
+}
 
 function optedOut() {
   try { return memoryOptOut || localStorage.getItem('goodeats-analytics-optout') === 'true'; } catch { return memoryOptOut; }
@@ -55,7 +64,7 @@ export function setAnalyticsIdentity(id: string | null, isAdmin: boolean) {
     if (import.meta.env.VITE_POSTHOG_REPLAY === 'true') posthog?.startSessionRecording();
   }
 }
-export function analyticsContext() { return { ...identity(), page: currentPage }; }
+export function analyticsContext() { return { ...identity(), page: currentPage, user_id: userId }; }
 export function setAnalyticsPage(path: string) { currentPage = pageName(path); }
 function enqueue(event: string, fields: AnalyticsFields = {}) {
   if (!analyticsEnabled || !identityReady || blocked || optedOut() || currentPage === 'admin') return;
@@ -66,7 +75,7 @@ function enqueue(event: string, fields: AnalyticsFields = {}) {
   // sending them before a back navigation/reload can discard this document.
   if (immediateEvents.has(event)) queue.unshift(row);
   else queue.push(row);
-  if (queue.length > 300) queue = queue.slice(-300);
+  queue = boundedQueue(queue);
   if (posthog) { try { posthog.capture(event, row); } catch { /* optional sink */ } }
   else { posthogQueue.push(row); if (posthogQueue.length>300) posthogQueue.shift(); }
   if (immediateEvents.has(event) || queue.length >= 40) void flushAnalytics();
@@ -77,17 +86,25 @@ export function track(event: string, fields: AnalyticsFields = {}) {
 export function flushAnalytics(): Promise<boolean> {
   if (pendingFlush) return pendingFlush;
   if (!supabaseConfigured || !queue.length || blocked || optedOut()) return Promise.resolve(false);
-  const batch = queue.splice(0, 40);
+  // Keep every request within both the collector's payload cap and the
+  // browser keepalive budget, including long Google field masks.
+  const batch: Event[] = [];
+  let bytes = 32;
+  while (queue.length && batch.length < 40) {
+    const size = new TextEncoder().encode(JSON.stringify(queue[0])).byteLength + 1;
+    if (batch.length && bytes + size > 45 * 1024) break;
+    batch.push(queue.shift()!); bytes += size;
+  }
   const actor = userId;
   let succeeded = false;
   pendingFlush = (async () => {
     try {
       const { error } = await supabase.rpc('analytics_collect', { events: batch });
-      if (error && actor === userId && !blocked && !optedOut()) queue = [...batch, ...queue].slice(-300);
+      if (error && actor === userId && !blocked && !optedOut()) queue = boundedQueue([...batch, ...queue]);
       succeeded = !error;
       return succeeded;
     } catch {
-      if (actor === userId && !blocked && !optedOut()) queue = [...batch, ...queue].slice(-300);
+      if (actor === userId && !blocked && !optedOut()) queue = boundedQueue([...batch, ...queue]);
       return false;
     }
   })().finally(() => {
@@ -145,5 +162,7 @@ const names = new Map<string, string>();
 export function rememberRestaurant(id: string, name?: string) { if (name) { names.set(id, name); if (names.size > 2000) names.delete(names.keys().next().value!); } }
 export function trackRestaurant(event: string, id: string, name?: string, properties?: Record<string, unknown>) {
   rememberRestaurant(id, name);
-  track(event, { restaurant_id: id, restaurant_name: name || names.get(id), properties });
+  const data_source = restaurantDataSource(id, properties?.data_source);
+  // Explicit provenance describes this action, without reclassifying other surfaces.
+  track(event, { restaurant_id: id, restaurant_name: name || names.get(id), properties: { ...properties, data_source } });
 }

@@ -1,3 +1,4 @@
+import type { RestaurantProvenance } from '../../lib/restaurant-provenance';
 import React from 'react';
 import { useSettings } from '../../contexts/SettingsContext';
 import { useMichelinMatch } from '../../lib/useMichelinMatch';
@@ -29,7 +30,7 @@ function normalizeVariant(v: RestaurantCardVariant): 'photo-tile' | 'row' | 'her
   return v;
 }
 
-export interface RestaurantCardProps {
+export interface RestaurantCardProps extends RestaurantProvenance {
   id: string;
   name: string;
   image?: string | null;
@@ -73,6 +74,7 @@ const HERO_GRADIENT =
 
 export const RestaurantCard: React.FC<RestaurantCardProps> = ({
   id,
+  dataSource,
   name,
   image,
   rating,
@@ -123,7 +125,7 @@ export const RestaurantCard: React.FC<RestaurantCardProps> = ({
   if (v === 'hero') {
     const safe = safeImage(image);
     return (
-      <CardShell data-restaurant-id={id} data-restaurant-name={name}
+      <CardShell data-restaurant-source={dataSource} data-restaurant-id={id} data-restaurant-name={name}
         as={linkAs}
         to={linkAs === 'a' ? href : undefined}
         onClick={onClick}
@@ -170,7 +172,7 @@ export const RestaurantCard: React.FC<RestaurantCardProps> = ({
   if (v === 'row') {
     const rowSurface = surface ?? (phoneMode ? 'flat-row' : 'boxed');
     return (
-      <CardShell data-restaurant-id={id} data-restaurant-name={name}
+      <CardShell data-restaurant-source={dataSource} data-restaurant-id={id} data-restaurant-name={name}
         as={linkAs}
         to={linkAs === 'a' ? href : undefined}
         onClick={onClick}
@@ -228,7 +230,7 @@ export const RestaurantCard: React.FC<RestaurantCardProps> = ({
   );
 
   return (
-    <CardShell data-restaurant-id={id} data-restaurant-name={name}
+    <CardShell data-restaurant-source={dataSource} data-restaurant-id={id} data-restaurant-name={name}
       as={linkAs}
       to={linkAs === 'a' ? href : undefined}
       onClick={onClick}

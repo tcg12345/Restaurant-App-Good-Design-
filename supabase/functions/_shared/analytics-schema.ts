@@ -34,11 +34,16 @@ export function pageName(path: string): string {
   return p.replace(/^\//, '').replace(/\//g, '_').replace(/[^a-z_-]/g, '').slice(0, 80) || 'other';
 }
 
-const allowed = new Set(['source', 'destination', 'action', 'outcome', 'query', 'result_count', 'search_id', 'provider', 'endpoint', 'status', 'cache_hit', 'request_id', 'field_mask', 'error_type', 'plan', 'verdict', 'surface', 'city', 'cuisine', 'reason', 'model', 'input_tokens', 'output_tokens', 'stage', 'rating', 'is_new', 'attempt', 'version']);
+const allowed = new Set(['visit_id', 'data_source', 'source', 'destination', 'action', 'outcome', 'query', 'result_count', 'search_id', 'provider', 'endpoint', 'status', 'cache_hit', 'request_id', 'field_mask', 'error_type', 'plan', 'verdict', 'surface', 'city', 'cuisine', 'reason', 'model', 'input_tokens', 'output_tokens', 'stage', 'rating', 'is_new', 'attempt', 'version']);
 export function safeProperties(input: Record<string, unknown> = {}) {
   const out: Record<string, string | number | boolean> = {};
   for (const [key, value] of Object.entries(input)) {
     if (!allowed.has(key)) continue;
+    if (key === 'visit_id') {
+      if (typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value)) out[key] = value;
+      continue;
+    }
+    if (key === 'data_source' && !['google_places', 'own_data', 'mixed', 'unknown'].includes(String(value))) continue;
     if (typeof value === 'string') {
       // Search terms are opt-in, with a second scrub for obvious identifiers.
       out[key] = value.replace(/[\w.+-]+@[\w.-]+\.[a-z]{2,}/gi, '[email]').replace(/\b(?:\+?\d[\s().-]*){8,}\b/g, '[number]').slice(0, key === 'field_mask' ? 1200 : 160);

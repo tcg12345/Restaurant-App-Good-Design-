@@ -40,7 +40,7 @@ Keep the version aligned with your releases. Rebuild/redeploy the web app throug
 
 For iOS, run `npm run ios:sync`, then build and distribute the updated app through your normal Xcode/TestFlight workflow. Older installed versions do not gain tracking automatically.
 
-Open **Settings → Administration → Analytics**, or `/admin/analytics`, while signed into your admin account.
+Open **Settings → Help & about → Administration → Analytics**, or `/admin/analytics`, while signed into your admin account.
 
 ## 3. Enable backend API logging
 
@@ -58,6 +58,12 @@ Those functions and their shared helpers contain the current paid outbound calls
 Frontend calls and backend calls are distinct network hops. For example, a browser call to `group-swipe` and that function’s Google request both appear, with different providers. The existing `x-client-info` header carries a random correlation ID and normalized page name so server calls can be tied back to the initiating client request. Authentication establishes the user identity; the header does not grant access.
 
 ## 4. Add cost rates
+
+Completed on September 7, 2026 for project `ocpmhsquwsdaauflbygf`: 12 exact rate entries were applied and verified through the owner report. The owner chose published pay-as-you-go estimates. The repeat-safe configuration is in `scripts/analytics/cost-rates-2026-09-07.sql`; it does not overwrite existing entries. Rates apply to recorded activity from September 7, 2026 onward. Refresh Analytics to load them; no website deployment is required.
+
+The configuration uses the first paid tier before free allowances, volume discounts and credits: Google standard detail requests $20/1,000, regular text/nearby searches $35/1,000, name-only detail requests $17/1,000, minimal name/location searches $32/1,000, group searches requesting atmosphere fields $40/1,000, editorial summaries $25/1,000, and photos $7/1,000. Mapbox temporary geocoding is $0.75/1,000 and Directions $2/1,000. Sources: [Google pricing](https://developers.google.com/maps/billing-and-pricing/pricing), [Google field tiers](https://developers.google.com/maps/documentation/places/web-service/data-fields), [Mapbox pricing](https://www.mapbox.com/pricing), checked September 7, 2026.
+
+AI/token usage, video, Supabase compute/storage/egress, internal Edge Function invocations and Mapbox `map_resource` traffic remain unpriced. Request counts alone do not measure their billable units. These estimates are only the priced portion of usage, not the full hosting bill. Unknown or changed Google masks also remain unpriced until reviewed.
 
 Request counts and latency work immediately. Dollar totals stay “Unpriced” until you configure rates in `analytics_rates` using the SQL Editor. Unpriced requests are excluded from cost totals and visibly counted.
 
@@ -178,3 +184,50 @@ npm run dev
 ```
 
 Open `/scripts/analytics/preview.html` on the local Vite server for an isolated layout preview with clearly labeled synthetic data. It is not an app route or production entry point and never requests real analytics. The database verification runs the real migration in embedded PostgreSQL, testing guest/user read denial, owner reads, spoofed identities/origins, malformed fields, deduplication, estimates and timeline queries. No production data is used by these checks.
+
+## Restaurant source tracking (September 7 audit)
+
+The Restaurants table now includes **Data source by action**. Expand a restaurant's source cell to see separate action counts for Google Places, Our data, Mixed data, and Unknown / older tracking. Google data remains Google-sourced when cached; actual API usage is counted separately. Old events cannot be reliably relabeled.
+
+For new catalog integrations, carry `dataSource` on `PlaceResult`, `RestaurantMeta`, `RestaurantCard` and panel snapshots. At the loader boundary, register the source and record returned results once per lookup, not during React rendering:
+
+```ts
+import { rememberRestaurantSource } from './restaurant-provenance';
+import { trackRestaurant } from './analytics';
+
+const restaurant = { ...catalogRecord, dataSource: 'own_data' as const };
+rememberRestaurantSource(restaurant.id, restaurant.dataSource);
+trackRestaurant('restaurant_returned', restaurant.id, restaurant.name, {
+  data_source: restaurant.dataSource,
+});
+```
+
+Pass `data_source` explicitly on selection actions when the same restaurant may appear from different sources. Use `mixed` for a base record assembled from both catalogs. Keep provenance on cached records; saving a Google record to Supabase does not make it Our data. A future own-data details loader should pass its actual source to `useRestaurantAnalytics`; the current Google loader will still call Google until that loader is replaced or bypassed.
+
+The source-report migration has already been applied to the connected Supabase project. Deploy the frontend to display and collect the new fields. See [the verification record](analytics-verification-2026-09-07.md) for tested coverage and the final production check.
+
+## Exploration habits
+
+Open **Settings → Help & about → Administration → Analytics → Exploration**. Use the existing date and platform controls, then choose **Everyone** or find a visitor by public name, username or visitor ID. The Users timeline also has an **Explore habits** button.
+
+The Exploration view includes:
+
+- Page attention ranked by total active time, visits, or average time per timed visit.
+- Breadth of exploration, typical session depth, repeat visitors, brief visits (up to 10 seconds of measured active time), and long visits (at least one minute).
+- Main destinations with no recorded visits in the selected audience and period.
+- Clickable incoming/outgoing page paths, first stops and last recorded stops.
+- A weekday/hour heatmap in UTC and the latest 20 session journeys, with up to 100 ordered stops per session.
+- Per-person time-per-visit comparisons with the all-user average for the same date range and platform.
+
+Both RPCs (`analytics_exploration` and `analytics_exploration_visitors`) require the owner/admin role and retain the existing RLS. The database migration has already been applied to the connected project. There are no new environment variables. Deploy the frontend through the normal Git/Vercel workflow; native builds also need the updated bundle to emit visit identifiers.
+
+Metric details:
+
+- A "page" is a normalized page type, not an individual restaurant/recipe URL. Unvisited destinations use a curated list of the app's main destinations; additional observed page types still appear in the attention list.
+- Every new page view and its engagement segments share `properties.visit_id`. Historical records fall back to the preceding recorded page view in the same visitor/session/platform. Segments with a different page or no matching visit are excluded and counted in the report footer.
+- Average/median page time uses only visits with measured engagement. A visit without timing data is shown as **Not measured**, not a zero-second or brief visit.
+- Session boundaries and paths are based on recorded page activity inside the selected ingestion-time window. First/last stops are not proven entry/exit or abandonment events. Tracking gaps, opt-out and access-gated pages can explain missing visits.
+- The visitor picker searches all visitors with recorded page views in the period and returns the 50 most recent matches. The page and navigation aggregates use the full selected period; only the session examples are limited to the latest 20.
+- The heatmap groups page arrival timestamps by UTC weekday/hour. Individual timestamps in session journeys use the owner's browser timezone.
+
+Validation: 1,142 tests across 97 files passed, including actual SQL aggregation/RLS, audience filters, historical/new visit matching, late engagement, unknown timing, visitor search, UI selection, request races, retry and navigation. Production build passed. Desktop and 390px content layouts were visually reviewed with isolated local sample data. Live all-user and individual reports were queried successfully; security advisors returned no analytics-specific issues.

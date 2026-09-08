@@ -1,3 +1,4 @@
+import { rememberRestaurantSource, type RestaurantProvenance } from './restaurant-provenance';
 import { track, trackRestaurant } from './analytics';
 import { trackPlacesResults } from './api-telemetry';
 // Mapbox is used by the location backfill below to reverse-geocode for a
@@ -14,7 +15,7 @@ export interface AddressComponent {
   types: string[];
 }
 
-export interface PlaceResult {
+export interface PlaceResult extends RestaurantProvenance {
   id: string;
   name: string;
   lat: number;
@@ -120,6 +121,7 @@ interface GooglePlace {
 
 function mapPlaces(places: GooglePlace[]): PlaceResult[] {
   const results = (places || []).map((p) => ({
+    dataSource: 'google_places' as const,
     id: p.id || p.name || crypto.randomUUID(),
     name: p.displayName?.text || 'Unknown',
     lat: p.location?.latitude ?? 0,
@@ -908,7 +910,8 @@ export async function getPlaceDetails(placeId: string): Promise<PlaceDetails> {
   const cached = placeDetailsCache.get(placeId);
   if (cached && Date.now() - cached.ts < DETAIL_CACHE_TTL) {
     trackRestaurant('api_cache_hit', placeId, cached.data.name, { provider: 'google_places', endpoint: 'details' });
-    return cached.data;
+    rememberRestaurantSource(placeId, 'google_places');
+    return { ...cached.data, dataSource: 'google_places' };
   }
 
   const res = await fetch(`${BASE_URL}/places/${placeId}`, {
@@ -936,7 +939,9 @@ export async function getPlaceDetails(placeId: string): Promise<PlaceDetails> {
 
   const isOpen = p.currentOpeningHours?.openNow ?? null;
 
+  rememberRestaurantSource(placeId, 'google_places');
   const details: PlaceDetails = {
+    dataSource: 'google_places',
     id: p.id || placeId,
     name: p.displayName?.text || 'Unknown',
     lat: p.location?.latitude ?? 0,

@@ -37,6 +37,7 @@ vi.mock('../lib/restaurant-cuisine', () => ({
 vi.mock('../lib/cuisine-lookup', () => ({ lookupCuisines: vi.fn().mockResolvedValue([]) }));
 import { AnalyticsTracker } from './AnalyticsTracker';
 import { ListsProvider, useLists } from '../contexts/ListsContext';
+import { rememberRestaurantSource } from '../lib/restaurant-provenance';
 import { saveWishlistData } from '../lib/supabase-db';
 import { useRestaurantAnalytics } from '../lib/useRestaurantAnalytics';
 import { flushAnalytics, setAnalyticsIdentity, setAnalyticsOptOut, setAnalyticsPage, trackRestaurant } from '../lib/analytics';
@@ -46,13 +47,13 @@ let host: HTMLDivElement, root: Root;
 let intersections: Array<{ callback: IntersectionObserverCallback; nodes: Set<Element> }>;
 
 function Flow() {
-  const { toggleWishlist, isWishlisted } = useLists();
+  const { toggleWishlist, isWishlisted, removeFromWishlist } = useLists();
   const route = useLocation();
   const navigate = useNavigate();
   const detail = route.pathname.startsWith('/restaurant/');
   useRestaurantAnalytics(detail ? restaurantId : undefined, 'The Cottage');
   return detail
-    ? <button onClick={() => toggleWishlist({ id: restaurantId, name: 'The Cottage', image: '', cuisine: 'American', price: '$$', address: 'Westport' })}>{isWishlisted(restaurantId) ? 'Remove from wishlist' : 'Save to wishlist'}</button>
+    ? <><button onClick={() => toggleWishlist({ id: restaurantId, name: 'The Cottage', image: '', cuisine: 'American', price: '$$', address: 'Westport' })}>{isWishlisted(restaurantId) ? 'Remove from wishlist' : 'Save to wishlist'}</button><button data-direct-remove onClick={() => removeFromWishlist(restaurantId)}>Remove directly</button></>
     : <button data-restaurant-id={restaurantId} data-restaurant-name="The Cottage" onClick={() => {
         trackRestaurant('restaurant_search_selected', restaurantId, 'The Cottage');
         navigate(`/restaurant/${restaurantId}`);
@@ -84,6 +85,7 @@ beforeEach(() => {
     record: typeof intersections[number];
     constructor(callback: IntersectionObserverCallback) { this.record = { callback, nodes: new Set() }; intersections.push(this.record); }
     observe(node: Element) { this.record.nodes.add(node); }
+    unobserve(node: Element) { this.record.nodes.delete(node); }
     disconnect() { this.record.nodes.clear(); }
   });
   vi.spyOn(HTMLElement.prototype, 'getClientRects').mockReturnValue([{}] as unknown as DOMRectList);
@@ -145,4 +147,38 @@ describe('analytics for ordinary signed-in users', () => {
     await flushAnalytics();
     expect(rpc).not.toHaveBeenCalled();
   });
+});
+
+
+describe('audited action and engagement delivery',()=>{
+ it('records save/removal once with the same data origin and handles rapid duplicate removals',async()=>{
+  auth.adminChecked=false;rememberRestaurantSource(restaurantId,'own_data');
+  await render();exposeResults();
+  await act(async()=>host.querySelector('button')!.click());
+  await act(async()=>host.querySelector('button')!.click());
+  await act(async()=>{host.querySelector<HTMLButtonElement>('[data-direct-remove]')!.click();host.querySelector<HTMLButtonElement>('[data-direct-remove]')!.click();});
+  await flushAnalytics();await flushAnalytics();
+  expect(events().filter(r=>r.event==='restaurant_saved')).toHaveLength(1);
+  expect(events().filter(r=>r.event==='restaurant_unsaved')).toHaveLength(1);
+  expect(events().filter(r=>r.restaurant_id===restaurantId).every(r=>r.properties.data_source==='own_data')).toBe(true);
+ });
+ it('counts a reused card only once for each displayed restaurant',async()=>{
+  auth.adminChecked=false;await render();exposeResults();
+  const button=host.querySelector('button')!;button.dataset.restaurantId='another';
+  await act(async()=>{});exposeResults();exposeResults();await flushAnalytics();
+  expect(events().filter(r=>r.event==='restaurant_seen').map(r=>r.restaurant_id)).toEqual([restaurantId,'another']);
+ });
+ it('stops engaged time after 60 seconds idle and while hidden',async()=>{
+  vi.useFakeTimers();
+  try {
+   auth.adminChecked=false;await render();
+   await act(async()=>{await vi.advanceTimersByTimeAsync(75000);});
+   await flushAnalytics();
+   expect(events().filter(r=>r.event==='page_engagement').reduce((s,r)=>s+r.duration_ms,0)).toBe(60000);
+   vi.spyOn(document,'hidden','get').mockReturnValue(true);
+   document.dispatchEvent(new Event('visibilitychange'));
+   await act(async()=>{await vi.advanceTimersByTimeAsync(30000);});await flushAnalytics();
+   expect(events().filter(r=>r.event==='page_engagement').reduce((s,r)=>s+r.duration_ms,0)).toBe(60000);
+  } finally {vi.useRealTimers();}
+ });
 });

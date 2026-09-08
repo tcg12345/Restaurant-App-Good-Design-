@@ -1,3 +1,4 @@
+import { restaurantDataSource, type RestaurantProvenance, type RestaurantDataSource } from '../lib/restaurant-provenance';
 import { useRestaurantAnalytics } from '../lib/useRestaurantAnalytics';
 /**
  * RestaurantPanel — side panel / bottom sheet that opens when a viewer taps
@@ -70,7 +71,7 @@ import './RestaurantPanel.css';
 /* ── Snapshot the panel accepts ───────────────────────────────────────────
    We accept any object that quacks like a ReelRestaurantSnapshot so reels
    and posts can both open the same panel without conversion. */
-export type RestaurantPanelSnapshot = ReelRestaurantSnapshot;
+export type RestaurantPanelSnapshot = ReelRestaurantSnapshot & RestaurantProvenance;
 
 interface RestaurantPanelProps {
   snapshot: RestaurantPanelSnapshot | null;
@@ -291,7 +292,8 @@ export const RestaurantPanelBody: React.FC<{
    *  re-implementing the rest of the body. */
   headSlot?: React.ReactNode;
 }> = ({ snapshot, onClose, currentUserId, scrollElRef, glassSuspended, noHero, topChrome, headSlot }) => {
-  useRestaurantAnalytics(snapshot.id, snapshot.name, 'panel');
+  const [analyticsLoaded, setAnalyticsLoaded] = useState<{id: string; source: RestaurantDataSource} | null>(null);
+  useRestaurantAnalytics(analyticsLoaded?.id === snapshot.id ? snapshot.id : undefined, snapshot.name, 'panel', analyticsLoaded?.source);
   const { twoDecimalScores, darkMode } = useSettings();
   const {
     getRating,
@@ -313,9 +315,11 @@ export const RestaurantPanelBody: React.FC<{
   useEffect(() => {
     let cancelled = false;
     setDetails(null);
+    setAnalyticsLoaded(null);
     // Michelin dataset rows carry a synthetic id (no Google place id). Resolve
     // it to the real Google place (by name + coords) before fetching details.
     (async () => {
+      let source = restaurantDataSource(snapshot.id, snapshot.dataSource);
       try {
         let placeId = snapshot.id;
         if (isMichelinSyntheticId(snapshot.id)) {
@@ -327,8 +331,10 @@ export const RestaurantPanelBody: React.FC<{
           placeId = resolved;
         }
         const d = await getPlaceDetails(placeId);
+        source = source === 'own_data' ? 'mixed' : d.dataSource || 'google_places';
         if (!cancelled) setDetails(d);
       } catch { /* falls back to snapshot fields */ }
+      finally { if (!cancelled) setAnalyticsLoaded({id:snapshot.id,source}); }
     })();
     return () => { cancelled = true; };
   }, [snapshot.id]);
@@ -411,12 +417,13 @@ export const RestaurantPanelBody: React.FC<{
 
   const meta = useMemo(() => ({
     id: snapshot.id,
+    dataSource: analyticsLoaded?.id === snapshot.id ? analyticsLoaded.source : snapshot.dataSource,
     name: snapshot.name,
     image: snapshot.image || '',
     cuisine: snapshot.cuisine,
     price: snapshot.price,
     address: snapshot.address,
-  }), [snapshot]);
+  }), [snapshot, analyticsLoaded]);
 
   const onRate = () => openAddRestaurantModal(meta);
   const onAddToList = () => openAddToListModal(snapshot.id, meta);

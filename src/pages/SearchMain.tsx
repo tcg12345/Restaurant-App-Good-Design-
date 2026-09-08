@@ -1,3 +1,4 @@
+import type { RestaurantProvenance } from '../lib/restaurant-provenance';
 import { track, trackRestaurant } from '../lib/analytics';
 import React, { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo } from 'react';
 import { motion } from 'motion/react';
@@ -40,7 +41,7 @@ type SectionKey = 'restaurants' | 'recipes' | 'friends';
 // AddFriendSheet: following > requested > incoming (Accept) > followback > Add.
 type Relationship = 'following' | 'requested' | 'incoming' | 'followback';
 
-interface RecentSearch {
+interface RecentSearch extends RestaurantProvenance {
   id: string;
   name: string;
   cuisine: string;
@@ -154,6 +155,7 @@ function writeRecentSearches(list: RecentSearch[]) {
 function placeToRecent(place: PlaceResult): RecentSearch {
   return {
     id: place.id,
+    dataSource: place.dataSource,
     name: place.name,
     cuisine: extractCityState(place.fullAddress || '', place.address || ''),
     price: priceLevelToString(place.priceLevel),
@@ -524,7 +526,7 @@ export const SearchMain: React.FC<{
   }, [userId, incomingReqIds, pendingFollow]);
 
   const handleSelectResult = (place: PlaceResult) => {
-    trackRestaurant('restaurant_search_selected', place.id, place.name, { query: searchQuery, source: 'search_main' });
+    trackRestaurant('restaurant_search_selected', place.id, place.name, { query: searchQuery, source: 'search_main', data_source: place.dataSource });
     const entry = placeToRecent(place);
     const next = [entry, ...recentSearches.filter((x) => x.id !== entry.id)].slice(0, MAX_RECENT);
     setRecentSearches(next);
@@ -533,7 +535,7 @@ export const SearchMain: React.FC<{
   };
 
   const handleRecentClick = (r: RecentSearch) => {
-    trackRestaurant('restaurant_search_selected', r.id, r.name, { source: 'recent_search' });
+    trackRestaurant('restaurant_search_selected', r.id, r.name, { source: 'recent_search', data_source: r.dataSource });
     navigate(`/restaurant/${r.id}`);
   };
 
@@ -574,7 +576,7 @@ export const SearchMain: React.FC<{
         <div
           role="button"
           tabIndex={0}
-          data-restaurant-id={place.id} data-restaurant-name={place.name}
+          data-restaurant-source={place.dataSource} data-restaurant-id={place.id} data-restaurant-name={place.name}
           onClick={() => handleSelectResult(place)}
           onKeyDown={(e) => {
             if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleSelectResult(place); }
@@ -758,7 +760,7 @@ export const SearchMain: React.FC<{
           key={place.id}
           role="button"
           tabIndex={0}
-          data-restaurant-id={place.id} data-restaurant-name={place.name}
+          data-restaurant-source={place.dataSource} data-restaurant-id={place.id} data-restaurant-name={place.name}
           onClick={() => handleSelectResult(place)}
           onKeyDown={(e) => {
             if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleSelectResult(place); }
