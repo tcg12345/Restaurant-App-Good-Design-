@@ -1,3 +1,4 @@
+import { HOME_REELS_EXPERIMENT } from './home-reels-experiment';
 import { describe, it, expect, beforeEach } from 'vitest';
 import { recordNavEntry, navEntryAt, logicalParent, isTabRootLocation, backTargetFor, stackKeyFor } from './nav-stack';
 
@@ -192,7 +193,7 @@ describe('route presentation gestures', () => {
     }
   });
   it('keeps explicit tab switches still, but supports pushed tab subviews', () => {
-    for (const path of ['/search', '/search/main', '/profile', '/pantry', '/map', '/reels']) expect(routeBackGesture(path, '', {navigationPresentation:'tab'}, true)).toBeNull();
+    for (const path of ['/search', '/search/main', '/profile', '/pantry', '/map', HOME_REELS_EXPERIMENT ? '/messages' : '/reels']) expect(routeBackGesture(path, '', {navigationPresentation:'tab'}, true)).toBeNull();
     expect(routeBackGesture('/pantry', '?list=abc', {navigationPresentation:'tab'}, true)).toBe('right');
     expect(routeBackGesture('/', '', null, true)).toBeNull();
     expect(routeBackGesture('/decide', '', null, false)).toBeNull();

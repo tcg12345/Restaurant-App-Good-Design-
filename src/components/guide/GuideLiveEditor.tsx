@@ -872,7 +872,6 @@ const LayoutTab: React.FC<{
         <div className="gle-sub-label">Show fields</div>
         <Toggle on={V.entryScore}     onChange={(v) => setVisibility('entryScore', v)}     label="Score badge" />
         <Toggle on={V.entryMeta}      onChange={(v) => setVisibility('entryMeta', v)}      label="Cuisine · price · location" />
-        <Toggle on={V.entryHours}     onChange={(v) => setVisibility('entryHours', v)}     label="Hours" />
         <Toggle on={V.entryActions}   onChange={(v) => setVisibility('entryActions', v)}   label="Save / add actions" />
         <Toggle on={V.entryMustOrder} onChange={(v) => setVisibility('entryMustOrder', v)} label="Must order" />
         <Toggle on={V.entryBestFor}   onChange={(v) => setVisibility('entryBestFor', v)}   label="Best for" />

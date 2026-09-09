@@ -13,6 +13,7 @@
 const ROUTE_PATTERNS: string[] = [
   '/',
   '/map',
+  '/calendar',
   '/circle',
   '/create',
   '/search',

@@ -6,7 +6,7 @@ import { homeHaptic } from '../lib/haptics';
 import { isOverlayOpen } from '../lib/overlay-registry';
 import type { HomeHighlight } from '../lib/home-highlights';
 
-export function HomeHighlights({ items, active, onOpen, onSeen }: { onSeen?: (item: HomeHighlight) => void; items: HomeHighlight[]; active: boolean; onOpen: (item: HomeHighlight) => void }) {
+export function HomeHighlights({ items, active, onOpen, onSeen, compact = false }: { compact?: boolean; onSeen?: (item: HomeHighlight) => void; items: HomeHighlight[]; active: boolean; onOpen: (item: HomeHighlight) => void }) {
   const [autoplay] = useDevicePreference('homeAutoplay');
   const [index, setIndex] = useState(0);
   const [paused, setPaused] = useState(false);
@@ -24,12 +24,12 @@ export function HomeHighlights({ items, active, onOpen, onSeen }: { onSeen?: (it
   useEffect(() => { setIndex(0); }, [key]);
   const selected = index % items.length;
   useEffect(() => {
-    if (!active || !autoplay || paused || engaged || reduced || items.length < 2) return;
+    if (!active || compact || !autoplay || paused || engaged || reduced || items.length < 2) return;
     const timer = setInterval(() => {
       if (document.visibilityState === 'visible' && !isOverlayOpen()) setIndex(i => (i + 1) % items.length);
     }, 8000);
     return () => clearInterval(timer);
-  }, [active, autoplay, paused, engaged, reduced, items.length, selected]);
+  }, [active, compact, autoplay, paused, engaged, reduced, items.length, selected]);
   const item = items[selected];
   const onSeenRef = useRef(onSeen);
   onSeenRef.current = onSeen;
@@ -43,7 +43,7 @@ export function HomeHighlights({ items, active, onOpen, onSeen }: { onSeen?: (it
   if (!item) return null;
   const select = (next: number) => { homeHaptic(); setPaused(true); setIndex((next + items.length) % items.length); };
   const Icon = item.family === 'recipes' ? ChefHat : item.family === 'friends' ? Users : item.family === 'experts' ? BadgeCheck : item.family === 'taste' ? Sparkles : Compass;
-  return <section className={`home-highlights tone-${item.tone}`} aria-roledescription="carousel" aria-label="Ideas for you"
+  return <section className={`home-highlights tone-${item.tone}${compact ? ' is-compact' : ''}`} aria-roledescription="carousel" aria-label="Ideas for you"
     onMouseEnter={() => setEngaged(true)} onMouseLeave={() => setEngaged(false)}
     onFocusCapture={() => setEngaged(true)} onBlurCapture={e => { if (!e.currentTarget.contains(e.relatedTarget)) setEngaged(false); }}
     onTouchStart={e => { suppressClickUntil.current = 0; touch.current = { x: e.touches[0].clientX, y: e.touches[0].clientY }; }}
@@ -64,7 +64,7 @@ export function HomeHighlights({ items, active, onOpen, onSeen }: { onSeen?: (it
     </AnimatePresence>
     <div className="home-highlight-controls">
       <span className="home-highlight-count" aria-label={`Idea ${selected + 1} of ${items.length}`}>{selected + 1} / {items.length}</span>
-      {!reduced && autoplay && <button className="home-highlight-pause" aria-label={paused ? 'Play ideas' : 'Pause ideas'} onClick={() => setPaused(p => !p)}>{paused ? <Play size={13} /> : <Pause size={13} />}</button>}
+      {!compact && !reduced && autoplay && <button className="home-highlight-pause" aria-label={paused ? 'Play ideas' : 'Pause ideas'} onClick={() => setPaused(p => !p)}>{paused ? <Play size={13} /> : <Pause size={13} />}</button>}
       {items.length > 1 && <button aria-label="Show next idea" onClick={() => select(selected + 1)}><ChevronRight size={16} /></button>}
     </div>
   </section>;

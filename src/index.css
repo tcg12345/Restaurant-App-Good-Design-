@@ -875,12 +875,26 @@ input[type="range"].accent-primary::-moz-range-thumb {
 .ios-search.is-floating:focus-within { background-color: rgba(252, 252, 252, 0.85); }
 .dark .ios-search.is-floating:focus-within { background-color: rgba(58, 58, 60, 0.85); }
 
-/* Keyboard focus still gets a visible ring — brightening a fill is not a
-   focus indicator for someone tabbing. */
-.ios-search:has(.ios-search-input:focus-visible) {
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.55),
-    0 0 0 3px color-mix(in srgb, var(--color-primary) 35%, transparent);
+/* Search focus belongs to the complete field, never the bare inner input.
+   These overrides intentionally win over page-level input:focus-visible rules
+   and utility rings. Text inputs match :focus-visible even after a touch. */
+[data-search-field]:focus-within,
+input[data-search-input="standalone"]:focus {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-on-surface) 38%, transparent) !important;
+}
+input[data-search-input]:focus {
+  outline: none !important;
+  outline-offset: 0 !important;
+}
+input[data-search-input="embedded"]:focus {
+  box-shadow: none !important;
+}
+@media (forced-colors: active) {
+  [data-search-field]:focus-within,
+  input[data-search-input="standalone"]:focus {
+    outline: 1px solid Highlight !important;
+    outline-offset: -1px !important;
+  }
 }
 
 .ios-search-icon {

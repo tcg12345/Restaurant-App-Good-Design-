@@ -33,6 +33,8 @@ class MainViewController: CAPBridgeViewController {
     override func capacitorDidLoad() {
         bridge?.registerPluginInstance(PhotoLibraryPlugin())
         bridge?.registerPluginInstance(AppThemePlugin())
+        bridge?.registerPluginInstance(GoodEatsNotificationsPlugin())
+        bridge?.registerPluginInstance(GoodEatsWidgetsPlugin())
         bridge?.registerPluginInstance(LiquidGlassPlugin())
 
         if let webView = self.webView {
@@ -358,6 +360,9 @@ public class LiquidGlassPlugin: CAPPlugin, CAPBridgedPlugin {
             }
             bar.install(in: host, variant: variant == "bar" ? .bar : .capsule, scrollView: self.bridge?.webView?.scrollView)
             bar.setItems(items, activePath: activePath)
+            if let visible = call.getBool("visible") {
+                bar.setVisible(visible, animated: false)
+            }
             // A route change lands at the top of the new page, so whatever
             // the previous page's scroll left behind doesn't apply. The JS
             // side mirrors this reset — see `useGlassScrollMinimize`.
@@ -471,6 +476,13 @@ public class LiquidGlassPlugin: CAPPlugin, CAPBridgedPlugin {
                     tint: Self.color(named: entry["tint"] as? String),
                     tintName: entry["tint"] as? String ?? "label",
                     alpha: CGFloat(entry["alpha"] as? Double ?? 1),
+                    preview: entry["preview"] as? Bool ?? false,
+                    interactive: entry["interactive"] as? Bool ?? true,
+                    clip: (entry["clip"] as? JSObject).flatMap { clip in
+                        guard let x = clip["x"] as? Double, let y = clip["y"] as? Double,
+                              let width = clip["width"] as? Double, let height = clip["height"] as? Double else { return nil }
+                        return CGRect(x: x, y: y, width: max(0, width), height: max(0, height))
+                    },
                     badge: badge,
                     badgeTone: entry["badgeTone"] as? String ?? "primary",
                     label: entry["label"] as? String ?? "",
@@ -489,6 +501,7 @@ public class LiquidGlassPlugin: CAPPlugin, CAPBridgedPlugin {
                 self?.notifyListeners("glassFieldSubmitted", data: ["id": id])
             }
             self.buttonLayer.apply(specs)
+            self.tabBar?.setPreview(call.getObject("tabBarPreview").flatMap(GlassTabBar.Preview.init))
             call.resolve()
         }
     }
@@ -496,6 +509,7 @@ public class LiquidGlassPlugin: CAPPlugin, CAPBridgedPlugin {
     @objc func clearGlassButtons(_ call: CAPPluginCall) {
         DispatchQueue.main.async {
             self.buttonLayer.clear()
+            self.tabBar?.setPreview(nil)
             call.resolve()
         }
     }
@@ -592,7 +606,30 @@ public class LiquidGlassPlugin: CAPPlugin, CAPBridgedPlugin {
 /// Two things are still ours, because a bare `UITabBar` has no API for them:
 /// which items are shown (that is how `setCollapsed` works — see there), and
 /// visibility.
+private final class TabBarViewport: UIView {
+    override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+        let hit = super.hitTest(point, with: event)
+        return hit === self ? nil : hit
+    }
+}
+
 final class GlassTabBar: NSObject, UITabBarDelegate {
+    struct Preview {
+        let path: String
+        let offset: CGPoint
+        let clip: CGRect
+        init?(_ value: JSObject) {
+            guard let path = value["path"] as? String,
+                  let x = value["x"] as? Double, let y = value["y"] as? Double,
+                  let clip = value["clip"] as? JSObject,
+                  let cx = clip["x"] as? Double, let cy = clip["y"] as? Double,
+                  let width = clip["width"] as? Double, let height = clip["height"] as? Double,
+                  [x, y, cx, cy, width, height].allSatisfy({ $0.isFinite }) else { return nil }
+            self.path = path
+            offset = CGPoint(x: x, y: y)
+            self.clip = CGRect(x: cx, y: cy, width: max(0, width), height: max(0, height))
+        }
+    }
     struct Item {
         let path: String
         let symbol: String
@@ -709,6 +746,9 @@ final class GlassTabBar: NSObject, UITabBarDelegate {
     var onCollapsedChange: ((Bool) -> Void)?
 
     private var bar: UITabBar?
+    private var viewport: TabBarViewport?
+    private let previewMask = CAShapeLayer()
+    private var preview: Preview?
     /// Held so the condense can drive them. The platter is laid out inside the
     /// bar with a fixed 21pt inset on every side, so it follows the bar's own
     /// width and height exactly: measured 360x62 at full width, 280x62 with
@@ -742,30 +782,38 @@ final class GlassTabBar: NSObject, UITabBarDelegate {
     private var programmaticDepth = 0
 
     private var selectedIndex: Int? {
-        items.firstIndex { $0.path == activePath }
+        items.firstIndex { $0.path == (preview?.path ?? activePath) }
     }
 
     // MARK: Install
 
     func install(in host: UIView, variant: Variant, scrollView: UIScrollView?) {
-        if let existing = bar, existing.superview === host {
-            host.bringSubviewToFront(existing)
+        if let viewport, viewport.superview === host, bar != nil {
+            host.bringSubviewToFront(viewport)
             // A cancelled dismissal leaves it faded out and non-interactive.
             resetPresentation()
             return
         }
         removeFromHost()
 
+        // A transparent, hit-through viewport clips the material in screen
+        // coordinates. Clipping the UITabBar itself would cut off its floating
+        // platter and shadow, which can extend beyond the bar's own bounds.
+        let viewport = TabBarViewport(frame: host.bounds)
+        viewport.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        host.addSubview(viewport)
+        self.viewport = viewport
+
         let bar = UITabBar()
         bar.translatesAutoresizingMaskIntoConstraints = false
         bar.delegate = self
         bar.tintColor = Self.tabInkDynamic
         bar.unselectedItemTintColor = Self.tabInkDynamic
-        host.addSubview(bar)
+        viewport.addSubview(bar)
         // Above the WebView, below anything the shell presents modally.
-        host.bringSubviewToFront(bar)
-        let leading = bar.leadingAnchor.constraint(equalTo: host.leadingAnchor)
-        let trailing = bar.trailingAnchor.constraint(equalTo: host.trailingAnchor)
+        host.bringSubviewToFront(viewport)
+        let leading = bar.leadingAnchor.constraint(equalTo: viewport.leadingAnchor)
+        let trailing = bar.trailingAnchor.constraint(equalTo: viewport.trailingAnchor)
         // Inactive while expanded, so the bar keeps its natural height — 49pt
         // of content plus whatever the bottom safe area is on this device —
         // rather than having a number guessed for it.
@@ -779,7 +827,7 @@ final class GlassTabBar: NSObject, UITabBarDelegate {
             // seats the platter itself — 21pt in from the sides and 21pt above
             // the screen bottom, which is where the hand-built one was trying
             // to get to with measured constants.
-            bar.bottomAnchor.constraint(equalTo: host.bottomAnchor),
+            bar.bottomAnchor.constraint(equalTo: viewport.bottomAnchor),
         ])
 
         // The dissolve where scrolling content meets the bar. An Apple engineer
@@ -850,7 +898,7 @@ final class GlassTabBar: NSObject, UITabBarDelegate {
     /// True when the bar is on the dark theme (the window's override style,
     /// set by the app) or over a black page (Reels).
     private var inkIsLight: Bool {
-        darkStyle || (bar?.traitCollection.userInterfaceStyle == .dark)
+        (preview.map { $0.path == "/reels" } ?? darkStyle) || (bar?.traitCollection.userInterfaceStyle == .dark)
     }
 
     private func applyStyle() {
@@ -880,9 +928,42 @@ final class GlassTabBar: NSObject, UITabBarDelegate {
     private func resetPresentation() {
         guard let bar else { return }
         bar.layer.removeAllAnimations()
-        bar.alpha = visible ? 1 : 0
-        bar.transform = visible ? .identity : Self.offscreen(bar)
-        bar.isUserInteractionEnabled = visible
+        applyPresentation()
+    }
+
+    private func applyPresentation() {
+        guard let bar, let viewport else { return }
+        UIView.performWithoutAnimation {
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            if let preview {
+                bar.alpha = 1
+                bar.transform = CGAffineTransform(translationX: preview.offset.x, y: preview.offset.y)
+                previewMask.frame = viewport.bounds
+                previewMask.path = UIBezierPath(rect: preview.clip).cgPath
+                viewport.layer.mask = previewMask
+            } else {
+                viewport.layer.mask = nil
+                bar.alpha = visible ? 1 : 0
+                bar.transform = visible ? .identity : Self.offscreen(bar)
+            }
+            viewport.isUserInteractionEnabled = visible && preview == nil
+            bar.isUserInteractionEnabled = visible && preview == nil
+            CATransaction.commit()
+        }
+    }
+
+    func setPreview(_ next: Preview?) {
+        if preview == nil && next == nil { return }
+        let oldPath = preview?.path ?? activePath
+        let starting = preview == nil && next != nil
+        preview = next
+        if starting { setCollapsed(false, animated: false); bar?.layer.removeAllAnimations() }
+        if oldPath != (next?.path ?? activePath) {
+            applyStyle()
+            setActive(path: activePath)
+        }
+        applyPresentation()
     }
 
     private static func offscreen(_ bar: UITabBar) -> CGAffineTransform {
@@ -892,6 +973,9 @@ final class GlassTabBar: NSObject, UITabBarDelegate {
     }
 
     func removeFromHost() {
+        viewport?.removeFromSuperview()
+        viewport = nil
+        preview = nil
         bar?.removeFromSuperview()
         bar = nil
         leading = nil
@@ -1060,10 +1144,15 @@ final class GlassTabBar: NSObject, UITabBarDelegate {
     // MARK: Visibility
 
     func setVisible(_ next: Bool, animated: Bool) {
-        guard next != visible else { return }
+        // A nonanimated route commit must also cancel an in-flight keyboard
+        // or overlay animation, even when its final visibility agrees.
+        guard next != visible || !animated else { return }
         visible = next
+        if preview != nil { applyPresentation(); return }
         guard let bar else { return }
+        if !animated { bar.layer.removeAllAnimations() }
         bar.isUserInteractionEnabled = next
+        viewport?.isUserInteractionEnabled = next
         let apply = {
             bar.alpha = next ? 1 : 0
             bar.transform = next ? .identity : Self.offscreen(bar)
@@ -1411,6 +1500,9 @@ struct GlassButtonSpec {
     /// `UIColor`s for that is a good way to get it subtly wrong.
     let tintName: String
     let alpha: CGFloat
+    let preview: Bool
+    let interactive: Bool
+    let clip: CGRect?
     let badge: String?
     let badgeTone: String
     let label: String
@@ -1450,14 +1542,18 @@ final class GlassSelectorBarView: UIView, UITabBarDelegate {
 
     /// A word drawn as a template image, so the bar tints it — selected,
     /// unselected and under the lens — exactly as it tints a glyph.
-    private static func wordImage(_ text: String) -> UIImage? {
+    private static func wordImage(_ text: String, symbol: String) -> UIImage? {
         guard !text.isEmpty else { return nil }
         let attributes: [NSAttributedString.Key: Any] = [.font: titleFont]
         let measured = (text as NSString).size(withAttributes: attributes)
-        let size = CGSize(width: ceil(measured.width), height: ceil(measured.height))
+        let glyph = symbol.isEmpty ? nil : UIImage(systemName: symbol, withConfiguration: UIImage.SymbolConfiguration(pointSize: 16, weight: .medium))?.withTintColor(.black, renderingMode: .alwaysOriginal)
+        let glyphWidth = glyph?.size.width ?? 0
+        let gap: CGFloat = glyph == nil ? 0 : 6
+        let size = CGSize(width: ceil(measured.width + glyphWidth + gap), height: ceil(max(measured.height, glyph?.size.height ?? 0)))
         guard size.width > 0, size.height > 0 else { return nil }
         let image = UIGraphicsImageRenderer(size: size).image { _ in
-            (text as NSString).draw(at: .zero, withAttributes: attributes)
+            if let glyph { glyph.draw(at: CGPoint(x: 0, y: (size.height - glyph.size.height) / 2)) }
+            (text as NSString).draw(at: CGPoint(x: glyphWidth + gap, y: (size.height - measured.height) / 2), withAttributes: attributes)
         }
         return image.withRenderingMode(.alwaysTemplate)
     }
@@ -1465,6 +1561,7 @@ final class GlassSelectorBarView: UIView, UITabBarDelegate {
     private let bar = UITabBar()
     private var ids: [String] = []
     private var titles: [String] = []
+    private var symbols: [String] = []
     /// Where the bar has to sit for its platter to land on the page's box.
     /// Derived from a real layout pass rather than hard-coded, then reused —
     /// it does not change while the app runs, and re-deriving every layout
@@ -1595,9 +1692,11 @@ final class GlassSelectorBarView: UIView, UITabBarDelegate {
     func apply(_ spec: GlassButtonSpec) {
         let incomingIds = spec.segments.map(\.id)
         let incomingTitles = spec.segments.map(\.title)
-        if incomingIds != ids || incomingTitles != titles {
+        let incomingSymbols = spec.segments.map(\.symbol)
+        if incomingIds != ids || incomingTitles != titles || incomingSymbols != symbols {
             ids = incomingIds
             titles = incomingTitles
+            symbols = incomingSymbols
             bar.items = spec.segments.enumerated().map { index, segment in
                 // The word *is* the image, and the item has no title.
                 //
@@ -1610,7 +1709,7 @@ final class GlassSelectorBarView: UIView, UITabBarDelegate {
                 // title centres it, the lens magnifies it the way it magnifies
                 // any icon, and the type is the page's rather than the bar's.
                 // The navbar already draws its own tab images this way.
-                let item = UITabBarItem(title: nil, image: Self.wordImage(segment.title), tag: index)
+                let item = UITabBarItem(title: nil, image: Self.wordImage(segment.title, symbol: segment.symbol), tag: index)
                 item.accessibilityLabel = segment.label
                 return item
             }
@@ -1619,6 +1718,13 @@ final class GlassSelectorBarView: UIView, UITabBarDelegate {
             setNeedsLayout()
         }
         guard let items = bar.items else { return }
+        for (item, segment) in zip(items, spec.segments) {
+            let badge = segment.badge.flatMap { $0.isEmpty ? nil : $0 }
+            if item.badgeValue != badge { item.badgeValue = badge }
+            let badgeColor: UIColor = segment.badgeTone == "danger" ? .systemRed : GlassTabBar.glassInk
+            if item.badgeColor != badgeColor { item.badgeColor = badgeColor }
+            if item.accessibilityLabel != segment.label { item.accessibilityLabel = segment.label }
+        }
         let active = spec.segments.firstIndex(where: { $0.active }) ?? 0
         guard active < items.count, bar.selectedItem !== items[active] else { return }
         // Writing the selection makes UIKit call the delegate back as if a
@@ -2587,7 +2693,8 @@ final class GlassButtonLayer {
             // the buttons are already being pushed every time anything about
             // them changes, and one channel is easier to reason about than two.
             view.alpha = spec.alpha
-            view.isUserInteractionEnabled = spec.alpha > 0.05
+            view.isUserInteractionEnabled = spec.interactive && !spec.preview && spec.alpha > 0.05
+            view.accessibilityElementsHidden = spec.preview
             // Geometry stays put while a press is live: a frame write under a
             // non-identity transform lands somewhere new, and the settle
             // spring would return the control to the wrong home. The next
@@ -2618,13 +2725,21 @@ final class GlassButtonLayer {
                 if !group.isLiquidActive { group.frame = spec.frame }
                 group.apply(spec)
             case .selector(let group):
-                if !group.isLiquidActive { group.frame = spec.frame }
+                if !group.isLiquidActive && group.frame != spec.frame { group.frame = spec.frame }
                 group.apply(spec)
             case .chips(let row):
                 row.frame = spec.frame
                 row.apply(spec)
             }
             view.layoutIfNeeded()
+            if let clip = spec.clip {
+                let mask = (view.layer.mask as? CAShapeLayer) ?? CAShapeLayer()
+                mask.frame = view.bounds
+                mask.path = UIBezierPath(rect: view.convert(clip, from: host)).cgPath
+                view.layer.mask = mask
+            } else {
+                view.layer.mask = nil
+            }
         }
         for (id, chrome) in views where !live.contains(id) {
             chrome.view.removeFromSuperview()

@@ -199,9 +199,9 @@ export const SearchPopup: React.FC<Props> = ({
             className="w-full max-w-2xl bg-surface rounded-[28px] shadow-[0_30px_80px_-16px_rgba(0,0,0,0.42)] ring-1 ring-on-surface/[0.06] overflow-hidden flex flex-col max-h-[70vh]"
           >
             {/* Search input — large, Spotlight-style. */}
-            <div className="flex-shrink-0 flex items-center gap-3 px-6 py-5">
+            <div data-search-field className="flex-shrink-0 flex items-center gap-3 px-6 py-5">
               <Search size={22} strokeWidth={2.2} className="text-on-surface/45 flex-shrink-0" />
-              <input
+              <input data-search-input="embedded"
                 ref={inputRef}
                 type="text"
                 value={query}

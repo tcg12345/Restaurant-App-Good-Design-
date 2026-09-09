@@ -1,0 +1,16 @@
+.widget-settings { padding-bottom: 24px; }
+.widget-settings-intro { padding: 12px 0 26px; }
+.widget-settings-intro > svg { color: var(--brand-accent); margin-bottom: 16px; }
+.widget-settings-intro h2 { font-size: 30px; font-weight: 650; line-height: 1.1; letter-spacing: -1px; margin: 0 0 12px; }
+.widget-settings-intro p { font-size: 15px; line-height: 1.5; max-width: 340px; color: var(--color-ink-3); }
+.widget-install { padding: 20px; border-radius: 24px; background: color-mix(in srgb, var(--brand-accent) 7%, var(--color-surface)); }
+.widget-install h3, .widget-options h3 { font-size: 15px; font-weight: 600; margin: 0 0 7px; }
+.widget-install ol { padding-left: 19px; margin: 12px 0; font-size: 13px; line-height: 1.6; }
+.widget-install li + li { margin-top: 6px; }
+.widget-install p, .widget-settings-note { font-size: 12px; line-height: 1.55; color: var(--color-ink-3); }
+.widget-options { margin: 22px 0; }
+.widget-options section { display: flex; gap: 15px; padding: 20px 0; }
+.widget-options section + section { border-top: 1px solid var(--color-line); }
+.widget-option-icon { display: grid; place-items: center; flex: 0 0 43px; height: 43px; border-radius: 14px; color: var(--brand-accent); background: color-mix(in srgb, var(--brand-accent) 7%, var(--color-surface)); }
+.widget-options p { margin: 0 0 8px; font-size: 13px; line-height: 1.5; color: var(--color-ink-3); }
+.widget-options small { font-size: 10px; font-weight: 600; color: var(--brand-accent); }

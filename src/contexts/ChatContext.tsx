@@ -1,5 +1,8 @@
 import React, { createContext, useContext, useState, useCallback, useEffect, useRef, type ReactNode } from 'react';
 import { useAuth } from './AuthContext';
+import { App } from '@capacitor/app';
+import { Capacitor } from '@capacitor/core';
+import { mergeChatConversation, mergeChatMessages } from '../lib/chat-reconcile';
 import { supabase, supabaseConfigured } from '../lib/supabase';
 
 /* ── Types ── */
@@ -139,6 +142,7 @@ interface ChatContextValue {
    *  reach for a skeleton when this is true AND `conversations` is empty —
    *  i.e. there is genuinely nothing to show yet. */
   loading: boolean;
+  connectionState: 'connecting' | 'connected' | 'reconnecting';
   createConversation: (participantIds: string[], name?: string) => Conversation;
   sendMessage: (conversationId: string, text: string, sharedRestaurant?: SharedRestaurant, sharedRecipe?: SharedRecipe, sharedReel?: SharedReel, sharedPost?: SharedPost, sharedGuide?: SharedGuide) => void;
   /** Find an existing 1:1 chat with the friend, or create one and return it. */
@@ -274,6 +278,7 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [loading, setLoading] = useState(false);
+  const [connectionState, setConnectionState] = useState<'connecting' | 'connected' | 'reconnecting'>('connecting');
   // Mirror for callbacks that need the freshest list without re-binding
   // (retryMessage, markRead's server-timestamp clamp).
   const conversationsRef = useRef<Conversation[]>([]);
@@ -298,6 +303,7 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const pendingCreates = useRef(new Map<string, Promise<unknown>>());
   // Conversations being fetched after a realtime message for an unknown id.
   const fetchingConvs = useRef(new Set<string>());
+  const bufferedMessages = useRef(new Map<string, ChatMessage[]>());
 
   // ── Cache persist (display cache only — server is source of truth) ──
   useEffect(() => {
@@ -308,29 +314,36 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   // A realtime message can reference a conversation we don't know yet
   // (a friend just started a chat with us) — fetch it plus its history.
   const fetchConversation = useCallback(async (convId: string) => {
-    if (!supabaseConfigured || fetchingConvs.current.has(convId)) return;
-    fetchingConvs.current.add(convId);
+    const uid = userIdRef.current;
+    const key = `${uid}:${convId}`;
+    if (!uid || !supabaseConfigured || fetchingConvs.current.has(key)) return;
+    fetchingConvs.current.add(key);
     try {
       const [convRes, msgRes] = await Promise.all([
         supabase.from('conversations').select('*').eq('id', convId).maybeSingle(),
         supabase.from('messages').select('*').eq('conversation_id', convId).order('created_at', { ascending: true }),
       ]);
       const row = convRes.data as ConversationRow | null;
-      if (!row) return;
+      if (!row || uid !== userIdRef.current) return;
       // New activity in a conversation the user had hidden un-hides it —
       // like un-archiving: a fresh message should resurface the thread on
       // every device, not just this session.
-      const uid = userIdRef.current;
       if (uid && (row.hidden_by || []).includes(uid)) {
         void supabase.rpc('set_conversation_hidden', { conv: convId, hide: false })
           .then(({ error }) => { if (error) console.warn('[Chat] unhide failed:', error.message); });
       }
-      const conv = rowToConversation(row, ((msgRes.data || []) as MessageRow[]).map(rowToMessage));
-      setConversations((prev) => prev.some((c) => c.id === conv.id) ? prev : [conv, ...prev].sort(byNewestActivity));
+      if (msgRes.error) throw msgRes.error;
+      const messages = mergeChatMessages(((msgRes.data || []) as MessageRow[]).map(rowToMessage), bufferedMessages.current.get(key) || []);
+      bufferedMessages.current.delete(key);
+      const conv = rowToConversation(row, messages);
+      setConversations((prev) => uid !== userIdRef.current ? prev : [
+        mergeChatConversation(prev.find((c) => c.id === conv.id), conv),
+        ...prev.filter((c) => c.id !== conv.id),
+      ].sort(byNewestActivity));
     } catch (err) {
       console.warn('[Chat] fetchConversation failed:', err);
     } finally {
-      fetchingConvs.current.delete(convId);
+      fetchingConvs.current.delete(key);
     }
   }, []);
 
@@ -364,14 +377,25 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     if (!supabaseConfigured) { setLoading(false); return; }
 
     let cancelled = false;
+    let syncing = false;
+    let syncAgain = false;
+    let active = document.visibilityState !== 'hidden';
+    let realtimeConnected = false;
+    const isCurrent = () => !cancelled && userIdRef.current === userId;
     setLoading(true);
-    (async () => {
+    setConnectionState('connecting');
+    const refresh = async () => {
+      if (!isCurrent() || !active || !navigator.onLine) return;
+      if (syncing) { syncAgain = true; return; }
+      syncing = true;
+      const atStart = new Map<string, Conversation>(conversationsRef.current.map((conv) => [conv.id, conv]));
       try {
         const { data: convRows, error: convErr } = await supabase
           .from('conversations')
           .select('*')
           .contains('participant_ids', [userId])
           .order('last_message_at', { ascending: false });
+        if (!isCurrent()) return;
         if (convErr) { console.warn('[Chat] load conversations failed:', convErr.message); return; }
         // Skip conversations this user "deleted" (per-user hide, migration
         // 051) — the row survives for the other participants.
@@ -387,7 +411,7 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             ? supabase.from('conversation_reads').select('conversation_id, user_id, last_read_at').in('conversation_id', ids)
             : Promise.resolve({ data: [], error: null }),
         ]);
-        if (cancelled) return;
+        if (!isCurrent()) return;
         if (msgRes.error) { console.warn('[Chat] load messages failed:', msgRes.error.message); return; }
 
         const msgsByConv = new Map<string, ChatMessage[]>();
@@ -406,16 +430,43 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           else others[r.conversation_id] = { ...(others[r.conversation_id] || {}), [r.user_id]: at };
         }
 
-        setConversations(convs);
-        setReadTimestamps(read);
-        setOtherReads(others);
-        saveToStorage(cacheKey(userId), { conversations: convs, read });
+        setConversations((prev) => {
+          if (!isCurrent()) return prev;
+          const current = new Map<string, Conversation>(prev.map((conv) => [conv.id, conv]));
+          const hidden = new Set(((convRows || []) as ConversationRow[]).filter((row) => (row.hidden_by || []).includes(userId)).map((row) => row.id));
+          const merged = convs.filter((conv) => !atStart.has(conv.id) || current.has(conv.id)).map((conv) => {
+            const local = current.get(conv.id);
+            const reconciled = mergeChatConversation(local, conv);
+            // A rename/participant change received during the query is newer.
+            return local && local !== atStart.get(conv.id)
+              ? { ...reconciled, name: local.name, participantIds: local.participantIds } : reconciled;
+          });
+          const loaded = new Set(convs.map((conv) => conv.id));
+          for (const conv of prev) {
+            if (!loaded.has(conv.id) && !hidden.has(conv.id) &&
+                (!atStart.has(conv.id) || pendingCreates.current.has(conv.id))) merged.push(conv);
+          }
+          return merged.sort(byNewestActivity);
+        });
+        setReadTimestamps((prev) => {
+          const next = { ...prev };
+          for (const [id, at] of Object.entries(read)) next[id] = Math.max(next[id] || 0, at);
+          return next;
+        });
+        for (const [id, reads] of Object.entries(others)) {
+          for (const [reader, at] of Object.entries(reads)) applyOtherRead(id, reader, at);
+        }
       } catch (err) {
         console.warn('[Chat] load failed:', err);
       } finally {
-        if (!cancelled) setLoading(false);
+        syncing = false;
+        if (isCurrent()) {
+          setLoading(false);
+          if (syncAgain) { syncAgain = false; void refresh(); }
+        }
       }
-    })();
+    };
+    void refresh();
 
     // Realtime: RLS scopes postgres_changes per subscriber, so this only
     // delivers INSERTs on messages in conversations the user belongs to.
@@ -423,33 +474,40 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       .channel(`messages-${userId}`)
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, (payload) => {
         const row = payload.new as MessageRow;
-        if (!row?.id || !row.conversation_id) return;
+        if (!isCurrent() || !row?.id || !row.conversation_id) return;
+        const key = `${userId}:${row.conversation_id}`;
+        if (!conversationsRef.current.some((conv) => conv.id === row.conversation_id)) {
+          bufferedMessages.current.set(key, [...(bufferedMessages.current.get(key) || []), rowToMessage(row)]);
+          void fetchConversation(row.conversation_id);
+        }
         setConversations((prev) => {
           const idx = prev.findIndex((c) => c.id === row.conversation_id);
           if (idx === -1) {
-            // New conversation started by someone else — pull it in.
-            void fetchConversation(row.conversation_id);
             return prev;
           }
           const conv = prev[idx];
-          if (conv.messages.some((m) => m.id === row.id)) return prev; // own optimistic echo
           const msg = rowToMessage(row);
           const next = [...prev];
           next[idx] = {
             ...conv,
-            messages: [...conv.messages, msg].sort((a, b) => a.timestamp - b.timestamp),
+            messages: mergeChatMessages(conv.messages, [msg]),
             lastMessageAt: Math.max(conv.lastMessageAt, msg.timestamp),
           };
           return next.sort(byNewestActivity);
         });
+      })
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'conversations' }, (payload) => {
+        const row = payload.new as ConversationRow;
+        if (isCurrent() && row?.id) void fetchConversation(row.id);
       })
       // Renames + per-user hides sync live: without these, a participant
       // who "deleted" a group kept seeing it (and sending into it) until
       // reload. RLS scopes both events to conversations the user is in.
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'conversations' }, (payload) => {
         const row = payload.new as ConversationRow;
-        if (!row?.id) return;
+        if (!isCurrent() || !row?.id) return;
         const meHidden = !!userId && (row.hidden_by || []).includes(userId);
+        if (!meHidden && !conversationsRef.current.some((conv) => conv.id === row.id)) void fetchConversation(row.id);
         setConversations((prev) => {
           if (meHidden) return prev.filter((c) => c.id !== row.id);
           return prev.map((c) => (c.id === row.id
@@ -459,24 +517,53 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       })
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'conversation_reads' }, (payload) => {
         const row = payload.new as { conversation_id?: string; user_id?: string; last_read_at?: string };
-        if (!row?.conversation_id || !row.user_id || row.user_id === userId) return;
+        if (!isCurrent() || !row?.conversation_id || !row.user_id) return;
+        if (row.user_id === userId) {
+          setReadTimestamps((prev) => ({ ...prev, [row.conversation_id!]: Math.max(prev[row.conversation_id!] || 0, parseTs(row.last_read_at || '')) }));
+          return;
+        }
         applyOtherRead(row.conversation_id, row.user_id, parseTs(row.last_read_at || ''));
       })
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'conversation_reads' }, (payload) => {
         const row = payload.new as { conversation_id?: string; user_id?: string; last_read_at?: string };
-        if (!row?.conversation_id || !row.user_id || row.user_id === userId) return;
+        if (!isCurrent() || !row?.conversation_id || !row.user_id) return;
+        if (row.user_id === userId) {
+          setReadTimestamps((prev) => ({ ...prev, [row.conversation_id!]: Math.max(prev[row.conversation_id!] || 0, parseTs(row.last_read_at || '')) }));
+          return;
+        }
         applyOtherRead(row.conversation_id, row.user_id, parseTs(row.last_read_at || ''));
       })
       .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'conversations' }, (payload) => {
         const old = payload.old as { id?: string } | null;
-        if (!old?.id) return;
+        if (!isCurrent() || !old?.id) return;
         setConversations((prev) => prev.filter((c) => c.id !== old.id));
       })
-      .subscribe();
+      .subscribe((status) => {
+        if (!isCurrent()) return;
+        realtimeConnected = status === 'SUBSCRIBED';
+        setConnectionState(realtimeConnected ? 'connected' : 'reconnecting');
+        if (realtimeConnected) void refresh();
+      });
 
+    const resume = () => { active = document.visibilityState !== 'hidden'; if (active) void refresh(); };
+    const offline = () => { realtimeConnected = false; setConnectionState('reconnecting'); };
+    document.addEventListener('visibilitychange', resume);
+    window.addEventListener('online', resume);
+    window.addEventListener('offline', offline);
+    const appListener = Capacitor.isNativePlatform()
+      ? App.addListener('appStateChange', ({ isActive }) => { active = isActive; if (active) void refresh(); }) : null;
+    // While the socket recovers, keep visible chats usable without requiring
+    // a manual reload. Normal delivery uses the socket, not polling.
+    const recovery = window.setInterval(() => { if (!realtimeConnected) void refresh(); }, 10000);
     return () => {
       cancelled = true;
-      supabase.removeChannel(channel);
+      bufferedMessages.current.clear();
+      window.clearInterval(recovery);
+      document.removeEventListener('visibilitychange', resume);
+      window.removeEventListener('online', resume);
+      window.removeEventListener('offline', offline);
+      void appListener?.then((listener) => listener.remove());
+      void supabase.removeChannel(channel);
     };
   }, [userId, fetchConversation, applyOtherRead]);
 
@@ -535,7 +622,12 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     setConversations((prev) => prev.map((c) => {
       if (c.id !== conversationId) return c;
       const messages = c.messages
-        .map((m) => (m.id === messageId ? { ...m, ...patch } : m))
+        .map((m) => {
+          if (m.id !== messageId) return m;
+          // The socket can confirm delivery before the HTTP response is lost.
+          if (patch.status === 'failed' && m.status === 'sent') return m;
+          return { ...m, ...patch };
+        })
         .sort((a, b) => a.timestamp - b.timestamp);
       const lastMessageAt = messages.reduce((mx, m) => Math.max(mx, m.timestamp), c.createdAt);
       return { ...c, messages, lastMessageAt };
@@ -556,6 +648,7 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       try {
         const pending = pendingCreates.current.get(conversationId);
         if (pending) await pending;
+        if (uid !== userIdRef.current) return;
         const { data, error } = await supabase.from('messages').insert({
           id: msg.id,
           conversation_id: conversationId,
@@ -563,6 +656,7 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           text: msg.text,
           shared_payload: buildSharedPayload(msg),
         }).select('created_at').single();
+        if (uid !== userIdRef.current) return;
         if (error) {
           // 23505 = this exact message already landed (a retry racing the
           // original) — that's delivered, not failed.
@@ -576,6 +670,7 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           timestamp: parseTs((data as { created_at: string | null } | null)?.created_at),
         });
       } catch (err) {
+        if (uid !== userIdRef.current) return;
         console.warn('[Chat] send failed:', err);
         patchMessage(conversationId, msg.id, { status: 'failed' });
       }
@@ -753,7 +848,7 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       conversations, loading, createConversation, sendMessage, getConversation,
       findDirectConversation, getOrCreateDirectConversation, shareToTargets,
       deleteConversation, renameConversation, retryMessage, markRead,
-      unreadCount, getUnreadForConversation, otherReads,
+      unreadCount, getUnreadForConversation, otherReads, connectionState,
     }}>
       {children}
     </ChatContext.Provider>

@@ -1,5 +1,8 @@
 /* Home chrome uses the same native glass bridge as the rest of the app. */
 .home-topbar nav { gap: 8px; }
+.home-more-anchor { display: flex; }
+.home-menu-social { display: flex; align-items: center; gap: 8px; }
+.home-menu-count { min-width: 20px; padding: 2px 5px; border-radius: 12px; background: var(--brand-accent); color: var(--brand-on-accent); font-size: 11px; text-align: center; font-weight: 600; }
 .home-topbar .home-glass-button, .home-glass-button { width: 44px; height: 44px; border-radius: 50%; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
 .home-glass-social { display: flex; border-radius: 24px; padding: 2px; }
 .home-glass-social .home-glass-button { width: 41px; }

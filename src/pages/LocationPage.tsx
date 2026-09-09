@@ -2877,9 +2877,9 @@ export const LocationPage: React.FC = () => {
             </div>
           ) : (
           <div className="r-search-row">
-            <div className="r-search">
+            <div data-search-field className="r-search">
               <Search className="lens" />
-              <input
+              <input data-search-input="embedded"
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}

@@ -54,9 +54,10 @@
 .guide-reader-meta { display: block; margin-top: 5px; font-size: 12.5px; line-height: 1.5; color: var(--gr-muted); overflow-wrap: anywhere; }
 .guide-reader-score { display: flex; align-items: center; justify-content: center; width: 39px; height: 39px; border: 1px solid; border-radius: 50%; flex: none; font-size: 13px; font-weight: 650; font-variant-numeric: tabular-nums; margin-top: 1px; }
 .guide-reader-chevron { align-self: center; flex: none; color: var(--gr-muted); }
-.guide-reader-photo { width: 100%; display: block; border-radius: 18px; overflow: hidden; margin: 16px 0 0; background: var(--gr-wash); }
-.guide-reader-photo:not(:has(img)) { display: none; }
-.guide-reader-entry-image { display: block; width: 100%; aspect-ratio: 16/9; max-height: 320px; object-fit: cover; }
+.guide-reader-photo-rail { display: flex; gap: 10px; overflow-x: auto; overscroll-behavior-x: contain; scroll-snap-type: x proximity; scrollbar-width: none; margin: 16px -22px 0; padding: 0 22px 4px; }
+.guide-reader-photo-rail::-webkit-scrollbar { display: none; }
+.guide-reader-photo-tile { flex: 0 0 136px; width: 136px; height: 136px; border-radius: 16px; overflow: hidden; scroll-snap-align: start; background: var(--gr-wash); }
+.guide-reader-photo-tile img { display: block; width: 100%; height: 100%; object-fit: cover; }
 .guide-reader-note { font-size: 14px; line-height: 1.65; color: var(--gr-ink); margin: 16px 0 0; white-space: pre-line; overflow-wrap: anywhere; }
 .guide-reader-entry-bottom { margin-top: 12px; display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; }
 .guide-reader-entry-actions { display: flex; align-items: center; gap: 8px; margin-left: auto; }

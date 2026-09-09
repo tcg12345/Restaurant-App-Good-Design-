@@ -1,3 +1,8 @@
+import { useRouteSettled } from '../components/RouteMotionLayer';
+import { ReelMediaPoster } from '../components/ReelMediaPoster';
+import { reelEntryKey } from '../lib/reel-entry';
+import { muxPosterUrl } from '../lib/mux';
+import { HOME_REELS_EXPERIMENT } from '../lib/home-reels-experiment';
 import { DeleteConfirmation } from '../components/DeleteConfirmation';
 import { usePageBack } from '../lib/usePageBack';
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
@@ -180,6 +185,11 @@ interface ReelSlideProps {
 
 const ReelSlideInner: React.FC<ReelSlideProps> = ({ reel, active, near, preloadFull = false, muted, isMine, currentUserId, hideActionRail = false, hideOwnerDelete = false, hideDetailsOverlay = false, onActiveVideoChange, onLike, onSave, onComment, onShare, onCardClick, onDelete }) => {
   const { requireSignIn } = useSignInModal();
+  const routeSettled = useRouteSettled();
+  const poster = reel.posterUrl || (reel.muxPlaybackId && (reel.isPublic || reel.muxTokens?.thumbnail)
+    ? muxPosterUrl(reel.muxPlaybackId, { width: 640, token: reel.muxTokens?.thumbnail }) : undefined);
+  const mediaEnabled = near && (routeSettled || !poster);
+  const [frameReady, setFrameReady] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
   // Second video element behind the foreground — same source rendered with
   // object-cover + heavy blur so phone screens taller than 9:16 letterbox
@@ -236,7 +246,7 @@ const ReelSlideInner: React.FC<ReelSlideProps> = ({ reel, active, near, preloadF
     const el = videoRef.current;
     const bg = backdropRef.current;
     if (!el) return;
-    if (active) {
+    if (active && mediaEnabled) {
       // Optimistically clear isPaused before play() resolves so the
       // paused overlay doesn't flash for a few ms on slide-in.
       setIsPaused(false);
@@ -269,7 +279,7 @@ const ReelSlideInner: React.FC<ReelSlideProps> = ({ reel, active, near, preloadF
     // below mirrors the latest `muted` onto the element so the user can
     // still toggle audio without unpausing a manually-paused reel.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [active]);
+  }, [active, mediaEnabled]);
 
   // Keep the <video> element's muted flag in sync with the latest prop,
   // without touching play/pause state.
@@ -357,7 +367,7 @@ const ReelSlideInner: React.FC<ReelSlideProps> = ({ reel, active, near, preloadF
           <MuxReelMedia
             playbackId={reel.muxPlaybackId}
             tokens={reel.muxTokens}
-            poster={reel.posterUrl}
+            poster={poster}
             active={active}
             near={near}
             muted={muted}
@@ -431,7 +441,7 @@ const ReelSlideInner: React.FC<ReelSlideProps> = ({ reel, active, near, preloadF
                 // Backdrop only fetches when the slide is active; saving
                 // bandwidth on the decorative blurred copy that nobody
                 // sees on adjacent slides.
-                src={active ? reel.videoUrl : undefined}
+                src={active && mediaEnabled ? reel.videoUrl : undefined}
                 playsInline
                 loop
                 muted
@@ -449,18 +459,21 @@ const ReelSlideInner: React.FC<ReelSlideProps> = ({ reel, active, near, preloadF
               // sit at preload="auto" so their first frames are already in
               // the buffer when the user swipes — that's what makes the
               // hand-off feel instant like Instagram.
-              src={near ? reel.videoUrl : undefined}
-              poster={reel.posterUrl}
+              src={mediaEnabled ? reel.videoUrl : undefined}
+              poster={poster}
               playsInline
               loop
               muted={muted}
               preload={near ? (preloadFull ? 'auto' : 'metadata') : 'none'}
+              onPlaying={() => setFrameReady(true)}
+              onEmptied={() => setFrameReady(false)}
               onClick={onTapVideo}
               className={cn(
                 'absolute inset-0 w-full h-full',
                 phoneMode ? 'object-cover' : 'object-contain',
               )}
             />
+            <ReelMediaPoster src={poster} ready={frameReady} fit={phoneMode ? 'cover' : 'contain'} />
           </>
         ) : (
           <div className="w-full h-full bg-black flex items-center justify-center">
@@ -1885,6 +1898,7 @@ const TopBar: React.FC<TopBarProps> = ({ kind, setKind, muted, setMuted, onCreat
 /* ── The page ───────────────────────────────────────────────────────── */
 
 export const Reels: React.FC = () => {
+  const routeSettled = useRouteSettled();
   const navigate = useNavigate();
   const goBack = usePageBack('/');
   const location = useLocation();
@@ -1894,7 +1908,7 @@ export const Reels: React.FC = () => {
   // arrow overlay top-left). The key matches the FeedItem.key format
   // used elsewhere (`reel-<id>` or `post-<id>`).
   const { focusKey } = useParams<{ focusKey?: string }>();
-  const focused = !!focusKey;
+  const focused = !!focusKey || HOME_REELS_EXPERIMENT;
   const {
     reels: allReels, recipeReels, loading: reelsLoading,
     loadError: reelsLoadError, refreshReels,
@@ -1923,6 +1937,7 @@ export const Reels: React.FC = () => {
   const initialKind: FeedKind = (() => {
     const sp = new URLSearchParams(location.search);
     const k = sp.get('kind');
+    if (focusKey?.startsWith('reel-') && recipeReels.some(reel => `reel-${reel.id}` === focusKey)) return 'recipe';
     return k === 'recipe' ? 'recipe' : 'explore';
   })();
   const [kind, setKind] = useState<FeedKind>(initialKind);
@@ -1947,7 +1962,7 @@ export const Reels: React.FC = () => {
   }, [activeMedia, volume]);
   // Single "active feed item" key — `reel-<id>` or `post-<id>` — so the
   // unified scroll-snap feed can track exactly one playing slide.
-  const [activeKey, setActiveKey] = useState<string | null>(null);
+  const [activeKey, setActiveKey] = useState<string | null>(() => focusKey ?? (lastActivePostId ? `post-${lastActivePostId}` : null));
   // Tracks which sub-item of the active post is on screen, so the
   // desktop side-details column can swap its featured card and caption
   // as the user swipes the horizontal carousel. Reset whenever the
@@ -2004,6 +2019,9 @@ export const Reels: React.FC = () => {
     return items;
   }, [kind, allReels, recipeReels, allPosts]);
 
+  const feedKeys = feedItems.map(item => item.key).join('|');
+  const waitingForFocus = !!focusKey && loading && !feedItems.some(item => item.key === focusKey);
+
   const activeReelId = activeKey?.startsWith('reel-') ? activeKey.slice(5) : null;
   const activePostId = activeKey?.startsWith('post-') ? activeKey.slice(5) : null;
 
@@ -2050,7 +2068,8 @@ export const Reels: React.FC = () => {
     // Resolve which slide this tab should be parked on, then arm a one-shot
     // scroll to it. Priority: focused URL item → per-tab saved key →
     // cross-mount post pointer → top of the feed.
-    let target: string | null = feedItems[0]?.key ?? null;
+    if (waitingForFocus) return;
+    let target: string | null = reelEntryKey(feedItems, focusKey, lastActivePostId);
     if (restoredKind.current === kind && restoredFocus.current === focusKey && activeKey && feedItems.some(f => f.key === activeKey)) {
       target = activeKey;
     } else if (focused && focusKey && feedItems.some((f) => f.key === focusKey)) {
@@ -2072,14 +2091,14 @@ export const Reels: React.FC = () => {
     }
     setActiveKey(target);
     restoredKind.current = kind;
-    restoredFocus.current = focusKey;
+    restoredFocus.current = focusKey && feedItems.some(item => item.key === focusKey) ? focusKey : undefined;
     const root = containerRef.current;
     if (root) {
       const index = Math.max(0, feedItems.findIndex(item => item.key === target));
       root.scrollTo({ top: index * root.clientHeight, behavior: 'instant' });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [kind, feedItems.length, focusKey, focused, showDesktopFrame]);
+  }, [kind, feedKeys, focusKey, focused, showDesktopFrame, waitingForFocus]);
 
   // If the focused item is a recipe reel that doesn't appear on the
   // current tab (e.g. it's not also in Explore for some reason), flip
@@ -2087,13 +2106,13 @@ export const Reels: React.FC = () => {
   // only do this once per focus to avoid bouncing back if the user
   // intentionally switches tabs after landing.
   const flippedForFocusRef = useRef(false);
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!focused || !focusKey) { flippedForFocusRef.current = false; return; }
     if (flippedForFocusRef.current) return;
     if (feedItems.some((f) => f.key === focusKey)) return;
     if (focusKey.startsWith('reel-')) {
       const id = focusKey.slice('reel-'.length);
-      const r = allReels.find((rr) => rr.id === id);
+      const r = allReels.find((rr) => rr.id === id) || recipeReels.find((rr) => rr.id === id);
       if (r && r.kind === 'recipe' && kind !== 'recipe') {
         flippedForFocusRef.current = true;
         setKind('recipe');
@@ -2105,7 +2124,7 @@ export const Reels: React.FC = () => {
       flippedForFocusRef.current = true;
       setKind('explore');
     }
-  }, [focused, focusKey, feedItems, allReels, kind]);
+  }, [focused, focusKey, feedItems, allReels, recipeReels, kind]);
 
   useEffect(() => {
     if (activePostId) setLastActivePostId(activePostId);
@@ -2133,16 +2152,12 @@ export const Reels: React.FC = () => {
   const openPostCommentsIdRef = useRef(openPostCommentsId);
   openPostCommentsIdRef.current = openPostCommentsId;
 
-  // Hide the floating BottomNav whenever either feature pane (restaurant
-  // or recipe) is open on the mobile sheet — its presence at the bottom
-  // collides visually with the bottom-anchored sheet handle. Reset on
-  // close + on unmount so other pages don't inherit the hidden state.
-  // In focused mode (/r/:key) the nav stays hidden the whole time.
-  useEffect(() => {
-    const anyPanelOpen = !!restaurantPanelSnapshot || !!recipePanelSnapshot;
-    setHideBottomNav(focused || anyPanelOpen);
+  // Route visibility is synchronous in App. Only panels own this temporary
+  // override, so leaving the viewer cannot delay the returning page's nav.
+  useLayoutEffect(() => {
+    setHideBottomNav(!!restaurantPanelSnapshot || !!recipePanelSnapshot);
     return () => setHideBottomNav(false);
-  }, [focused, restaurantPanelSnapshot, recipePanelSnapshot, setHideBottomNav]);
+  }, [restaurantPanelSnapshot, recipePanelSnapshot, setHideBottomNav]);
 
   useEffect(() => {
     if (!activeKey) return;
@@ -2268,7 +2283,7 @@ export const Reels: React.FC = () => {
     // starts in sync with the visible slide.
     update();
     return detach;
-  }, [feedItems.length, showDesktopFrame]);
+  }, [feedKeys, showDesktopFrame, waitingForFocus]);
 
   const stepFeed = useCallback((direction: number) => {
     const root = containerRef.current;
@@ -2484,7 +2499,7 @@ export const Reels: React.FC = () => {
       {/* AnimatePresence used to wrap the per-slide motion.div fade-in;
           now that slides render as plain <div>s there's nothing motion
           for it to track, so it's gone. */}
-      {loading && feedItems.length === 0 ? (
+      {waitingForFocus || (loading && feedItems.length === 0) ? (
           <div className="h-full w-full flex items-center justify-center text-white/60">
             <div className="reel-loading" role="status" aria-label="Loading reels"><Play size={24} /><span className="sr-only">Loading reels</span></div>
           </div>
@@ -2528,21 +2543,11 @@ export const Reels: React.FC = () => {
             </div>
           </div>
         ) : (() => {
-          // Fall back to feedItems[0] when activeKey hasn't been resolved
-          // yet (first render, before the restore-position effect fires).
-          // Without this, the very first paint has activeIdx = -1, every
-          // slide gets near = false, and the top reel/post sits on its
-          // gradient placeholder while waiting one tick for the effect to
-          // kick off preloading. Defaulting to index 0 means the top of
-          // the feed starts loading on the same frame it mounts.
-          const resolvedIdx = activeKey
-            ? feedItems.findIndex((f) => f.key === activeKey)
-            : -1;
-          const activeIdx = resolvedIdx >= 0
-            ? resolvedIdx
-            : (feedItems.length > 0 ? 0 : -1);
+          const resolvedKey = feedItems.some(item => item.key === activeKey)
+            ? activeKey : reelEntryKey(feedItems, focusKey, lastActivePostId);
+          const activeIdx = feedItems.findIndex(item => item.key === resolvedKey);
           return feedItems.map((item, idx) => {
-            const isActive = activeKey === item.key;
+            const isActive = resolvedKey === item.key;
             // Forward-biased preload window (Instagram-style): attach src to the
             // previous slide and the next two so a swipe lands on a warm video.
             const rel = activeIdx >= 0 ? idx - activeIdx : 999;
@@ -2563,12 +2568,12 @@ export const Reels: React.FC = () => {
             <div
               key={item.key}
               data-feed-key={item.key}
-              data-feed-active={activeKey === item.key}
+              data-feed-active={isActive}
               inert={!isActive}
               aria-hidden={!isActive}
               className="h-full w-full snap-start snap-always"
             >
-              {item.kind === 'reel' ? (
+              {(routeSettled ? isNear : isActive) ? (item.kind === 'reel' ? (
                 <ReelSlide
                   reel={item.reel}
                   active={isActive}
@@ -2623,7 +2628,7 @@ export const Reels: React.FC = () => {
                   onItemAttachmentClick={(postItem) => handlePostItemClick(item.post.userId, postItem)}
                   onDelete={() => setConfirmDeletePostId(item.post.id)}
                 />
-              )}
+              )) : null}
             </div>
             );
           });
@@ -2818,7 +2823,7 @@ export const Reels: React.FC = () => {
     <div ref={experienceRef} className="reels-experience relative h-dvh w-full bg-black overflow-hidden" data-focused={focused}>
       <TopBar kind={kind} setKind={switchKind} muted={muted} setMuted={setMuted} focused={focused} onCreate={() => setCreateOpen(true)} />
       {focused && (
-        <GlassButton id="reels-back" symbol="arrow.left" label="Go back" tint="white" onClick={() => goBack()} className="fixed top-[max(0.75rem,env(safe-area-inset-top))] left-3 z-50 hit-44 flex-none w-11 h-11 rounded-full flex items-center justify-center bg-black/55 text-white transition-transform active:scale-95">
+        <GlassButton id="reels-back" symbol="arrow.left" label="Go back" tint="label" onClick={() => goBack()} className="fixed top-[max(0.75rem,env(safe-area-inset-top))] left-3 z-50 hit-44 flex-none w-11 h-11 rounded-full flex items-center justify-center text-on-surface transition-transform active:scale-95">
           <ArrowLeft size={18} strokeWidth={2.4} />
         </GlassButton>
       )}

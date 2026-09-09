@@ -1,3 +1,5 @@
+import { clearWidgets } from '../lib/native-widgets';
+import { disconnectNotifications } from '../lib/native-notifications';
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { supabase, supabaseConfigured, SESSION_STORAGE_KEY } from '../lib/supabase';
 import { isNativeRuntime, signInWithOAuthNative, completeOAuthFromLaunchUrl } from '../lib/native-oauth';
@@ -159,7 +161,7 @@ function guardDeviceAccount(newUserId: string): boolean {
     if (prev && prev !== newUserId) {
       clearLocalAppData();
       localStorage.setItem(ACTIVE_USER_KEY, newUserId);
-      window.location.reload();
+      void clearWidgets().catch(() => {}).finally(() => window.location.reload());
       return true;
     }
     localStorage.setItem(ACTIVE_USER_KEY, newUserId);
@@ -250,6 +252,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     let hadPriorUser = false;
     try { hadPriorUser = !!localStorage.getItem(ACTIVE_USER_KEY); } catch { /* storage unavailable */ }
     if (hadPriorUser) clearLocalAppData();
+    void clearWidgets().catch(() => {});
     try { localStorage.setItem(GUEST_MODE_KEY, '1'); } catch { /* storage unavailable */ }
     setIsGuest(true);
   }, []);
@@ -689,6 +692,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const signOut = useCallback(async () => {
     if (!supabaseConfigured) return;
+    await disconnectNotifications().catch(() => {});
     await flushAnalyticsBeforeSignOut();
     await supabase.auth.signOut();
     markNeedsPassword(false);

@@ -47,7 +47,7 @@ export function AnalyticsExploration({days,platform,refresh,visitor,onVisitorCha
   </section>
   <div className="exp-audience">
    <button className={!visitor?'exp-everyone active':'exp-everyone'} aria-pressed={!visitor} onClick={()=>{onVisitorChange(null);setQuery('');}}><Users size={15}/> Everyone</button>
-   <label className="exp-search"><Search size={15}/><input aria-label="Find a visitor" placeholder="Find a visitor by name or username…" value={query} onChange={e=>setQuery(e.target.value)}/></label>
+   <label data-search-field className="exp-search"><Search size={15}/><input data-search-input="embedded" aria-label="Find a visitor" placeholder="Find a visitor by name or username…" value={query} onChange={e=>setQuery(e.target.value)}/></label>
    <label className="exp-person"><span>Explore as</span><select aria-label="Exploration visitor" value={visitor?.actor||''} onChange={e=>onVisitorChange(selectedPeople.find(p=>p.actor===e.target.value)||null)}><option value="">All visitors</option>{selectedPeople.map(p=><option key={p.actor} value={p.actor}>{visitorName(p)}</option>)}</select></label>
   </div>
   <p className="exp-scope-note" role="status">{peopleError|| (peopleBusy?'Finding visitors…':query&&!people.length?'No visitors match in this period.':'Visitor search covers recorded activity in this period; up to 50 matches.')} {peopleError&&<button onClick={()=>setRetry(n=>n+1)}>Retry</button>}</p>

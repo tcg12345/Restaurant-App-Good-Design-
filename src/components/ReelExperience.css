@@ -67,3 +67,7 @@
 .reel-desktop-navigation { z-index:20; }
 .reels-experience[data-desktop="true"] .reel-topbar > .reel-glass-control { visibility:hidden; }
 .reel-desktop-navigation[hidden] { display:none; }
+
+/* Keep the same poster through player initialization, then reveal playback. */
+.reel-media-poster { transition: opacity 180ms ease-out; }
+@media (prefers-reduced-motion: reduce) { .reel-media-poster { transition: none; } }

@@ -1,4 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { AnimatePresence } from 'motion/react';
+import { guidePhotoUrls } from '../../lib/guide-photos';
+import { GuidePhotoGallery, GalleryImage } from './GuidePhotoGallery';
 import { Link } from 'react-router-dom';
 import { Bookmark, Check, ChevronDown, ChevronRight, Edit3, EyeOff, MoreHorizontal, Plus, Sparkles } from 'lucide-react';
 import { GlassButton } from '../../lib/glass-buttons';
@@ -29,14 +32,24 @@ export const GuideReaderEntry: React.FC<{
   const dishes = restaurant ? entry.mustOrder : entry.keyIngredients;
   const sections = (entry.customSections || []).filter(section => section.body?.trim());
   const extra = (v.entryMustOrder && !!dishes?.length) || (v.entryBestFor && !!entry.bestFor)
-    || (v.entryTip && !!entry.insiderTip) || (v.entryHours && !!entry.hours) || !!sections.length;
+    || (v.entryTip && !!entry.insiderTip) || !!sections.length;
   const score = typeof entry.score === 'number' && Number.isFinite(entry.score) ? entry.score : null;
   const tint = score !== null ? scoreTintStyle(score) : null;
   const canOpen = !!actions.onView;
   const saved = !!actions.isSaved?.(entry);
+  const photos = guidePhotoUrls(entry);
+  const [galleryIndex, setGalleryIndex] = useState<number | null>(null);
+  const article = useRef<HTMLElement>(null);
+  useEffect(() => {
+    const layer = article.current?.closest('[data-retained-route]');
+    if (!layer || galleryIndex === null) return;
+    const observer = new MutationObserver(() => { if (layer.hasAttribute('inert')) setGalleryIndex(null); });
+    observer.observe(layer, { attributes: true, attributeFilter: ['inert'] });
+    return () => observer.disconnect();
+  }, [galleryIndex]);
 
   return (
-    <article className="guide-reader-entry" id={`reader-${guide.id}-${index}`}>
+    <article ref={article} className="guide-reader-entry" id={`reader-${guide.id}-${index}`}>
       <button type="button" className="guide-reader-place" disabled={!canOpen} onClick={() => actions.onView?.(entry)} aria-label={`Open ${entry.name}`}>
         <span className="guide-reader-number">{String(index + 1).padStart(2, '0')}</span>
         <span className="guide-reader-place-copy">
@@ -46,18 +59,20 @@ export const GuideReaderEntry: React.FC<{
         {v.entryScore && score !== null && tint && <span className="guide-reader-score" style={{ color: tint.color, background: tint.background, borderColor: tint.ring }} aria-label={`Author's score: ${score.toFixed(1)} out of 10`}>{score.toFixed(1)}</span>}
         {canOpen && <ChevronRight size={15} className="guide-reader-chevron" />}
       </button>
-      {guide.includePhotos && entry.image && (
-        <button type="button" className="guide-reader-photo" disabled={!canOpen} onClick={() => actions.onView?.(entry)} aria-label={`View ${entry.name}`}>
-          <GuideImage src={entry.image} className="guide-reader-entry-image" />
-        </button>
+      {guide.includePhotos && photos.length > 0 && (
+        <div className="guide-reader-photo-rail" data-horizontal-gesture="" role="region" aria-label={`Photos of ${entry.name}`}>
+          {photos.map((url, photoIndex) => <button type="button" key={url} className="guide-reader-photo-tile" onClick={() => setGalleryIndex(photoIndex)} aria-label={`Open photo ${photoIndex + 1} of ${photos.length} of ${entry.name}`}>
+            <GalleryImage url={url} alt={`${entry.name}, photo ${photoIndex + 1}`} />
+          </button>)}
+        </div>
       )}
+      <AnimatePresence>{galleryIndex !== null && <GuidePhotoGallery name={entry.name} photos={photos} initialIndex={galleryIndex} onClose={() => setGalleryIndex(null)} />}</AnimatePresence>
       {entry.notes?.trim() && <p className="guide-reader-note">{entry.notes}</p>}
       {extra && (
         <div className="guide-reader-entry-insights">
           {v.entryMustOrder && !!dishes?.length && <div><h3>{restaurant ? 'What to order' : 'Key ingredients'}</h3><p>{dishes.join(' · ')}</p></div>}
           {v.entryBestFor && entry.bestFor && <div><h3>Best for</h3><p>{entry.bestFor}</p></div>}
           {v.entryTip && entry.insiderTip && <div className="guide-reader-tip"><h3>Insider tip</h3><p>{entry.insiderTip}</p></div>}
-          {v.entryHours && entry.hours && <div><h3>Hours</h3><p>{entry.hours}</p></div>}
           {sections.map(section => <div key={section.id}>
             {section.header && <h3>{section.header}</h3>}
             {section.format === 'paragraph' ? <p>{section.body}</p>

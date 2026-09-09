@@ -3157,9 +3157,9 @@ export const LocationChat: React.FC<LocationChatProps> = ({
                     </div>
                   ) : (
                     <>
-                    <div className="lp-chat-history-search">
+                    <div data-search-field className="lp-chat-history-search">
                       <Search size={15} className="lp-chat-history-search-icon" />
-                      <input
+                      <input data-search-input="embedded"
                         type="text"
                         value={historyQuery}
                         onChange={(e) => setHistoryQuery(e.target.value)}

@@ -918,7 +918,7 @@ export const RecommendationsBrowser: React.FC<RecommendationsBrowserProps> = ({ 
           <div className="flex-shrink-0 border-b border-on-surface/[0.06] p-2">
             <div className="relative">
               <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-on-surface/35" />
-              <input
+              <input data-search-input="standalone"
                 type="text"
                 autoFocus={!isMobile}
                 value={cuisineQuery}

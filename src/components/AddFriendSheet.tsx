@@ -220,7 +220,7 @@ export const AddFriendSheet: React.FC<Props> = ({ open, onClose }) => {
             <div className="px-5 pb-3 flex-shrink-0">
               <div className="relative">
                 <Search size={15} className="absolute left-4 top-1/2 -translate-y-1/2 text-on-surface/40" />
-                <input
+                <input data-search-input="standalone"
                   ref={inputRef}
                   type="text"
                   value={query}

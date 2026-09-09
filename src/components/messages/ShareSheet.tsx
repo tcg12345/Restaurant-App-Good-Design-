@@ -1,5 +1,6 @@
 import { useSocialDialog } from '../social/useSocialDialog';
 import '../social/SocialDesign.css';
+import './ShareSheet.css';
 // The thread's ONE share surface — the overhaul of the old pair of
 // pickers. The composer's + opens this sheet: two tabs (Restaurant /
 // Recipe), one search, one list per tab with the tab's two sources
@@ -10,7 +11,7 @@ import '../social/SocialDesign.css';
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { X, Send, Loader2, Store, ChefHat } from 'lucide-react';
+import { X, Send, Loader2, Store, ChefHat, Check } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { displayCuisine } from '../../lib/cuisine';
 import { scoreTintStyle } from '../../lib/score';
@@ -78,39 +79,36 @@ function mealToShared(m: HomeMeal, authorId: string, authorName: string): Shared
   };
 }
 
-/** One row of the share list — serif name over a quiet meta line, the
- *  tab's own fact worn as the trailing tag (score disc / time / price). */
+/** Image, name and selection stay in consistent columns while browsing. */
 const ShareRow: React.FC<{
   name: string;
   meta: string;
+  image?: string;
+  kind?: Kind;
   tag?: React.ReactNode;
   picked: boolean;
-  divider: boolean;
   onPick: () => void;
-}> = ({ name, meta, tag, picked, divider, onPick }) => (
-  <button
-    type="button"
-    onClick={onPick}
-    className={cn(
-      'w-full text-left flex items-center gap-3 px-3 -mx-3 py-[13px] rounded-2xl transition-colors',
-      divider && !picked && 'border-t border-on-surface/[0.07]',
-      picked ? 'bg-primary/[0.09]' : 'active:bg-on-surface/[0.05]',
-    )}
-  >
-    <span className="flex-1 min-w-0 block">
-      <span className="block font-sans font-bold text-[15px] leading-[1.2] tracking-[-0.015em] text-on-surface truncate">{name}</span>
-      {meta && <span className="block mt-[5px] text-[12px] leading-[1.2] text-on-surface/50 truncate">{meta}</span>}
+}> = ({ name, meta, image, kind = 'restaurant', tag, picked, onPick }) => {
+  const [failed, setFailed] = useState(false);
+  useEffect(() => setFailed(false), [image]);
+  return <button type="button" onClick={onPick} aria-pressed={picked}
+    className={cn('message-share-row', picked && 'is-selected')}>
+    <span className="message-share-thumb" aria-hidden="true">
+      {image && !failed ? <img src={image} alt="" loading="lazy" onError={() => setFailed(true)} />
+        : kind === 'recipe' ? <ChefHat size={22} strokeWidth={1.6} /> : <Store size={22} strokeWidth={1.6} />}
     </span>
+    <span className="message-share-copy"><strong>{name}</strong>{meta && <span>{meta}</span>}</span>
     {tag}
-  </button>
-);
+    <span className="message-share-check" aria-hidden="true">{picked && <Check size={13} strokeWidth={2.8} />}</span>
+  </button>;
+};
 
 const ScoreTag: React.FC<{ score: number }> = ({ score }) => {
   const t = scoreTintStyle(score);
   return (
     <span
       className="flex-none grid place-items-center rounded-full font-sans font-bold tabular-nums"
-      style={{ width: 38, height: 38, fontSize: 13, color: t.color, background: t.background, boxShadow: `inset 0 0 0 1.5px ${t.ring}` }}
+      style={{ width: 32, height: 28, borderRadius: 9, fontSize: 12, color: t.color, background: t.background }}
     >
       {score.toFixed(1)}
     </span>
@@ -124,7 +122,7 @@ const TextTag: React.FC<{ children: React.ReactNode }> = ({ children }) => (
 );
 
 const GroupCaption: React.FC<{ children: React.ReactNode }> = ({ children }) => (
-  <p className="pt-4 pb-1 text-[10px] font-bold uppercase tracking-[0.15em] text-on-surface/40">{children}</p>
+  <p className="message-share-caption">{children}</p>
 );
 
 export const ShareSheet: React.FC<{
@@ -235,12 +233,6 @@ export const ShareSheet: React.FC<{
 
   const first = (recipientName || '').split(' ')[0] || 'them';
   const canSend = !!picked;
-  const status = picked
-    ? `Sharing ${picked.value.name}`
-    : kind === 'restaurant'
-      ? 'Pick a place to share'
-      : 'Pick a recipe to share';
-
   const send = () => {
     if (!picked) return;
     if (picked.kind === 'restaurant') onShareRestaurant(picked.value);
@@ -270,81 +262,52 @@ export const ShareSheet: React.FC<{
               transition={{ type: 'spring', damping: 30, stiffness: 320 }}
               onClick={(e) => e.stopPropagation()}
               className={cn(
-                'social-design social-share-sheet pointer-events-auto flex flex-col bg-surface overflow-hidden',
+                'social-design message-share-sheet pointer-events-auto flex flex-col bg-surface overflow-hidden',
                 phoneMode
-                  ? 'w-full h-[76vh] rounded-t-[28px] shadow-[0_-14px_40px_rgba(0,0,0,0.25)]'
-                  : 'w-full max-w-xl max-h-[80vh] rounded-[28px] border border-on-surface/10 shadow-2xl',
+                  ? 'w-full message-share-phone rounded-t-[30px] shadow-[0_-14px_40px_rgba(0,0,0,0.18)]'
+                  : 'w-full max-w-xl h-[min(740px,85dvh)] rounded-[28px] border border-on-surface/10 shadow-2xl',
               )}
             >
               {phoneMode && (
                 <div className="flex justify-center pt-3 flex-shrink-0"><div className="w-[38px] h-1 rounded-full bg-on-surface/20" /></div>
               )}
 
-              {/* Title */}
-              <div className="flex-shrink-0 px-5 pt-3.5 flex items-center gap-3">
-                <h2 className="flex-1 min-w-0 font-sans font-bold text-[22px] leading-[1.1] tracking-[-0.02em] truncate">
-                  Share to {first}
-                </h2>
-                <button
-                  type="button"
-                  onClick={onClose}
-                  aria-label="Close"
-                  className="flex-none w-8 h-8 rounded-full grid place-items-center bg-on-surface/[0.07] text-on-surface active:bg-on-surface/[0.13] transition-colors"
-                >
-                  <X size={15} strokeWidth={2.3} />
-                </button>
+              <div className="message-share-header">
+                <div><h2 tabIndex={-1} data-dialog-initial-focus>Share</h2><p>To {first}</p></div>
+                <button type="button" onClick={onClose} aria-label="Close" className="message-share-close"><X size={19} /></button>
               </div>
 
-              {/* Kind tabs */}
-              <div className="flex-shrink-0 px-5 pt-3.5 flex gap-2">
-                {([['restaurant', 'Restaurant', <Store key="i" size={13} />], ['recipe', 'Recipe', <ChefHat key="i" size={13} />]] as const).map(([key, label, icon]) => {
-                  const on = kind === key;
-                  return (
-                    <button
-                      key={key}
-                      type="button"
-                      onClick={() => setKind(key)}
-                      aria-pressed={on}
-                      className={cn(
-                        'flex-1 h-10 rounded-full inline-flex items-center justify-center gap-1.5 text-[12.5px] font-bold transition-colors',
-                        on ? 'bg-on-surface text-surface' : 'bg-on-surface/[0.06] text-on-surface active:bg-on-surface/[0.1]',
-                      )}
-                    >
-                      {icon}
-                      {label}
+              <div className="message-share-tools">
+                <div className="message-share-kinds" role="group" aria-label="What to share" data-kind={kind}>
+                  <span className="message-share-slider" aria-hidden="true" />
+                  {([['restaurant', 'Restaurants', Store], ['recipe', 'Recipes', ChefHat]] as const).map(([key, label, Icon]) => (
+                    <button key={key} type="button" onClick={() => setKind(key)} aria-pressed={kind === key}>
+                      <Icon size={17} strokeWidth={1.8} />{label}
                     </button>
-                  );
-                })}
-              </div>
-
-              {/* Search */}
-              <div className="flex-shrink-0 px-5 pt-3">
-                <SearchField
-                  value={query}
-                  onChange={setQuery}
-                  placeholder={kind === 'restaurant' ? 'Your reviews or the whole database' : 'Your cookbook or the community'}
-                  aria-label="Search things to share"
-                />
+                  ))}
+                </div>
+                <SearchField className="message-share-search" value={query} onChange={setQuery}
+                  placeholder={kind === 'restaurant' ? 'Search restaurants' : 'Search recipes'} aria-label="Search things to share" />
               </div>
 
               {/* List */}
-              <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-5 pb-3">
+              <div className="message-share-results">
                 {kind === 'restaurant' ? (
                   <>
                     {ratedRows.length > 0 && (
                       <>
-                        <GroupCaption>Your reviews</GroupCaption>
-                        {ratedRows.map((r, i) => {
+                        <GroupCaption>Your ratings</GroupCaption>
+                        {ratedRows.map((r) => {
                           const shared = ratingToShared(r);
                           const on = picked?.kind === 'restaurant' && picked.value.restaurantId === r.restaurantId && picked.value.isReview;
                           return (
                             <ShareRow
                               key={`rated-${r.restaurantId}`}
                               name={r.name}
+                              image={r.image}
                               meta={restaurantMeta(r.cuisine, r.price, r.city || '')}
                               tag={<ScoreTag score={r.score} />}
                               picked={!!on}
-                              divider={i > 0}
                               onPick={() => setPicked(on ? null : { kind: 'restaurant', value: shared })}
                             />
                           );
@@ -353,26 +316,26 @@ export const ShareSheet: React.FC<{
                     )}
                     {q && (
                       <>
-                        <GroupCaption>From the database</GroupCaption>
+                        <GroupCaption>Places</GroupCaption>
                         {dbLoading && dbResults.length === 0 && (
                           <div className="flex justify-center py-6"><Loader2 size={16} className="animate-spin text-on-surface/30" /></div>
                         )}
                         {!dbLoading && dbResults.length === 0 && (
                           <p className="py-4 text-[12.5px] text-on-surface/40">
-                            {coords ? 'Nothing in the database matches that here.' : 'Set a home location to search the database.'}
+                            {coords ? 'No places found. Try another name.' : 'Choose your location on Home to find more places.'}
                           </p>
                         )}
-                        {dbResults.map((p, i) => {
+                        {dbResults.map((p) => {
                           const shared = placeToShared(p);
                           const on = picked?.kind === 'restaurant' && picked.value.restaurantId === p.id && !picked.value.isReview;
                           return (
                             <ShareRow
                               key={`db-${p.id}`}
                               name={p.name}
+                              image={shared.image}
                               meta={restaurantMeta(shared.cuisine || '', shared.price || '', p.address?.split(',')[1]?.trim() || '')}
                               tag={shared.price ? <TextTag>{shared.price}</TextTag> : undefined}
                               picked={!!on}
-                              divider={i > 0}
                               onPick={() => setPicked(on ? null : { kind: 'restaurant', value: shared })}
                             />
                           );
@@ -381,7 +344,7 @@ export const ShareSheet: React.FC<{
                     )}
                     {!q && ratedRows.length === 0 && (
                       <p className="py-10 text-center text-[13px] text-on-surface/40">
-                        No reviews yet — search to share from the database.
+                        Search for a restaurant to share.
                       </p>
                     )}
                   </>
@@ -390,7 +353,7 @@ export const ShareSheet: React.FC<{
                     {myRecipes.length > 0 && (
                       <>
                         <GroupCaption>Your cookbook</GroupCaption>
-                        {myRecipes.map((m, i) => {
+                        {myRecipes.map((m) => {
                           const shared = mealToShared(m, user?.id || '', selfName || 'You');
                           const on = picked?.kind === 'recipe' && picked.value.mealId === m.id && picked.value.authorId === (user?.id || '');
                           const t = timeLabel(shared.totalTime);
@@ -398,17 +361,17 @@ export const ShareSheet: React.FC<{
                             <ShareRow
                               key={`mine-${m.id}`}
                               name={m.name}
+                              image={shared.image} kind="recipe"
                               meta={[shared.difficulty, shared.ingredientCount ? `${shared.ingredientCount} ingredients` : ''].filter(Boolean).join(' · ')}
                               tag={t ? <TextTag>{t}</TextTag> : undefined}
                               picked={!!on}
-                              divider={i > 0}
                               onPick={() => setPicked(on ? null : { kind: 'recipe', value: shared })}
                             />
                           );
                         })}
                       </>
                     )}
-                    <GroupCaption>From the community</GroupCaption>
+                    <GroupCaption>Community recipes</GroupCaption>
                     {communityLoading && (
                       <div className="flex justify-center py-6"><Loader2 size={16} className="animate-spin text-on-surface/30" /></div>
                     )}
@@ -417,7 +380,7 @@ export const ShareSheet: React.FC<{
                         {q ? 'No community recipes match that.' : 'Nothing from the community yet.'}
                       </p>
                     )}
-                    {communityRows.map((c, i) => {
+                    {communityRows.map((c) => {
                       const shared = mealToShared(c.meal, c.meal.userId, c.authorName);
                       const on = picked?.kind === 'recipe' && picked.value.mealId === c.meal.id && picked.value.authorId === c.meal.userId;
                       const t = timeLabel(shared.totalTime);
@@ -425,10 +388,10 @@ export const ShareSheet: React.FC<{
                         <ShareRow
                           key={`community-${c.meal.userId}-${c.meal.id}`}
                           name={c.meal.name}
+                          image={shared.image} kind="recipe"
                           meta={`by ${c.authorName}${shared.difficulty ? ` · ${shared.difficulty}` : ''}`}
                           tag={t ? <TextTag>{t}</TextTag> : undefined}
                           picked={!!on}
-                          divider={i > 0}
                           onPick={() => setPicked(on ? null : { kind: 'recipe', value: shared })}
                         />
                       );
@@ -440,22 +403,14 @@ export const ShareSheet: React.FC<{
                 )}
               </div>
 
-              {/* Footer */}
-              <div className="flex-shrink-0 border-t border-on-surface/[0.09] px-5 pt-3 pb-[max(env(safe-area-inset-bottom),18px)] flex items-center gap-3">
-                <span className={cn('flex-1 min-w-0 truncate text-[12.5px]', picked ? 'text-on-surface/75 font-semibold' : 'text-on-surface/45')}>
-                  {status}
-                </span>
-                <button
-                  type="button"
-                  onClick={send}
-                  disabled={!canSend}
-                  className={cn(
-                    'flex-none inline-flex items-center gap-2 h-11 px-5 rounded-full text-[13px] font-bold transition-all',
-                    canSend ? 'bg-primary text-on-primary active:scale-[0.97]' : 'bg-on-surface/[0.08] text-on-surface/35',
-                  )}
-                >
-                  <Send size={14} />
-                  Send
+              <div className="message-share-footer">
+                {picked && <div className="message-share-selection" role="status">
+                  <Check size={15} /><span>{picked.value.name}</span>
+                  <button type="button" aria-label="Clear selection" onClick={() => setPicked(null)}><X size={16} /></button>
+                </div>}
+                <button type="button" onClick={send} disabled={!canSend} className="message-share-send">
+                  {canSend && <Send size={17} />}
+                  {canSend ? `Send to ${first}` : kind === 'restaurant' ? 'Choose a restaurant' : 'Choose a recipe'}
                 </button>
               </div>
             </motion.div>

@@ -15,9 +15,9 @@ vi.mock('motion/react', async original => ({ ...await original<object>(), useRed
 const prior = { restaurantId: 'kalaya', name: 'Kalaya', image: '', cuisine: 'Thai', price: '$$$', address: '4 W Palmer St', score: 8.8, notes: 'Keep this note.', favoriteDishes: ['Dumplings'], visitDate: '2026-08-15', wouldReturn: true, tags: ['Great Service'], photos: [], listIds: ['dinners'], friendIds: ['friend'], createdAt: 1 };
 const save = vi.fn();
 let root: Root, container: HTMLDivElement, visual: EventTarget & { width: number; height: number; offsetLeft: number; offsetTop: number };
-function Preview({ page }: { page?: string }) {
+function Preview({ page, visitDate }: { page?: string; visitDate?: string }) {
   const [open, setOpen] = useState(true);
-  return React.createElement(RatingFlowSheet, { state: { addRestaurantModalOpen: open, addRestaurantModalMeta: { ...prior, id: prior.restaurantId }, addRestaurantModalInitialPage: page, closeAddRestaurantModal: () => setOpen(false), getRating: () => prior, ratings: [prior], getRestaurantInfo: () => prior, scoresUnlocked: true, rateRestaurant: save, removeRating: vi.fn() } as any });
+  return React.createElement(RatingFlowSheet, { state: { addRestaurantModalOpen: open, addRestaurantModalMeta: { ...prior, id: prior.restaurantId }, addRestaurantModalInitialPage: page, addRestaurantModalVisitDate: visitDate, closeAddRestaurantModal: () => setOpen(false), getRating: () => prior, ratings: [prior], getRestaurantInfo: () => prior, scoresUnlocked: true, rateRestaurant: save, removeRating: vi.fn() } as any });
 }
 beforeEach(() => {
   (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
@@ -58,4 +58,11 @@ it.each(['notes', 'photos'])('opens the requested %s editor directly', async pag
 it('keeps a new visit separate from editing the existing visit', async () => {
   await mount('new-visit'); expect(document.querySelector('.rf-stage-gut')).not.toBeNull();
   expect(document.querySelector('.rf-step')?.textContent).toContain('NEW VISIT'); expect(save).not.toHaveBeenCalled();
+});
+
+it('uses the calendar visit date when saving instead of silently using today', async () => {
+  await act(async () => root.render(React.createElement(Preview, { visitDate: '2026-09-07' })));
+  await act(async () => document.querySelector<HTMLButtonElement>('.rf-cta')!.click());
+  expect(save).toHaveBeenCalledWith(expect.objectContaining({ visitDate: '2026-09-07' }), expect.anything());
+  await act(async () => { await new Promise(resolve => setTimeout(resolve, 20)); });
 });

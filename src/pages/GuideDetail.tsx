@@ -1,5 +1,5 @@
 import { usePageBack } from '../lib/usePageBack';
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { BookOpen, Loader2 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
@@ -7,13 +7,14 @@ import { useLists } from '../contexts/ListsContext';
 import { useToast } from '../contexts/ToastContext';
 import { useSignInModal } from '../contexts/SignInModalContext';
 import { getGuideById, saveGuideBookmark, removeGuideBookmark, getSavedGuideIds, setGuidePublished, getTheme, type Guide, type GuideEntry } from '../lib/supabase-guides';
-import { getProfilesByIds, type UserProfile } from '../lib/supabase-community';
+import { getProfilesByIds, getUserPhotos, type CommunityPhoto, type UserProfile } from '../lib/supabase-community';
 import { ShareDialog } from '../components/ShareDialog';
 import { canonicalShareUrl } from '../lib/native-share';
 import { RestaurantPanel, type RestaurantPanelSnapshot } from '../components/RestaurantPanel';
 import { RecipePanel, type RecipePanelSnapshot } from '../components/RecipePanel';
 import { readEntryMeta, type EntryActionAdapter } from '../components/guide/GuideRender';
 import { GuideReader } from '../components/guide/GuideReader';
+import { guidePhotoUrls } from '../lib/guide-photos';
 
 /** Tailwind's lg breakpoint — desktop panel only kicks in at this width. */
 function useIsDesktop(): boolean {
@@ -65,11 +66,12 @@ export const GuideDetail: React.FC = () => {
   const { user } = useAuth();
   const { showToast } = useToast();
   const { requireSignIn } = useSignInModal();
-  const { isWishlisted, toggleWishlist, openAddToListModal, getRestaurantInfo } = useLists();
+  const { isWishlisted, toggleWishlist, openAddToListModal, getRestaurantInfo, ratings } = useLists();
   const isDesktop = useIsDesktop();
 
   const [guide, setGuide] = useState<Guide | null>(null);
   const [authorProfile, setAuthorProfile] = useState<UserProfile | null>(null);
+  const [authorPhotos, setAuthorPhotos] = useState<{ owner: string; viewer: string; photos: CommunityPhoto[] } | null>(null);
   const [loading, setLoading] = useState(true);
   const [saved, setSaved] = useState(false);
   const [savingToggle, setSavingToggle] = useState(false);
@@ -90,8 +92,11 @@ export const GuideDetail: React.FC = () => {
       setGuide(g);
       setLoading(false);
       if (g) {
-        const profiles = await getProfilesByIds([g.userId]);
-        if (!cancelled) setAuthorProfile(profiles[g.userId] || null);
+        const [profiles, photos] = await Promise.all([
+          getProfilesByIds([g.userId]),
+          g.includePhotos && g.type === 'restaurants' ? getUserPhotos(g.userId) : Promise.resolve([]),
+        ]);
+        if (!cancelled) { setAuthorProfile(profiles[g.userId] || null); setAuthorPhotos({ owner: g.userId, viewer: user?.id || '', photos }); }
       }
       if (g && user?.id) {
         const savedIds = await getSavedGuideIds(user.id);
@@ -100,6 +105,19 @@ export const GuideDetail: React.FC = () => {
     })();
     return () => { cancelled = true; };
   }, [id, user?.id]);
+
+  const readerGuide = useMemo(() => {
+    if (!guide || !guide.includePhotos || guide.type !== 'restaurants') return guide;
+    const byRestaurant = new Map<string, string[]>();
+    for (const photo of authorPhotos?.owner === guide.userId && authorPhotos.viewer === (user?.id || '') ? authorPhotos.photos : []) {
+      const urls = byRestaurant.get(photo.restaurant_id) || [];
+      urls.push(photo.url); byRestaurant.set(photo.restaurant_id, urls);
+    }
+    if (user?.id === guide.userId) for (const rating of ratings) {
+      byRestaurant.set(rating.restaurantId, [...(byRestaurant.get(rating.restaurantId) || []), ...(rating.photos || []).map(photo => photo.url)]);
+    }
+    return { ...guide, entries: guide.entries.map(entry => ({ ...entry, photos: guidePhotoUrls(entry, byRestaurant.get(entry.refId)) })) };
+  }, [guide, authorPhotos, ratings, user?.id]);
 
   // Preserve the desktop preview's existing close-on-scroll behavior.
   useEffect(() => {
@@ -250,7 +268,7 @@ export const GuideDetail: React.FC = () => {
       />
 
       <GuideReader
-        guide={guide}
+        guide={readerGuide || guide}
         theme={theme}
         author={author}
         authorHref={authorProfile?.username ? `/user/${authorProfile.username}` : undefined}

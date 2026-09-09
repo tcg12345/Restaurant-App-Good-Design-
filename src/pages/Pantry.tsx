@@ -340,7 +340,7 @@ const CreateListSheet: React.FC<{
                 <div className="px-5 pb-3">
                   <div className="relative">
                     <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-on-surface/30" />
-                    <input type="text" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search lists..."
+                    <input data-search-input="standalone" type="text" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search lists..."
                       className="w-full bg-on-surface/5 rounded-xl py-2.5 pl-9 pr-4 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all" />
                   </div>
                 </div>
@@ -510,7 +510,7 @@ const AddFromRatedSheet: React.FC<{
             <div className="px-5 pb-3">
               <div className="relative">
                 <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-on-surface/30" />
-                <input type="text" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search by name, cuisine, or location..."
+                <input data-search-input="standalone" type="text" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search by name, cuisine, or location..."
                   className="w-full bg-on-surface/5 rounded-xl py-2.5 pl-9 pr-4 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all" />
               </div>
             </div>
@@ -2789,7 +2789,7 @@ const AddToNightSheet: React.FC<{
                 <div className="px-5 pt-3 pb-2 flex-shrink-0">
                   <div className="relative">
                     <Search size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-on-surface/30" />
-                    <input type="text" value={ratedSearch} onChange={(e) => setRatedSearch(e.target.value)} placeholder="Search your ratings..."
+                    <input data-search-input="standalone" type="text" value={ratedSearch} onChange={(e) => setRatedSearch(e.target.value)} placeholder="Search your ratings..."
                       className="w-full pl-10 pr-4 py-2.5 bg-on-surface/5 rounded-xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20" />
                   </div>
                 </div>
@@ -2858,7 +2858,7 @@ const AddToNightSheet: React.FC<{
                 <form onSubmit={(e) => { e.preventDefault(); handleSearchPlaces(); }} className="px-5 pt-3 pb-2 flex-shrink-0">
                   <div className="relative">
                     <Search size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-on-surface/30" />
-                    <input type="text" value={placeSearch} onChange={(e) => setPlaceSearch(e.target.value)} placeholder="Restaurant name..."
+                    <input data-search-input="standalone" type="text" value={placeSearch} onChange={(e) => setPlaceSearch(e.target.value)} placeholder="Restaurant name..."
                       autoFocus className="w-full pl-10 pr-20 py-2.5 bg-on-surface/5 rounded-xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20" />
                     <button type="submit" disabled={placeLoading || !placeSearch.trim()}
                       className="absolute right-2 top-1/2 -translate-y-1/2 px-3 py-1.5 bg-primary text-on-primary rounded-lg text-xs font-bold disabled:opacity-30 transition-opacity">
@@ -3449,7 +3449,7 @@ const CreateTripSheet: React.FC<{
                     className="text-on-surface/30 hover:text-on-surface/50"><X size={14} /></button>
                 </div>
               ) : (
-                <input type="text" value={locQuery} onChange={(e) => setLocQuery(e.target.value)} placeholder="Search city or place..."
+                <input data-search-input="standalone" type="text" value={locQuery} onChange={(e) => setLocQuery(e.target.value)} placeholder="Search city or place..."
                   className="w-full px-4 py-3 bg-on-surface/[0.04] border border-on-surface/8 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/30" />
               )}
               {locResults.length > 0 && (
@@ -5359,7 +5359,7 @@ const SearchableMultiSelect: React.FC<{
       <div className="px-3 pt-3 pb-2 flex-shrink-0">
         <div className="relative">
           <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-on-surface/35" />
-          <input
+          <input data-search-input="standalone"
             autoFocus
             type="text"
             placeholder={placeholder}
@@ -7033,7 +7033,7 @@ export const Pantry: React.FC = () => {
               <div className="px-5 pt-3 pb-2 flex-shrink-0">
                 <div className="relative">
                   <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-on-surface/30" />
-                  <input type="text" placeholder="Search cities..."
+                  <input data-search-input="standalone" type="text" placeholder="Search cities..."
                     className="w-full bg-on-surface/5 rounded-xl py-2.5 pl-9 pr-4 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20"
                     value={cityPickerSearch}
                     onChange={(e) => setCityPickerSearch(e.target.value)}
@@ -7080,7 +7080,7 @@ export const Pantry: React.FC = () => {
               <div className="px-5 pt-3 pb-2 flex-shrink-0">
                 <div className="relative">
                   <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-on-surface/30" />
-                  <input type="text" placeholder="Search cuisines..."
+                  <input data-search-input="standalone" type="text" placeholder="Search cuisines..."
                     className="w-full bg-on-surface/5 rounded-xl py-2.5 pl-9 pr-4 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20"
                     value={cuisinePickerSearch}
                     onChange={(e) => setCuisinePickerSearch(e.target.value)}

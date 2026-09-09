@@ -13,8 +13,7 @@ import { useSettings } from '../contexts/SettingsContext';
 import { useHeaderFade } from '../lib/useHeaderFade';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { getFriends, getProfilesByIds, type UserProfile } from '../lib/supabase-community';
-import { supabase, supabaseConfigured } from '../lib/supabase';
-import type { RealtimeChannel } from '@supabase/supabase-js';
+import { useChatActivity } from '../hooks/useChatActivity';
 import { pickAvatarColor, initialsFor } from '../lib/avatar';
 import { ShareSheet } from '../components/messages/ShareSheet';
 import { Collapse } from '../components/Collapse';
@@ -401,7 +400,7 @@ const NewChatSheet: React.FC<{
             <div className="px-5 pt-1 pb-2 flex-shrink-0">
               <div className="relative">
                 <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-on-surface/30" />
-                <input type="text" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)}
+                <input data-search-input="standalone" type="text" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)}
                   aria-label="Search recipients" placeholder="Search friends"
                   className="w-full bg-on-surface/5 rounded-xl py-2.5 pl-9 pr-4 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20" />
               </div>
@@ -504,57 +503,13 @@ const MessageReceipt: React.FC<{ status: ReceiptStatus; onRetry?: () => void }> 
   );
 };
 
-/**
- * Typing presence over a Supabase broadcast channel (no table). One channel
- * per conversation; senders emit throttled `typing` events while composing
- * and the receiving side lights the indicator, decaying 3s after the last
- * event so an abandoned draft goes quiet on its own.
- */
-function useTypingPresence(convId: string | null, userId: string | null | undefined) {
-  const [otherTyping, setOtherTyping] = useState(false);
-  const channelRef = useRef<RealtimeChannel | null>(null);
-  const lastSentRef = useRef(0);
-  const decayRef = useRef<number | null>(null);
-
-  useEffect(() => {
-    setOtherTyping(false);
-    if (!convId || !userId || !supabaseConfigured) return;
-    const ch = supabase.channel(`typing-${convId}`, { config: { broadcast: { self: false } } });
-    ch.on('broadcast', { event: 'typing' }, (payload) => {
-      const sender = (payload.payload as { userId?: string } | undefined)?.userId;
-      if (!sender || sender === userId) return;
-      setOtherTyping(true);
-      if (decayRef.current != null) window.clearTimeout(decayRef.current);
-      decayRef.current = window.setTimeout(() => setOtherTyping(false), 3000);
-    }).subscribe();
-    channelRef.current = ch;
-    return () => {
-      if (decayRef.current != null) window.clearTimeout(decayRef.current);
-      channelRef.current = null;
-      void supabase.removeChannel(ch);
-    };
-  }, [convId, userId]);
-
-  // Call on every keystroke; throttled so a fast typist sends ~1 event per
-  // 1.5s (well under the decay window, so the indicator stays lit).
-  const notifyTyping = React.useCallback(() => {
-    const ch = channelRef.current;
-    if (!ch || !userId) return;
-    const now = Date.now();
-    if (now - lastSentRef.current < 1500) return;
-    lastSentRef.current = now;
-    void ch.send({ type: 'broadcast', event: 'typing', payload: { userId } });
-  }, [userId]);
-
-  return { otherTyping, notifyTyping };
-}
-
 /* ── Typing Indicator (animated three-dot bubble) ── */
-const TypingIndicator: React.FC = () => (
-  <div className="flex justify-start">
+const TypingIndicator: React.FC<{ label: string }> = ({ label }) => (
+  <div className="flex justify-start" role="status" aria-live="polite">
     <div className="bg-on-surface/[0.06] rounded-2xl rounded-bl-md px-3.5 py-2.5">
       <div className="flex items-center gap-1">
-        <span className="w-1.5 h-1.5 rounded-full bg-on-surface/45 animate-pulse [animation-duration:1.2s]" />
+        <span className="text-xs text-on-surface/55 mr-2">{label}</span>
+        <span aria-hidden="true" className="w-1.5 h-1.5 rounded-full bg-on-surface/45 animate-pulse [animation-duration:1.2s]" />
         <span className="w-1.5 h-1.5 rounded-full bg-on-surface/45 animate-pulse [animation-duration:1.2s] [animation-delay:150ms]" />
         <span className="w-1.5 h-1.5 rounded-full bg-on-surface/45 animate-pulse [animation-duration:1.2s] [animation-delay:300ms]" />
       </div>
@@ -572,7 +527,7 @@ const ChatView: React.FC<{
   onBack: () => void;
   onConversationCreated?: (id: string) => void;
 }> = ({ conversation, draftFriendId, profiles, onBack, onConversationCreated }) => {
-  const { sendMessage, markRead, retryMessage, deleteConversation, renameConversation, getOrCreateDirectConversation, otherReads } = useChat();
+  const { sendMessage, markRead, retryMessage, deleteConversation, renameConversation, getOrCreateDirectConversation, otherReads, connectionState } = useChat();
   const { user } = useAuth();
   const { phoneMode } = useSettings();
   const navigate = useNavigate();
@@ -605,7 +560,14 @@ const ChatView: React.FC<{
   const [groupNameDraft, setGroupNameDraft] = useState('');
   const [bannerDismissed, setBannerDismissed] = useState(false);
 
-  const { otherTyping: isOtherTyping, notifyTyping } = useTypingPresence(convId, user?.id);
+  const sending = messages.some((message) => message.senderId === user?.id && message.status === 'sending');
+  const { peers, notifyTyping, stopTyping } = useChatActivity(convId, user?.id, conversation?.participantIds || [], sending);
+  const activePeers = Object.entries(peers);
+  const activityLabel = activePeers.map(([id, state]) => {
+    const name = profiles[id]?.display_name?.split(' ')[0] || profiles[id]?.username || 'Someone';
+    return `${name} is ${state === 'sending' ? 'sending a message' : 'typing'}…`;
+  }).join(' ');
+  const isOtherTyping = activePeers.length > 0;
 
   // Read receipts: the OLDEST other-participant read mark. A message at or
   // before this floor has been seen by everyone else in the thread (in a
@@ -669,6 +631,7 @@ const ChatView: React.FC<{
     const id = ensureConversationId();
     if (!id) return;
     homeHaptic();
+    stopTyping();
     sendMessage(id, text.trim());
     setText('');
     inputRef.current?.focus();
@@ -736,7 +699,9 @@ const ChatView: React.FC<{
               </span>
             )}
           </div>
-          {isGroup ? (
+          {connectionState === 'reconnecting' ? (
+            <p role="status" className="text-[12px] text-on-surface/45">Reconnecting…</p>
+          ) : isGroup ? (
             <p className="text-[11px] text-on-surface/40">{conversation?.participantIds.length ?? 0} members</p>
           ) : handle ? (
             <p className="text-[12.5px] text-on-surface/45 truncate">{handle}</p>
@@ -932,7 +897,7 @@ const ChatView: React.FC<{
           );
         })}
         {/* Typing indicator (other participant) */}
-        {isOtherTyping && <TypingIndicator />}
+        {isOtherTyping && <TypingIndicator label={activityLabel} />}
       </div>
 
       {/* Composer — the reference's: one + that opens the share sheet
@@ -953,13 +918,14 @@ const ChatView: React.FC<{
         >
           <Plus size={19} strokeWidth={2.2} />
         </button>
-        <div className="flex-1 min-w-0 flex items-center rounded-[22px] bg-on-surface/[0.06] px-4">
+        <div className="social-composer-field flex-1 min-w-0 flex items-center rounded-[22px] bg-on-surface/[0.06] px-4">
           <textarea
             ref={inputRef}
             rows={1}
             aria-label="Message"
             value={text}
-            onChange={(e) => { setText(e.target.value); if (e.target.value.trim()) notifyTyping(); }}
+            onChange={(e) => { setText(e.target.value); notifyTyping(!!e.target.value.trim()); }}
+            onBlur={stopTyping}
             onKeyDown={handleKeyDown}
             placeholder={`Message ${(title || '').split(' ')[0] || ''}`}
             className="flex-1 bg-transparent text-[15px] text-on-surface placeholder:text-on-surface/35 focus:outline-none py-[11px] min-w-0"
@@ -1168,9 +1134,9 @@ const ConversationsPanel: React.FC<{
             <Plus size={20} />
           </button>
         </div>
-        <div className="mt-3 flex items-center gap-2.5 h-10 px-3.5 rounded-full bg-on-surface/[0.05] border border-on-surface/8 focus-within:border-primary/40 focus-within:bg-paper transition-colors">
+        <div data-search-field className="mt-3 flex items-center gap-2.5 h-10 px-3.5 rounded-full bg-on-surface/[0.05] border border-on-surface/8 focus-within:border-primary/40 focus-within:bg-paper transition-colors">
           <Search size={15} className="text-on-surface/40 flex-shrink-0" />
-          <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search messages and friends"
+          <input data-search-input="embedded" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search messages and friends"
             className="flex-1 bg-transparent text-[13.5px] text-on-surface placeholder:text-on-surface/40 focus:outline-none min-w-0" />
         </div>
       </div>
@@ -1294,6 +1260,7 @@ const MobileFriendRow: React.FC<{ friend: FriendLite; expert: boolean; onClick: 
 );
 
 const MobileMessageList: React.FC<{
+  embedded?: boolean;
   conversations: Conversation[];
   friends: FriendLite[];
   profiles: Record<string, UserProfile>;
@@ -1312,7 +1279,7 @@ const MobileMessageList: React.FC<{
   // while that sheet is open, or its back chevron and search bar bleed
   // through on top of "New message".
   composeOpen: boolean;
-}> = ({ conversations, friends, profiles, selfId, getUnread, hasThread, onOpenConversation, onOpenFriend, onCompose, onBack, loading, composeOpen }) => {
+}> = ({ conversations, friends, profiles, selfId, getUnread, hasThread, onOpenConversation, onOpenFriend, onCompose, onBack, loading, composeOpen, embedded = false }) => {
   const [query, setQuery] = useState('');
   const [tab, setTab] = useState<'all' | 'unread' | 'shares'>('all');
   const q = query.trim().toLowerCase();
@@ -1355,6 +1322,7 @@ const MobileMessageList: React.FC<{
         style={headerFade.headerStyle}
         className="social-inbox-header absolute top-0 inset-x-0 z-30 px-4 pt-safe-4 pb-2.5 bg-surface/90 backdrop-blur-md border-b border-on-surface/[0.06]"
       >
+        {embedded ? <div className="social-hub-inbox-search"><div><SearchField glassId={composeOpen ? undefined : 'messages-search'} value={query} onChange={setQuery} placeholder="Search messages" /></div><button onClick={onCompose} className="social-compose-button" aria-label="New message"><SquarePen size={21} strokeWidth={1.7} /></button></div> : <>
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <GlassButton
@@ -1379,6 +1347,7 @@ const MobileMessageList: React.FC<{
             placeholder="Search messages and friends"
           />
         </div>
+        </>}
         <div className="social-segments mt-3">
           {tabs.map((t) => (
             <button key={t.key} onClick={() => { homeHaptic(); setTab(t.key); }} aria-pressed={tab === t.key} className={cn('h-9 px-4 rounded-full text-[12.5px] font-bold transition-colors inline-flex items-center gap-1.5', tab === t.key ? 'bg-on-surface text-surface' : 'bg-on-surface/[0.06] text-on-surface active:bg-on-surface/[0.1]')}>
@@ -1427,7 +1396,7 @@ const MobileMessageList: React.FC<{
 };
 
 /* ── Main Messages Page ── */
-const MessagesPage: React.FC = () => {
+const MessagesPage: React.FC<{ embedded?: boolean }> = ({ embedded = false }) => {
   const { conversations, loading: chatLoading, createConversation, findDirectConversation, getUnreadForConversation } = useChat();
   const { user } = useAuth();
   const { phoneMode } = useSettings();
@@ -1566,7 +1535,7 @@ const MessagesPage: React.FC = () => {
   /* ═══ Desktop: persistent two-pane ═══ */
   if (!phoneMode) {
     return (
-      <div className="social-design h-screen flex bg-surface overflow-hidden">
+      <div className={cn("social-design h-screen flex bg-surface overflow-hidden", embedded && "social-messages-embedded")}>
         <ConversationsPanel
           conversations={sortedConversations}
           friends={friends}
@@ -1632,6 +1601,7 @@ const MessagesPage: React.FC = () => {
   return (
     <>
       <MobileMessageList
+        embedded={embedded}
         conversations={sortedConversations}
         friends={friends}
         profiles={profiles}
@@ -1650,4 +1620,4 @@ const MessagesPage: React.FC = () => {
   );
 };
 
-export const Messages: React.FC = () => <MotionConfig reducedMotion="user"><MessagesPage /></MotionConfig>;
+export const Messages: React.FC<{ embedded?: boolean }> = props => <MotionConfig reducedMotion="user"><MessagesPage {...props} /></MotionConfig>;

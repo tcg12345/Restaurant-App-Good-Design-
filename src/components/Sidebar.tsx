@@ -1,13 +1,13 @@
+import { HOME_REELS_EXPERIMENT } from '../lib/home-reels-experiment';
 import React, { useEffect, useRef, useState } from 'react';
 import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
-import { Compass, Search, Map as MapIcon, Bookmark, Users, User, Plus, MessageCircle, Film, Image as ImageIcon, BookOpen, ChefHat, Star } from 'lucide-react';
+import { CalendarDays, Compass, Search, Map as MapIcon, Bookmark, User, Plus, MessageCircle, Film, Image as ImageIcon, BookOpen, ChefHat, Star } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { Logo } from './Logo';
 import { useAuth } from '../contexts/AuthContext';
 import { useLists } from '../contexts/ListsContext';
 import { useChat } from '../contexts/ChatContext';
-import { useCirclePanel } from '../contexts/CirclePanelContext';
 import { useGuideCreator } from '../contexts/GuideCreatorContext';
 import { usePageAddAction } from '../contexts/PageAddActionContext';
 import { useUnifiedCreatePicker } from './useUnifiedComposer';
@@ -40,25 +40,16 @@ export const Sidebar: React.FC = () => {
   const { profile, pendingRequestCount } = useAuth();
   const { ratings, openHomeMealModal } = useLists();
   const { unreadCount } = useChat();
-  // The Friends badge represents pending follow requests.
-  const circleBadge = pendingRequestCount;
+  const socialBadge = unreadCount + pendingRequestCount;
   // One "Post" entry covers photos AND video — the user picks media
   // first (Instagram-style) and the selection routes itself: a single
   // video continues as a reel, everything else as a post.
   const { openPicker: openUnifiedPicker, pickerInput } = useUnifiedCreatePicker();
   const { openGuideCreator } = useGuideCreator();
-  const { open: circleOpen, toggle: toggleCircle, setOpen: setCircleOpen } = useCirclePanel();
   // Page-contextual quick-add (was the removed desktop header's CTA): Pantry
   // and RecipesForYou override the label/action per view; the default rates a
   // new restaurant via the full search page.
   const { override: addAction } = usePageAddAction();
-
-  // Auto-close the panel whenever the route changes — otherwise it
-  // hovers over the new page and confuses the user.
-  useEffect(() => {
-    if (circleOpen) setCircleOpen(false);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [location.pathname]);
 
   // The rail is always collapsed by default. Hover expands it; leaving
   // collapses it again. We don't persist this — the rail is hover-driven
@@ -106,7 +97,6 @@ export const Sidebar: React.FC = () => {
   const isMapActive = location.pathname === '/map';
   const isReelsActive = location.pathname === '/reels';
   const isPantryActive = location.pathname === '/pantry' || location.pathname.startsWith('/pantry/');
-  const isCircleActive = location.pathname === '/circle';
   const isMessagesActive = location.pathname === '/messages' || location.pathname.startsWith('/messages/');
   const isProfileActive = location.pathname === '/profile';
 
@@ -320,13 +310,13 @@ export const Sidebar: React.FC = () => {
             </NavLink>
           </li>
 
-          {/* Reels */}
-          <li>
+          {/* Reels is reached from Home during the experiment. */}
+          {!HOME_REELS_EXPERIMENT && <li>
             <NavLink state={{ navigationPresentation: 'tab' }} to="/reels" className={navRowClass(isReelsActive)} title={collapsed ? 'Reels' : undefined}>
               <Film size={20} strokeWidth={isReelsActive ? 2.4 : 1.9} className={cn('flex-shrink-0', isReelsActive ? 'text-on-surface' : 'text-on-surface/65')} />
               {!collapsed && <span className="truncate">Reels</span>}
             </NavLink>
-          </li>
+          </li>}
 
           {/* Pantry — single nav row. Restaurants/Recipes tabs and
               per-tab list management live on the page itself. */}
@@ -337,67 +327,34 @@ export const Sidebar: React.FC = () => {
             </NavLink>
           </li>
 
-          {/* Circle — opens a slide-out panel next to the sidebar
-              instead of navigating to a separate page. */}
           <li>
-            <button
-              type="button"
-              onClick={toggleCircle}
-              className={cn(
-                navRowClass(circleOpen || isCircleActive),
-                'w-full text-left',
-              )}
-              title={collapsed ? 'Circle' : undefined}
-            >
-              <span className="relative flex-shrink-0">
-                <Users size={20} strokeWidth={(circleOpen || isCircleActive) ? 2.4 : 1.9} className={cn((circleOpen || isCircleActive) ? 'text-on-surface' : 'text-on-surface/65')} />
-                {circleBadge > 0 && (
-                  <span className={cn(
-                    'absolute -top-1 -right-1 min-w-[16px] h-4 px-1 rounded-full text-white text-[10px] font-bold flex items-center justify-center ring-2 ring-surface',
-                    // A waiting friend request is the more urgent of the two.
-                    pendingRequestCount > 0 ? 'bg-red-500' : 'bg-primary',
-                  )}>
-                    {circleBadge > 9 ? '9+' : circleBadge}
-                  </span>
-                )}
-              </span>
-              {!collapsed && (
-                <>
-                  <span className="truncate flex-1 text-left">Circle</span>
-                  {circleBadge > 0 && (
-                    <span className={cn(
-                      'text-[11px] font-bold tabular-nums',
-                      pendingRequestCount > 0 ? 'text-red-500' : 'text-primary',
-                    )}>
-                      {circleBadge}
-                    </span>
-                  )}
-                </>
-              )}
-            </button>
+            <NavLink to="/calendar" state={{ navigationPresentation: 'tab' }} className={navRowClass(location.pathname === '/calendar')} title={collapsed ? 'Calendar' : undefined}>
+              <CalendarDays size={20} className="flex-shrink-0" />
+              {!collapsed && <span className="truncate">Calendar</span>}
+            </NavLink>
           </li>
 
-          {/* Messages */}
+          {/* Messages & friends */}
           <li>
-            <NavLink to="/messages" className={navRowClass(isMessagesActive)} title={collapsed ? 'Messages' : undefined}>
+            <NavLink to="/messages" className={navRowClass(isMessagesActive)} title={collapsed ? 'Messages & friends' : undefined}>
               <span className="relative flex-shrink-0">
                 <MessageCircle size={20} strokeWidth={isMessagesActive ? 2.4 : 1.9} className={cn(isMessagesActive ? 'text-on-surface' : 'text-on-surface/65')} />
-                {unreadCount > 0 && (
+                {socialBadge > 0 && (
                   <span
                     className={cn(
                       'absolute -top-1 -right-1 min-w-[16px] h-4 px-1 rounded-full bg-primary text-on-primary text-[10px] font-bold',
                       'flex items-center justify-center ring-2 ring-surface',
                     )}
                   >
-                    {unreadCount > 9 ? '9+' : unreadCount}
+                    {socialBadge > 9 ? '9+' : socialBadge}
                   </span>
                 )}
               </span>
               {!collapsed && (
                 <>
-                  <span className="truncate flex-1">Messages</span>
-                  {unreadCount > 0 && (
-                    <span className="text-[11px] font-bold text-primary tabular-nums">{unreadCount}</span>
+                  <span className="truncate flex-1">Messages & friends</span>
+                  {socialBadge > 0 && (
+                    <span className="text-[11px] font-bold text-primary tabular-nums">{socialBadge}</span>
                   )}
                 </>
               )}

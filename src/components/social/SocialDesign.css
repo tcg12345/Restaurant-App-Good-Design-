@@ -59,6 +59,12 @@
 .social-composer > button { width: 44px; height: 44px; }
 .social-composer > div { border: 1px solid var(--social-line); background: var(--color-paper); border-radius: 23px; padding-left: 15px; padding-right: 12px; }
 .social-composer textarea { resize: none; display: block; max-height: 120px; min-height: 44px; font-size: 16px; line-height: 22px; padding-top: 10px; padding-bottom: 10px; }
+/* Focus follows the rounded composer, not the rectangular textarea inside it. */
+.social-design .social-composer textarea:focus { outline: none; outline-offset: 0; box-shadow: none; }
+.social-composer > .social-composer-field:focus-within { border-color: color-mix(in srgb,var(--color-on-surface) 32%,transparent); }
+@media (forced-colors: active) {
+  .social-composer > .social-composer-field:focus-within { outline: 1px solid Highlight; outline-offset: -1px; }
+}
 .social-thread-page { animation: social-page-arrive .3s var(--social-ease) both; }
 .social-compose-sheet h3, .social-share-sheet h2 { font-size: 25px; font-weight: 700; }
 .social-compose-sheet button[aria-label="Close new message"], .social-share-sheet button[aria-label*="Close"] { width: 44px; height: 44px; }

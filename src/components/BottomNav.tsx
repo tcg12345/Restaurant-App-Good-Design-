@@ -1,9 +1,9 @@
+import { HOME_REELS_EXPERIMENT } from '../lib/home-reels-experiment';
 import { track } from '../lib/analytics';
 import { FEATURE_ROUTES } from '../lib/analytics-features';
 import React, { useEffect, useState } from 'react';
 import { NavLink, useLocation, useNavigate } from 'react-router-dom';
-import { Compass, Search, User, ListPlus, Film } from 'lucide-react';
-import { motion } from 'motion/react';
+import { Compass, Search, User, ListPlus, Film, MessageCircle } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useSettings } from '../contexts/SettingsContext';
 import { useAuth } from '../contexts/AuthContext';
@@ -13,8 +13,8 @@ import { isSearchTakeoverOpen, subscribeSearchTakeover } from '../lib/search-tak
 const navItems = [
   { icon: Compass, label: 'Home', path: '/' },
   { icon: Search, label: 'Search', path: '/search' },
-  { icon: Film, label: 'Reels', path: '/reels' },
   { icon: ListPlus, label: 'Lists', path: '/pantry' },
+  HOME_REELS_EXPERIMENT ? { icon: MessageCircle, label: 'Friends & messages', path: '/messages' } : { icon: Film, label: 'Reels', path: '/reels' },
   { icon: User, label: 'Profile', path: '/profile' },
 ];
 
@@ -36,7 +36,7 @@ const navItems = [
  * which any amount of `backdrop-filter` can do. Older iOS, Android and the
  * browser keep the markup below, unchanged.
  */
-export const BottomNav: React.FC = () => {
+export const BottomNav: React.FC<{ routeVisible?: boolean }> = ({ routeVisible = true }) => {
   const { hideBottomNav, keyboardOpen } = useSettings();
   // The search takeover is its own reason to hide, composed HERE rather
   // than written through setHideBottomNav: that flag is one boolean with
@@ -53,10 +53,10 @@ export const BottomNav: React.FC = () => {
   // (Keyboard resize:"none" — the app pads itself with --kb-height), so
   // without this the bar would sit uselessly behind the keyboard while
   // still intercepting taps.
-  const navHidden = hideBottomNav || keyboardOpen || takeoverOpen;
+  const navHidden = !routeVisible || hideBottomNav || keyboardOpen || takeoverOpen;
 
-  // App.tsx only mounts this component on routes that should show a tab bar,
-  // so being mounted at all is the "enabled" signal for the native one.
+  // The shell owns one instance across routes, including pages that cover it.
+  // Keep native support, items and the avatar ready while the bar is hidden.
   const { profile, loading: authLoading, adminChecked } = useAuth();
   const avatarInitial =
     (profile?.display_name || profile?.username || '').trim().charAt(0).toUpperCase() || undefined;
@@ -82,17 +82,24 @@ export const BottomNav: React.FC = () => {
 
   // The native bar draws itself over the WebView; rendering the web one too
   // would stack two tab bars.
-  if (glass.active) return null;
+  if (glass.active) return <div data-bottom-nav={navHidden ? undefined : ''} aria-hidden="true" inert>
+    {/* Geometry only: clones let UIKit draw its existing bar during Back. */}
+    <div data-native-tab-source="" data-active-tab={activeTabPath(location.pathname)}
+      style={{ position: 'fixed', inset: 0, pointerEvents: 'none', visibility: navHidden ? 'hidden' : 'visible' }} />
+  </div>;
 
   return (
-    <motion.nav
-      animate={{ opacity: navHidden ? 0 : 1, y: navHidden ? 20 : 0 }}
-      transition={{ opacity: { duration: 0.2 }, y: { duration: 0.2 } }}
+    <div data-bottom-nav={navHidden ? undefined : ''}>
+    <nav
+      aria-label="Primary"
+      aria-hidden={navHidden}
+      inert={navHidden}
       className={cn(
         'fixed z-50 flex items-center left-0 right-0 bottom-0 bg-surface border-t border-on-surface/10 justify-around',
         navHidden && 'pointer-events-none',
       )}
       style={{
+        visibility: navHidden ? 'hidden' : 'visible',
         height: 'calc(50px + env(safe-area-inset-bottom))',
         paddingBottom: 'env(safe-area-inset-bottom)',
       }}
@@ -121,6 +128,7 @@ export const BottomNav: React.FC = () => {
           )}
         </NavLink>
       ))}
-    </motion.nav>
+    </nav>
+    </div>
   );
 };

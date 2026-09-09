@@ -193,11 +193,12 @@ export const PrimaryButton: React.FC<{
   </motion.button>
 );
 
-export const GhostButton: React.FC<{ children: React.ReactNode; onClick?: () => void; trailing?: boolean }> = ({ children, onClick, trailing }) => (
+export const GhostButton: React.FC<{ children: React.ReactNode; onClick?: () => void; trailing?: boolean; disabled?: boolean }> = ({ children, onClick, trailing, disabled }) => (
   <button
     type="button"
     onClick={onClick}
-    className="w-full flex items-center justify-center gap-2 font-semibold cursor-pointer bg-transparent border-none transition-colors"
+    disabled={disabled}
+    className="w-full flex items-center justify-center gap-2 font-semibold cursor-pointer bg-transparent border-none transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
     style={{ height: 46, color: 'var(--ob-ghost)', fontSize: 15 }}
     onMouseEnter={(e) => ((e.currentTarget as HTMLButtonElement).style.color = INK)}
     onMouseLeave={(e) => ((e.currentTarget as HTMLButtonElement).style.color = 'var(--ob-ghost)')}

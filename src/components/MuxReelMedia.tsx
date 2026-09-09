@@ -1,7 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react';
 import MuxPlayer from '@mux/mux-player-react';
 import type MuxPlayerElement from '@mux/mux-player';
-import { cn } from '../lib/utils';
+import { ReelMediaPoster } from './ReelMediaPoster';
+import { useRouteSettled } from './RouteMotionLayer';
 /**
  * What the page-level scrub bar needs from the active reel's media. Works for
  * both a legacy <video> and a Mux player (both expose this media subset).
@@ -66,8 +67,10 @@ export const MuxReelMedia: React.FC<MuxReelMediaProps> = ({
   // leaves the near-window. (The parent does NOT unmount off-screen slides,
   // so a one-way latch here accumulated a live <mux-player> for every reel
   // ever scrolled past — memory / media-decoder exhaustion on iPhone.)
-  const [mounted, setMounted] = useState(near);
-  useEffect(() => { setMounted(near); }, [near]);
+  const routeSettled = useRouteSettled();
+  const mounted = near && (routeSettled || !poster);
+  const [playingId, setPlayingId] = useState<string | null>(null);
+  useEffect(() => { if (!mounted) setPlayingId(null); }, [mounted]);
 
   // Autoplay when this slide is active; pause (parked on the current frame)
   // otherwise. Mirrors the legacy <video> active effect.
@@ -92,7 +95,7 @@ export const MuxReelMedia: React.FC<MuxReelMediaProps> = ({
   // reality (system pauses, autoplay blocks, taps).
   useEffect(() => {
     const el = ref.current;
-    if (!el) { onPausedChange?.(true); return; }
+    if (!el) return;
     const onPlay = () => onPausedChange?.(false);
     const onPause = () => onPausedChange?.(true);
     el.addEventListener('play', onPlay);
@@ -148,6 +151,8 @@ export const MuxReelMedia: React.FC<MuxReelMediaProps> = ({
           loop
           muted={muted}
           poster={poster}
+          onPlaying={() => setPlayingId(playbackId)}
+          onEmptied={() => setPlayingId(null)}
           preload={active ? 'auto' : 'metadata'}
           nohotkeys
           // Hide all Mux Player chrome — the reel is a bare, tappable surface.
@@ -159,15 +164,8 @@ export const MuxReelMedia: React.FC<MuxReelMediaProps> = ({
           } as React.CSSProperties}
           className="absolute inset-0 w-full h-full"
         />
-      ) : (
-        poster && (
-          <img
-            src={poster}
-            alt=""
-            className={cn('absolute inset-0 w-full h-full', fit === 'cover' ? 'object-cover' : 'object-contain')}
-          />
-        )
-      )}
+      ) : null}
+      <ReelMediaPoster src={poster} ready={mounted && playingId === playbackId} fit={fit} />
     </div>
   );
 };

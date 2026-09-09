@@ -71,7 +71,7 @@ interface CircleSnapshot {
 const PeopleSkeleton = () => <div aria-hidden="true">{[0, 1, 2].map(index => <div key={index} className="flex items-center gap-3 py-3"><div className={cn(SKELETON_PULSE, 'w-11 h-11 rounded-full')} /><div className={cn(SKELETON_PULSE, 'h-3 w-32 rounded-full')} /></div>)}</div>;
 
 interface CirclePanelProps {
-  variant: 'overlay' | 'page';
+  variant: 'overlay' | 'page' | 'embedded';
   onClose?: () => void;
 }
 
@@ -557,11 +557,11 @@ const CirclePanelContent: React.FC<CirclePanelProps> = ({ variant, onClose }) =>
   const body = (
     <div className="relative flex-1 min-h-0 flex flex-col overflow-hidden">
       <header className="social-circle-header social-people-header flex-shrink-0">
-        <div className="flex items-center gap-2">
+        {variant !== 'embedded' && <div className="flex items-center gap-2">
           {variant === 'page' && <GlassButton id="circle-back" symbol="chevron.left" label="Back" onClick={goBack} className="hit-44 flex-none w-11 h-11 -ml-1 rounded-full grid place-items-center"><ArrowLeft size={19} /></GlassButton>}
           <h2 className="flex-1">Friends</h2>
           {variant === 'overlay' && <GlassButton id="circle-close" symbol="xmark" label="Close panel" onClick={onClose} className="w-11 h-11 rounded-full grid place-items-center"><X size={20} /></GlassButton>}
-        </div>
+        </div>}
         <div className="pt-3"><SearchField value={searchQuery} onChange={setSearchQuery} placeholder="Names or @usernames" aria-label="Search people" glassId="circle-search-field" /></div>
       </header>
       <div className="social-people-scroll flex-1 min-h-0 overflow-y-auto pb-safe-6">
@@ -596,6 +596,7 @@ const CirclePanelContent: React.FC<CirclePanelProps> = ({ variant, onClose }) =>
   );
 
   // ── Variant wrappers ───────────────────────────────────────────────
+  if (variant === 'embedded') return <div className="social-design social-circle social-circle-embedded flex flex-col bg-surface">{body}</div>;
   if (variant === 'page') {
     return (
       <div className="social-design social-circle flex flex-col h-[100dvh] bg-surface">

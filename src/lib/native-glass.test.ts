@@ -1,3 +1,4 @@
+import { HOME_REELS_EXPERIMENT } from './home-reels-experiment';
 import { describe, it, expect } from 'vitest';
 import { activeTabPath, GLASS_TAB_ITEMS } from './native-glass';
 
@@ -5,7 +6,9 @@ describe('activeTabPath', () => {
   it('lights the tab that owns the route', () => {
     expect(activeTabPath('/')).toBe('/');
     expect(activeTabPath('/search')).toBe('/search');
-    expect(activeTabPath('/reels')).toBe('/reels');
+    expect(activeTabPath('/reels')).toBe(HOME_REELS_EXPERIMENT ? '' : '/reels');
+    expect(activeTabPath('/messages')).toBe(HOME_REELS_EXPERIMENT ? '/messages' : '');
+    expect(GLASS_TAB_ITEMS.map(item => item.path)).toEqual(['/', '/search', '/pantry', HOME_REELS_EXPERIMENT ? '/messages' : '/reels', '/profile']);
     expect(activeTabPath('/pantry')).toBe('/pantry');
     expect(activeTabPath('/profile')).toBe('/profile');
   });

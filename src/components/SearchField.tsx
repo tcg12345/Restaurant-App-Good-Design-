@@ -94,7 +94,7 @@ export const SearchField: React.FC<{
   });
   const native = glass.active;
   return (
-    <label
+    <label data-search-field
       ref={glass.ref}
       className={cn('ios-search', variant === 'floating' && 'is-floating', readOnly && 'is-button', tall && 'is-tall', className)}
       onClick={readOnly && !native ? onPress : undefined}
@@ -116,7 +116,7 @@ export const SearchField: React.FC<{
       ) : (
         <Search className={cn('ios-search-icon', native && 'opacity-0')} size={17} strokeWidth={2.4} aria-hidden />
       )}
-      <input
+      <input data-search-input="embedded"
         ref={inputRef}
         type="text"
         inputMode="search"

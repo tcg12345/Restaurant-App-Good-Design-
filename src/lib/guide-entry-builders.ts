@@ -11,7 +11,7 @@ import type { Recipe as ListRecipe } from '../contexts/ListsContext';
 import type { GuideEntry } from './supabase-guides';
 import { priceLevelToString, type PlaceResult } from './places';
 import { cityFromAddress, cityFromAddressComponents } from './city';
-import { weeklyHoursSummary } from './hours';
+import { guidePhotoUrls } from './guide-photos';
 
 const newEntryId = () => `e-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
 
@@ -46,11 +46,11 @@ export function entryFromRating(
     cuisine: r.cuisine || undefined,
     price: r.price || undefined,
     image: r.photos?.[0]?.url || r.image || '',
+    photos: guidePhotoUrls({ image: r.image || '', photos: r.photos?.map(photo => photo.url) }),
     score: r.score,
     notes: r.notes?.trim() || undefined,
     mustOrder: allDishes.length > 0 ? allDishes : undefined,
     neighborhood: meta?.neighborhood,
-    hours: weeklyHoursSummary(meta?.hours),
     city: city || undefined,
   };
 }
@@ -70,6 +70,7 @@ export function entryFromPlace(p: PlaceResult): GuideEntry {
     cuisine: cuisine || undefined,
     price: price || undefined,
     image: p.photoUrl || '',
+    photos: p.photoUrl ? [p.photoUrl] : [],
     score: undefined,
     neighborhood: p.address || undefined,
     city: cityFromAddress(p.address) || undefined,
@@ -85,6 +86,7 @@ export function entryFromListRecipe(r: ListRecipe, authorId?: string): GuideEntr
     subtitle: [r.cuisine, r.difficulty].filter(Boolean).join(' · '),
     cuisine: r.cuisine || undefined,
     image: r.coverPhoto || r.photos?.[0]?.url || '',
+    photos: guidePhotoUrls({ image: r.coverPhoto || '', photos: r.photos?.map(photo => photo.url) }),
     score: r.score,
     totalTime: (r.prepTime || 0) + (r.cookTime || 0),
     difficulty: r.difficulty,
@@ -104,6 +106,7 @@ export function entryFromDbRecipe(r: DbRecipe, score?: number): GuideEntry {
     subtitle: [r.cuisine, r.difficulty].filter(Boolean).join(' · '),
     cuisine: r.cuisine || undefined,
     image: r.photos?.[0] || '',
+    photos: guidePhotoUrls({ image: '', photos: r.photos }),
     score: typeof score === 'number' && score > 0 ? score : undefined,
     totalTime: (r.prepTimeMinutes || 0) + (r.cookTimeMinutes || 0),
     difficulty: r.difficulty,

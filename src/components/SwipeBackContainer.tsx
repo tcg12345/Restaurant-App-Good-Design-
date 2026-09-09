@@ -3,8 +3,10 @@ import { allowBackNavigation } from '../lib/back-navigation';
 import React, { useEffect, useLayoutEffect, useRef, type ReactNode } from 'react';
 import { isOverlayOpen } from '../lib/overlay-registry';
 import { setPageScroll, getPrimaryScroller } from '../lib/page-scroll';
-import { holdGlass, releaseGlass } from '../lib/glass-buttons';
+import { holdGlass, releaseGlass, copyGlassToPreview, wakeGlassButtons, flushGlassButtons } from '../lib/glass-buttons';
 import { isKeepAlivePath } from '../lib/keep-alive';
+import { handoffBackPreview } from '../lib/back-handoff';
+import { BACK_SHADOW_WIDTH, backShadowFrames, backShadowOpacity } from '../lib/back-shadow';
 
 const prefersReducedMotion = () =>
   typeof window !== 'undefined' && !!window.matchMedia &&
@@ -89,13 +91,15 @@ let snapshotSerial = 0;
 function cloneBottomNav(): HTMLElement | null {
   const nav = document.querySelector<HTMLElement>('[data-bottom-nav]');
   if (!nav) return null;
-  // The marker stays mounted (it owns the entrance animation) even when the
-  // native Liquid Glass bar has taken the tab bar over and BottomNav renders
-  // nothing. Cloning an empty wrapper into the preview is pure waste — and
-  // the native bar doesn't parallax with the page anyway, which is the
-  // correct iOS behaviour for a push inside a tab.
+  // Native bars contribute geometry rather than CSS artwork. The glass
+  // sampler uses the marker to reveal the existing UIKit instance.
   if (nav.childElementCount === 0) return null;
   const clone = nav.cloneNode(true) as HTMLElement;
+  clone.removeAttribute('data-bottom-nav');
+  clone.querySelectorAll<HTMLElement>('[data-native-tab-source]').forEach(el => {
+    delete el.dataset.nativeTabSource;
+    el.dataset.nativeTabPreview = '';
+  });
   // The wrapper (and the nav inside) can be mid-animation when captured —
   // snapshot them at rest.
   clone.style.transform = '';
@@ -131,17 +135,8 @@ function clonePageNode(node: HTMLElement): HTMLElement {
     v.autoplay = false;
     v.preload = 'metadata';
   });
-  // Native glass buttons leave nothing behind in the DOM but an invisible
-  // web element (the UIKit control paints them, above the WebView). In the
-  // preview those spots would be holes; give the clones the CSS glass
-  // fallback instead, so the destination reads whole while it slides in.
-  clone.querySelectorAll<HTMLElement>('[data-glass-native]').forEach((b) => {
-    b.removeAttribute('data-glass-native');
-    b.classList.add('glass-control');
-    b.style.backgroundColor = ''; b.style.backgroundImage = ''; b.style.boxShadow = '';
-    const inner = b.firstElementChild as HTMLElement | null;
-    if (inner) inner.classList.remove('opacity-0');
-  });
+  // Keep the web slots transparent: native glass also owns preview chrome.
+  copyGlassToPreview(clone);
   // Mark scroll positions by walking corresponding retained top-level branches.
   for (const child of Array.from(node.children) as HTMLElement[]) {
     if (child.getAttribute('aria-hidden') === 'true') continue;
@@ -194,10 +189,15 @@ class LeaveSnapshot extends React.Component<LeaveSnapshotProps, {}, null> {
   // Assert the field (no runtime effect) so the lifecycle body type-checks.
   declare props: LeaveSnapshotProps;
   getSnapshotBeforeUpdate(prev: Readonly<LeaveSnapshotProps>): null {
-    if (prev.navKey !== this.props.navKey && prev.snapshotable) {
+    if (prev.navKey !== this.props.navKey) {
       const node = this.props.getNode();
-      if (node) {
-        snapStore.set(prev.navKey, { node: clonePageNode(node), nav: cloneBottomNav(), scrollY: getPrimaryScroller(node, true)?.scrollTop ?? window.scrollY });
+      const nav = cloneBottomNav();
+      if (node && (prev.snapshotable || nav)) {
+        // Canvas/video pages still use a plain reveal, but retain their tab
+        // geometry so the bar doesn't arrive late on a return to Reels/Search.
+        const snapshot = prev.snapshotable ? clonePageNode(node) : document.createElement('div');
+        if (!prev.snapshotable) snapshot.style.cssText = `position:absolute;inset:0;background:${nav?.querySelector('[data-active-tab="/reels"]') ? '#000' : 'var(--color-surface)'}`;
+        snapStore.set(prev.navKey, { node: snapshot, nav, scrollY: prev.snapshotable ? getPrimaryScroller(node, true)?.scrollTop ?? window.scrollY : 0 });
         const keys = [...snapStore.keys()].sort((a, b) => b - a);
         for (const k of keys.slice(KEEP)) snapStore.delete(k);
       }
@@ -298,6 +298,7 @@ export const SwipeBackContainer: React.FC<Props> = ({
     disarmSettle: null as (() => void) | null,
     // commit finalize
     finalizing: false,
+    handoff: null as AbortController | null,
     finalizeTimer: 0,
     finFromLocKey: '',
     finKey: null as number | null,
@@ -317,16 +318,34 @@ export const SwipeBackContainer: React.FC<Props> = ({
     const coordinate = (t: { clientX: number; clientY: number }) => backCoordinate(t.clientX, t.clientY, g.current.direction);
 
     const hideFront = () => {
+      // Hide before resetting its transform: WebKit's native glass sampler
+      // must never see the outgoing preview back at x=0 during cleanup.
       front.style.visibility = 'hidden';
+      shadow.style.opacity = '0';
       front.replaceChildren();
+      front.style.transform = '';
+      front.style.willChange = '';
+      shadow.style.transform = '';
       page.style.opacity = '';
+    };
+    const paintShadow = (distance: number) => {
+      const s = g.current;
+      shadow.style.transform = backTranslation(distance, s.direction);
+      shadow.style.opacity = String(s.reduce ? 0 : backShadowOpacity(distance, s.w || width()));
     };
     const showFront = () => {
       if (front.childElementCount) return;
+      const direction = g.current.direction;
+      Object.assign(shadow.style, direction === 'down'
+        ? { left: '0', top: `-${BACK_SHADOW_WIDTH}px`, width: '100%', height: `${BACK_SHADOW_WIDTH}px`, background: 'linear-gradient(to top, rgba(0,0,0,.18), transparent)' }
+        : { left: direction === 'left' ? '100%' : `-${BACK_SHADOW_WIDTH}px`, top: '0', width: `${BACK_SHADOW_WIDTH}px`, height: '100%', background: `linear-gradient(to ${direction === 'left' ? 'right' : 'left'}, rgba(0,0,0,.18), transparent)` });
+      paintShadow(g.current.x);
       const host = clonePageNode(page);
       const scrollY = getPrimaryScroller(page, true)?.scrollTop ?? window.scrollY;
       host.style.cssText += ';position:absolute;inset:0 0 auto;';
       front.appendChild(host);
+      const nav = cloneBottomNav();
+      if (nav?.querySelector('[data-native-tab-preview]')) front.appendChild(nav);
       const inner = getPrimaryScroller(host);
       if (inner) inner.scrollTop = scrollY;
       else host.style.transform = `translateY(${-scrollY}px)`;
@@ -340,6 +359,7 @@ export const SwipeBackContainer: React.FC<Props> = ({
       });
       front.style.visibility = 'visible';
       page.style.opacity = '0';
+      wakeGlassButtons();
     };
 
     const paintReveal = (x: number) => {
@@ -355,7 +375,9 @@ export const SwipeBackContainer: React.FC<Props> = ({
       g.current.raf = 0;
       const x = g.current.x;
       front.style.transform = x === 0 ? '' : backTranslation(x, g.current.direction);
+      paintShadow(x);
       paintReveal(x);
+      wakeGlassButtons();
     };
     const schedule = (x: number) => {
       g.current.x = x;
@@ -396,7 +418,7 @@ export const SwipeBackContainer: React.FC<Props> = ({
       // current page doesn't show the real (identical, fixed, z-50) one on
       // top; then the live bar covers seamlessly and a parallaxing copy
       // underneath would just be wasted paint.
-      if (snap.nav && !document.querySelector('[data-bottom-nav]')) destWrap.appendChild(snap.nav);
+      if (snap.nav && (snap.nav.querySelector('[data-native-tab-preview]') || !document.querySelector('[data-bottom-nav]'))) destWrap.appendChild(snap.nav);
       const scrim = document.createElement('div');
       scrim.style.cssText = `position:absolute;inset:0;background:#000;opacity:${SCRIM_MAX};pointer-events:none;`;
       destWrap.style.transform = `translateX(${-PARALLAX * w}px)`;
@@ -451,12 +473,17 @@ export const SwipeBackContainer: React.FC<Props> = ({
       paintReveal(s.x);
       reveal.style.visibility = 'visible';
       reveal.style.opacity = '1';
+      // Warm the native preview before the first settle frame; don't wait for
+      // the router to commit at the far end of the gesture.
+      void flushGlassButtons();
     };
 
     const hideReveal = () => {
       const s = g.current;
       reveal.style.visibility = 'hidden';
       reveal.style.opacity = '0';
+      reveal.style.zIndex = '';
+      delete reveal.dataset.glassHandoff;
       if (s.destWrap) s.destWrap.style.willChange = '';
       s.revealActive = false; s.destWrap = null; s.scrim = null;
     };
@@ -506,10 +533,11 @@ export const SwipeBackContainer: React.FC<Props> = ({
     // changed — instead of trusting a fixed frame count. A timeout guarantees
     // we always complete.
 
-    const finishCommit = () => {
+    const finishCommit = async () => {
       const s = g.current;
-      if (!s.finalizing) return;
-      s.finalizing = false;
+      if (!s.finalizing || s.handoff) return;
+      const handoff = new AbortController();
+      s.handoff = handoff;
       if (s.finalizeTimer) { clearTimeout(s.finalizeTimer); s.finalizeTimer = 0; }
       // Land the destination at the right scroll before it covers the snapshot,
       // so there's no jump-to-top flash on commit. Only REMOUNTING stack pages
@@ -521,12 +549,19 @@ export const SwipeBackContainer: React.FC<Props> = ({
       const destKeepAlive = isKeepAlivePath(window.location.pathname);
       if (!s.finIsPop) setPageScroll(0);
       else if (s.finHadSnap && !destKeepAlive) setPageScroll(s.finScrollY);
-      front.style.transform = '';
-      front.style.willChange = '';
+      if (s.finHadSnap) {
+        await handoffBackPreview({ page, preview: reveal, syncNative: flushGlassButtons, signal: handoff.signal, reduced: s.reduce });
+      } else {
+        page.style.opacity = '';
+        void flushGlassButtons();
+      }
+      if (handoff.signal.aborted || !root.isConnected) return;
+      s.handoff = null;
+      s.finalizing = false;
       page.style.pointerEvents = '';
-      shadow.style.opacity = '0';
-      hideReveal();
       hideFront();
+      hideReveal();
+      wakeGlassButtons();
       if (s.glassHeld) { s.glassHeld = false; releaseGlass(); }
       if (s.finKey != null) snapStore.delete(s.finKey);
       s.x = 0;
@@ -545,6 +580,11 @@ export const SwipeBackContainer: React.FC<Props> = ({
       // destination) while the real route swaps in, then drop the now-real
       // page to 0 and remove the snapshot.
       front.style.transform = backTranslation(w, s.direction);
+      paintShadow(w);
+      // At this point the front and its shadow are fully outside the screen.
+      // Retire their native preview controls now, not after the handoff fade.
+      front.style.visibility = 'hidden';
+      wakeGlassButtons();
       s.finalizing = true;
       s.finFromLocKey = locationKeyRef.current;
       s.finKey = revealKeyRef.current;
@@ -574,7 +614,15 @@ export const SwipeBackContainer: React.FC<Props> = ({
             // and the enter slide plays in plain sight.
             ready = !!stackEl
               && stackEl.getAttribute('data-route-stack') === destPath
-              && Math.abs(txOf(stackEl)) < 2;
+              && Math.abs(txOf(stackEl)) < 1
+              && Number(getComputedStyle(stackEl).opacity || 1) >= .99;
+            if (ready && stackEl) {
+              const transform = getComputedStyle(stackEl).transform;
+              if (transform && transform !== 'none') {
+                const matrix = new DOMMatrixReadOnly(transform);
+                ready = Math.abs(matrix.m42) < 1 && Math.abs(matrix.m11 - 1) < .01 && Math.abs(matrix.m22 - 1) < .01;
+              }
+            }
           }
         }
         settledFrames = ready ? settledFrames + 1 : 0;
@@ -616,6 +664,8 @@ export const SwipeBackContainer: React.FC<Props> = ({
         [{ transform: backTranslation(s.x, s.direction) }, { transform: backTranslation(toX, s.direction) }],
         { duration: dur, easing: EASE, fill: 'both' },
       ));
+      if (!s.reduce) anims.push(shadow.animate(backShadowFrames(s.x, toX, w, s.direction),
+        { duration: dur, easing: EASE, fill: 'both' }));
       if (s.revealActive && s.destWrap && s.scrim) {
         const pFrom = Math.max(0, Math.min(1, s.x / w));
         const pTo = commit ? 1 : 0;
@@ -641,6 +691,8 @@ export const SwipeBackContainer: React.FC<Props> = ({
           s.destWrap.style.transform = backReveal(pEnd, w, s.direction);
           s.scrim.style.opacity = String(SCRIM_MAX * (1 - pEnd));
         }
+        front.style.transform = backTranslation(toX, s.direction);
+        paintShadow(toX);
         // Cancelling releases the WAAPI style overrides; the inline styles
         // above take over in the same task — no repaint in between.
         for (const a of s.anims) a.cancel();
@@ -648,9 +700,6 @@ export const SwipeBackContainer: React.FC<Props> = ({
         if (commit) {
           beginCommit(w);
         } else {
-          front.style.transform = '';
-          front.style.willChange = '';
-          shadow.style.opacity = '0';
           hideReveal();
           hideFront();
           if (s.glassHeld) { s.glassHeld = false; releaseGlass(); }
@@ -673,6 +722,7 @@ export const SwipeBackContainer: React.FC<Props> = ({
       s.settleMode = 'none';
       s.x = cur;
       front.style.transform = backTranslation(cur, s.direction);
+      paintShadow(cur);
       paintReveal(cur);
       s.tracking = true; s.claimed = true;
       if (!s.glassHeld) { s.glassHeld = true; holdGlass(); }
@@ -708,7 +758,6 @@ export const SwipeBackContainer: React.FC<Props> = ({
       s.sx = coordinate(t); s.sy = s.direction === 'down' ? t.clientX : t.clientY; s.lx = coordinate(t); s.lt = e.timeStamp || Date.now();
       s.vx = 0; s.claimDx = 0; s.w = width();
       s.fromEdge = fromEdge;
-      front.style.boxShadow = s.direction === 'down' ? '0 -12px 32px #0003' : s.direction === 'left' ? '12px 0 32px #0003' : '-12px 0 32px #0003';
       s.reduce = prefersReducedMotion();
       s.deferEl = findHScrollable(e.target, root);
       // An edge touch is very likely a back-swipe: promote the page to its
@@ -738,13 +787,12 @@ export const SwipeBackContainer: React.FC<Props> = ({
           return;
         }
         s.claimed = true;
-        // The page is about to ride a finger: glass to the CSS fallback until
-        // it is at rest again (finishCommit / cancel settle).
+        // Keep native geometry tracking live until this gesture settles.
         if (!s.glassHeld) { s.glassHeld = true; holdGlass(); }
         s.claimDx = dx;
         showFront();
         front.style.willChange = 'transform';
-        if (!s.reduce) shadow.style.opacity = '1';
+        paintShadow(s.x);
         showReveal();
       }
 
@@ -807,7 +855,7 @@ export const SwipeBackContainer: React.FC<Props> = ({
       if (!s.glassHeld) { s.glassHeld = true; holdGlass(); }
       showFront();
       showReveal();
-      if (!s.reduce) shadow.style.opacity = '1';
+      paintShadow(s.x);
       front.style.willChange = 'transform';
       settle(s.w, true);
     };
@@ -833,7 +881,7 @@ export const SwipeBackContainer: React.FC<Props> = ({
       stopTracking();
       if (s.raf) { cancelAnimationFrame(s.raf); s.raf = 0; }
       s.claimed = false; s.busy = false; s.commitBack = null; s.x = 0;
-      front.style.transform = ''; front.style.willChange = ''; page.style.pointerEvents = '';
+      page.style.pointerEvents = '';
       shadow.style.opacity = '0'; hideReveal(); hideFront();
       if (s.glassHeld) { s.glassHeld = false; releaseGlass(); }
       if (s.settleMode === 'commit') onLockRef.current(false);
@@ -863,6 +911,7 @@ export const SwipeBackContainer: React.FC<Props> = ({
     scheduleRebuild();
     return () => {
       const s = g.current;
+      s.handoff?.abort(); s.handoff = null;
       clearPush();
       window.removeEventListener('app:request-back', requestBack);
       root.removeEventListener('touchstart', start);
@@ -905,27 +954,19 @@ export const SwipeBackContainer: React.FC<Props> = ({
         data-swipe-reveal=""
         style={{ position: 'fixed', inset: 0, zIndex: 0, overflow: 'hidden', visibility: 'hidden', opacity: 0, background: 'var(--color-surface)', contain: 'layout paint', pointerEvents: 'none' }}
       />
+      {/* A separate clipped compositor layer lets the edge shadow fade with
+          progress, without fading page content or animating a painted blur. */}
+      <div aria-hidden="true" inert style={{ position: 'fixed', inset: 0, zIndex: 20, overflow: 'hidden', contain: 'layout paint', pointerEvents: 'none' }}>
+        <div ref={shadowRef} data-swipe-shadow="" style={{ position: 'absolute', opacity: 0, pointerEvents: 'none' }} />
+      </div>
       <div ref={frontRef} data-swipe-front="" aria-hidden="true" inert
-        style={{ position: 'fixed', inset: 0, zIndex: 20, visibility: 'hidden', overflow: 'hidden', background: 'var(--color-surface)', pointerEvents: 'none', contain: 'layout paint', boxShadow: '-12px 0 32px rgba(0,0,0,.18)' }} />
+        style={{ position: 'fixed', inset: 0, zIndex: 20, visibility: 'hidden', overflow: 'hidden', background: 'var(--color-surface)', pointerEvents: 'none', contain: 'layout paint' }} />
       {/* No z-index here: it would create a stacking context that traps
           in-page bottom sheets (z-[110]) below the bottom nav (z-50). The page
           still paints above the reveal by DOM order (it comes after it), and
           the transform during a drag promotes it for that moment anyway. */}
       <div ref={pageRef} data-swipe-page="" style={{ position: 'relative', minHeight: '100dvh' }}>
         {children}
-        {/* Leading-edge shadow. A child of the page, so it rides the drag for
-            free; parked just outside the left edge, so it never overlaps
-            content and repaints nothing when toggled. aria-hidden also keeps
-            it (and the hidden keep-alive layers) out of page snapshots. */}
-        <div
-          ref={shadowRef}
-          aria-hidden="true"
-          style={{
-            position: 'absolute', top: 0, bottom: 0, left: -24, width: 24,
-            pointerEvents: 'none', opacity: 0, transition: 'opacity 0.2s ease',
-            background: 'linear-gradient(to left, rgba(0,0,0,0.22), rgba(0,0,0,0))',
-          }}
-        />
       </div>
     </div>
   );

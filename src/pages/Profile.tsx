@@ -876,16 +876,17 @@ export const Profile: React.FC = () => {
       {/* The wash: the accent, faint, fading out under the header. The one
           place the page is allowed to be a colour rather than a surface. */}
       <div aria-hidden className="profile-wash" />
-      {/* Mirror the mobile Discover header — Create shortcut on the
-          left, centered logo, messages/Circle cluster on the right.
+      {/* Settings on the left, centered logo, Calendar and Notifications
+          in the right-hand pill.
           Hidden on desktop where the sidebar layout owns the chrome. */}
       {!isDesktop && (
         <TopBar
           transparent
+          calendarActions
           centerLogo={phoneMode}
           fadeOnScroll={phoneMode}
           // Scrolling swaps the header for a compact glass bar carrying
-          // the same actions plus your name, so Messages and Circle stay
+          // the same actions plus your name, so Calendar and Notifications stay
           // one tap away instead of only existing at the top of the page.
           condensedTitle={phoneMode ? displayName : undefined}
           leftAction={phoneMode ? (

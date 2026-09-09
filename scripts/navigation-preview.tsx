@@ -12,6 +12,7 @@ import { useLocalBack } from '../src/lib/back-navigation';
 import '../src/index.css';
 function Preview() {
  const location=useLocation(), navigate=useNavigate(), type=useNavigationType();
+ const [edgeAudit,setEdgeAudit]=useState('No edge samples yet');
  const [instant,setInstant]=useState(false), [step,setStep]=useState(false), [dark,setDark]=useState(false);
  const owner=useRef<HTMLElement>(null), current=useRef<HTMLElement>(null);
  const index=window.history.state?.idx??0;
@@ -21,9 +22,34 @@ function Preview() {
  const back=usePageBack('/');
  useLocalBack(location.pathname==='/create'&&step,()=>setStep(false),owner);
  const guides=Array.from({length:12},(_,i)=>({id:String(i),title:`Guide ${i+1}: A few favorites`,author:'Preview',type:'restaurants' as const,count:5,image:'',daysAgo:i}));
+ // Sample the actual compositor styles through the end of a navigation.
+ // This fixture records an otherwise easy-to-miss parked-shadow frame.
+ const auditEdge=()=>{
+   let seenFront=false, parked=0, residual=false;
+   const started=performance.now();
+   setEdgeAudit('Sampling transition…');
+   const sample=()=>{
+     const front=document.querySelector<HTMLElement>('[data-swipe-front]');
+     const shadow=document.querySelector<HTMLElement>('[data-swipe-shadow]');
+     if(front){
+       const rect=front.getBoundingClientRect();
+       if(getComputedStyle(front).visibility==='visible')seenFront=true;
+       const outside=rect.left>=window.innerWidth-.05||rect.right<=.05||rect.top>=window.innerHeight-.05;
+       if(seenFront&&outside){
+         parked++;
+         const oldShadow=getComputedStyle(front).boxShadow;
+         residual ||= (getComputedStyle(front).visibility==='visible'&&oldShadow!=='none') || (!!shadow&&Number(getComputedStyle(shadow).opacity)>.01);
+       }
+     }
+     if(performance.now()-started<1500)requestAnimationFrame(sample);
+     else setEdgeAudit(parked ? `${residual?'FAIL':'PASS'} · ${parked} end frames · ${residual?'residual edge':'no residual shadow'}` : 'No parked frames sampled');
+   };
+   requestAnimationFrame(sample);
+ };
  const simulate=(wrong=false)=>{
    const node=current.current?.querySelector('[data-route-drag-handle]')??current.current;
    if(!node||!direction)return;
+   if(!wrong)auditEdge();
    const sx=direction==='left'?window.innerWidth-55:55,sy=130;
    const sign=(direction==='left'?-1:1)*(wrong?-1:1);
    const send=(type:string,d:number)=>{const touch={clientX:direction==='down'?sx:sx+sign*d,clientY:direction==='down'?sy+(wrong?-d:d):sy};const e=new Event(type,{bubbles:true,cancelable:true});Object.defineProperties(e,{touches:{value:type==='touchend'?[]:[touch]},changedTouches:{value:[touch]}});node.dispatchEvent(e);};
@@ -39,7 +65,7 @@ function Preview() {
  {location.pathname==='/create'&&!step&&<button onClick={()=>setStep(true)}>Open recipe options</button>}
  <p>Isolated preview. No account data is modified.</p></main>}
  </motion.section></RetainedRouteStack></SwipeBackContainer>
- <aside className="verify-hud"><output aria-label="Current route">{location.pathname} · {direction??'root'}</output><button onClick={()=>simulate()}>Simulate return swipe</button><button onClick={()=>simulate(true)}>Wrong direction</button><button onClick={()=>setDark(d=>!d)}>Theme</button></aside>
+ <aside className="verify-hud"><output aria-label="Current route">{location.pathname} · {direction??'root'}</output><output aria-label="End-frame check">{edgeAudit}</output><button onClick={()=>{auditEdge();back();}}>Test Back button</button><button onClick={()=>simulate()}>Simulate return swipe</button><button onClick={()=>simulate(true)}>Wrong direction</button><button onClick={()=>setDark(d=>!d)}>Theme</button></aside>
  </div>;
 }
 createRoot(document.getElementById('root')!).render(<BrowserRouter basename="/scripts/navigation-preview.html"><Preview/></BrowserRouter>);

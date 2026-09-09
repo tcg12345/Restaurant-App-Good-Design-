@@ -1,0 +1,82 @@
+import { PGlite } from '@electric-sql/pglite';
+import { readFileSync } from 'node:fs';
+import { beforeAll, beforeEach, afterAll, it, expect } from 'vitest';
+const a='10000000-0000-4000-8000-000000000001', b='10000000-0000-4000-8000-000000000002';
+const sid='20000000-0000-4000-8000-000000000001', install='30000000-0000-4000-8000-000000000001';
+let db: PGlite;
+async function asUser(id=a, session=sid) { await db.exec(`reset role; select set_config('request.jwt.claim.sub','${id}',false); select set_config('request.jwt.claim.session','${session}',false); set role authenticated;`); }
+beforeAll(async () => {
+ db=new PGlite();
+ await db.exec(`create role anon; create role authenticated; create role service_role; create schema auth;
+ create table auth.users(id uuid primary key); insert into auth.users values('${a}'),('${b}');
+ create table auth.sessions(id uuid primary key,user_id uuid,not_after timestamptz); insert into auth.sessions values('${sid}','${a}',null);
+ create function auth.uid() returns uuid language sql stable as $$ select nullif(current_setting('request.jwt.claim.sub',true),'')::uuid $$;
+ create function auth.jwt() returns jsonb language sql stable as $$ select jsonb_build_object('session_id',current_setting('request.jwt.claim.session',true)) $$;
+ grant usage on schema auth to anon,authenticated; grant execute on all functions in schema auth to anon,authenticated;
+ create table public.user_profiles(user_id uuid primary key,display_name text);
+ insert into user_profiles values('${a}','Alice'),('${b}','Bob');
+ create table public.notifications(id uuid primary key default gen_random_uuid(),user_id uuid references auth.users,actor_id uuid references auth.users,kind text check(kind in ('like','comment','cuisine_suggested','cuisine_auto')),subject_type text check(subject_type in ('post','reel','rating','cuisine')),subject_id uuid,subject_label text default '',preview text default '',restaurant_id text,comment_id uuid,read_at timestamptz,created_at timestamptz default now());
+ alter table notifications enable row level security;
+ create policy own on notifications for all to authenticated using(auth.uid()=user_id) with check(auth.uid()=user_id);
+ grant select,update,delete on notifications to authenticated;
+ create table user_friends(id uuid primary key default gen_random_uuid(),user_id uuid,friend_id uuid,status text);
+ create table conversations(id uuid primary key default gen_random_uuid(),participant_ids uuid[],name text);
+ create table messages(id uuid primary key default gen_random_uuid(),conversation_id uuid,sender_id uuid,text text,created_at timestamptz default now());
+ create table conversation_reads(conversation_id uuid,user_id uuid,last_read_at timestamptz);
+ create table shared_lists(id uuid primary key default gen_random_uuid(),owner_id uuid,name text,member_ids uuid[],updated_at timestamptz default now());
+ create table shared_list_entries(id uuid primary key default gen_random_uuid(),list_id uuid,added_by uuid,name text);
+ create table verification_requests(id uuid primary key default gen_random_uuid(),user_id uuid,status text);
+ create table subscription_events(id text primary key,user_id uuid,type text);
+ create table recipes(user_id uuid,created_at timestamptz);
+ create table user_app_data(user_id uuid,restaurant_meta jsonb);
+ create table community_ratings(user_id uuid,visit_date text);`);
+ const sql=readFileSync(new URL('../../supabase/migrations/20260909001734_ios_notifications.sql',import.meta.url),'utf8');
+ await db.exec(sql.slice(0,sql.indexOf('create extension if not exists pg_cron;')));
+},30000);
+beforeEach(async()=>{ await db.exec('reset role; truncate notifications, notification_private.devices, notification_preferences, messages, user_friends, conversations, conversation_reads cascade;'); });
+afterAll(async()=>{await db?.close();});
+it('isolates settings, rejects ownership transfer, invalid values and queue access',async()=>{
+ await asUser(); await db.query('insert into notification_preferences(user_id,enabled) values($1,true)',[a]);
+ await expect(db.query('update notification_preferences set user_id=$1',[b])).rejects.toThrow('row-level security');
+ await expect(db.exec(`update notification_preferences set categories='{"messages":"yes"}'`)).rejects.toThrow('Invalid notification categories');
+ await expect(db.exec(`update notification_preferences set timezone='Invalid/Zone'`)).rejects.toThrow('Invalid time zone');
+ await expect(db.exec('select * from notification_private.devices')).rejects.toThrow('permission denied');
+ await expect(db.exec('select public.claim_push_notifications(10)')).rejects.toThrow('permission denied');
+ await asUser(b); expect((await db.query('select * from notification_preferences')).rows).toHaveLength(0);
+});
+it('binds devices to a real auth session and prevents forging notification content',async()=>{
+ await asUser(b); await expect(db.query('select register_push_device($1,$2,$3)',[install,'a'.repeat(64),'development'])).rejects.toThrow('Sign in again');
+ await asUser(); await db.query('select register_push_device($1,$2,$3)',[install,'a'.repeat(64),'development']);
+ await db.exec('reset role');
+ await db.query("insert into notifications(user_id,actor_id,kind,subject_type,subject_id) values($1,$2,'like','post',$1)",[a,b]);
+ await asUser(); await expect(db.exec("update notifications set preview='forged'")).rejects.toThrow('permission denied');
+ await db.exec('update notifications set read_at=now()');
+});
+it('emits requests and acceptances only on the relevant transition',async()=>{
+ await db.query("insert into user_friends(user_id,friend_id,status) values($1,$2,'pending')",[b,a]);
+ expect((await db.query('select kind,user_id from notifications')).rows).toEqual([{kind:'friend_request',user_id:a}]);
+ await db.exec("update user_friends set status='accepted'; update user_friends set status='accepted';");
+ expect((await db.query('select kind from notifications order by kind')).rows).toEqual([{kind:'friend_accepted'},{kind:'friend_request'}]);
+});
+it('queues per device, leases once, and cancels unread delivery when the conversation is read',async()=>{
+ await asUser(); await db.query('insert into notification_preferences(user_id,enabled) values($1,true)',[a]);
+ await db.query('select register_push_device($1,$2,$3)',[install,'a'.repeat(64),'development']); await db.exec('reset role');
+ const c=(await db.query<{id:string}>('insert into conversations(participant_ids) values($1::uuid[]) returning id',[[a,b]])).rows[0].id;
+ await db.query('insert into messages(conversation_id,sender_id,text) values($1,$2,$3)',[c,b,'Hello']);
+ expect((await db.query('select * from notification_private.outbox')).rows).toHaveLength(1);
+ const first=(await db.query<{batch:unknown[]}>('select claim_push_notifications(10) as batch')).rows[0].batch; expect(first).toHaveLength(1);
+ expect((await db.query<{batch:unknown[]}>('select claim_push_notifications(10) as batch')).rows[0].batch).toHaveLength(0);
+ await db.exec("update notification_private.outbox set leased_until=now()-interval '1 second'");
+ await db.query('insert into conversation_reads values($1,$2,now())',[c,a]);
+ expect((await db.query<{batch:unknown[]}>('select claim_push_notifications(10) as batch')).rows[0].batch).toHaveLength(0);
+});
+it('rechecks disabled preferences and drops devices when auth sessions are revoked',async()=>{
+ await asUser(); await db.query('insert into notification_preferences(user_id,enabled) values($1,true)',[a]);
+ await db.query('select register_push_device($1,$2,$3)',[install,'a'.repeat(64),'development']); await db.exec('reset role');
+ await db.query("insert into notifications(user_id,actor_id,kind,subject_type,subject_id) values($1,$2,'like','post',$1)",[a,b]);
+ await db.exec('update notification_preferences set enabled=false');
+ expect((await db.query<{batch:unknown[]}>('select claim_push_notifications(10) as batch')).rows[0].batch).toHaveLength(0);
+ await db.exec('delete from auth.sessions');
+ expect((await db.query('select * from notification_private.devices')).rows).toHaveLength(0);
+ expect((await db.query('select * from notification_private.outbox')).rows).toHaveLength(0);
+});

@@ -1,7 +1,8 @@
+import { useNotifications } from '../contexts/NotificationsContext';
 import React from 'react';
 import { motion } from 'motion/react';
-import { ArrowLeft, Users, MessageCircle } from 'lucide-react';
-import { useLocation, useNavigate } from 'react-router-dom';
+import { ArrowLeft, Bell, CalendarDays, MessageCircle } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import { cn } from '../lib/utils';
 import { useAuth } from '../contexts/AuthContext';
 import { useChat } from '../contexts/ChatContext';
@@ -12,6 +13,8 @@ import { Logo } from './Logo';
 interface TopBarProps {
   title?: string;
   rightAction?: React.ReactNode;
+  /** Calendar followed by notifications in both expanded and compact bars. */
+  calendarActions?: boolean;
   /** Optional custom button rendered on the left, replacing the default
    *  logo / back-button slot. When provided alongside `centerLogo`, the
    *  header reads as: [leftAction] · [G logo] · [right actions]. */
@@ -39,15 +42,13 @@ interface TopBarProps {
   transparent?: boolean;
 }
 
-export const TopBar: React.FC<TopBarProps> = ({ title = "GoodEats", rightAction, leftAction, centerLogo = false, showBackButton = false, onBack, fadeOnScroll = false, condensedTitle, transparent = false }) => {
+export const TopBar: React.FC<TopBarProps> = ({ title = "GoodEats", rightAction, calendarActions = false, leftAction, centerLogo = false, showBackButton = false, onBack, fadeOnScroll = false, condensedTitle, transparent = false }) => {
   const { pendingRequestCount } = useAuth();
   const { unreadCount } = useChat();
-  // Friends badges represent actionable follow requests.
-  const circleBadge = pendingRequestCount;
+  const { unreadCount: notificationCount } = useNotifications();
+  const socialBadge = unreadCount + pendingRequestCount;
   const navigate = useNavigate();
-  const location = useLocation();
 
-  const isCirclePage = location.pathname === '/circle';
   // condensedOnScrollUp: the compact bar follows the home page's manners —
   // away while scrolling down (content owns the full screen, nothing for
   // it to slide into), back the moment the user scrolls up.
@@ -86,7 +87,7 @@ export const TopBar: React.FC<TopBarProps> = ({ title = "GoodEats", rightAction,
     </GlassButton>
   );
 
-  /** Messages + Circle, at the full header size or the condensed one.
+  /** Page shortcuts at the full header size or the condensed one.
    *  `rightAction` is a caller-sized node, so it only rides along in the
    *  full header. */
   const buildRightCluster = (compact: boolean) => {
@@ -97,43 +98,21 @@ export const TopBar: React.FC<TopBarProps> = ({ title = "GoodEats", rightAction,
     const icon = compact ? 18 : 21;
     const scope = compact ? 'compact' : 'full';
 
-    // Messages and Circle share one capsule rather than sitting in two of
-    // their own. Two touching glass circles read as two objects; one surface
-    // with two regions reads as the single control it is, which is how the
-    // system groups its own header actions.
-    const items = [
-      {
-        id: 'messages',
-        symbol: 'message',
-        label: 'Messages',
-        badge: unreadCount > 0 ? String(unreadCount) : undefined,
-        onClick: () => navigate('/messages'),
-        icon: (
-          <>
-            <MessageCircle size={icon} />
-            {unreadCount > 0 && <span className={cn(badge, 'bg-primary')}>{unreadCount}</span>}
-          </>
-        ),
-      },
-      ...(isCirclePage ? [] : [{
-        id: 'circle',
-        symbol: 'person.2',
-        label: 'Your Circle',
-        badge: circleBadge > 0 ? String(circleBadge) : undefined,
-        badgeTone: (pendingRequestCount > 0 ? 'danger' : 'primary') as 'danger' | 'primary',
-        onClick: () => navigate('/circle'),
-        icon: (
-          <>
-            <Users size={icon} />
-            {circleBadge > 0 && (
-              <span className={cn(badge, pendingRequestCount > 0 ? 'bg-red-500' : 'bg-primary')}>
-                {circleBadge}
-              </span>
-            )}
-          </>
-        ),
-      }]),
-    ];
+    const notifications = {
+      id: 'notifications', symbol: 'bell', label: 'Notifications',
+      badge: notificationCount > 0 ? String(notificationCount) : undefined,
+      onClick: () => navigate('/settings/notifications?view=activity'),
+      icon: <><Bell size={icon} />{notificationCount > 0 && <span className={cn(badge, 'bg-primary')}>{notificationCount}</span>}</>,
+    };
+    const items = calendarActions ? [{
+      id: 'calendar', symbol: 'calendar', label: 'Calendar',
+      onClick: () => navigate('/calendar'), icon: <CalendarDays size={icon} />,
+    }, notifications] : [notifications, {
+      id: 'social', symbol: 'message', label: 'Messages and friends',
+      badge: socialBadge > 0 ? String(socialBadge) : undefined,
+      onClick: () => navigate('/messages'),
+      icon: <><MessageCircle size={icon} />{socialBadge > 0 && <span className={cn(badge, 'bg-primary')}>{socialBadge}</span>}</>,
+    }];
 
     // The capsule's own padding is what separates the regions; each is a
     // square so the glyphs sit on the same centres the old circles used.

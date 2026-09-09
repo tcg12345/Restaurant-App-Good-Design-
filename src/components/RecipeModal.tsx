@@ -557,7 +557,7 @@ export const RecipeModal: React.FC = () => {
                   <div className="px-5 pt-4 pb-2 flex-shrink-0">
                     <div className="relative">
                       <Search size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-on-surface/30" />
-                      <input type="text" value={tagSearch} onChange={(e) => setTagSearch(e.target.value)} placeholder="Search tags..."
+                      <input data-search-input="standalone" type="text" value={tagSearch} onChange={(e) => setTagSearch(e.target.value)} placeholder="Search tags..."
                         className="w-full bg-white border border-on-surface/10 rounded-xl pl-10 pr-4 py-2.5 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20" />
                     </div>
                     {hasTags && (

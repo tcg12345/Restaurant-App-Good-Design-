@@ -1,0 +1,7 @@
+.photo-like-button, .rps-photo-meta .photo-like-button { display:inline-flex; align-items:center; justify-content:center; gap:7px; width:auto; min-width:62px; height:44px; padding:0 12px; flex:none; border:1px solid #ffffff30; border-radius:999px; background:#17201cd9; color:#fff; backdrop-filter:blur(18px); transition:background .18s,color .18s,transform .18s; }
+.photo-like-button[aria-pressed=true] { color:#ff9fb1; background:#402830e6; }
+.photo-like-button span, .rps-photo-meta .photo-like-button span { margin:0; color:inherit; font:600 12px/1 system-ui; font-variant-numeric:tabular-nums; }
+.photo-like-button:active:not(:disabled) { transform:scale(.96); }
+.photo-like-button:disabled { opacity:.6; }
+.photo-like-button:focus-visible { outline:2px solid white; outline-offset:3px; }
+@media(prefers-reduced-motion:reduce) { .photo-like-button { transition:none; } }

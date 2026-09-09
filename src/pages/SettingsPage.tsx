@@ -1,3 +1,6 @@
+import { WidgetSettings } from '../components/settings/WidgetSettings';
+import { LayoutGrid } from 'lucide-react';
+import { NotificationSettings } from '../components/notifications/NotificationSettings';
 import { FeedbackForm } from '../components/FeedbackForm';
 import { analyticsOptedOut, setAnalyticsOptOut } from '../lib/analytics';
 import { TastePreferencesEditor } from '../components/settings/TastePreferencesEditor';
@@ -49,7 +52,7 @@ import pkg from '../../package.json';
 
 /** Focused settings routes share one consistent navigation and form shell. */
 
-const PAGE_TITLES = { feedback: 'Feedback & suggestions', taste: 'Taste profile settings', reviews: 'GoodEats in Review', edit: 'Edit profile', account: 'Account & security', email: 'Email address', phone: 'Phone number', password: 'Password', privacy: 'Privacy & permissions', appearance: 'Appearance & feedback', ratings: 'Rating preferences', home: 'Home & personalization', subscription: 'GoodEats Pro', data: 'Your data', support: 'Help & about', verification: 'Verification', delete: 'Delete account' } as const;
+const PAGE_TITLES = { widgets: 'iPhone widgets', notifications: 'Notifications', feedback: 'Feedback & suggestions', taste: 'Taste profile settings', reviews: 'GoodEats in Review', edit: 'Edit profile', account: 'Account & security', email: 'Email address', phone: 'Phone number', password: 'Password', privacy: 'Privacy & permissions', appearance: 'Appearance & feedback', ratings: 'Rating preferences', home: 'Home & personalization', subscription: 'GoodEats Pro', data: 'Your data', support: 'Help & about', verification: 'Verification', delete: 'Delete account' } as const;
 type SubPage = keyof typeof PAGE_TITLES;
 
 /** Human names for the profile columns saveProfile may have to skip, so a
@@ -442,6 +445,8 @@ export const SettingsPage: React.FC = () => {
   const links: SettingLink[] = [
     { page: 'account', title: 'Account & security', sub: 'Email, phone and password', icon: <Lock size={19} />, group: 'Your account' },
     { page: 'privacy', title: 'Privacy & permissions', sub: profile?.is_public ? 'Public profile' : 'Private profile', icon: <Shield size={19} />, group: 'Your account', keywords: 'private public visibility contacts location photos' },
+    { page: 'widgets', title: 'iPhone widgets', sub: 'Meals, taste and your circle at a glance', icon: <LayoutGrid size={19} />, group: 'Your experience', keywords: 'iphone home screen lock calendar leaderboard ranking widget' },
+    { page: 'notifications', title: 'Notifications', sub: 'Alerts, reminders and recent activity', icon: <Bell size={19} />, group: 'Your experience', keywords: 'push messages friends recaps quiet hours reminders' },
     { page: 'appearance', title: 'Appearance & feedback', sub: appearance === 'system' ? 'System' : appearance === 'dark' ? 'Dark' : 'Light', icon: <Sun size={19} />, group: 'Your experience', keywords: 'system automatic dark light theme haptics vibration' },
     { page: 'ratings', title: 'Rating preferences', sub: 'Scores and sharing', icon: <Star size={19} />, group: 'Your experience', keywords: 'precise decimals default circle' },
     { page: 'reviews', title: 'GoodEats in Review', sub: 'Your weeks, months, and years in food', icon: <Sparkles size={19} />, group: 'Your experience', keywords: 'wrapped recap memories archive annual weekly monthly share' },
@@ -816,6 +821,8 @@ export const SettingsPage: React.FC = () => {
         {group('Score display', <Row icon={<Star size={19} />} title="Precise scores" sub="Show 8.37 instead of 8.4" toggle on={!proLocked && twoDecimalScores} tag={proLocked ? <ProTag /> : undefined} onPress={proLocked ? () => openPaywall('gate:precise-scores', 'precise-scores', { onUnlocked: () => { if (!twoDecimalScores) toggleTwoDecimalScores(); } }) : toggleTwoDecimalScores} />, 'Display precision doesn’t change your rankings.')}
         {group('When you rate', <Row icon={<Globe size={19} />} title="Share to your circle by default" sub="You can change this for each rating" toggle on={shareRatings} onPress={() => setShareRatings(!shareRatings)} />, 'Applies to new rating sessions on this device. Existing activity stays as it is.')}
       </>}
+      {page === 'widgets' && <WidgetSettings />}
+      {page === 'notifications' && <NotificationSettings />}
       {page === 'reviews' && <ReviewArchive />}
       {page === 'taste' && <TastePreferencesEditor />}
       {page === 'home' && <>

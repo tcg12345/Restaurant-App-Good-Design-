@@ -15,8 +15,8 @@
 
 import { supabase, supabaseConfigured } from './supabase';
 
-export type NotificationKind = 'like' | 'comment' | 'cuisine_suggested' | 'cuisine_auto';
-export type NotificationSubject = 'post' | 'reel' | 'rating' | 'cuisine';
+export type NotificationKind = 'like' | 'comment' | 'cuisine_suggested' | 'cuisine_auto' | 'friend_request' | 'friend_accepted' | 'message' | 'shared_list_invite' | 'shared_list_update' | 'recap' | 'account';
+export type NotificationSubject = 'post' | 'reel' | 'rating' | 'cuisine' | 'friend' | 'conversation' | 'shared_list' | 'recap' | 'account';
 
 /** Admin-only review traffic (migration 069) rather than someone
  *  engaging with your own content. */
@@ -25,6 +25,8 @@ export function isReviewNotification(n: { kind: NotificationKind }): boolean {
 }
 
 export interface AppNotification {
+  title?: string;
+  path?: string | null;
   id: string;
   /** Recipient — always the signed-in user. */
   userId: string;
@@ -45,6 +47,8 @@ export interface AppNotification {
 }
 
 interface NotificationRow {
+  title?: string;
+  path?: string | null;
   id: string;
   user_id: string;
   actor_id: string;
@@ -75,13 +79,15 @@ const ts = (iso: string | null): number => {
 
 export function rowToNotification(row: NotificationRow): AppNotification {
   return {
+    title: row.title || '',
+    path: row.path,
     id: row.id,
     userId: row.user_id,
     actorId: row.actor_id,
     // Unknown kinds from a newer server fall back to 'like' rather than
     // being dropped: a row nobody can render is still better than a gap.
-    kind: (['comment', 'cuisine_suggested', 'cuisine_auto'] as const).find((k) => k === row.kind) ?? 'like',
-    subjectType: (['post', 'reel', 'cuisine'] as const).find((t) => t === row.subject_type) ?? 'rating',
+    kind: (['comment', 'cuisine_suggested', 'cuisine_auto', 'friend_request', 'friend_accepted', 'message', 'shared_list_invite', 'shared_list_update', 'recap', 'account'] as const).find((k) => k === row.kind) ?? 'like',
+    subjectType: (['post', 'reel', 'cuisine', 'friend', 'conversation', 'shared_list', 'recap', 'account'] as const).find((t) => t === row.subject_type) ?? 'rating',
     subjectId: row.subject_id,
     subjectLabel: row.subject_label || '',
     preview: row.preview || '',
@@ -155,4 +161,17 @@ export async function clearNotifications(userId: string): Promise<boolean> {
     }
     return true;
   } catch { return false; }
+}
+
+export function notificationDestination(n: AppNotification): string {
+  if (n.path) return n.path;
+  if (isReviewNotification(n)) return '/admin/cuisine';
+  if (n.subjectType === 'post' || n.subjectType === 'reel') return `/r/${n.subjectType}-${n.subjectId}`;
+  if (n.restaurantId) return `/restaurant/${encodeURIComponent(n.restaurantId)}`;
+  return '/settings/notifications';
+}
+export function notificationSummary(n: AppNotification, actor?: string): string {
+  if (n.kind === 'like') return `${actor || 'Someone'} liked your ${n.subjectType}${n.subjectLabel ? ` · ${n.subjectLabel}` : ''}.`;
+  if (n.kind === 'comment') return `${actor || 'Someone'}: ${n.preview || `Commented on your ${n.subjectType}`}`;
+  return n.preview || n.subjectLabel || 'Open to see your update.';
 }
