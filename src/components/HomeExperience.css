@@ -111,3 +111,5 @@
 @media (prefers-reduced-motion: no-preference) { .home-action { transition: background .15s; } .home-explore { transition: filter .15s; } .home-explore:active { filter: brightness(.88); } }
 
 @media (max-width: 360px) { .home-topbar { padding-inline: 16px; } .home-experience .home-topbar nav { gap: 4px; } }
+
+.home-scroll-viewport { display:contents; }

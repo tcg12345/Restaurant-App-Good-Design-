@@ -21,10 +21,11 @@
  * CSS button it always did.
  */
 
-import React, { useCallback, useContext, useEffect, useId, useRef, useState } from 'react';
+import React, { useCallback, useContext, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import { Capacitor, type PluginListenerHandle } from '@capacitor/core';
 import { LiquidGlass } from './native-glass';
 import { subscribeOverlay } from './overlay-registry';
+import { sampleNativeTabPreview } from './native-tab-preview';
 import { cn } from './utils';
 
 /** Named rather than hex so the two sides can't drift on what the brand
@@ -93,6 +94,7 @@ interface GlassFieldState {
 
 interface Registration extends GlassButtonSpec {
   el: HTMLElement;
+  interactionDisabled?: boolean;
   onTap: () => void;
   /** Set for a search field — see `useGlassField`. */
   field?: GlassFieldState;
@@ -106,9 +108,38 @@ interface Registration extends GlassButtonSpec {
  *  a button can register from anywhere without the tree having to carry a
  *  provider through every page that happens to own a header. */
 const registry = new Map<string, Registration>();
+/** Specs are copied onto inert navigation previews, without DOM fallbacks.
+ * Weak keys let the bounded snapshot store release these alongside its DOM. */
+const previewControls = new WeakMap<HTMLElement, { id: string; registration: Registration }>();
+let previewSerial = 0;
+function registerControl(id: string, registration: Registration): void {
+  registration.el.dataset.glassId = id;
+  registry.set(id, registration);
+}
+function unregisterControl(id: string): void {
+  const entry = registry.get(id);
+  if (entry?.el.dataset.glassId === id) delete entry.el.dataset.glassId;
+  registry.delete(id);
+}
+export function copyGlassToPreview(clone: HTMLElement): void {
+  clone.querySelectorAll<HTMLElement>('[data-glass-id]').forEach(el => {
+    const source = registry.get(el.dataset.glassId!);
+    if (!source) return;
+    const id = `glass-preview-${++previewSerial}`;
+    const registration = { ...source, el, onTap: () => {},
+      segments: source.segments?.map((segment, index) => ({ ...segment, id: `${id}/${index}`, onTap: () => {} })),
+      field: source.field ? { ...source.field, focused: false, editable: false, onChangeText: () => {}, onSubmit: () => {} } : undefined,
+    };
+    previewControls.set(el, { id, registration });
+    el.dataset.glassPreview = id;
+    delete el.dataset.glassId;
+  });
+}
+
 /** What was last pushed across the bridge, so an unchanged frame costs
  *  nothing. */
 let lastPayload = '';
+let lastNativeUpdate: Promise<void> = Promise.resolve();
 let supported = false;
 let listenersBound = false;
 let frame = 0;
@@ -155,13 +186,10 @@ export function useGlassOccluder(): (el: HTMLElement | null) => void {
 }
 
 const activeListeners = new Set<(active: boolean) => void>();
-/** While a finger drives the page (the swipe-back gesture), the native
- *  mirror cannot keep up — it measures the DOM a bridge-hop late and the
- *  buttons visibly trail, then jump. So for the length of the gesture every
- *  button stands down to its CSS fallback, which rides the transform like
- *  any other pixel, and native takes over again once the page is at rest. */
+/** Motion changes geometry, not ownership. Once supported, navigation must
+ * never expose a CSS copy of a native control. */
 let suspendedAll = false;
-const isActive = (): boolean => supported && !suspendedAll;
+const isActive = (): boolean => supported;
 
 function setSupported(next: boolean): void {
   if (next === supported) return;
@@ -175,30 +203,18 @@ function setSupported(next: boolean): void {
   }
 }
 
-/** Ref-counted hold: anything that moves the page (a drag, a route
- *  transition) holds glass on the CSS fallback for its duration and
- *  releases when the page is at rest. `resetGlassHolds` is the safety net
- *  for a hold whose release never came (an exiting page unmounted
- *  mid-animation) — the router calls it a beat after every navigation. */
+/** Keep sampling throughout route/gesture motion without destroying UIKit
+ * controls or changing what React renders. Nested transitions share a hold. */
 let holds = 0;
 export function holdGlass(): void { if (holds++ === 0) setGlassSuspended(true); }
 export function releaseGlass(): void { if (holds > 0 && --holds === 0) setGlassSuspended(false); }
 export function resetGlassHolds(): void { holds = 0; setGlassSuspended(false); }
 
-/** Hand every glass button to its CSS fallback (true) or back to native
- *  (false). Idempotent; prefer holdGlass/releaseGlass. */
+/** Retained bridge API name: suspension now holds geometry tracking, not
+ * the glass material. CSS is reserved for unsupported devices. */
 export function setGlassSuspended(next: boolean): void {
-  if (next === suspendedAll) return;
   suspendedAll = next;
-  for (const fn of activeListeners) fn(isActive());
-  if (next) {
-    // Native goes first, in the same frame the fallbacks paint — the
-    // registry empties as each button re-renders, but that is a render away.
-    lastPayload = '';
-    void LiquidGlass.clearGlassButtons().catch(() => {});
-  } else {
-    wake();
-  }
+  wake();
 }
 
 /** Is anything drawn on top of this button? A native view always draws above
@@ -265,12 +281,12 @@ function occluded(el: HTMLElement, rect: DOMRect): boolean {
 /** Effective opacity, including every ancestor's — the mobile headers fade by
  *  animating a wrapper, so the button's own computed opacity is 1 the whole
  *  way down. */
-function effectiveOpacity(el: HTMLElement): number {
+function effectiveOpacity(el: HTMLElement, preview = false): number {
   let opacity = 1;
   let node: HTMLElement | null = el;
   while (node && node !== document.body) {
     const style = window.getComputedStyle(node);
-    if (style.display === 'none' || style.visibility === 'hidden' || node.hasAttribute('inert')) return 0;
+    if (style.display === 'none' || style.visibility === 'hidden' || (!preview && node.hasAttribute('inert'))) return 0;
     const own = parseFloat(style.opacity);
     if (!Number.isNaN(own)) opacity *= own;
     if (opacity <= 0.01) return 0;
@@ -292,12 +308,45 @@ function tapById(id: string): void {
 
 function sample(): void {
   const buttons: Array<Record<string, unknown>> = [];
-  for (const [id, reg] of registry) {
+  const front = document.querySelector<HTMLElement>('[data-swipe-front]');
+  const frontRect = front && effectiveOpacity(front, true) > .01 ? front.getBoundingClientRect() : null;
+  const entries = [...registry].map(([id, registration]) => ({ id, registration, preview: false }));
+  document.querySelectorAll<HTMLElement>('[data-glass-preview]').forEach(el => {
+    const entry = previewControls.get(el);
+    if (entry) entries.push({ ...entry, preview: true });
+  });
+  for (const { id, registration: reg, preview } of entries) {
     const rect = reg.el.getBoundingClientRect();
     if (rect.width < 1 || rect.height < 1) continue;
-    const alpha = occluded(reg.el, rect) ? 0 : effectiveOpacity(reg.el) * (reg.disabled ? 0.4 : 1);
+    let alpha = effectiveOpacity(reg.el, preview) * (reg.disabled ? 0.4 : 1);
+    if (preview && reg.el.closest('[data-glass-handoff]')) alpha = 0;
+    let clip = { x: 0, y: 0, width: window.innerWidth, height: window.innerHeight };
+    const isFront = !!reg.el.closest('[data-swipe-front]');
+    if (alpha > .01 && preview) {
+      const layer = reg.el.closest<HTMLElement>('[data-swipe-front], [data-swipe-reveal]');
+      if (!layer) alpha = 0;
+      else if (isFront && frontRect) clip = { x: Math.max(0, frontRect.left), y: Math.max(0, frontRect.top), width: Math.min(window.innerWidth, frontRect.right) - Math.max(0, frontRect.left), height: Math.min(window.innerHeight, frontRect.bottom) - Math.max(0, frontRect.top) };
+      else if (frontRect) {
+        // Back previews reveal one edge of the destination at a time.
+        if (frontRect.top > 0) clip.height = frontRect.top;
+        else if (frontRect.left > 0) clip.width = frontRect.left;
+        else { clip.x = Math.max(0, frontRect.right); clip.width = window.innerWidth - clip.x; }
+      } else {
+        const live = document.querySelector<HTMLElement>('[data-swipe-page] [data-route-stack]:not([inert])');
+        if (live && effectiveOpacity(live) > .01) {
+          const r = live.getBoundingClientRect();
+          if (r.top > 0) clip.height = r.top;
+          else if (r.left > 0) clip.width = r.left;
+          else { clip.x = Math.max(0, r.right); clip.width = window.innerWidth - clip.x; }
+        }
+      }
+      if (clip.width <= 0 || clip.height <= 0 || rect.right <= clip.x || rect.left >= clip.x + clip.width || rect.bottom <= clip.y || rect.top >= clip.y + clip.height) alpha = 0;
+    } else if (alpha > .01 && (occluded(reg.el, rect) || (frontRect && rect.left < frontRect.right && rect.right > frontRect.left && rect.top < frontRect.bottom && rect.bottom > frontRect.top))) alpha = 0;
     buttons.push({
       id,
+      preview,
+      interactive: !preview && !reg.interactionDisabled,
+      ...(preview ? { clip } : {}),
       x: Math.round(rect.left * 100) / 100,
       y: Math.round(rect.top * 100) / 100,
       width: Math.round(rect.width * 100) / 100,
@@ -334,10 +383,11 @@ function sample(): void {
       } : {}),
     });
   }
-  const payload = JSON.stringify(buttons);
+  const tabBarPreview = sampleNativeTabPreview(effectiveOpacity);
+  const payload = JSON.stringify({ buttons, tabBarPreview });
   if (payload === lastPayload) return;
   lastPayload = payload;
-  void LiquidGlass.setGlassButtons({ buttons }).catch(() => {});
+  lastNativeUpdate = LiquidGlass.setGlassButtons({ buttons, tabBarPreview }).catch(() => {});
 }
 
 function tick(): void {
@@ -351,7 +401,14 @@ function tick(): void {
     if (lastPayload !== before) budget = IDLE_FRAMES;
   }
   budget -= 1;
-  if (budget > 0) frame = requestAnimationFrame(tick);
+  if (budget > 0 || suspendedAll) frame = requestAnimationFrame(tick);
+}
+
+/** Apply the destination chrome before uncovering a completed Back. */
+export function flushGlassButtons(): Promise<void> {
+  if (!supported) return Promise.resolve();
+  sample();
+  return lastNativeUpdate;
 }
 
 /** Re-arm the sampler. Called by anything that can move a header. */
@@ -463,14 +520,15 @@ export const GlassButton: React.FC<{
   /** Mirrored to `aria-pressed` on the web element — a toggle has to say so
    *  in the fallback, where there is no native control to announce it. */
   pressed?: boolean;
-  /** Temporarily stand the native glass down and let the web fallback
-   *  carry the look — for buttons riding a finger-driven transform (a
-   *  dragged sheet), where the async native mirror visibly trails. */
+  expanded?: boolean;
+  hasPopup?: 'menu' | 'dialog';
+  /** Temporarily ignore taps during sheet gestures or covering overlays.
+   * The native material stays mounted and follows the measured geometry. */
   suspended?: boolean;
   children: React.ReactNode;
-} & GlassButtonSpec> = ({ id, onClick, className, style, pressed, suspended, children, symbol, title, titleStyle, role, prominent, label, tint, badge, badgeTone, disabled }) => {
+} & GlassButtonSpec> = ({ id, onClick, className, style, pressed, expanded, hasPopup, suspended, children, symbol, title, titleStyle, role, prominent, label, tint, badge, badgeTone, disabled }) => {
   const onGlass = useContext(OnGlass);
-  const active = useGlassButtonsActive() && !onGlass && !suspended;
+  const active = useGlassButtonsActive() && !onGlass;
   // Stable for the life of this element, unique across every other one.
   const key = `${id}#${useId()}`;
   const ref = useRef<HTMLButtonElement | null>(null);
@@ -478,10 +536,10 @@ export const GlassButton: React.FC<{
   const onClickRef = useRef(onClick);
   onClickRef.current = onClick;
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const el = ref.current;
     if (!active || !el) return;
-    registry.set(key, {
+    registerControl(key, {
       el,
       symbol,
       title,
@@ -493,14 +551,15 @@ export const GlassButton: React.FC<{
       badge,
       badgeTone,
       disabled,
-      onTap: () => { if (!disabled) onClickRef.current(); },
+      interactionDisabled: suspended,
+      onTap: () => { if (!disabled && !suspended) onClickRef.current(); },
     });
     wake();
     return () => {
-      registry.delete(key);
+      unregisterControl(key);
       wake();
     };
-  }, [active, key, symbol, title, titleStyle, role, prominent, label, tint, badge, badgeTone, disabled]);
+  }, [active, key, symbol, title, titleStyle, role, prominent, label, tint, badge, badgeTone, disabled, suspended]);
 
   const handle = useCallback(() => onClickRef.current(), []);
 
@@ -511,15 +570,16 @@ export const GlassButton: React.FC<{
       onClick={handle}
       aria-label={label}
       aria-pressed={pressed}
+      aria-expanded={expanded}
+      aria-haspopup={hasPopup}
       // `aria-hidden` while native owns it: the UIKit control carries the
       // accessibility label, and two buttons for one action is worse than
       // either alone.
       aria-hidden={active || undefined}
       tabIndex={active ? -1 : undefined}
       disabled={disabled}
-      // Marks a natively-owned button for the swipe-back snapshot, which
-      // clones the page: the clone gets the CSS fallback in this spot, so
-      // the destination preview isn't a page with holes where its glass was.
+      // The snapshot keeps this slot transparent; UIKit also draws its
+      // preview copy while the page slides.
       data-glass-native={active ? '' : undefined}
       // While native owns the button, any background the caller's classes
       // paint must go: the glass samples the page through itself, so a CSS
@@ -580,10 +640,10 @@ export const GlassGroup: React.FC<{
     items.map((i) => [i.id, i.symbol, i.label, i.tint, i.badge, i.badgeTone]),
   );
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const el = ref.current;
     if (!active || !el) return;
-    registry.set(key, {
+    registerControl(key, {
       el,
       symbol: '',
       label: '',
@@ -601,7 +661,7 @@ export const GlassGroup: React.FC<{
     });
     wake();
     return () => {
-      registry.delete(key);
+      unregisterControl(key);
       wake();
     };
   }, [active, key, shape]);
@@ -670,10 +730,10 @@ export const GlassChipRow: React.FC<{
 
   const shape = JSON.stringify(items.map((i) => [i.id, i.symbol, i.title, i.prominent]));
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const el = ref.current;
     if (!active || !el) return;
-    registry.set(key, {
+    registerControl(key, {
       el,
       symbol: '',
       label: '',
@@ -695,7 +755,7 @@ export const GlassChipRow: React.FC<{
     });
     wake();
     return () => {
-      registry.delete(key);
+      unregisterControl(key);
       wake();
     };
   }, [active, key, shape]);
@@ -730,9 +790,10 @@ export const GlassChipRow: React.FC<{
  */
 export function useGlassSegments(options: {
   id: string;
+  suspended?: boolean;
   items: Array<GlassButtonSpec & { id: string; active?: boolean; onClick: () => void }>;
 }): { ref: (el: HTMLElement | null) => void; active: boolean } {
-  const { id, items } = options;
+  const { id, items, suspended = false } = options;
   const onGlass = useContext(OnGlass);
   const active = useGlassButtonsActive() && !onGlass;
   const key = `${id}#${useId()}`;
@@ -741,17 +802,18 @@ export function useGlassSegments(options: {
   itemsRef.current = items;
 
   const shape = JSON.stringify(
-    items.map((i) => [i.id, i.symbol, i.title, i.label, i.tint, i.active]),
+    items.map((i) => [i.id, i.symbol, i.title, i.label, i.tint, i.active, i.badge, i.badgeTone]),
   );
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const el = elRef.current;
     if (!active || !el) return;
-    registry.set(key, {
+    registerControl(key, {
       el,
       symbol: '',
       label: '',
       kind: 'selector',
+      interactionDisabled: suspended,
       onTap: () => {},
       segments: itemsRef.current.map((item) => ({
         ...item,
@@ -763,10 +825,10 @@ export function useGlassSegments(options: {
     });
     wake();
     return () => {
-      registry.delete(key);
+      unregisterControl(key);
       wake();
     };
-  }, [active, key, shape]);
+  }, [active, key, shape, suspended]);
 
   const ref = useCallback((el: HTMLElement | null) => { elRef.current = el; }, []);
   return { ref, active };
@@ -867,7 +929,7 @@ export function useGlassField(options: {
   }, [editable]);
 
   const didAutoFocus = useRef(false);
-  useEffect(() => {
+  useLayoutEffect(() => {
     const el = elRef.current;
     const field = state.current;
     if (!active || !el || !field) return;
@@ -876,7 +938,7 @@ export function useGlassField(options: {
       field.focused = true;
       field.focusGen += 1;
     }
-    registry.set(key, {
+    registerControl(key, {
       el,
       symbol: symbol ?? 'magnifyingglass',
       title: placeholder,
@@ -887,7 +949,7 @@ export function useGlassField(options: {
     });
     wake();
     return () => {
-      registry.delete(key);
+      unregisterControl(key);
       wake();
     };
   }, [active, key, placeholder, label, symbol]);

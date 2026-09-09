@@ -88,9 +88,9 @@ export const CuisinePickerSheet: React.FC<Props> = ({ isOpen, options, selected,
             </div>
 
             <div className="arb-cuisine-search-wrap">
-              <div className="arb-cuisine-search">
+              <div data-search-field className="arb-cuisine-search">
                 <Search size={15} />
-                <input
+                <input data-search-input="embedded"
                   ref={inputRef}
                   type="text"
                   value={query}

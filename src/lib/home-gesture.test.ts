@@ -7,7 +7,7 @@ describe('Home navigation gestures', () => {
   });
   it('keeps scrolling Home until a new pull starts at the top', () => {
     expect(homeSwipeDestination('home', 0, 90, 200)).toBeNull();
-    expect(homeSwipeDestination('home', 0, -90, 200)).toBeNull();
+    expect(homeSwipeDestination('home', 0, -90, 200, 500)).toBeNull();
   });
   it('does not intercept taps, short pulls or horizontal carousels', () => {
     expect(homeSwipeDestination('home', 0, 20, 0)).toBeNull();
@@ -19,4 +19,11 @@ describe('Home navigation gestures', () => {
     expect(homeSwipeDestination('feed', 0, 90, 200)).toBeNull();
     expect(homeSwipeDestination('feed', 0, -90, 0)).toBeNull();
   });
+});
+
+it('opens the feed only from the bottom of scrollable Home content', () => {
+  expect(homeSwipeDestination('home', 0, -90, 0, 300)).toBeNull();
+  expect(homeSwipeDestination('home', 0, -90, 300, 300)).toBe('feed');
+  expect(homeSwipeDestination('home', 0, 90, 300, 300)).toBeNull();
+  expect(homeSwipeDestination('home', 0, 90, 0, 300)).toBe('search');
 });

@@ -1,3 +1,4 @@
+import { HOME_REELS_EXPERIMENT } from './home-reels-experiment';
 /**
  * Typed JS bridge for the LiquidGlass native plugin (see
  * ios/App/App/MainViewController.swift).
@@ -12,9 +13,10 @@
  */
 
 import { registerPlugin, Capacitor, type PluginListenerHandle } from '@capacitor/core';
-import { useEffect, useRef, useState } from 'react';
-import { subscribeOverlay } from './overlay-registry';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { isOverlayOpen, subscribeOverlay } from './overlay-registry';
 import { isOffscreenScrollTarget } from './page-scroll';
+import type { NativeTabPreview } from './native-tab-preview';
 
 export interface GlassTabItem {
   /** Route the tab navigates to — echoed back verbatim in `tabSelected`. */
@@ -49,6 +51,7 @@ interface LiquidGlassPlugin {
     items: GlassTabItem[];
     variant?: 'capsule' | 'bar';
     activePath?: string;
+    visible?: boolean;
   }): Promise<void>;
   setActiveTab(options: { path: string }): Promise<void>;
   /** Shrink the bar out of the way (scrolling down) or restore it: the
@@ -72,7 +75,7 @@ interface LiquidGlassPlugin {
   /** Declarative and idempotent: the full set of on-screen chrome buttons,
    *  every time any of it changes. The native side diffs by id. See
    *  lib/glass-buttons.tsx for why the buttons move native at all. */
-  setGlassButtons(options: { buttons: Array<Record<string, unknown>> }): Promise<void>;
+  setGlassButtons(options: { buttons: Array<Record<string, unknown>>; tabBarPreview?: NativeTabPreview | null }): Promise<void>;
   clearGlassButtons(): Promise<void>;
   addListener(
     event: 'tabSelected',
@@ -138,8 +141,8 @@ export const LiquidGlass = registerPlugin<LiquidGlassPlugin>('LiquidGlass', {
 export const GLASS_TAB_ITEMS: GlassTabItem[] = [
   { path: '/', symbol: 'app.home', label: 'Home' },
   { path: '/search', symbol: 'app.search', label: 'Search' },
-  { path: '/reels', symbol: 'app.reels', label: 'Reels' },
   { path: '/pantry', symbol: 'app.lists', label: 'Lists' },
+  HOME_REELS_EXPERIMENT ? { path: '/messages', symbol: 'bubble.left.and.bubble.right', label: 'Friends' } : { path: '/reels', symbol: 'app.reels', label: 'Reels' },
   { path: '/profile', symbol: 'person', label: 'Profile' },
 ];
 
@@ -336,8 +339,8 @@ function useGlassScrollMinimize(options: {
 /**
  * Owns the native bar's whole lifecycle for the app shell.
  *
- * `enabled` is the same predicate that decides whether the web nav would
- * render at all (route allows it, phone layout). Returns whether the native
+ * `enabled` describes the shell lifetime (phone layout), never the route.
+ * Routes that cover the bar use `hidden` without reinstalling native views. Returns whether the native
  * bar has taken over, so `BottomNav` can stand down.
  *
  * Visibility folds three signals together — the caller's `hidden` (keyboard
@@ -368,7 +371,7 @@ export function useNativeGlassNav(options: {
 }): { active: boolean } {
   const { enabled, hidden, activePath, pathname, darkPage = false, avatarInitial, avatarUrl, onSelect } = options;
   const [supported, setSupported] = useState(false);
-  const [overlayOpen, setOverlayOpen] = useState(false);
+  const [overlayOpen, setOverlayOpen] = useState(isOverlayOpen);
   // Latest handler without re-subscribing the native listener on every
   // render (navigate() changes identity across route changes).
   const onSelectRef = useRef(onSelect);
@@ -391,7 +394,7 @@ export function useNativeGlassNav(options: {
     return () => { cancelled = true; void handle?.remove(); };
   }, []);
 
-  useEffect(() => subscribeOverlay(setOverlayOpen), []);
+  useLayoutEffect(() => subscribeOverlay(setOverlayOpen), []);
 
   const active = supported && enabled;
   const suspended = hidden || overlayOpen;
@@ -422,7 +425,7 @@ export function useNativeGlassNav(options: {
   // `configureTabBar` on an installed bar rebuilds the cells without a
   // teardown, so the Profile tab upgrades from the person glyph to the
   // initial-circle without a blink.
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!active) return;
     const items = avatarInitial || avatarUrl
       ? GLASS_TAB_ITEMS.map((item) => (item.path === '/profile' ? { ...item, avatarInitial, avatarUrl } : item))
@@ -433,6 +436,8 @@ export function useNativeGlassNav(options: {
       items,
       variant: 'capsule',
       activePath,
+      // Apply initial visibility in the same native transaction as installation.
+      visible: !suspended,
     }).catch(() => { /* install failed — the web nav is still mounted below */ });
     // `activePath` is the *initial* selection only; the effect below moves it
     // afterwards without reinstalling the bar.
@@ -444,19 +449,19 @@ export function useNativeGlassNav(options: {
   // page — a desync whose origin isn't provable after the fact. Re-asserting
   // on *every* navigation (the native side applies same-path re-asserts too)
   // turns any such desync from permanent into gone-at-the-next-route-change.
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!active) return;
     void LiquidGlass.setActiveTab({ path: activePath }).catch(() => {});
   }, [active, activePath, pathname]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!active) return;
     void LiquidGlass.setBarStyle({ dark: darkPage }).catch(() => {});
   }, [active, darkPage]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!active) return;
-    void LiquidGlass.setVisible({ visible: !suspended, animated: true }).catch(() => {});
+    void LiquidGlass.setVisible({ visible: !suspended, animated: false }).catch(() => {});
   }, [active, suspended]);
 
   useGlassScrollMinimize({ active, pathname, suspended });

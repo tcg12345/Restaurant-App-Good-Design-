@@ -7,6 +7,11 @@
 .rps-canvas { position: absolute; inset: 0 0 auto; overflow: hidden; background: #171c19; color: #fff; }
 .is-presented .rps-canvas { position: fixed; top: 0; left: var(--rps-left); width: var(--rps-width); }
 .restaurant-photo-stage.is-presented { z-index: 60; }
+/* Keep the large photo surface composited; the reveal animates transforms and
+   opacity without resizing the gallery or rebuilding it on the first pull. */
+.rps-canvas { transform: translateZ(0); }
+.is-presented .rps-sheet { will-change: transform; }
+.is-presented .rps-gallery, .is-presented .rps-cover { will-change: opacity; }
 .rps-cover, .rps-cover-track, .rps-cover img, .rps-cover .rps-photo-failed { position: absolute; inset: 0; width: 100%; height: 100%; }
 .rps-cover-track { touch-action: pan-y; }
 .rps-cover img { object-fit: cover; }

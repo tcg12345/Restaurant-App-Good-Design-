@@ -40,6 +40,8 @@ export interface GuideEntry {
   name: string;
   subtitle: string;   // cuisine · price · neighborhood  OR  cuisine · totalTime · difficulty
   image: string;      // cover/photo for this entry
+  /** Full photo set; older entries fall back to their cover. Stored in entries JSONB. */
+  photos?: string[];
   /** Owner-curated. Optional but encouraged. */
   score?: number;
   /** Free-form description / personal notes — auto-seeded from the

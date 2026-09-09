@@ -53,3 +53,34 @@ These are browser simulations, not physical-iPhone gesture measurements.
 Authentication/onboarding gates retain their own step controls; desktop
 sidebar navigation and intentional tab switches do not acquire phone swipe
 transitions. No production services or database changes are required.
+
+## Back completion edge polish
+
+The outgoing snapshot previously had a permanent blurred box shadow. Parking
+it exactly one viewport offscreen left that blur inside the final 32–64 pixels
+of the destination until asynchronous route/glass handoff removed the snapshot.
+That produced the right-edge dark-to-light pop at the end of Back.
+
+The shadow now has its own viewport-clipped layer and animates only transform
+and opacity, following the same distance/easing as the page. It fades to zero
+over the final 64 pixels. Completion pins both layers before cancelling their
+Web Animations, hides the departing preview immediately at the edge, and hides
+it before resetting transforms during cleanup. This applies to rightward Back,
+leftward Create dismissal, downward sheet dismissal, and cancellation/re-grab.
+
+Thirty navigation/glass/handoff checks passed. At 393×852, the isolated browser
+harness sampled 16 parked end frames for both tapped Back and simulated swipe
+Back with no residual shadow. The production build and iOS simulator build
+passed. Browser frame sampling does not replace physical-iPhone verification.
+Use the harness's “Test Back button” or “Simulate return swipe” controls to
+repeat the end-frame check without changing account data.
+
+## Persistent phone tab bar
+
+The phone shell mounts `BottomNav` once across routes. Route visibility is passed as a prop; there is no `AnimatePresence` exit delay or spring entrance. The browser bar stays in the DOM, becoming hidden and inert in the route commit. Only visible bars carry the snapshot marker.
+
+On iOS, the UIKit bar stays installed while covered. Layout effects send visibility without animation, and installation includes initial visibility in the same native transaction. Avatar updates retain the hidden state. Immediate native visibility updates cancel any pending visibility animation. Pro routes use the shell route predicate instead of a mount-effect hide flag.
+
+Regression coverage in `BottomNav.test.tsx` checks repeated hide/return cycles without native reinstall, hidden deep-link startup/avatar updates, keyboard/overlay precedence, and retained/inert browser markup.
+
+The native bar also participates in the saved page reveal. Snapshots carry invisible tab geometry and selection; the glass sampler sends their translation and visible viewport region in the same bridge batch as header controls. UIKit clips and moves the existing bar beneath the outgoing page, then restores normal interaction after handoff without rebuilding its items or material. Cancellation restores the covered route's visibility. Plain Reels/map previews retain tab geometry too. Tests cover partial swipes, all return directions, cancellation, native snapshot capture, and the bridge handoff.

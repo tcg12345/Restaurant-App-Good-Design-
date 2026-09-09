@@ -1,0 +1,30 @@
+/* Edge-to-edge calendar layout. */
+.meal-calendar {
+  --calendar-gutter: clamp(20px, 4vw, 48px);
+  max-width: none;
+  padding-inline: var(--calendar-gutter);
+}
+.meal-calendar .meal-workspace { grid-template-columns: minmax(0, 1fr); gap: 24px; }
+.meal-calendar .meal-board {
+  width: calc(100% + 2 * var(--calendar-gutter));
+  margin-inline: calc(-1 * var(--calendar-gutter));
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+.meal-calendar .meal-board-toolbar { padding: 8px var(--calendar-gutter) 14px; }
+.meal-calendar .meal-calendar-controls { padding-inline: var(--calendar-gutter); }
+.meal-calendar .meal-date-surface { padding-inline: max(6px, env(safe-area-inset-left)) max(6px, env(safe-area-inset-right)); }
+.meal-calendar .meal-month-picker { padding-inline: var(--calendar-gutter); background: transparent; }
+.meal-calendar .meal-collapse-control { border: 0; margin-top: 6px; min-height: 38px; }
+.meal-calendar .meal-agenda { width: 100%; max-width: 760px; margin-inline: auto; }
+@media (max-width: 850px) {
+  .meal-calendar { --calendar-gutter: 20px; }
+  .meal-calendar .meal-workspace { gap: 20px; }
+}
+@media (max-width: 380px) {
+  .meal-calendar { --calendar-gutter: 14px; }
+}

@@ -101,7 +101,7 @@ export const ProPage: React.FC = () => {
   const navigate = useNavigate();
   const goBack = usePageBack('/profile');
   const location = useLocation();
-  const { phoneMode, setHideBottomNav } = useSettings();
+  const { phoneMode } = useSettings();
   const { user } = useAuth();
   const { requireSignIn } = useSignInModal();
   const { openPaywall } = usePaywall();
@@ -110,13 +110,6 @@ export const ProPage: React.FC = () => {
   const p = usePurchase(welcome ? 'welcome' : 'pro-page', { requireSignIn: () => requireSignIn('Sign in to subscribe') });
   const [welcomeState, setWelcomeState] = useState<'waiting' | 'done' | 'timeout'>('waiting');
   useNightStatusBar();
-
-  // A full page: the tab bar steps aside while it's up.
-  useEffect(() => {
-    if (!phoneMode) return;
-    setHideBottomNav(true);
-    return () => setHideBottomNav(false);
-  }, [phoneMode, setHideBottomNav]);
 
   useEffect(() => {
     logBillingEvent('paywall_shown', user?.id ?? null, { source: welcome ? 'welcome' : 'pro-page' });

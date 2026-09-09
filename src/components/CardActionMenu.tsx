@@ -84,7 +84,8 @@ export const CardActionMenu: React.FC<{
   rect: DOMRect;
   actions: CardAction[];
   onClose: () => void;
-}> = ({ rect, actions, onClose }) => {
+  label?: string;
+}> = ({ rect, actions, onClose, label = 'Card actions' }) => {
   const reduced = useReducedMotion();
   const ref = useSocialDialog(true, onClose);
   useLayoutEffect(() => { liftOverlayToTopLayer(ref.current); const releaseOverlay = pushOverlay(), releaseLock = acquireHardScrollLock(); return () => { releaseOverlay(); releaseLock(); }; }, []);
@@ -96,7 +97,7 @@ export const CardActionMenu: React.FC<{
   const top = Math.max(16, Math.min(below ? rect.bottom + 8 : rect.top - menuH - 8, availableBottom - menuH - 24));
   return createPortal(
     <div ref={ref} className="card-menu-layer" onClick={onClose} onContextMenu={e => { e.preventDefault(); onClose(); }}>
-      <motion.div role="menu" aria-label="Card actions" className="card-action-menu"
+      <motion.div role="menu" aria-label={label} className="card-action-menu"
         initial={{ opacity: 0, scale: reduced ? 1 : .94, y: reduced ? 0 : below ? -5 : 5 }} animate={{ opacity: 1, scale: 1, y: 0 }}
         transition={{ type: 'spring', stiffness: 480, damping: 35 }}
         style={{ position: 'fixed', left, top, width: MENU_W, transformOrigin: below ? 'top center' : 'bottom center' }}

@@ -52,7 +52,7 @@ export function FeedbackInbox({ onBack }: { onBack: () => void }) {
   return <main className="feedback-inbox" data-analytics-private>
     <header className="feedback-inbox-header"><button onClick={onBack} aria-label="Back to settings"><ArrowLeft size={20} /></button><div><p className="feedback-eyebrow">Listen. Improve. Repeat.</p><h1>Feedback inbox</h1><p>Ideas and observations from your community.</p></div><button className="feedback-refresh" onClick={() => setRevision(v => v + 1)} disabled={loading || saving} aria-label="Refresh feedback"><RefreshCw size={18} /></button></header>
     <div className="feedback-filters">
-      <label>Search messages<input type="search" maxLength={200} placeholder="Find a phrase or recurring request…" value={search} onChange={e => change(setSearch, e.target.value)} /></label>
+      <label>Search messages<input data-search-input="standalone" type="search" maxLength={200} placeholder="Find a phrase or recurring request…" value={search} onChange={e => change(setSearch, e.target.value)} /></label>
       <label>Status<select value={status} onChange={e => change(setStatus, e.target.value)}><option value="">All statuses</option>{Object.entries(FEEDBACK_STATUSES).map(([id, label]) => <option key={id} value={id}>{label}</option>)}</select></label>
       <label>Type<select value={category} onChange={e => change(setCategory, e.target.value)}><option value="">All types</option>{Object.entries(FEEDBACK_TYPES).map(([id, label]) => <option key={id} value={id}>{label}</option>)}</select></label>
       <label>Feature<select value={feature} onChange={e => change(setFeature, e.target.value)}><option value="">All features</option>{FEEDBACK_FEATURES.map(f => <option key={f}>{f}</option>)}</select></label>

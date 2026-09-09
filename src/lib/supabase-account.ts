@@ -1,3 +1,4 @@
+import { disconnectNotifications } from './native-notifications';
 /**
  * Account lifecycle: in-app account deletion, and attaching a phone
  * number to an existing account.
@@ -87,6 +88,7 @@ export async function deleteAccount(): Promise<{ ok: boolean; error?: string }> 
       } catch { /* non-JSON error body — keep the generic message */ }
       return { ok: false, error: message };
     }
+    await disconnectNotifications().catch(() => {});
     await supabase.auth.signOut({ scope: 'local' }).catch(() => {});
     return { ok: true };
   } catch {

@@ -459,7 +459,7 @@ export const FollowingFeed: React.FC<{
             size={18}
             className="absolute left-4 top-1/2 -translate-y-1/2 text-on-surface/40 pointer-events-none"
           />
-          <input
+          <input data-search-input="standalone"
             type="text"
             value={internalQuery}
             onChange={(e) => setInternalQuery(e.target.value)}

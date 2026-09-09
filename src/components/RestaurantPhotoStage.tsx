@@ -9,6 +9,7 @@ import { homeHaptic } from '../lib/haptics';
 import { photoPullDestination, photoPullIntent } from '../lib/restaurant-photo-gesture';
 import type { GalleryRecreatePhoto } from './PhotoGallery';
 import type { CommunityPhoto } from '../lib/supabase-community';
+import { PhotoLikeButton } from './PhotoLikeButton';
 import './RestaurantPhotoStage.css';
 
 function Photo({ url, alt, className = '', lazy = false }: { url: string; alt: string; className?: string; lazy?: boolean }) {
@@ -53,13 +54,13 @@ export const RestaurantPhotoStage: React.FC<Props> = ({ name, photos, communityP
   const presentedRef = useRef(presented); presentedRef.current = presented;
   const [geometry, setGeometry] = useState({ height: 852, hero: 307, travel: 485, left: 0, width: 393 });
   const animation = useRef<ReturnType<typeof animate> | null>(null);
+  const releaseVelocity = useRef(0);
   const dragging = useRef(false);
   const suppressClickUntil = useRef(0);
   const current = Math.min(Math.max(0, index), photos.length - 1);
   const photo = communityPhotos.find(p => p.url === photos[current]);
   const caption = photo?.caption?.trim();
-  const clipPath = useTransform(progress, value => `inset(0px 0px ${Math.max(0, (geometry.height - geometry.hero) * (1 - value))}px)`);
-  const y = useTransform(progress, value => geometry.travel * value);
+  const y = useTransform(progress, value => geometry.travel * Math.max(0, Math.min(1, value)));
   const imageOpacity = useTransform(progress, [0, .75], [1, 0]);
   const galleryOpacity = useTransform(progress, [.08, .65], [0, 1]);
   const coverOpacity = useTransform(progress, [0, .18], [1, 0]);
@@ -82,10 +83,13 @@ export const RestaurantPhotoStage: React.FC<Props> = ({ name, photos, communityP
     if (!presentedRef.current) opener.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     setPresented(true);
   }, [measure]);
-  const settle = useCallback((expanded: boolean) => {
+  const settle = useCallback((expanded: boolean, velocity = 0) => {
     animation.current?.stop();
     animation.current = animate(progress, expanded ? 1 : 0, {
-      type: 'tween', duration: reduced ? 0 : .28, ease: [.22, 1, .36, 1],
+      ...(reduced ? { duration: 0 } : {
+        type: 'spring' as const, stiffness: 280, damping: 34, mass: 1,
+        velocity: Math.max(-4, Math.min(4, velocity)), restDelta: .001, restSpeed: .01,
+      }),
       onComplete: () => {
         if (!expanded) { setPresented(false); setGrid(false); setQuery(''); }
       },
@@ -93,7 +97,7 @@ export const RestaurantPhotoStage: React.FC<Props> = ({ name, photos, communityP
   }, [progress, reduced]);
   useEffect(() => {
     if (open) prepare();
-    if (!dragging.current) settle(open);
+    if (!dragging.current) { settle(open, releaseVelocity.current); releaseVelocity.current = 0; }
   }, [open, settle]); // prepare only snapshots geometry at the transition boundary.
   useLayoutEffect(() => {
     measure();
@@ -164,9 +168,12 @@ export const RestaurantPhotoStage: React.FC<Props> = ({ name, photos, communityP
       if (dragging.current && gesture) {
         dragging.current = false;
         suppressClickUntil.current = performance.now() + 500;
-        const next = cancelled ? latest.current.open : photoPullDestination(latest.current.open, progress.get(), time - gesture.time > 100 ? 0 : gesture.velocity);
-        if (next !== latest.current.open) { latest.current.onOpenChange(next); homeHaptic(); }
-        else settle(next);
+        const velocity = cancelled || time - gesture.time > 100 ? 0 : gesture.velocity;
+        const next = cancelled ? latest.current.open : photoPullDestination(latest.current.open, progress.get(), velocity);
+        // Motion uses progress/second; touch samples use pixels/millisecond.
+        const normalizedVelocity = velocity * 1000 / geometry.travel;
+        if (next !== latest.current.open) { releaseVelocity.current = normalizedVelocity; latest.current.onOpenChange(next); homeHaptic(); }
+        else settle(next, normalizedVelocity);
       }
       gesture = null;
     };
@@ -210,7 +217,9 @@ export const RestaurantPhotoStage: React.FC<Props> = ({ name, photos, communityP
     onClickCapture={event => { if (performance.now() < suppressClickUntil.current) { event.preventDefault(); event.stopPropagation(); suppressClickUntil.current = 0; } }}
     inert={interactionBlocked} role={open ? 'dialog' : undefined} aria-modal={(open && !interactionBlocked) || undefined} aria-label={open ? `Photos of ${name}` : undefined}
     style={{ '--rps-hero': `${geometry.hero}px`, '--rps-left': `${geometry.left}px`, '--rps-width': `${geometry.width}px` } as React.CSSProperties}>
-    <motion.div className="rps-canvas" style={{ height: geometry.height, clipPath }}>
+    {/* The opaque details sheet reveals the canvas as it moves. Only the resting
+        header needs clipping; changing a full-screen clip on every frame repaints on iOS. */}
+    <div className="rps-canvas" style={{ height: geometry.height, clipPath: presented ? undefined : `inset(0 0 ${Math.max(0, geometry.height - geometry.hero)}px)` }}>
       <motion.div className="rps-cover" aria-hidden={presented} style={{ opacity: imageOpacity, height: geometry.hero }}>
         <motion.div className="rps-cover-track" data-horizontal-gesture="" dragListener={false} dragControls={coverDrag} onPointerDown={event => { if (!open && event.clientX > 28) coverDrag.start(event); }} onTap={() => { if (!latest.current.open && !dragging.current && performance.now() >= suppressClickUntil.current) onOpenChange(true); }} drag={!open && photos.length > 1 ? 'x' : false} dragConstraints={{ left: 0, right: 0 }} dragElastic={.18}
           onDragEnd={(_, info) => { if (Math.abs(info.offset.x) > 45) step(info.offset.x < 0 ? 1 : -1); }}>
@@ -223,14 +232,14 @@ export const RestaurantPhotoStage: React.FC<Props> = ({ name, photos, communityP
         <span className="rps-cover-position">{current + 1}<span> / {photos.length}</span></span>
       </motion.div>
       <motion.div className="rps-gallery" style={{ opacity: galleryOpacity }} inert={!open} aria-hidden={!open}>
-        {presented && <>
+        <>
         <header className="rps-gallery-header">
           <div><h2>Photos</h2><span>{name}</span></div>
           <button aria-label={showGrid ? 'Show selected photo' : 'Show all photos'} aria-pressed={showGrid} onClick={() => { setQuery(''); setGrid(!showGrid); }}><LayoutGrid size={19} /></button>
           <button ref={closeButton} aria-label="Return to restaurant details" onClick={() => onOpenChange(false)}><X size={20} /></button>
         </header>
         <div className="rps-search-row">
-          <label className="rps-search"><Search size={18} aria-hidden="true" /><input type="search" aria-label="Search restaurant photos" placeholder="Search captions & photos" value={query} onChange={event => setQuery(event.target.value)} autoComplete="off" spellCheck={false} />{query && <button aria-label="Clear photo search" onClick={() => setQuery('')}><X size={16} /></button>}</label>
+          <label data-search-field className="rps-search"><Search size={18} aria-hidden="true" /><input data-search-input="embedded" type="search" aria-label="Search restaurant photos" placeholder="Search captions & photos" value={query} onChange={event => setQuery(event.target.value)} autoComplete="off" spellCheck={false} />{query && <button aria-label="Clear photo search" onClick={() => setQuery('')}><X size={16} /></button>}</label>
         </div>
         {showGrid ? <div className="rps-grid" data-horizontal-gesture="">
           <div className="rps-grid-title"><span aria-live="polite">{search ? `${results.length} ${results.length === 1 ? 'result' : 'results'}` : `${photos.length} photos`}</span><span>{search ? 'Matching captions & sources' : 'Explore every angle'}</span></div>
@@ -239,7 +248,7 @@ export const RestaurantPhotoStage: React.FC<Props> = ({ name, photos, communityP
         </div>
           : <>
             <div className="rps-photo-display">
-              <motion.div key={photos[current]} className="rps-photo-full" initial={reduced ? false : { opacity: .6 }} animate={{ opacity: 1 }} transition={{ duration: .16 }}
+              <motion.div key={photos[current]} className="rps-photo-full" initial={false}
                 drag={photos.length > 1 ? 'x' : false} dragConstraints={{ left: 0, right: 0 }} dragElastic={.18}
                 onDragEnd={(_, info) => { if (Math.abs(info.offset.x) > 45) step(info.offset.x < 0 ? 1 : -1); }}>
                 <Photo url={photos[current]} alt={caption || `${name}, photo ${current + 1}`} />
@@ -247,13 +256,14 @@ export const RestaurantPhotoStage: React.FC<Props> = ({ name, photos, communityP
               {photos.length > 1 && <div className="rps-arrows"><button aria-label="Previous photo" onClick={() => step(-1)}><ChevronLeft size={19} /></button><button aria-label="Next photo" onClick={() => step(1)}><ChevronRight size={19} /></button></div>}
             </div>
             <div className="rps-photo-meta"><div><strong>{caption || name}</strong><span aria-live="polite">{current + 1} of {photos.length} · {photo ? 'GoodEats community' : 'Restaurant photos'}</span></div>
+              {photo?.id && <PhotoLikeButton photoId={photo.id} onSignInNeeded={() => onOpenChange(false)} />}
               {photo && onRecreate && <button aria-label="Recreate this dish" onClick={() => { opener.current = null; onRecreate({ url: photo.url, rawUrl: photo.rawUrl || photo.url, caption: photo.caption || '', ownerUserId: photo.user_id }); }}><Sparkles size={17} /></button>}
             </div>
             <div className="rps-filmstrip" data-horizontal-gesture="" aria-label="Choose a photo">{photos.map((url, i) => <button key={`${url}-${i}`} aria-label={`Photo ${i + 1}`} aria-current={i === current} onClick={() => onIndexChange(i)}><Photo lazy url={url} alt="" /></button>)}</div>
           </>}
-        </>}
+        </>
       </motion.div>
-    </motion.div>
+    </div>
     <div className="rps-hero-spacer" aria-hidden />
     <motion.div ref={sheet} className="rps-sheet" style={{ y }}>
       <button ref={handle} className="rps-handle" aria-label="Pull down to explore restaurant photos" aria-expanded={open} onClick={() => onOpenChange(!open)} inert={open}><span /></button>

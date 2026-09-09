@@ -1081,12 +1081,12 @@ export const AddPostModal: React.FC = () => {
           </span>
         )}
       </div>
-      <div className={cn(
+      <div data-search-field className={cn(
         'flex items-center gap-2 rounded-full bg-on-surface/[0.04] border px-4 h-11 transition-colors',
         pickedLocation ? 'border-emerald-200 bg-emerald-50/40' : 'border-on-surface/[0.06]',
       )}>
         <MapPin size={15} className={cn('flex-shrink-0', pickedLocation ? 'text-emerald-600' : 'text-on-surface/45')} />
-        <input
+        <input data-search-input="embedded"
           value={locationLabel}
           onChange={(e) => {
             setLocationLabel(e.target.value);

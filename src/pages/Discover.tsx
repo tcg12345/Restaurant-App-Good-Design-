@@ -1,3 +1,5 @@
+import { HOME_REELS_EXPERIMENT } from '../lib/home-reels-experiment';
+import { HomeReels } from '../components/HomeReels';
 import { recipePreferenceScore } from '../lib/taste-preferences';
 import { useTastePreferences } from '../hooks/useTastePreferences';
 import { usePageBack } from '../lib/usePageBack';
@@ -4322,7 +4324,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, sear
         >
           <div className="relative">
             <Search size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-on-surface/40 pointer-events-none" />
-            <input
+            <input data-search-input="standalone"
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
@@ -4840,9 +4842,9 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, sear
               transition={{ type: 'spring', damping: 25, stiffness: 300 }}
               className="bg-white rounded-2xl shadow-xl border border-on-surface/10 overflow-hidden"
             >
-              <div className="flex items-center gap-2 px-3 py-2">
+              <div data-search-field className="flex items-center gap-2 px-3 py-2">
                 <MapPin size={16} className="text-primary flex-shrink-0" />
-                <input
+                <input data-search-input="embedded"
                   ref={locationInputRef}
                   type="text"
                   value={locationQuery}
@@ -5552,7 +5554,10 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, sear
                 <section className="mt-7 grid grid-cols-[minmax(0,1fr)_320px] gap-8 xl:grid-cols-[minmax(0,1fr)_360px] xl:gap-12 items-start">
                   {/* Left — friend activity feed */}
                   <div className="min-w-0">
+                    {HOME_REELS_EXPERIMENT && mode === 'home' && <HomeReels />}
                     <SocialFeed
+                      compactControls={HOME_REELS_EXPERIMENT && mode === 'home'}
+                      includeReels={HOME_REELS_EXPERIMENT && mode === 'home'}
                       feedOnly
                       centerLat={homeLocation?.lat ?? null}
                       centerLng={homeLocation?.lng ?? null}
@@ -5665,6 +5670,8 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, sear
               {!usingDesktopHeader && (
                 <div>
                   <SocialFeed
+                    compactControls={HOME_REELS_EXPERIMENT && mode === 'home'}
+                      includeReels={HOME_REELS_EXPERIMENT && mode === 'home'}
                     filter={mode === 'home' && phoneMode ? feedFilter : undefined}
                     onFilterChange={setFeedFilter}
                     centerLat={mode === 'home' ? homeLocation?.lat ?? null : null}

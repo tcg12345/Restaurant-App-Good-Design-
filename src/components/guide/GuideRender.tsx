@@ -689,12 +689,7 @@ const EntryCard: React.FC<EntryCardProps> = ({ entry, index, total, guide, theme
                 <span className="gle-meta-slot">{cuisine}</span>
               </div>
             )}
-            {V.entryHours && isRestaurant && entry.hours && (
-              <div className="gle-entry-hours">
-                <Clock size={12} className="gle-hours-ico" />
-                <span>{entry.hours}</span>
-              </div>
-            )}
+
           </div>
           {V.entryActions && actions && (
             <div className="gle-entry-actions">

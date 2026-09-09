@@ -97,9 +97,9 @@ const AddPlacesSheet: React.FC<{
   return (
     <SheetShell open={open} onClose={onClose} title="Add places" subtitle={`From what you've rated and saved. ${entries.length} in ${list.name}.`}>
       {candidates.length > 8 && (
-        <label className="mb-3 flex items-center gap-2 rounded-full bg-on-surface/[0.05] px-3.5 h-10">
+        <label data-search-field className="mb-3 flex items-center gap-2 rounded-full bg-on-surface/[0.05] px-3.5 h-10">
           <Search size={14} className="flex-none text-on-surface/40" />
-          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search your places" className="flex-1 min-w-0 bg-transparent outline-none text-on-surface placeholder:text-on-surface/35" style={{ fontSize: '14px' }} />
+          <input data-search-input="embedded" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search your places" className="flex-1 min-w-0 bg-transparent outline-none text-on-surface placeholder:text-on-surface/35" style={{ fontSize: '14px' }} />
         </label>
       )}
       {candidates.length === 0 ? (

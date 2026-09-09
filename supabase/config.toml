@@ -72,3 +72,7 @@ verify_jwt = false
 # JWT validated with requireUser; membership checked against the room snapshot.
 [functions.group-place-summary]
 verify_jwt = false
+
+# A private scheduler secret is checked in the handler; no user JWT can send pushes.
+[functions.push-dispatch]
+verify_jwt = false

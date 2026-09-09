@@ -534,7 +534,8 @@ interface ListsContextValue {
   addRestaurantModalOpen: boolean;
   addRestaurantModalMeta: RestaurantMeta | null;
   addRestaurantModalInitialPage: string | null;
-  openAddRestaurantModal: (restaurant: RestaurantMeta, initialPage?: string) => void;
+  addRestaurantModalVisitDate?: string | null;
+  openAddRestaurantModal: (restaurant: RestaurantMeta, initialPage?: string, visitDate?: string) => void;
   closeAddRestaurantModal: () => void;
 
   // Wishlist modal (heart button)
@@ -2484,6 +2485,7 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   const [addRestaurantModalOpen, setAddRestaurantModalOpen] = useState(false);
   const [addRestaurantModalMeta, setAddRestaurantModalMeta] = useState<RestaurantMeta | null>(null);
   const [addRestaurantModalInitialPage, setAddRestaurantModalInitialPage] = useState<string | null>(null);
+  const [addRestaurantModalVisitDate, setAddRestaurantModalVisitDate] = useState<string | null>(null);
   const [homeMealModalOpen, setHomeMealModalOpen] = useState(false);
   const [homeMealModalData, setHomeMealModalData] = useState<HomeMeal | null>(null);
   const [homeMealModalBackToDraft, setHomeMealModalBackToDraft] = useState<(() => void) | null>(null);
@@ -3499,14 +3501,15 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   }, [cacheRestaurantMeta, requireSignIn]);
   const closeAddToListModal = useCallback(() => { setAddToListModalOpen(false); setAddToListRestaurantId(null); }, []);
 
-  const openAddRestaurantModal = useCallback((restaurant: RestaurantMeta, initialPage?: string) => {
+  const openAddRestaurantModal = useCallback((restaurant: RestaurantMeta, initialPage?: string, visitDate?: string) => {
     if (!userIdRef.current) { requireSignIn('Sign in to rate restaurants'); return; }
     cacheRestaurantMeta(restaurant);
     setAddRestaurantModalMeta(restaurant);
     setAddRestaurantModalInitialPage(initialPage || null);
+    setAddRestaurantModalVisitDate(visitDate || null);
     setAddRestaurantModalOpen(true);
   }, [cacheRestaurantMeta, requireSignIn]);
-  const closeAddRestaurantModal = useCallback(() => { setAddRestaurantModalOpen(false); setAddRestaurantModalMeta(null); setAddRestaurantModalInitialPage(null); }, []);
+  const closeAddRestaurantModal = useCallback(() => { setAddRestaurantModalOpen(false); setAddRestaurantModalMeta(null); setAddRestaurantModalInitialPage(null); setAddRestaurantModalVisitDate(null); }, []);
   const openHomeMealModal = useCallback((meal?: HomeMeal, opts?: { onBackToDraft?: () => void; targetListId?: string; initialMethod?: HomeMealMethod; initialAiView?: 'recipe' | 'ideas'; seed?: HomeMeal; seedKind?: 'ai' | 'import' | 'combine'; dishPhoto?: DishPhotoRef }) => {
     if (!userIdRef.current) { requireSignIn('Sign in to log a home meal'); return; }
     setHomeMealModalData(meal || null);
@@ -3545,7 +3548,7 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       restaurantMeta, cacheRestaurantMeta, getRestaurantInfo, stashMetaKey,
       wishlist, addToWishlist, removeFromWishlist, toggleWishlist, isWishlisted, getWishlistItem,
       addToListModalOpen, addToListRestaurantId, openAddToListModal, closeAddToListModal,
-      addRestaurantModalOpen, addRestaurantModalMeta, addRestaurantModalInitialPage, openAddRestaurantModal, closeAddRestaurantModal,
+      addRestaurantModalOpen, addRestaurantModalMeta, addRestaurantModalInitialPage, addRestaurantModalVisitDate, openAddRestaurantModal, closeAddRestaurantModal,
       addRecipe, updateRecipe, removeRecipe, getRecipes,
       addRecipeToList, addRecipeToCookedList, removeRecipeFromCookedList, removeRecipeFromList, getListsForRecipe,
       addRecipeToCookbook, removeRecipeFromCookbook,

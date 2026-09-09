@@ -189,7 +189,7 @@ export const CityAutocomplete: React.FC<{
           rightSlot={locateStatus === 'locating' ? <Loader2 size={15} className="animate-spin" style={{ color: OB.LABEL_GREY }} /> : undefined}
         />
       ) : (
-        <input
+        <input data-search-input="standalone"
           type="text" value={value} placeholder="e.g. New York, NY"
           onChange={(e) => onChange(e.target.value)}
           onFocus={reopen}

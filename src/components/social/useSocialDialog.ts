@@ -8,7 +8,7 @@ export function useSocialDialog(open: boolean, onClose: () => void) {
     if (!open) return;
     const previous = document.activeElement as HTMLElement | null;
     const targets = () => Array.from<HTMLElement>(ref.current?.querySelectorAll<HTMLElement>('button:not(:disabled), a[href], input:not(:disabled), textarea:not(:disabled), [tabindex="0"]') ?? []).filter(el => el.getClientRects().length > 0);
-    const frame = requestAnimationFrame(() => targets()[0]?.focus({ preventScroll: true }));
+    const frame = requestAnimationFrame(() => (ref.current?.querySelector<HTMLElement>('[data-dialog-initial-focus]') ?? targets()[0])?.focus({ preventScroll: true }));
     const key = (event: KeyboardEvent) => {
       if (event.key === 'Escape') { event.preventDefault(); close.current(); }
       if (event.key !== 'Tab') return;

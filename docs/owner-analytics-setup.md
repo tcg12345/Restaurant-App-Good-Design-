@@ -206,6 +206,22 @@ Pass `data_source` explicitly on selection actions when the same restaurant may 
 
 The source-report migration has already been applied to the connected Supabase project. Deploy the frontend to display and collect the new fields. See [the verification record](analytics-verification-2026-09-07.md) for tested coverage and the final production check.
 
+## iOS notification permission tracking
+
+Updated app builds collect notification choices through the existing analytics pipeline, subject to analytics opt-out and admin exclusion. Events use `feature: notifications` and never include push tokens or installation IDs.
+
+| Event | Meaning |
+| --- | --- |
+| `notification_permission_result` | Outcome after requesting permission: `allowed`, `denied`, `provisional`, `not_asked`, or `unavailable`. |
+| `notification_permission_status` | First verified status per session/account, then changes detected on app resume. `action` distinguishes `initial` and `changed`; `reason` contains the previous outcome. |
+| `notification_prompt_skipped` | Onboarding “Not now”; this is not a denial. |
+| `notification_preference_changed` | Successful change to the in-app notification toggle: `enabled` or `disabled`, separate from iOS authorization. |
+| `notification_permission_requested` / `notification_permission_error` | Request attempts and failures; errors are not counted as denials. |
+
+Read `properties.outcome` for the choice and `properties.source` for onboarding, settings, app open, or app resume. To measure system prompt acceptance, filter result events to `stage: system_prompt`; `existing_permission` means iOS had already recorded a choice. Avoid combining result and status events into one decision count. Initial status is an observation, not evidence of when the original choice occurred.
+
+These events are available through the existing Users event timeline/export and configured PostHog capture. Collection begins when users run the updated build; historical choices are not backfilled. The existing collector accepts these events without a database migration.
+
 ## Exploration habits
 
 Open **Settings → Help & about → Administration → Analytics → Exploration**. Use the existing date and platform controls, then choose **Everyone** or find a visitor by public name, username or visitor ID. The Users timeline also has an **Explore habits** button.

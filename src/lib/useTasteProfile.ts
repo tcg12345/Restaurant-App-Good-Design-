@@ -89,7 +89,7 @@ function derive(
 
 /* ── The hook ─────────────────────────────────────────────────────────── */
 
-export function useTasteProfile(opts: { refresh?: boolean } = {}): TasteProfileState {
+export function useTasteProfile(opts: { refresh?: boolean; refreshKey?: number } = {}): TasteProfileState {
   const { ratings, wishlist, lists, restaurantMeta } = useLists();
   const { profile: userProfile, user } = useAuth();
   const michelinReady = useMichelinIndexReady();
@@ -126,7 +126,7 @@ export function useTasteProfile(opts: { refresh?: boolean } = {}): TasteProfileS
     // Refetch when the rating count changes — a new rating may have moved
     // the rank once it syncs.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user?.id, opts.refresh, ratings.length]);
+  }, [user?.id, opts.refresh, opts.refreshKey, ratings.length]);
 
   const insights = useMemo(
     () => buildTasteInsights(ratings, derived.profile, {

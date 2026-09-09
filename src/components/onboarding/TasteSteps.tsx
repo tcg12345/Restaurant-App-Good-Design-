@@ -371,7 +371,7 @@ export const RatePlacesStep: React.FC<{
     <div className="flex flex-col" style={{ minHeight: 0 }}>
       <div className="relative" style={{ marginBottom: 14 }}>
         <Search size={16} className="absolute left-4 top-1/2 -translate-y-1/2" style={{ color: 'var(--ob-label)' }} />
-        <input
+        <input data-search-input="standalone"
           type="text"
           value={query}
           onChange={(e) => setQuery(e.target.value)}

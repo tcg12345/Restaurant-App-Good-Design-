@@ -1061,7 +1061,7 @@ export const UserProfile: React.FC = () => {
                     <div className="flex items-center gap-3 mb-4">
                       <div className="relative flex-1 flex items-center">
                         <Search size={17} className="absolute left-5 text-ink-3" />
-                        <input
+                        <input data-search-input="standalone"
                           type="text"
                           value={searchQuery}
                           onChange={(e) => setSearchQuery(e.target.value)}

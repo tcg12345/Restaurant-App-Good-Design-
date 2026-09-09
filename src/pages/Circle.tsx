@@ -1,9 +1,4 @@
-/**
- * /circle route — renders the redesigned CirclePanel as a full page.
- * On desktop the panel typically opens as a slide-out from the
- * sidebar; this page is the fallback for direct URL hits and mobile.
- */
+/** Preserve old Friends links within the shared Messages & Friends destination. */
 import React from 'react';
-import { CirclePanel } from '../components/CirclePanel';
-
-export const Circle: React.FC = () => <CirclePanel variant="page" />;
+import { Navigate } from 'react-router-dom';
+export const Circle: React.FC = () => <Navigate to="/messages?tab=friends" replace />;

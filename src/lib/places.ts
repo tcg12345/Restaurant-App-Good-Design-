@@ -85,7 +85,8 @@ const PRICE_LEVEL_STRINGS: Record<number, string> = {
   4: 'PRICE_LEVEL_VERY_EXPENSIVE',
 };
 
-/* Google Places Photos media calls are DISABLED app-wide.
+/* Google Places Photos media calls are DISABLED in general search/details.
+ * The single home spotlight has an explicit, isolated opt-in in home-card-photo.ts.
  *
  * Every fetch from https://places.googleapis.com/v1/places/{id}/photos/{name}/media
  * is a separately-billed Places API call — one per rendered image. The app

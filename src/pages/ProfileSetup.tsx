@@ -17,9 +17,11 @@ import { saveTasteQuiz, getTasteQuiz } from '../lib/taste-quiz';
 import { getPreauthCity } from '../lib/preauth';
 import { logOnboardingEvent, markOnboardingStep } from '../lib/onboarding-events';
 import { GoalStep, GOAL_TITLE, GOAL_SUBTITLE } from '../components/onboarding/GoalStep';
-import { pendingTasteQuestions, type TasteQuestion } from '../lib/onboarding-progress';
+import { accountSetupSteps, type AccountSetupStep, type TasteQuestion } from '../lib/onboarding-progress';
+import { supportsIOSNotifications } from '../lib/native-notifications';
+import { NotificationsStep } from '../components/onboarding/NotificationsStep';
 
-type StepKey = 'handle' | TasteQuestion;
+type StepKey = AccountSetupStep;
 
 /**
  * Save failures are shown verbatim to someone in the middle of creating an
@@ -37,7 +39,7 @@ const friendlyError = (raw?: string): string => {
   return message;
 };
 
-export const ProfileSetup: React.FC = () => {
+export const ProfileSetup: React.FC<{ onComplete?: () => void }> = ({ onComplete }) => {
   // `profile` is the user's EXISTING row (partial profiles land here too, and
   // App.tsx guarantees the fetch settled before we render). Prefill from it
   // and only overwrite what the user actually touches — this screen must
@@ -187,9 +189,9 @@ export const ProfileSetup: React.FC = () => {
 
   // Freeze the route at entry: saving a profile must never shorten the
   // array under the current index. Explicit skips are already completed.
-  const [steps] = useState<StepKey[]>(() => [
-    'handle', ...pendingTasteQuestions(preauth.answers, !!(preauth.city || profile?.home_city)),
-  ]);
+  const [steps] = useState<StepKey[]>(() => accountSetupSteps(
+    preauth.answers, !!(preauth.city || profile?.home_city), supportsIOSNotifications(),
+  ));
 
   const offset = 0;
   const total = offset + steps.length;
@@ -217,7 +219,7 @@ export const ProfileSetup: React.FC = () => {
       priceSecondary,
       city: homeGeo?.label ?? (homeCity.trim() || undefined),
       atmosphere,
-      completedSteps: Array.from(new Set([...(preauth.answers?.completedSteps ?? []), ...steps.slice(0, pStep + 1).filter((s): s is Exclude<StepKey, 'handle'> => s !== 'handle')])),
+      completedSteps: Array.from(new Set([...(preauth.answers?.completedSteps ?? []), ...steps.slice(0, pStep + 1).filter((s): s is TasteQuestion => s !== 'handle' && s !== 'notifications')])),
       avoidCuisines: preauth.answers?.avoidCuisines,
       dietary: preauth.answers?.dietary,
       completedAt: Date.now(),
@@ -237,6 +239,7 @@ export const ProfileSetup: React.FC = () => {
       setFinishing(true);
       logOnboardingEvent('wizard_done', user?.id);
       await refreshProfile();
+      onComplete?.();
     } catch (err) {
       setFinishing(false);
       setError(err instanceof Error ? err.message : "Couldn't finish setup. Try again.");
@@ -283,9 +286,23 @@ export const ProfileSetup: React.FC = () => {
     setPStep((p) => p - 1);
   };
 
+  // Skipping optional taste questions still reaches the notification choice.
+  // The account is completed only after Enable/Continue or Not now.
+  const finishQuestions = () => {
+    if (saving.current || avatarBusy) return;
+    const notificationsIndex = steps.indexOf('notifications');
+    if (notificationsIndex >= 0) { setError(''); setDir(1); setPStep(notificationsIndex); }
+    else void finishWizard();
+  };
+
+  if (stepKey === 'notifications') return <NotificationsStep
+    step={pStep + 1} total={total} onBack={back} onDone={finishWizard}
+    finishing={submitting} finishError={error}
+  />;
+
   const footer = <>
     {error && <OB.ErrorRow>{error}</OB.ErrorRow>}
-    {stepKey !== 'handle' && <OB.GhostButton onClick={() => { void finishWizard(); }}>Finish setup</OB.GhostButton>}
+    {stepKey !== 'handle' && <OB.GhostButton onClick={finishQuestions} disabled={submitting || avatarBusy}>Finish setup</OB.GhostButton>}
     <OB.PrimaryButton onClick={() => { void next(); }} loading={submitting} disabled={avatarBusy || (stepKey === 'handle' && (!displayName.trim() || !usernameValid || availability === 'taken' || availability === 'checking'))}>
       {isLast ? 'Start exploring' : 'Continue'}
     </OB.PrimaryButton>

@@ -75,7 +75,7 @@ export const ShareDialogSurface: React.FC<{
           <div><h3>{header.title}</h3>{header.subtitle && <p>{header.subtitle}</p>}</div>
         </div>
         {(hasTargets || search) && <>
-          <label className="share-glass-search"><Search size={18} /><input value={search} onChange={event => onSearch(event.target.value)} placeholder="People and groups" aria-label="Search people and groups" />{search && <button type="button" onClick={() => onSearch('')} aria-label="Clear search"><X size={16} /></button>}</label>
+          <label data-search-field className="share-glass-search"><Search size={18} /><input data-search-input="embedded" value={search} onChange={event => onSearch(event.target.value)} placeholder="People and groups" aria-label="Search people and groups" />{search && <button type="button" onClick={() => onSearch('')} aria-label="Clear search"><X size={16} /></button>}</label>
           <div className="share-glass-section-title"><span>{search.trim() ? 'Search results' : 'Send in GoodEats'}</span>{active && <span>{selected.size} selected</span>}</div>
         </>}
         {!hasTargets ? <p className="share-glass-empty">Good food is better shared. Send a link with any of the options below.</p>

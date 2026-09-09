@@ -1,3 +1,9 @@
+import { isSocialConversation } from './lib/social-navigation';
+import { HOME_REELS_EXPERIMENT } from './lib/home-reels-experiment';
+import { WidgetSync } from './components/WidgetSync';
+import { CalendarPage } from './pages/CalendarPage';
+import { CalendarProvider } from './contexts/CalendarContext';
+import { VisitReviewPrompt } from './components/calendar/VisitReviewPrompt';
 import { AdminFeedback } from './pages/AdminFeedback';
 import { AnalyticsTracker } from './components/AnalyticsTracker';
 import { NotFoundPage } from './pages/NotFoundPage';
@@ -36,6 +42,7 @@ import { RestaurantDetail } from './pages/RestaurantDetail';
 import { Create } from './pages/Create';
 import { BottomNav } from './components/BottomNav';
 import { PullToRefresh } from './components/PullToRefresh';
+import { RouteMotionLayer } from './components/RouteMotionLayer';
 import { RetainedRouteStack } from './components/RetainedRouteStack';
 import { SwipeBackContainer } from './components/SwipeBackContainer';
 import { subscribePresenterOverlay } from './lib/overlay-registry';
@@ -73,25 +80,24 @@ import { ImportRestaurants } from './pages/ImportRestaurants';
 import { ProfileSetup } from './pages/ProfileSetup';
 import { UserProfile } from './pages/UserProfile';
 import { FollowList } from './pages/FollowList';
-import { Messages } from './pages/Messages';
+import { SocialHub } from './pages/SocialHub';
 import { FriendReviewDetail } from './pages/FriendReviewDetail';
 import { LocationPage } from './pages/LocationPage';
 import { LocationMap } from './pages/LocationMap';
 import { RestaurantCircleReviews } from './pages/RestaurantCircleReviews';
 import { ReorderRatings } from './pages/ReorderRatings';
 import { ChatProvider } from './contexts/ChatContext';
+import { PushNotificationsProvider } from './contexts/PushNotificationsContext';
 import { NotificationsProvider } from './contexts/NotificationsContext';
 import { ReelsProvider } from './contexts/ReelsContext';
 import { PostsProvider } from './contexts/PostsContext';
 import { PageAddActionProvider } from './contexts/PageAddActionContext';
-import { CirclePanelProvider, useCirclePanel } from './contexts/CirclePanelContext';
 import { GuideCreatorProvider, useGuideCreator } from './contexts/GuideCreatorContext';
 import { HomeLocationProvider } from './contexts/HomeLocationContext';
 import { FindAPlaceHost } from './components/FindAPlaceHost';
 import { AssistantProvider } from './contexts/AssistantContext';
 import { AiChatHistoryProvider } from './contexts/AiChatHistoryContext';
 import { GuideCreatorSheet } from './components/GuideCreatorSheet';
-import { CirclePanel } from './components/CirclePanel';
 import { AppAssistant } from './components/AppAssistant';
 import { FeatureTour } from './components/FeatureTour';
 import { Logo } from './components/Logo';
@@ -110,33 +116,7 @@ const ProIntroRoute: React.FC = () => {
 };
 import { RequireAuthRoute } from './components/RequireAuthRoute';
 import { wakeGlassButtons } from './lib/glass-buttons';
-
-/**
- * Track whether the viewport is wide enough to render the desktop sidebar.
- * Falls back to false during SSR / before the first matchMedia read.
- */
-/**
- * Renders the Instagram-style Circle slide-out next to the desktop
- * sidebar with a dim backdrop. Only renders when the panel context says
- * it's open; mobile / phone-frame layouts don't use this helper at all.
- */
-const CircleDesktopOverlay: React.FC = () => {
-  const { open, setOpen } = useCirclePanel();
-  return (
-    <AnimatePresence>
-      {open && (
-        <>
-          <motion.div
-            key="circle-panel-backdrop"
-            className="fixed inset-0 z-40"
-            onClick={() => setOpen(false)}
-          />
-          <CirclePanel variant="overlay" onClose={() => setOpen(false)} />
-        </>
-      )}
-    </AnimatePresence>
-  );
-};
+import { routeInstanceKey } from './lib/route-instance-key';
 
 /**
  * Mounts the guide-creation sheet once at the app root. Triggered by
@@ -188,7 +168,7 @@ const keepAliveElement = (path: string, active: boolean, phoneMode: boolean): Re
 // (Keep-alive tabs never animate anyway; listing them still matters for the
 // EXIT side: leaving a Stack page for a kept tab must also be instant.)
 const TAB_SWITCH_PATHS = new Set<string>([
-  ...KEEP_ALIVE_PATHS, '/search', '/map', '/reels',
+  ...KEEP_ALIVE_PATHS, '/search', '/map', '/reels', '/calendar', ...(HOME_REELS_EXPERIMENT ? ['/messages'] : []),
 ]);
 
 /** Shown when the signed-in user's profile fetch failed (network/timeout).
@@ -242,6 +222,7 @@ const AppContent: React.FC = () => {
   // Router history index of the current entry — keys the swipe-back snapshot
   // store and the in-app nav-stack record.
   const historyIdx = typeof window.history.state?.idx === 'number' ? window.history.state.idx : null;
+  const pageInstanceKey = routeInstanceKey(location.pathname, location.key, historyIdx);
   const goingBack = React.useMemo(() => (navType === 'POP' && (historyIdx ?? 0) < (previousHistoryIdx.current ?? historyIdx ?? 0))
     || (navType === 'REPLACE' && location.state?.navigationDirection === 'back'), [location.key, navType, historyIdx]);
   React.useLayoutEffect(() => { previousHistoryIdx.current = historyIdx; }, [location.key]);
@@ -276,8 +257,14 @@ const AppContent: React.FC = () => {
   const isMapPage = location.pathname === '/map';
   const isReelsPage = location.pathname === '/reels';
   const isFocusedReel = location.pathname.startsWith('/r/');
-  const showBottomNav = !['/pantry/recommended', '/decide', '/pro/intro', '/messages', '/reorder', '/location', '/location/map', '/map', '/create', '/recipes-for-you', '/circle', '/settings'].includes(location.pathname) && !location.pathname.startsWith('/settings/') && location.pathname !== '/verify/apply' && !location.pathname.startsWith('/restaurant/') && !location.pathname.startsWith('/user/') && !location.pathname.startsWith('/profile/top/') && !location.pathname.startsWith('/recipe/') && !location.pathname.startsWith('/meal/') && !location.pathname.startsWith('/review/') && !location.pathname.startsWith('/activity') && !location.pathname.startsWith('/guides') && !isFocusedReel;
-  const { isSignedIn, isGuest, continueAsGuest, loading, profile, profileComplete, profileError, profileLoading, needsPasswordSetup } = useAuth();
+  const socialCovered = location.pathname === '/messages' && (!HOME_REELS_EXPERIMENT || isSocialConversation(location.search, location.state));
+  const showBottomNav = !socialCovered && !(HOME_REELS_EXPERIMENT && isReelsPage) && !['/pantry/recommended', '/decide', '/pro', '/pro/welcome', '/pro/intro', '/reorder', '/location', '/location/map', '/map', '/create', '/recipes-for-you', '/circle', '/settings'].includes(location.pathname) && !location.pathname.startsWith('/settings/') && location.pathname !== '/verify/apply' && !location.pathname.startsWith('/restaurant/') && !location.pathname.startsWith('/user/') && !location.pathname.startsWith('/profile/top/') && !location.pathname.startsWith('/recipe/') && !location.pathname.startsWith('/meal/') && !location.pathname.startsWith('/review/') && !location.pathname.startsWith('/activity') && !location.pathname.startsWith('/guides') && !isFocusedReel;
+  const { user, isSignedIn, isGuest, continueAsGuest, loading, profile, profileComplete, profileError, profileLoading, needsPasswordSetup } = useAuth();
+  // An auth refresh after the iOS permission dialog must not dismiss an
+  // active wizard just because its earlier profile step has been saved.
+  const [setupUser, setSetupUser] = React.useState<string | null>(null);
+  const setupActive = !!user && setupUser === user.id;
+  React.useEffect(() => { if (!user) setSetupUser(null); }, [user?.id]);
   // How the pre-auth taste flow was left — 'signup' carries the "save your
   // taste profile" framing into the Auth screen it hands off to. Seeded from
   // the durable record so a relaunch ON the gate keeps that framing instead
@@ -336,9 +323,7 @@ const AppContent: React.FC = () => {
   // Any bottom sheet open → the page zooms back (see the presenter below).
   // Only when sheets can be lifted to the top layer; otherwise a transform
   // here would shrink the sheets too.
-  // The glass hold's safety net: a page that unmounts mid-exit never fires
-  // onAnimationComplete, and a stuck hold would leave every button on its
-  // CSS fallback. A beat after each navigation settles, clear any strays.
+  // Release stale geometry-tracking holds after an interrupted transition.
   React.useEffect(() => {
     const t = window.setTimeout(resetGlassHolds, 700);
     return () => window.clearTimeout(t);
@@ -426,22 +411,23 @@ const AppContent: React.FC = () => {
   // public). Show a retry screen instead; ProfileSetup is reserved for a
   // confirmed-missing/incomplete profile. While a fetch is still in flight
   // (e.g. right after sign-in), hold the splash rather than flash the wizard.
-  if (isSignedIn && !profileComplete && profileError) {
+  if (isSignedIn && !setupActive && !profileComplete && profileError) {
     // Checked before profileLoading so a retry keeps this screen (with its
     // own "Retrying…" state) mounted instead of bouncing through the splash.
     return <ProfileLoadError />;
   }
-  if (isSignedIn && !profileComplete && profileLoading) {
+  if (isSignedIn && !setupActive && !profileComplete && profileLoading) {
     return (
       <div className="min-h-screen bg-surface flex items-center justify-center">
         <Logo size={48} className="text-primary animate-pulse" />
       </div>
     );
   }
-  if (isSignedIn && !profileComplete) {
+  if (isSignedIn && (!profileComplete || setupActive)) {
+    if (user && setupUser !== user.id) setSetupUser(user.id);
     return (
       <div className="min-h-screen bg-surface">
-        <ProfileSetup />
+        <ProfileSetup key={user?.id} onComplete={() => setSetupUser(null)} />
       </div>
     );
   }
@@ -595,11 +581,11 @@ const AppContent: React.FC = () => {
       {/* Bounded history layers preserve loaded reading pages. A committed
           Back reveals the same instance; inactive layers remain inert and
           clipped, and transient media/composer routes are released. */}
-      <RetainedRouteStack entryKey={isKeepAlivePath ? null : location.key} index={historyIdx ?? 0} pathname={location.pathname} pop={goingBack} instant={stackInstant}>
+      <RetainedRouteStack entryKey={isKeepAlivePath ? null : pageInstanceKey} index={historyIdx ?? 0} pathname={location.pathname} pop={goingBack} instant={stackInstant}>
         {!isKeepAlivePath && (
-        <motion.div
+        <RouteMotionLayer
           // History identity preserves the exact presenting page on return.
-          key={location.key}
+          key={pageInstanceKey}
           // Lets the swipe-back gesture verify the destination (this exact
           // pathname) is mounted and at rest before it drops the covering
           // snapshot — the exiting page's wrapper must not pass for it.
@@ -610,10 +596,8 @@ const AppContent: React.FC = () => {
           initial="enter"
           animate="center"
           exit="exit"
-          // A page in motion: native glass can't track it (the mirror
-          // measures a bridge-hop late and trails), so every glass button
-          // rides the transition as its CSS fallback and native takes over
-          // once the page is at rest. Ref-counted — enter and exit overlap.
+          // Track moving native controls throughout the route transition;
+          // never change their material to a CSS fallback.
           onAnimationStart={holdGlass}
           onAnimationComplete={releaseGlass}
           className={
@@ -622,13 +606,14 @@ const AppContent: React.FC = () => {
               // taking its place in flow, and keeps a soft top edge while
               // it travels (flush at rest, where it is full-bleed).
               : isSheetRoute ? 'relative h-[100dvh] z-30 overflow-hidden rounded-t-[22px] bg-surface shadow-[0_-8px_40px_rgba(0,0,0,0.28)]'
-              : 'relative bg-surface'
+              : isReelsPage || isFocusedReel ? 'relative h-[100dvh] overflow-hidden bg-black' : 'relative bg-surface'
           }
           style={isSheetRoute ? { transformOrigin: '50% 100%' } : { transformOrigin: '50% 50%' }}
         >
         <React.Fragment key={refreshKeyFor(location.pathname)}>
         <Routes location={location}>
           <Route path="/" element={phoneMode ? <Home /> : <Discover mode="home" />} />
+          <Route path="/calendar" element={<CalendarPage />} />
           <Route path="/map" element={<Discover mode="map" />} />
           <Route path="/auth" element={<Navigate to="/" replace />} />
           {/* Public on purpose: guests can read what Pro is; buying asks
@@ -687,14 +672,14 @@ const AppContent: React.FC = () => {
           <Route path="/user/:username/followers" element={<FollowList />} />
           <Route path="/user/:username/following" element={<FollowList />} />
           <Route path="/user/:username/rated" element={<FollowList />} />
-          <Route path="/messages" element={<RequireAuthRoute reason="Sign in to message"><Messages /></RequireAuthRoute>} />
+          <Route path="/messages" element={<RequireAuthRoute reason="Sign in to message"><SocialHub /></RequireAuthRoute>} />
           <Route path="/review/:ratingId" element={<FriendReviewDetail />} />
           <Route path="/location" element={<LocationPage />} />
           <Route path="/location/map" element={<LocationMap />} />
           <Route path="*" element={<NotFoundPage />} />
         </Routes>
         </React.Fragment>
-        </motion.div>
+        </RouteMotionLayer>
         )}
       </RetainedRouteStack>
     </>
@@ -702,6 +687,7 @@ const AppContent: React.FC = () => {
 
   const modals = (
     <>
+      <VisitReviewPrompt />
       <VerificationOutcomeModal />
       <AddToListModal />
       <RatingFlow />
@@ -735,7 +721,6 @@ const AppContent: React.FC = () => {
             {routesBlock}
           </div>
         </main>
-        <CircleDesktopOverlay />
         {modals}
       </div>
     );
@@ -745,8 +730,8 @@ const AppContent: React.FC = () => {
   // Pull-to-refresh is off where a downward drag already means something
   // (reels/map panning, the messages thread, the create overlay, onboarding).
   const allowPullToRefresh =
-    !isReelsPage && !isMapPage && !isSheetRoute && !location.pathname.startsWith('/restaurant/') &&
-    !['/', '/decide', '/pro/intro', '/messages', '/create', '/location/map', '/search'].includes(location.pathname);
+    !isReelsPage && !isFocusedReel && !isMapPage && !isSheetRoute && !location.pathname.startsWith('/restaurant/') &&
+    !['/', '/decide', '/pro', '/pro/welcome', '/pro/intro', '/messages', '/create', '/location/map', '/search'].includes(location.pathname);
   // Pushed pages return in their presentation direction. Explicit tab taps
   // stay still; horizontal interactions retain their own gesture regions.
   const backTarget = backTargetFor(historyIdx ?? 0, location.pathname, location.search);
@@ -796,26 +781,9 @@ const AppContent: React.FC = () => {
         {routesBlock}
       </SwipeBackContainer>
       </motion.div>
-      <AnimatePresence>
-        {showBottomNav && (
-          <motion.div
-            // Identifies the nav for the swipe-back snapshot: the destination
-            // preview includes a copy of it when the source page hides the
-            // real one, so the tab bar rides in with the page during a
-            // back-swipe like on iOS.
-            data-bottom-nav=""
-            initial={{ y: 100, opacity: 0 }}
-            animate={{ y: 0, opacity: 1 }}
-            exit={{ y: 100, opacity: 0 }}
-            // A gesture-driven swap must not replay the spring entrance — the
-            // nav is already in the destination preview and simply becomes
-            // real underneath it. The spring stays for tapped navigation.
-            transition={instantNav ? { duration: 0 } : { type: 'spring', damping: 20, stiffness: 100 }}
-          >
-            <BottomNav />
-          </motion.div>
-        )}
-      </AnimatePresence>
+      {/* One shell-owned bar survives pushes and pops. Route visibility is
+          applied in the navigation commit, without an exit/entrance lifecycle. */}
+      <BottomNav routeVisible={showBottomNav} />
       {modals}
       {/* Post-onboarding coachmark tour. Phone layout only: its stops point
           at phone chrome, and the sidebar layout labels every destination
@@ -852,17 +820,15 @@ export default function App() {
                     <ReelsProvider>
                       <PostsProvider>
                         <PageAddActionProvider>
-                          <CirclePanelProvider>
                             <GuideCreatorProvider>
                               <HomeLocationProvider>
                                 <AssistantProvider>
                                   <AiChatHistoryProvider>
-                                    <InReviewProvider><AppContent /></InReviewProvider>
+                                    <CalendarProvider><PushNotificationsProvider><InReviewProvider><WidgetSync /><AppContent /></InReviewProvider></PushNotificationsProvider></CalendarProvider>
                                   </AiChatHistoryProvider>
                                 </AssistantProvider>
                               </HomeLocationProvider>
                             </GuideCreatorProvider>
-                          </CirclePanelProvider>
                         </PageAddActionProvider>
                       </PostsProvider>
                     </ReelsProvider>

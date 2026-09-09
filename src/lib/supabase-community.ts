@@ -398,19 +398,13 @@ export async function publishCommunityPhotos(
 ): Promise<boolean> {
   if (!supabaseConfigured || !userId) return false;
   try {
-    // Replace semantics: always clear this user's existing rows for the
-    // restaurant first, so photos removed from the review disappear from
-    // the community gallery. An empty list therefore means "remove all" —
-    // the old early-return on empty input was how stale photos survived
-    // review edits and kept haunting restaurant pages.
-    await supabase.from('community_photos').delete().eq('user_id', userId).eq('restaurant_id', restaurantId);
-    if (photos.length === 0) return true;
-    // Insert new ones
-    const rows = photos.map((p) => ({
-      user_id: userId, restaurant_id: restaurantId,
-      url: p.url, caption: p.caption, is_favorite: p.isFavorite,
-    }));
-    const { error } = await supabase.from('community_photos').insert(rows);
+    // Atomic replace semantics, retaining IDs and votes for unchanged images.
+    // The database derives the owner from auth.uid(), never from client input.
+    const { error } = await supabase.rpc('sync_community_photos', {
+      p_user_id: userId,
+      p_restaurant_id: restaurantId,
+      p_photos: photos.map(p => ({ url: p.url, caption: p.caption, is_favorite: p.isFavorite })),
+    });
     if (error) { console.error('[Community] publishPhotos error:', error); return false; }
     return true;
   } catch (err) { console.error('[Community] publishPhotos exception:', err); return false; }

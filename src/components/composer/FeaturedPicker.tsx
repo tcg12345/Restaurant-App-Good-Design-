@@ -349,9 +349,9 @@ export const FeaturedPickerOverlay: React.FC<{
 
             {/* Search */}
             <div className="px-4 pb-3 flex-shrink-0">
-              <div className="flex items-center gap-2 rounded-full bg-on-surface/[0.045] border border-on-surface/[0.07] focus-within:border-primary/40 focus-within:bg-white px-4 h-11 transition-colors">
+              <div data-search-field className="flex items-center gap-2 rounded-full bg-on-surface/[0.045] border border-on-surface/[0.07] focus-within:border-primary/40 focus-within:bg-white px-4 h-11 transition-colors">
                 <Search size={15} className="text-on-surface/40 flex-shrink-0" />
-                <input
+                <input data-search-input="embedded"
                   value={search}
                   onChange={(e) => onSearchChange(e.target.value)}
                   placeholder={isRestaurant ? 'Search any restaurant…' : 'Search your home cooking…'}

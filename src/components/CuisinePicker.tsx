@@ -151,9 +151,9 @@ export const CuisinePicker: React.FC<{
             )}
 
             <div className="px-5 pb-3">
-              <div className="flex items-center gap-2 rounded-2xl bg-on-surface/[0.05] px-3.5 h-11">
+              <div data-search-field className="flex items-center gap-2 rounded-2xl bg-on-surface/[0.05] px-3.5 h-11">
                 <Search size={15} className="flex-shrink-0 text-on-surface/35" />
-                <input
+                <input data-search-input="embedded"
                   ref={inputRef}
                   type="text"
                   value={query}

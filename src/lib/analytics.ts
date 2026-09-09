@@ -21,7 +21,7 @@ let anonId = '';
 let posthog: typeof import('posthog-js').default | undefined;
 let started = false;
 let memoryOptOut = false;
-const immediateEvents = new Set(['restaurant_saved', 'restaurant_unsaved', 'restaurant_rated', 'restaurant_list_added']);
+const immediateEvents = new Set(['notification_permission_result', 'notification_permission_status', 'notification_prompt_skipped', 'notification_preference_changed', 'restaurant_saved', 'restaurant_unsaved', 'restaurant_rated', 'restaurant_list_added']);
 
 // Retain business actions before background traffic when offline or saturated.
 function boundedQueue(rows: Event[]) {

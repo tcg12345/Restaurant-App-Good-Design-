@@ -100,3 +100,13 @@ describe('analytics audit regressions',()=>{
   expect(rows.some(r=>r.event==='api_request')).toBe(false);
  });
 });
+
+it('collects notification decisions immediately with their safe properties and respects opt-out',async()=>{
+ const a=await import('./analytics');a.setAnalyticsIdentity('user',false);a.setAnalyticsPage('/profile-setup');
+ a.track('notification_permission_result',{feature:'notifications',properties:{outcome:'denied',source:'onboarding',stage:'system_prompt',token:'must not collect'}});
+ await a.flushAnalytics();
+ expect(rpc.mock.calls[0][1].events[0]).toMatchObject({event:'notification_permission_result',feature:'notifications',properties:{outcome:'denied',source:'onboarding',stage:'system_prompt'}});
+ expect(rpc.mock.calls[0][1].events[0].properties).not.toHaveProperty('token');
+ rpc.mockClear();a.setAnalyticsOptOut(true);
+ a.track('notification_permission_result',{properties:{outcome:'allowed'}});await a.flushAnalytics();expect(rpc).not.toHaveBeenCalled();
+});

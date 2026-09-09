@@ -1,3 +1,7 @@
+import { FeedNavigation } from './feed/FeedNavigation';
+import { useReels, type Reel } from '../contexts/ReelsContext';
+import { selectHomeFeedReels, insertReelRows } from '../lib/home-reels';
+import { FeedReelCard } from './HomeReels';
 import { selectFeedEntries, feedDishPreview, type FeedLens } from '../lib/feed-discovery';
 import { homeHaptic } from '../lib/haptics';
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
@@ -516,6 +520,8 @@ interface SocialFeedProps {
    *  a quiet empty state (instead of nothing) when there's no activity, so
    *  the parent's column never collapses. */
   feedOnly?: boolean;
+  includeReels?: boolean;
+  compactControls?: boolean;
   /** Optional node interleaved into the feed after `afterIndex` items —
    *  Discover slides its guides rail in here, Instagram-style. */
   inlineSlot?: { afterIndex: number; node: React.ReactNode };
@@ -529,7 +535,8 @@ interface SocialFeedProps {
 /** Who the feed is showing. 'recipes' narrows to what people cooked. */
 export type FeedFilter = 'friends' | 'experts' | 'recipes';
 
-export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, centerLng = null, suggestedRestaurants = [], feedOnly = false, inlineSlot, filter, onFilterChange }) => {
+export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, centerLng = null, suggestedRestaurants = [], feedOnly = false, includeReels = false, compactControls = false, inlineSlot, filter, onFilterChange }) => {
+  const { reels: homeReels } = useReels();
   const { user } = useAuth();
   const userId = user?.id ?? null;
   const { requireSignIn } = useSignInModal();
@@ -630,7 +637,7 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
   // Controlled when the page owns the chips, uncontrolled otherwise.
   const activityFilter = filter ?? ownFilter;
   const setActivityFilter = onFilterChange ?? setOwnFilter;
-  useEffect(() => setLens('latest'), [activityFilter]);
+  useEffect(() => { setLens(current => !compactControls || (activityFilter === 'recipes' && current === 'highlights') ? 'latest' : current); }, [activityFilter, compactControls]);
 
   const [openComments, setOpenComments] = useState<string | null>(null);
   const [comments, setComments] = useState<ActivityComment[]>([]);
@@ -837,11 +844,13 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
    * reading it off the rendered feed would make it flip false the moment the
    * suggestions arrived, and the fallback would tear itself down.
    */
-  const showSuggestions = activityFilter === 'friends' && !loading && circleEntries.length === 0;
+  const circleReels = includeReels ? selectHomeFeedReels(homeReels, { audience: 'friends', lens: 'latest', friendIds, userId: userId ?? undefined, community: false }) : [];
+  const showSuggestions = activityFilter === 'friends' && !loading && circleEntries.length === 0 && circleReels.length === 0;
   const availableEntries = showSuggestions && suggestedPosts.length > 0
     ? mergeFeed({ posts: suggestedPosts })
     : circleEntries;
   const feedEntries = selectFeedEntries(availableEntries, lens, e => e.source.post ? e.source.post.saved : e.restaurant ? isWishlisted(e.restaurant.id) : myHomeMeals.some(m => m.id === e.source.homeMeal?.id));
+  const feedReels = includeReels ? selectHomeFeedReels(homeReels, { audience: activityFilter, lens, friendIds, userId: userId ?? undefined, community: showSuggestions }) : [];
   const dishPreviews = feedDishPreview(feedEntries).filter(d => !failedDishImages.has(d.url));
   const toFeedItem = (e: FeedEntry): FeedItem => (
     e.kind === 'post' ? { type: 'post', data: e.source.post!, sortTime: e.sortTime }
@@ -1254,11 +1263,11 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
           !phoneMode && !feedOnly && 'xl:grid xl:grid-cols-[minmax(0,1fr)_320px] xl:gap-14 xl:items-start',
         )}>
           <div className="xl:min-w-0">
-            <SectionHeader />
-      {!loading && availableEntries.length > 0 && <>
-        <div className="feed-discovery-controls" role="group" aria-label="Browse feed">
+            {compactControls ? <FeedNavigation audience={activityFilter} lens={lens} onAudienceChange={setActivityFilter} onLensChange={setLens} /> : <SectionHeader />}
+      {!loading && (availableEntries.length > 0 || feedReels.length > 0) && <>
+        {!compactControls && <div className="feed-discovery-controls" role="group" aria-label="Browse feed">
           {([{id:'latest',label:'Latest'},{id:'highlights',label:'Highly rated'},{id:'saved',label:'Saved'}] as const).filter(option => activityFilter !== 'recipes' || option.id !== 'highlights').map(option => <button key={option.id} aria-pressed={lens === option.id} onClick={() => { homeHaptic(); setLens(option.id); }}>{option.label}</button>)}
-        </div>
+        </div>}
         {lens === 'latest' && dishPreviews.length >= 2 && <section className="feed-dish-discovery" aria-label="Dish discovery"><h2>On the table</h2><div className="feed-dish-rail">
           {dishPreviews.map(dish => <button key={dish.key} onClick={() => { homeHaptic(); document.getElementById(`feed-entry-${dish.key}`)?.scrollIntoView({behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth',block:'start'}); }} aria-label={`See ${dish.dish}`}>
             <img src={dish.url} alt="" loading="lazy" onError={() => setFailedDishImages(prev => new Set(prev).add(dish.url))} /><strong>{dish.dish}</strong><small>{dish.place || getName(dish.authorId)}</small>
@@ -1296,8 +1305,8 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
   // Interleave the optional inline slot (the Discover guides rail) after
   // the requested number of feed items; when the feed is short or empty it
   // lands at the end / above the empty state so it stays reachable.
-  type FeedRow = { kind: 'item'; item: FeedItem } | { kind: 'strip'; entries: FeedEntry[] } | { kind: 'slot' };
-  const feedRows: FeedRow[] = layoutFeed(feedEntries, {
+  type FeedRow = { kind: 'item'; item: FeedItem } | { kind: 'strip'; entries: FeedEntry[] } | { kind: 'slot' } | { kind: 'reel'; reel: Reel };
+  let feedRows: FeedRow[] = layoutFeed(feedEntries, {
     // Verified stays full-width: those users publish by rating, almost
     // always without photos, so stripping them would leave a wall of
     // tiles with no full cards to break it up.
@@ -1307,6 +1316,7 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
       ? { kind: 'item', item: toFeedItem(row.entry) }
       : { kind: 'strip', entries: row.entries }
   ));
+  feedRows = insertReelRows(feedRows, feedReels);
   if (inlineSlot) feedRows.splice(Math.min(Math.max(inlineSlot.afterIndex, 0), feedRows.length), 0, { kind: 'slot' });
 
   return (
@@ -1315,11 +1325,11 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
         !phoneMode && !feedOnly && 'xl:grid xl:grid-cols-[minmax(0,1fr)_320px] xl:gap-14 xl:items-start',
       )}>
         <div className="xl:min-w-0">
-      <SectionHeader />
-      {!loading && availableEntries.length > 0 && <>
-        <div className="feed-discovery-controls" role="group" aria-label="Browse feed">
+      {compactControls ? <FeedNavigation audience={activityFilter} lens={lens} onAudienceChange={setActivityFilter} onLensChange={setLens} /> : <SectionHeader />}
+      {!loading && (availableEntries.length > 0 || feedReels.length > 0) && <>
+        {!compactControls && <div className="feed-discovery-controls" role="group" aria-label="Browse feed">
           {([{id:'latest',label:'Latest'},{id:'highlights',label:'Highly rated'},{id:'saved',label:'Saved'}] as const).filter(option => activityFilter !== 'recipes' || option.id !== 'highlights').map(option => <button key={option.id} aria-pressed={lens === option.id} onClick={() => { homeHaptic(); setLens(option.id); }}>{option.label}</button>)}
-        </div>
+        </div>}
         {lens === 'latest' && dishPreviews.length >= 2 && <section className="feed-dish-discovery" aria-label="Dish discovery"><h2>On the table</h2><div className="feed-dish-rail">
           {dishPreviews.map(dish => <button key={dish.key} onClick={() => { homeHaptic(); document.getElementById(`feed-entry-${dish.key}`)?.scrollIntoView({behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth',block:'start'}); }} aria-label={`See ${dish.dish}`}>
             <img src={dish.url} alt="" loading="lazy" onError={() => setFailedDishImages(prev => new Set(prev).add(dish.url))} /><strong>{dish.dish}</strong><small>{dish.place || getName(dish.authorId)}</small>
@@ -1356,9 +1366,9 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
             </li>
           ))}
         </ul>
-      ) : feedItems.length === 0 && availableEntries.length > 0 ? (
+      ) : feedItems.length === 0 && feedReels.length === 0 && availableEntries.length > 0 ? (
         <div className="feed-discovery-empty"><strong>{lens === 'saved' ? 'Keep something for later' : 'No highly rated picks here yet'}</strong><p>{lens === 'saved' ? 'Posts and places you save from this feed will appear here.' : 'This view shows ratings of 8 or above.'}</p><button onClick={() => setLens('latest')}>See latest</button></div>
-      ) : feedItems.length === 0 ? (
+      ) : feedItems.length === 0 && feedReels.length === 0 ? (
         <>
           {inlineSlot && (
             <div className="pt-6">
@@ -1405,6 +1415,7 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
       )}
       <ul key={`${activityFilter}-${lens}`} className="feed-discovery-stream">
         {feedRows.map((row, rowIndex) => {
+          if (row.kind === 'reel') return <li key={`reel-${row.reel.id}`}><FeedReelCard reel={row.reel} /></li>;
           if (row.kind === 'slot') {
             return (
               <li key="inline-slot" className="pt-6">

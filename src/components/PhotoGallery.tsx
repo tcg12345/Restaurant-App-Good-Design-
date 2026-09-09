@@ -4,8 +4,10 @@ import { X, Search, ChevronLeft, ChevronRight, Sparkles } from 'lucide-react';
 import type { CommunityPhoto } from '../lib/supabase-community';
 import { useBottomSheet } from '../lib/useBottomSheet';
 import { GlassButton } from '../lib/glass-buttons';
+import { PhotoLikeButton } from './PhotoLikeButton';
 
 interface GalleryPhoto {
+  id?: string;
   url: string;
   /** The stored URL when `url` is a session blob: (see useRestaurantDetail). */
   rawUrl: string;
@@ -57,7 +59,7 @@ export const PhotoGallery: React.FC<{
       .map((url) => ({ url, rawUrl: url, caption: photoCaptions?.[url] || '', isGoogle: true, ownerUserId: '' }));
     const userPhotos: GalleryPhoto[] = communityPhotos
       .filter((p) => !!p.url && (p.url.startsWith('blob:') || p.url.length < 12_000_000))
-      .map((p) => ({ url: p.url, rawUrl: p.rawUrl || p.url, caption: p.caption || '', isGoogle: false, ownerUserId: p.user_id }));
+      .map((p) => ({ id: p.id, url: p.url, rawUrl: p.rawUrl || p.url, caption: p.caption || '', isGoogle: false, ownerUserId: p.user_id }));
     return [...googlePhotos, ...userPhotos];
   }, [photos, communityPhotos, photoCaptions]);
 
@@ -153,7 +155,7 @@ export const PhotoGallery: React.FC<{
         <div className="flex-shrink-0 px-5 pb-3">
           <div className="relative">
             <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-on-surface/35" />
-            <input
+            <input data-search-input="standalone"
               type="text"
               placeholder="Search by dish or description..."
               value={searchQuery}
@@ -304,6 +306,7 @@ export const PhotoGallery: React.FC<{
                 {/* Recreate with AI — quiet, in the corner, only on one
                     member photo at a time. Wrapped so the tap never reaches
                     the backdrop's close. */}
+                {expandedPhoto.id && <div className="absolute bottom-4 left-4 z-20"><PhotoLikeButton photoId={expandedPhoto.id} onSignInNeeded={onClose} /></div>}
                 {onRecreate && !expandedPhoto.isGoogle && (
                   <div className="absolute bottom-4 right-4 z-20" onClick={(e) => e.stopPropagation()}>
                     <GlassButton

@@ -1,4 +1,4 @@
-import React, { useEffect, useState, type ReactElement } from 'react';
+import React, { useEffect, useLayoutEffect, useRef, useState, type ReactElement } from 'react';
 
 /** Reading pages stay alive in a bounded history stack. Back reveals the
  * existing instance (including loaded images, form selections and scroll),
@@ -6,7 +6,7 @@ import React, { useEffect, useState, type ReactElement } from 'react';
  * Media players, maps, composers and sensitive forms still unmount normally. */
 export function canRetainRoute(path: string): boolean {
   if (/^\/guides\/[^/]+\/edit$/.test(path)) return false;
-  return /^\/(restaurant|user|recipe|meal|guides|profile\/taste|profile\/top|pantry\/recommended|recipes-for-you|circle|experts|activity)(\/|$)/.test(path)
+  return /^\/(restaurant|user|recipe|meal|guides|profile\/taste|profile\/top|pantry\/recommended|recipes-for-you|calendar|circle|experts|activity)(\/|$)/.test(path)
     || /^\/settings(?:\/(?:account|appearance|notifications|privacy|preferences|support|about))?$/.test(path);
 }
 
@@ -21,6 +21,7 @@ interface Props {
 }
 export function RetainedRouteStack({ entryKey, index, pathname, pop, instant, children }: Props) {
   const [state, setState] = useState<{ key: string | null; entries: Entry[]; departing: string | null }>({ key: entryKey, entries: [], departing: null });
+  const latestElements = useRef(new Map<string, ReactElement>());
   let entries = state.entries;
   let departing = state.departing;
   if (state.key !== entryKey || (entryKey && !entries.some(e => e.key === entryKey))) {
@@ -31,6 +32,11 @@ export function RetainedRouteStack({ entryKey, index, pathname, pop, instant, ch
     entries = entries.slice(-6);
     setState({ key: entryKey, entries, departing });
   }
+  useLayoutEffect(() => {
+    if (entryKey && children) latestElements.current.set(entryKey, children);
+    const liveKeys = new Set(entries.map(entry => entry.key));
+    for (const key of latestElements.current.keys()) if (!liveKeys.has(key)) latestElements.current.delete(key);
+  });
   useEffect(() => {
     if (!departing) return;
     const timer = setTimeout(() => setState(previous => ({ ...previous, departing: null, entries: previous.entries.filter(e => e.retain || e.key === previous.key) })), 400);
@@ -39,7 +45,7 @@ export function RetainedRouteStack({ entryKey, index, pathname, pop, instant, ch
   return <>{entries.map(entry => {
     const active = entry.key === entryKey;
     const leaving = entry.key === departing;
-    const element = active && children ? children : entry.element;
+    const element = active && children ? children : latestElements.current.get(entry.key) ?? entry.element;
     return <div key={entry.key} data-retained-route={entry.key} aria-hidden={!active} inert={!active}
       style={active ? { position: 'relative' } : { position: 'absolute', inset: 0, overflow: 'hidden', visibility: leaving ? 'visible' : 'hidden', opacity: leaving ? 1 : 0, pointerEvents: 'none', zIndex: leaving ? 10 : undefined }}>
       {React.cloneElement(element, active ? {} : { initial: false, animate: leaving ? 'exit' : 'center', custom: { instant: !leaving, pop: true, toSheet: false, fromSheet: false } })}

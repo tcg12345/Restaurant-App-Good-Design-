@@ -197,7 +197,7 @@ export function TastePreferencesForm({
                   <label className="sr-only" htmlFor={`taste-search-${key}`}>
                     Search cuisines
                   </label>
-                  <input
+                  <input data-search-input="standalone"
                     id={`taste-search-${key}`}
                     type="search"
                     placeholder="Search cuisines"

@@ -1,7 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import { pendingTasteQuestions, TASTE_QUESTION_ORDER } from './onboarding-progress';
+import { accountSetupSteps, pendingTasteQuestions, TASTE_QUESTION_ORDER } from './onboarding-progress';
 
 describe('onboarding account handoff', () => {
+  it('ends iOS setup with notifications even when all taste questions were answered or skipped', () => {
+    expect(accountSetupSteps({ completedSteps: [...TASTE_QUESTION_ORDER] }, true, true)).toEqual(['handle', 'notifications']);
+    expect(accountSetupSteps(null, false, true)).toEqual(['handle', ...TASTE_QUESTION_ORDER, 'notifications']);
+  });
+  it('does not offer unsupported push permissions in browser onboarding', () => {
+    expect(accountSetupSteps(null, false, false)).not.toContain('notifications');
+  });
   it('does not include the removed eating-preferences page in either signup path', () => {
     expect(TASTE_QUESTION_ORDER).toEqual(['goal', 'city', 'cuisines', 'prices', 'atmosphere']);
     expect(pendingTasteQuestions({ dietary: ['vegan'] })).not.toContain('dietary');

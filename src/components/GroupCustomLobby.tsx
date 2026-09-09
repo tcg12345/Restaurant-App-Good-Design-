@@ -46,7 +46,7 @@ export const GroupRestaurantPicker: React.FC<{ room: GroupRoom; userId: string; 
   const full = room.deck.length >= 15 || (room.host !== userId && (!room.allowGuestAdds || count >= 2));
   return <dialog ref={dialog} className="gs-custom-picker" aria-labelledby="gs-custom-search-title" onCancel={onClose} onClick={e => { if (e.target === dialog.current) onClose(); }}>
     <section><header><div><h2 id="gs-custom-search-title">Add a restaurant</h2><p>{room.host === userId ? `${room.deck.length} of 15 places in your shortlist` : `${count} of 2 suggestions added`}</p></div><button aria-label="Close restaurant search" onClick={onClose}><X size={20} /></button></header>
-      <div className="gs-custom-search"><Search size={18} /><input autoFocus aria-label="Search restaurants for your shortlist" placeholder="Restaurant name or city" value={query} onChange={e => setQuery(e.target.value)} autoComplete="off" autoCorrect="off" />{query && <button aria-label="Clear restaurant search" onClick={() => setQuery('')}><X size={16} /></button>}</div>
+      <div data-search-field className="gs-custom-search"><Search size={18} /><input data-search-input="embedded" autoFocus aria-label="Search restaurants for your shortlist" placeholder="Restaurant name or city" value={query} onChange={e => setQuery(e.target.value)} autoComplete="off" autoCorrect="off" />{query && <button aria-label="Clear restaurant search" onClick={() => setQuery('')}><X size={16} /></button>}</div>
       {error && <p className="gs-custom-search-error" role="alert">{error}</p>}
       <div className="gs-custom-search-results" aria-busy={searching}>
         {searching ? <p className="gs-custom-empty" role="status"><Loader2 size={20} className="gs-spin" />Finding restaurants…</p> : results.map(p => {

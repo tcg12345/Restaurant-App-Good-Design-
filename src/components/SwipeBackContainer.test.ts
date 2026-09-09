@@ -5,7 +5,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { SwipeBackContainer } from './SwipeBackContainer';
 import { pushOverlay } from '../lib/overlay-registry';
 import type { BackGestureDirection } from '../lib/back-gesture';
-vi.mock('../lib/glass-buttons', () => ({ holdGlass: vi.fn(), releaseGlass: vi.fn() }));
+vi.mock('../lib/glass-buttons', () => ({ holdGlass: vi.fn(), releaseGlass: vi.fn(), copyGlassToPreview: vi.fn(), wakeGlassButtons: vi.fn(), flushGlassButtons: vi.fn(async () => {}) }));
 vi.mock('../lib/page-scroll', () => ({ getPrimaryScroller: () => null, setPageScroll: vi.fn() }));
 let host: HTMLDivElement, root: Root;
 let back: ReturnType<typeof vi.fn>, lock: ReturnType<typeof vi.fn>;
@@ -92,4 +92,54 @@ it('dismisses a deliberately lowered sheet without needing a fast flick', async 
     vi.advanceTimersByTime(20); touch(target,'touchend',150,270,400); vi.advanceTimersByTime(500);
   });
   expect(back).toHaveBeenCalledOnce();
+});
+it.each(['right','left','down'] as const)('retires the %s outgoing edge before a delayed route handoff', async direction => {
+  await mount(direction);
+  const points: [number,number][] = direction === 'right' ? [[70,100],[90,100],[280,100]] : direction === 'left' ? [[330,100],[310,100],[100,100]] : [[150,100],[150,120],[150,430]];
+  await swipe(host.querySelector('main')!, points);
+  // onBack intentionally does not mount a destination: this is the handoff
+  // waiting period where the old blur used to sit over the screen edge.
+  expect(back).toHaveBeenCalledOnce();
+  const front = host.querySelector<HTMLElement>('[data-swipe-front]')!;
+  const shadow = host.querySelector<HTMLElement>('[data-swipe-shadow]')!;
+  expect(front.style.boxShadow).toBe('');
+  expect(front.style.visibility).toBe('hidden');
+  expect(shadow.style.opacity).toBe('0');
+  expect(front.style.transform).toBe(direction === 'down' ? 'translateY(800px)' : `translateX(${direction === 'left' ? -400 : 400}px)`);
+});
+it('removes the edge layer when a drag is cancelled', async () => {
+  await mount();
+  await swipe(host.querySelector('main')!, [[70,100],[90,100],[280,100]], true);
+  expect(host.querySelector<HTMLElement>('[data-swipe-shadow]')!.style.opacity).toBe('0');
+  expect(host.querySelector<HTMLElement>('[data-swipe-front]')!.style.visibility).toBe('hidden');
+  expect(back).not.toHaveBeenCalled();
+});
+
+it.each([true, false])('retains native tab geometry before leaving a snapshotable=%s page', async snapshotable => {
+  const render = (key: number, visible: boolean) => React.createElement(React.Fragment, null,
+    React.createElement(SwipeBackContainer, {
+      enabled: true, direction: 'right', navKey: key, locationKey: String(key), snapshotable,
+      revealSnapshotKey: key === 102 ? 101 : null, backIsPop: true, onBack: back, onLockTransition: lock,
+      children: React.createElement('main', { 'data-route-stack': visible ? '/pantry' : '/recipe/one' }, 'Page'),
+    }),
+    React.createElement('div', { 'data-bottom-nav': visible ? '' : undefined },
+      React.createElement('div', { 'data-native-tab-source': '', 'data-active-tab': '/pantry', style: { visibility: visible ? 'visible' : 'hidden' } })),
+  );
+  await act(async () => root.render(render(101, true)));
+  await act(async () => root.render(render(102, false)));
+  await act(async () => vi.advanceTimersByTime(450));
+  const preview = host.querySelector<HTMLElement>('[data-swipe-reveal] [data-native-tab-preview]')!;
+  expect(preview?.dataset.activeTab).toBe('/pantry');
+  expect(preview.style.visibility).toBe('visible');
+  expect(preview.closest('[data-bottom-nav]')).toBeNull();
+  await act(async () => {
+    const target = host.querySelector('[data-swipe-page] main')!;
+    touch(target, 'touchstart', 70, 100, 1);
+    touch(target, 'touchmove', 90, 100, 30);
+    touch(target, 'touchmove', 210, 100, 80);
+    vi.advanceTimersByTime(20);
+  });
+  expect(host.querySelector<HTMLElement>('[data-swipe-reveal]')!.style.visibility).toBe('visible');
+  expect(back).not.toHaveBeenCalled();
+  expect(host.querySelector('[data-swipe-front] [data-native-tab-preview]')).toBeNull();
 });

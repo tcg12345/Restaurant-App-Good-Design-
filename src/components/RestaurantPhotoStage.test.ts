@@ -38,6 +38,17 @@ beforeEach(() => {
 });
 afterEach(async () => { await act(async () => root.unmount()); container.remove(); expect(isOverlayOpen()).toBe(false); expect(document.body.style.position).toBe(''); });
 describe('restaurant photo reveal', () => {
+  it('prepares the selected image before a pull and keeps it mounted across reveals', async () => {
+    await mount();
+    const image = container.querySelector('.rps-photo-full img');
+    expect(image).not.toBeNull();
+    expect(container.querySelector('.rps-gallery')?.hasAttribute('inert')).toBe(true);
+    await click('.rps-handle');
+    expect(container.querySelector('.rps-photo-full img')).toBe(image);
+    await click('[aria-label="Return to restaurant details"]');
+    expect(container.querySelector('.rps-photo-full img')).toBe(image);
+    expect(container.querySelector('.rps-gallery')?.hasAttribute('inert')).toBe(true);
+  });
   it('owns a long downward pull without shrinking the presenter or refreshing', async () => {
     const refresh = vi.fn(), presenter = vi.fn();
     const release = subscribePresenterOverlay(presenter);

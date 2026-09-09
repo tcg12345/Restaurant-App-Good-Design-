@@ -1,3 +1,4 @@
+import { HOME_REELS_EXPERIMENT } from './home-reels-experiment';
 import { KEEP_ALIVE_PATHS } from './keep-alive';
 
 /** Back follows the entry that actually presented a page. Logical parents
@@ -72,7 +73,7 @@ export function logicalParent(pathname: string, search: string): string | null {
  * via the nav bar, never by swiping "back" into whichever tab history holds) —
  * unless the current URL is really a sub-view of the tab (e.g. /pantry?list=x).
  */
-const TAB_ROOT_PATHS = new Set<string>([...KEEP_ALIVE_PATHS, '/search', '/map', '/reels']);
+const TAB_ROOT_PATHS = new Set<string>([...KEEP_ALIVE_PATHS, '/search', '/map', HOME_REELS_EXPERIMENT ? '/messages' : '/reels']);
 
 export function isTabRootLocation(pathname: string, search: string): boolean {
   return TAB_ROOT_PATHS.has(pathname) && logicalParent(pathname, search) === null;

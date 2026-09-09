@@ -397,7 +397,7 @@ const StepBasics: React.FC<{
             </button>
           )}
         </div>
-        <input
+        <input data-search-input="standalone"
           value={tagQ}
           onChange={(e) => setTagQ(e.target.value)}
           onKeyDown={(e) => {

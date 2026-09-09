@@ -197,9 +197,9 @@ export const FilterOptionList: React.FC<{
   return (
     <div className="fs-optionlist">
       {searchable && (
-        <div className="fs-page-search">
+        <div data-search-field className="fs-page-search">
           <Search />
-          <input
+          <input data-search-input="embedded"
             type="text"
             placeholder={searchPlaceholder}
             aria-label={searchPlaceholder}

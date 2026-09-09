@@ -47,7 +47,7 @@ export const LocationPickerSurface: React.FC<{
       transition={{ duration: reduced ? 0 : .24, ease: [.22, 1, .36, 1] }} dragMomentum={false} dragTransition={{ bounceStiffness: 370, bounceDamping: 38 }}>
       <div className="location-picker-grabber" aria-hidden="true"><span /></div>
       <header className="location-picker-header"><h2 id="location-picker-title">Choose location</h2><button ref={closeButton} aria-label="Close location picker" onClick={onClose}><X size={21} /></button></header>
-      <div className="location-picker-search-wrap"><label className="location-picker-search"><Search size={19} /><input type="search" aria-label="Search locations" placeholder="City, neighborhood or address" value={query} onChange={event => onQueryChange(event.target.value)} autoComplete="off" spellCheck={false} />{query && <button aria-label="Clear location search" onClick={() => onQueryChange('')}><X size={17} /></button>}</label></div>
+      <div className="location-picker-search-wrap"><label data-search-field className="location-picker-search"><Search size={19} /><input data-search-input="embedded" type="search" aria-label="Search locations" placeholder="City, neighborhood or address" value={query} onChange={event => onQueryChange(event.target.value)} autoComplete="off" spellCheck={false} />{query && <button aria-label="Clear location search" onClick={() => onQueryChange('')}><X size={17} /></button>}</label></div>
       <div ref={scroll} className="location-picker-content">{children}</div>
     </motion.div>
   </motion.div>;

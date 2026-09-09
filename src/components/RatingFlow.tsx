@@ -67,10 +67,10 @@ export const RatingFlow: React.FC = () => <RatingFlowSheet state={useLists()} />
 
 /** Shared editor separated from its store so every entry path can be exercised in isolation. */
 export const RatingFlowSheet: React.FC<{ state: Pick<ReturnType<typeof useLists>,
-  'addRestaurantModalOpen' | 'addRestaurantModalMeta' | 'addRestaurantModalInitialPage' | 'closeAddRestaurantModal' |
+  'addRestaurantModalOpen' | 'addRestaurantModalMeta' | 'addRestaurantModalInitialPage' | 'addRestaurantModalVisitDate' | 'closeAddRestaurantModal' |
   'rateRestaurant' | 'getRating' | 'removeRating' | 'ratings' | 'getRestaurantInfo' | 'scoresUnlocked'> }> = ({ state }) => {
   const {
-    addRestaurantModalOpen, addRestaurantModalMeta, addRestaurantModalInitialPage, closeAddRestaurantModal,
+    addRestaurantModalOpen, addRestaurantModalMeta, addRestaurantModalInitialPage, addRestaurantModalVisitDate, closeAddRestaurantModal,
     rateRestaurant, getRating, removeRating, ratings, getRestaurantInfo, scoresUnlocked,
   } = state;
   const { submitting: saving, tryLock, release } = useSubmitOnce(addRestaurantModalOpen);
@@ -201,7 +201,7 @@ export const RatingFlowSheet: React.FC<{ state: Pick<ReturnType<typeof useLists>
     setDishDraft('');
     setPriceIndex(prior?.price ? PRICE_RANGES.findIndex((r) => r.signs === prior.price) : -1);
     setPriceAmount('');
-    setVisitDate(asNewVisit ? localISODate() : (prior?.visitDate || localISODate()));
+    setVisitDate(addRestaurantModalVisitDate || (asNewVisit ? localISODate() : (prior?.visitDate || localISODate())));
     setTags(asNewVisit ? [] : (prior?.tags ?? []));
     setTagQuery('');
     setPhotos(asNewVisit ? [] : (prior?.photos ?? []));
@@ -980,7 +980,7 @@ export const RatingFlowSheet: React.FC<{ state: Pick<ReturnType<typeof useLists>
 
               {editor === 'tags' && (
                 <div className="rf-pop flex-1 min-h-0 flex flex-col gap-2.5">
-                  <input
+                  <input data-search-input="standalone"
                     type="text" value={tagQuery} onChange={(e) => setTagQuery(e.target.value)}
                     placeholder="Search tags…" aria-label="Search tags" className="rf-field flex-shrink-0"
                   />

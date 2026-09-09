@@ -136,7 +136,7 @@ export const GuidesBrowser: React.FC<GuidesBrowserProps> = ({ open, onClose, cit
     <div className="px-5 pt-3 pb-2 flex-shrink-0 space-y-3 border-b border-on-surface/6">
       <div className="relative">
         <Search size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-on-surface/40" />
-        <input
+        <input data-search-input="standalone"
           ref={inputRef}
           type="text"
           value={query}
