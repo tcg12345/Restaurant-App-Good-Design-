@@ -1,4 +1,5 @@
 import { DeleteConfirmation } from './DeleteConfirmation';
+import { comparisonDraft, stampComparisonStep, type PreferenceDraft } from '../lib/ranking-evidence';
 /** A continuous rating sheet: choose a feeling, place it on your list, add optional visit details. */
 import React, { useLayoutEffect, useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
@@ -132,6 +133,7 @@ export const RatingFlowSheet: React.FC<{ state: Pick<ReturnType<typeof useLists>
 
   // ── The score, and how it was reached ──
   const [h2h, setH2h] = useState<H2HState | null>(null);
+  const preferenceDraft = useRef<PreferenceDraft | undefined>(undefined);
   const [method, setMethod] = useState<'h2h' | 'slider' | null>(null);
   const [score, setScore] = useState(0);
   const [settled, setSettled] = useState(0);
@@ -193,6 +195,7 @@ export const RatingFlowSheet: React.FC<{ state: Pick<ReturnType<typeof useLists>
     setEditor(prior && !asNewVisit && requestedEditor ? requestedEditor : null);
     setEdVisited(!!requestedEditor);
     setH2h(null);
+    preferenceDraft.current = undefined;
     setPick(null);
     setTieBreak(false);
     setConfirmDelete(false);
@@ -286,7 +289,8 @@ export const RatingFlowSheet: React.FC<{ state: Pick<ReturnType<typeof useLists>
   }, [restaurant, ratings, existing?.score, resolvedCuisine, resolvedPrice]);
 
   // ── Reveal: the number counts up once the card has finished growing ──
-  const runReveal = useCallback((raw: number, placement: string[] | null, how: 'h2h' | 'slider') => {
+  const runReveal = useCallback((raw: number, placement: string[] | null, how: 'h2h' | 'slider', evidence?: PreferenceDraft) => {
+    preferenceDraft.current = evidence ?? { source: how, comparisons: [] };
     const shown = previewSettled(raw, placement);
     setScore(raw);
     setSettled(shown);
@@ -313,6 +317,7 @@ export const RatingFlowSheet: React.FC<{ state: Pick<ReturnType<typeof useLists>
   // ── Head-to-head ──────────────────────────────────────────────────
   const startBand = (tier: Tier) => {
     if (!restaurant) return;
+    preferenceDraft.current = undefined;
     homeHaptic(); cancelPending();
     const fresh = initH2H(ratings, tier, restaurant.id, { ...restaurant, tags }, getRestaurantInfo);
     // An empty band has nothing to compare against — the engine can score it
@@ -339,6 +344,7 @@ export const RatingFlowSheet: React.FC<{ state: Pick<ReturnType<typeof useLists>
   /** Advance the search once the answer has registered. */
   const resolve = (next: H2HState, chose: 'new' | 'old' | 'tie') => {
     if (pickLocked.current || !restaurant) return;
+    next = stampComparisonStep(next);
     pickLocked.current = true; homeHaptic();
     setPick(chose);
     pickTimer.current = window.setTimeout(() => {
@@ -352,10 +358,10 @@ export const RatingFlowSheet: React.FC<{ state: Pick<ReturnType<typeof useLists>
           // refines the ORDER, so it saves straight through and the rating
           // stays slider-made.
           setTieBreak(false);
-          persist(raw, placement, 'slider');
+          persist(raw, placement, 'slider', comparisonDraft(restaurant.id, 'slider', next.history));
           return;
         }
-        runReveal(raw, placement, 'h2h');
+        runReveal(raw, placement, 'h2h', comparisonDraft(restaurant.id, 'h2h', next.history));
       } else {
         setH2h(next);
       }
@@ -403,7 +409,7 @@ export const RatingFlowSheet: React.FC<{ state: Pick<ReturnType<typeof useLists>
   };
 
   // ── Save ──────────────────────────────────────────────────────────
-  const persist = (finalScore: number, placement: string[] | null, how: 'h2h' | 'slider' | null) => {
+  const persist = (finalScore: number, placement: string[] | null, how: 'h2h' | 'slider' | null, evidence?: PreferenceDraft) => {
     if (!restaurant || !tryLock()) return;
     try {
     rateRestaurant(
@@ -419,7 +425,8 @@ export const RatingFlowSheet: React.FC<{ state: Pick<ReturnType<typeof useLists>
         listIds: existing?.listIds ?? [], friendIds: existing?.friendIds ?? [], createdAt: Date.now(),
         ratingMethod: how ?? existing?.ratingMethod,
       },
-      { isNewVisit: newVisit, settleOrder: placement ?? undefined, shareToFeed: share, silent: true },
+      { isNewVisit: newVisit, settleOrder: placement ?? undefined, shareToFeed: share, silent: true,
+        ...(how ? { preference: evidence ?? preferenceDraft.current } : {}) },
     );
     const actual = previewSettled(finalScore, placement);
     setSettled(actual); setDisplay(actual); homeHaptic();

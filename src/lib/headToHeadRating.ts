@@ -84,6 +84,8 @@ export const LOCATION_EARLY_BIAS = 0.6;
 const EPS = 1e-9;
 
 export interface H2HStep {
+  /** UI observation timestamp; ignored by scoring and placement. */
+  answeredAt?: number;
   kind: 'choice' | 'tie' | 'skip';
   pickedNew?: boolean;
   comparisonId: string;

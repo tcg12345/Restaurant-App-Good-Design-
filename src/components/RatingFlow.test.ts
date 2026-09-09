@@ -15,9 +15,9 @@ vi.mock('motion/react', async original => ({ ...await original<object>(), useRed
 const prior = { restaurantId: 'kalaya', name: 'Kalaya', image: '', cuisine: 'Thai', price: '$$$', address: '4 W Palmer St', score: 8.8, notes: 'Keep this note.', favoriteDishes: ['Dumplings'], visitDate: '2026-08-15', wouldReturn: true, tags: ['Great Service'], photos: [], listIds: ['dinners'], friendIds: ['friend'], createdAt: 1 };
 const save = vi.fn();
 let root: Root, container: HTMLDivElement, visual: EventTarget & { width: number; height: number; offsetLeft: number; offsetTop: number };
-function Preview({ page, visitDate }: { page?: string; visitDate?: string }) {
+function Preview({ page, visitDate, extraRatings = [] }: { page?: string; visitDate?: string; extraRatings?: typeof prior[] }) {
   const [open, setOpen] = useState(true);
-  return React.createElement(RatingFlowSheet, { state: { addRestaurantModalOpen: open, addRestaurantModalMeta: { ...prior, id: prior.restaurantId }, addRestaurantModalInitialPage: page, addRestaurantModalVisitDate: visitDate, closeAddRestaurantModal: () => setOpen(false), getRating: () => prior, ratings: [prior], getRestaurantInfo: () => prior, scoresUnlocked: true, rateRestaurant: save, removeRating: vi.fn() } as any });
+  return React.createElement(RatingFlowSheet, { state: { addRestaurantModalOpen: open, addRestaurantModalMeta: { ...prior, id: prior.restaurantId }, addRestaurantModalInitialPage: page, addRestaurantModalVisitDate: visitDate, closeAddRestaurantModal: () => setOpen(false), getRating: () => prior, ratings: [prior, ...extraRatings], getRestaurantInfo: () => prior, scoresUnlocked: true, rateRestaurant: save, removeRating: vi.fn() } as any });
 }
 beforeEach(() => {
   (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
@@ -49,6 +49,35 @@ it('opens existing rating details and preserves the score and visit data when sa
   await mount(); expect(document.querySelector('.rf-stage-details')).not.toBeNull();
   await act(async () => document.querySelector<HTMLButtonElement>('.rf-cta')!.click());
   expect(save).toHaveBeenCalledWith(expect.objectContaining({ score: 8.8, notes: prior.notes, favoriteDishes: prior.favoriteDishes, listIds: prior.listIds, friendIds: prior.friendIds, visitDate: prior.visitDate }), expect.objectContaining({ isNewVisit: false }));
+  expect(save.mock.calls[0][1].preference).toBeUndefined();
+  await act(async () => { await new Promise(resolve => setTimeout(resolve, 20)); });
+});
+
+it.each([['preferred', null], ['tie', 'Too close to call'], ['skip', 'Skip']] as const)('saves the actual %s H2H observation with both IDs and its answer time', async (outcome, label) => {
+  await act(async () => root.render(React.createElement(Preview, { page: 'rate', extraRatings: [{ ...prior, restaurantId: 'rival', name: 'Rival', score: 8 }] })));
+  await act(async () => document.querySelector<HTMLButtonElement>('.rf-gut-btn')!.click());
+  expect(document.querySelector('.rf-pair')).not.toBeNull();
+  const before = Date.now();
+  if (label) await click(label);
+  else await act(async () => document.querySelector<HTMLButtonElement>('.rf-comp-btn')!.click());
+  await act(async () => { await new Promise(resolve => setTimeout(resolve, 230)); });
+  expect(save).not.toHaveBeenCalled(); // comparison drafts alone never publish
+  await act(async () => document.querySelector<HTMLButtonElement>('.rf-cta')!.click());
+  const evidence = save.mock.calls[0][1].preference;
+  expect(evidence.source).toBe('h2h'); expect(evidence.comparisons).toHaveLength(1);
+  expect(evidence.comparisons[0]).toMatchObject({ restaurantId: 'kalaya', comparisonId: 'rival', outcome });
+  expect(evidence.comparisons[0].answeredAt).toBeGreaterThanOrEqual(before);
+  await act(async () => { await new Promise(resolve => setTimeout(resolve, 20)); });
+});
+
+it('does not carry H2H answers into a replacement slider rating', async () => {
+  await act(async () => root.render(React.createElement(Preview, { page: 'rate', extraRatings: [{ ...prior, restaurantId: 'rival', name: 'Rival', score: 8 }] })));
+  await act(async () => document.querySelector<HTMLButtonElement>('.rf-gut-btn')!.click());
+  await click('Too close to call');
+  await act(async () => { await new Promise(resolve => setTimeout(resolve, 230)); });
+  await click('Re-rank'); await click('Set a score instead'); await click('Continue');
+  await act(async () => document.querySelector<HTMLButtonElement>('.rf-cta')!.click());
+  expect(save.mock.calls[0][1].preference).toEqual({ source: 'slider', comparisons: [] });
   await act(async () => { await new Promise(resolve => setTimeout(resolve, 20)); });
 });
 it.each(['notes', 'photos'])('opens the requested %s editor directly', async page => {

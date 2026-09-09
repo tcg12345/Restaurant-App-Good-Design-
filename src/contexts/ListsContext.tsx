@@ -38,6 +38,8 @@ import { applySettleChanges, settleScores, type SettleChange } from '../lib/sett
 import { applyRatingSave } from '../lib/applyRatingSave';
 import { SCORE_UNLOCK_THRESHOLD, scoresUnlocked, rankAmong } from '../lib/scoreUnlock';
 import { invalidateTasteBenchmarks } from '../lib/supabase-taste';
+import { savedRankingOrder, type PreferenceDraft } from '../lib/ranking-evidence';
+import { recordRankingEvidence, watchRankingEvidence } from '../lib/supabase-ranking-evidence';
 
 /* ── Types ── */
 
@@ -466,12 +468,12 @@ interface ListsContextValue {
    *  of a head-to-head — it carries the search's exact placement through the
    *  settle pass, so a score collision with a bracketing neighbor can't
    *  invert the order the user just decided. */
-  rateRestaurant: (rating: RestaurantRating, options?: { isNewVisit?: boolean; settleOrder?: string[]; skipSettle?: boolean; shareToFeed?: boolean; silent?: boolean }) => void;
+  rateRestaurant: (rating: RestaurantRating, options?: { isNewVisit?: boolean; settleOrder?: string[]; skipSettle?: boolean; shareToFeed?: boolean; silent?: boolean; preference?: PreferenceDraft }) => void;
   updateRating: (restaurantId: string, rating: Partial<RestaurantRating>) => void;
   /** Apply a batch of settle-engine score changes in one persist/sync pass
    *  (the Reorder page's save). Each changed row is republished to the
    *  community feed (signed-in users only). */
-  applySettledScores: (changes: SettleChange[]) => void;
+  applySettledScores: (changes: SettleChange[], preference?: { source: 'manual-reorder'; explicitOrder: string[] }) => void;
   removeRating: (restaurantId: string) => void;
   getRating: (restaurantId: string) => RestaurantRating | undefined;
   /** Delete a single visit from the history timeline. If the visit
@@ -1152,6 +1154,12 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   // truth after React processes the queue.
   const ratingsRef = useRef(ratings);
   ratingsRef.current = ratings;
+  useEffect(() => {
+    // Wait for this account's ratings before taking an inferred baseline.
+    if (userId && !cloudSyncReady) return;
+    if (!userId) return; // Guest actions record locally; never copy a signed-out account's baseline.
+    return watchRankingEvidence(userId, () => cloudReadyRef.current && userIdRef.current === userId ? ratingsRef.current : []);
+  }, [userId, cloudSyncReady]);
   const wishlistRef = useRef(wishlist);
   wishlistRef.current = wishlist;
   // Same always-fresh mirror for restaurantMeta — commitMeta (below) computes
@@ -2681,7 +2689,7 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     removeCommunityPhotos(uid, restaurantId);
   }, []);
 
-  const rateRestaurant = useCallback((rating: RestaurantRating, options?: { isNewVisit?: boolean; settleOrder?: string[]; skipSettle?: boolean; shareToFeed?: boolean; silent?: boolean }) => {
+  const rateRestaurant = useCallback((rating: RestaurantRating, options?: { isNewVisit?: boolean; settleOrder?: string[]; skipSettle?: boolean; shareToFeed?: boolean; silent?: boolean; preference?: PreferenceDraft }) => {
     // When `isNewVisit` is true the caller is logging a brand-new
     // visit on top of an existing rating, and the previously-current
     // record needs to be pushed into visit history. When it's false
@@ -2763,6 +2771,15 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     setRatings(next);
     saveToStorage(STORAGE_KEY_RATINGS, next);
     syncRatingsToCloud(next);
+    // A notes/photos edit is not a fresh preference. Comparisons and order
+    // are recorded after the ordinary score calculation, never fed into it.
+    if (!existingForArchive || existingForArchive.score !== rating.score || options?.preference) {
+      recordRankingEvidence(userIdRef.current, next, {
+        kind: 'rating', source: options?.preference?.source ?? rating.ratingMethod ?? 'legacy',
+        subjectIds: [rating.restaurantId], comparisons: options?.preference?.comparisons ?? [],
+        explicitOrder: options?.settleOrder,
+      });
+    }
     // Update lists to include this restaurant in selected lists
     if (rating.listIds && rating.listIds.length > 0) {
       setLists((prev) => {
@@ -2917,13 +2934,16 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     setRatings(next);
     saveToStorage(STORAGE_KEY_RATINGS, next);
     syncRatingsToCloud(next);
+    if (partial.score !== undefined && prev.some(r => r.restaurantId === restaurantId && r.score !== partial.score)) {
+      recordRankingEvidence(userIdRef.current, next, { kind: 'rating', source: 'score-edit', subjectIds: [restaurantId] });
+    }
     // Keep the community copy in step — without this, reorder/edit paths
     // left profiles showing the stale pre-edit score until next boot.
     const row = next.find((r) => r.restaurantId === restaurantId);
     if (row && userIdRef.current) publishRatingRow(userIdRef.current, row);
   }, [syncRatingsToCloud, publishRatingRow]);
 
-  const applySettledScores = useCallback((changes: SettleChange[]) => {
+  const applySettledScores = useCallback((changes: SettleChange[], preference?: { source: 'manual-reorder'; explicitOrder: string[] }) => {
     if (changes.length === 0) return;
     const prev = ratingsRef.current;
     // Drop no-ops so a save with nothing to do stays a no-op end to end.
@@ -2940,6 +2960,14 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     setRatings(next);
     saveToStorage(STORAGE_KEY_RATINGS, next);
     syncRatingsToCloud(next);
+    const beforeOrder = savedRankingOrder(prev), afterOrder = savedRankingOrder(next);
+    const moved = afterOrder.filter((id, i) => id !== beforeOrder[i]);
+    if (moved.length > 0) {
+      recordRankingEvidence(userIdRef.current, next, {
+        kind: 'reorder', source: preference?.source ?? 'system',
+        subjectIds: preference ? moved : [], explicitOrder: preference?.explicitOrder,
+      });
+    }
     const uid = userIdRef.current;
     if (uid) {
       for (const c of real) {
@@ -2970,6 +2998,7 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     if (removed && removed.score > 0 && afterRemoval.length > 0) {
       applySettledScores(settleScores(afterRemoval, { previousScore: removed.score }));
     }
+    if (removed) recordRankingEvidence(userIdRef.current, ratingsRef.current, { kind: 'delete', source: 'score-edit', subjectIds: [restaurantId] });
     // A deleted rating must also leave every list it was in — otherwise the
     // list keeps a dangling id that the reconciliation renders as an empty
     // "Location unavailable" card after reload.
@@ -3143,6 +3172,7 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         setRatings(next);
         saveToStorage(STORAGE_KEY_RATINGS, next);
         syncRatingsToCloud(next);
+        recordRankingEvidence(userIdRef.current, next, { kind: 'rating', source: 'score-edit', subjectIds: [restaurantId] });
         // Keep the community-published row in sync with the promoted data
         // (publishRatingRow carries the rating method, stamps the delta-sync
         // signature, and holds below the score-unlock threshold).

@@ -206,7 +206,9 @@ export const ReorderRatings: React.FC = () => {
       }
     }
     for (const c of settled) byId.set(c.restaurantId, c.score);
-    applySettledScores([...byId.entries()].map(([restaurantId, score]) => ({ restaurantId, score })));
+    applySettledScores([...byId.entries()].map(([restaurantId, score]) => ({ restaurantId, score })), {
+      source: 'manual-reorder', explicitOrder: items.map(item => item.restaurantId),
+    });
     goBack();
   }, [items, ratings, applySettledScores, navigate]);
 
