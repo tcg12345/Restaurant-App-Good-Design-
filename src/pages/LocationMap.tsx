@@ -1,3 +1,4 @@
+import { PageSkeleton } from '../components/PageSkeleton';
 import { usePageBack } from '../lib/usePageBack';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
@@ -188,6 +189,8 @@ export const LocationMap: React.FC = () => {
 
   const [places, setPlaces] = useState<PlaceResult[]>([]);
   const [hydrating, setHydrating] = useState(true);
+  const [loadError, setLoadError] = useState(false);
+  const [retryToken, setRetryToken] = useState(0);
 
   // In-page filters — same semantics as /location's sticky bar: cuisine
   // matches when any of the place's Google types is selected; price
@@ -244,17 +247,21 @@ export const LocationMap: React.FC = () => {
   // Hydrate from cache, then run a fallback fetch only when nothing's
   // there. This keeps the common "open list → tap map" flow cost-free.
   useEffect(() => {
+    setLoadError(false);
     if (!hasCoords || !cacheKey) {
+      setPlaces([]);
       setHydrating(false);
       return;
     }
     let cancelled = false;
+    const abort = new AbortController();
     const cached = readCachedCity(cacheKey);
     if (cached && cached.placesPool.length > 0) {
       setPlaces(cached.placesPool);
       setHydrating(false);
       return;
     }
+    setPlaces([]);
     setHydrating(true);
     (async () => {
       // Fallback fetch — three generic queries to seed the map. We
@@ -266,17 +273,18 @@ export const LocationMap: React.FC = () => {
         `popular restaurants in ${cityKey || 'the area'}`,
         'best restaurants',
       ];
-      const results = await Promise.all(
+      const outcomes = await Promise.allSettled(
         queries.map((q) =>
           searchPlacesByTextPaged(q, {
             lat,
             lng,
             radiusMeters: 12875,
-            useRestriction: true,
-          }).catch(() => ({ places: [], nextPageToken: null as string | null })),
+            useRestriction: true, signal: abort.signal,
+          }),
         ),
       );
       if (cancelled) return;
+      const results = outcomes.flatMap(outcome => outcome.status === 'fulfilled' ? [outcome.value] : []);
       const merged: PlaceResult[] = [];
       const seen = new Set<string>();
       for (const r of results) {
@@ -286,6 +294,7 @@ export const LocationMap: React.FC = () => {
           merged.push(p);
         }
       }
+      setLoadError(merged.length === 0 && outcomes.some(outcome => outcome.status === 'rejected'));
       setPlaces(merged);
       setHydrating(false);
       // Persist into the shared cache so the list view's next read
@@ -300,8 +309,8 @@ export const LocationMap: React.FC = () => {
         });
       }
     })();
-    return () => { cancelled = true; };
-  }, [hasCoords, cacheKey, lat, lng, cityKey]);
+    return () => { cancelled = true; abort.abort(); };
+  }, [hasCoords, cacheKey, lat, lng, cityKey, retryToken]);
 
   // Mapbox initialisation. The map fills its pane (full viewport on
   // mobile; the right pane next to the list panel on desktop). Bounds
@@ -874,10 +883,7 @@ export const LocationMap: React.FC = () => {
 
           <div className="flex-1 overflow-y-auto overscroll-contain">
             {hydrating && places.length === 0 ? (
-              <div className="flex items-center justify-center gap-2 py-16 text-on-surface/50 text-sm font-medium">
-                <Loader2 size={15} className="animate-spin" />
-                Finding restaurants…
-              </div>
+              <PageSkeleton variant="list" compact />
             ) : sortedPlaces.length === 0 ? (
               <div className="px-6 py-16 text-center text-on-surface/45 text-sm">
                 {filtersActive && places.length > 0 ? (
@@ -892,7 +898,9 @@ export const LocationMap: React.FC = () => {
                     </button>
                   </>
                 ) : (
-                  <>No restaurants in {cityDisplay} yet.</>
+                  <>{loadError ? "Couldn't load restaurants. Check your connection." : `No restaurants in ${cityDisplay} yet.`}
+                    {loadError && <button type="button" className="block mx-auto mt-3 min-h-11 px-4 rounded-full bg-primary text-on-primary font-semibold" onClick={() => setRetryToken(t => t + 1)}>Retry</button>}
+                  </>
                 )}
               </div>
             ) : (
@@ -964,7 +972,7 @@ export const LocationMap: React.FC = () => {
         <div className="relative flex-1 h-full min-w-0">
           <div ref={containerRef} className="absolute inset-0" style={{ position: 'absolute', inset: 0 }} />
           {hydrating && places.length === 0 && (
-            <div className="absolute top-5 left-1/2 -translate-x-1/2 z-10 px-4 py-2 rounded-full bg-white/95 shadow-md flex items-center gap-2 text-on-surface/60 text-xs font-semibold">
+            <div className="absolute top-5 left-1/2 -translate-x-1/2 z-10 px-4 py-2 rounded-full bg-surface shadow-md flex items-center gap-2 text-on-surface/60 text-xs font-semibold">
               <Loader2 size={14} className="animate-spin" />
               Loading restaurants in {cityDisplay}…
             </div>
@@ -1040,14 +1048,15 @@ export const LocationMap: React.FC = () => {
           its own breathing room. We only show this when we genuinely
           have nothing to render so the map's own tiles can dominate. */}
       {hydrating && places.length === 0 && (
-        <div className="absolute top-28 left-1/2 -translate-x-1/2 z-10 px-4 py-2 rounded-full bg-white/95 shadow-md flex items-center gap-2 text-on-surface/60 text-xs font-semibold">
+        <div className="absolute top-28 left-1/2 -translate-x-1/2 z-10 px-4 py-2 rounded-full bg-surface shadow-md flex items-center gap-2 text-on-surface/60 text-xs font-semibold">
           <Loader2 size={14} className="animate-spin" />
           Loading restaurants in {cityDisplay}…
         </div>
       )}
       {!hydrating && places.length === 0 && (
-        <div className="absolute top-28 left-1/2 -translate-x-1/2 z-10 px-4 py-2 rounded-full bg-white/95 shadow-md text-on-surface/60 text-xs font-semibold">
-          No restaurants in {cityDisplay} yet.
+        <div className="absolute top-28 left-1/2 -translate-x-1/2 z-10 px-4 py-2 rounded-full bg-surface shadow-md text-on-surface/60 text-xs font-semibold">
+          {loadError ? "Couldn't load restaurants." : `No restaurants in ${cityDisplay} yet.`}
+          {loadError && <button type="button" className="block mx-auto min-h-11 px-4 font-semibold text-primary" onClick={() => setRetryToken(t => t + 1)}>Retry</button>}
         </div>
       )}
 

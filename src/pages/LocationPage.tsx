@@ -1,3 +1,5 @@
+import { fetchPlaceCursorBatch } from '../lib/location-place-paging';
+import { PageSkeleton } from '../components/PageSkeleton';
 import { PhotoBackground } from '../components/PhotoBackground';
 import { mapStyle } from '../lib/map-theme';
 import { track } from '../lib/analytics';
@@ -731,6 +733,9 @@ export const LocationPage: React.FC = () => {
   // exhausted — that's how a single "$$$$ New York" run now yields
   // hundreds of results instead of the ~20 a single page returns.
   const cursorsRef = useRef<QueryCursor[]>([]);
+  const pagingSession = useRef<AbortController | null>(null);
+  const moreInFlight = useRef<AbortController | null>(null);
+  const [poolScope, setPoolScope] = useState<string | null>(null);
 
   const [initialLoading, setInitialLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -741,6 +746,7 @@ export const LocationPage: React.FC = () => {
   // initial-batch effect.
   const [loadError, setLoadError] = useState(false);
   const [retryToken, setRetryToken] = useState(0);
+  const handledRetry = useRef(0);
   const [exhausted, setExhausted] = useState(false);
 
   // ── Search & filters ──────────────────────────────────────────────────
@@ -834,38 +840,17 @@ export const LocationPage: React.FC = () => {
     [hasCoords, lat, lng, cityKey, selectedPrice],
   );
 
-  const fetchBatch = useCallback(async (batchSize: number): Promise<PlaceResult[]> => {
-    if (!hasCoords) return [];
-    // Pick the first N cursors that still have pages to fetch. Drained
-    // cursors stay in the list so the serialized cache shape stays stable
-    // across reloads; we just skip them here.
-    const candidates: QueryCursor[] = [];
-    for (const c of cursorsRef.current) {
-      if (c.drained) continue;
-      candidates.push(c);
-      if (candidates.length >= batchSize) break;
-    }
-    if (candidates.length === 0) {
-      setExhausted(true);
-      return [];
-    }
+  const browseScope = JSON.stringify([activeCacheKey, currentCuisinesKey, debouncedSearch, userId]);
+  const fetchBatch = useCallback(async (batchSize: number, signal: AbortSignal) => {
+    signal.throwIfAborted();
     const priceLevels = selectedPrice > 0 ? [selectedPrice] : undefined;
-    const results = await Promise.all(
-      candidates.map(async (cur) => {
-        const res = await searchPlacesByTextPaged(cur.query, {
-          lat,
-          lng,
-          radiusMeters,
-          useRestriction: true,
-          priceLevels,
-          pageToken: cur.pageToken,
-        });
-        cur.pageToken = res.nextPageToken || undefined;
-        if (!res.nextPageToken) cur.drained = true;
-        return res.places;
-      }),
-    );
-
+    const batch = await fetchPlaceCursorBatch(cursorsRef.current, batchSize, cur =>
+      searchPlacesByTextPaged(cur.query, {
+        lat, lng, radiusMeters, useRestriction: true, priceLevels, pageToken: cur.pageToken, signal,
+      }), signal);
+    signal.throwIfAborted();
+    cursorsRef.current = batch.cursors;
+    const results = batch.pages;
     const radiusKm = radiusMeters / 1000;
     const fresh: PlaceResult[] = [];
     // Interleave results page-by-page so no single query dominates the
@@ -887,8 +872,9 @@ export const LocationPage: React.FC = () => {
         fresh.push(p);
       }
     }
-    if (cursorsRef.current.every((c) => c.drained)) setExhausted(true);
-    return fresh;
+    setExhausted(batch.exhausted);
+    if (batch.failed) setLoadError(true);
+    return { places: fresh, failed: batch.failed };
   }, [hasCoords, lat, lng, radiusMeters, selectedPrice]);
 
   // Kick off the initial batch whenever the location or search term
@@ -900,9 +886,18 @@ export const LocationPage: React.FC = () => {
   // newly-interesting picks. In search mode the cache is bypassed and
   // the pool is replaced by search-shaped queries.
   useEffect(() => {
+    const forceRetry = handledRetry.current !== retryToken;
+    handledRetry.current = retryToken;
+    const session = new AbortController();
+    pagingSession.current = session;
+    moreInFlight.current = null;
+    setLoadingMore(false);
+    setSearchingHere(false);
+    setPoolScope(browseScope);
     if (!hasCoords || !activeCacheKey) {
       setInitialLoading(false);
-      return;
+      setPlacesPool([]);
+      return () => session.abort();
     }
     let cancelled = false;
     setLoadError(false);
@@ -920,9 +915,9 @@ export const LocationPage: React.FC = () => {
       setInitialLoading(true);
       (async () => {
         try {
-          const fresh = await fetchBatch(INITIAL_BATCH_SIZE);
+          const fresh = await fetchBatch(INITIAL_BATCH_SIZE, session.signal);
           if (cancelled) return;
-          setPlacesPool(fresh);
+          setPlacesPool(prev => [...prev, ...fresh.places]);
         } catch (err) {
           if (cancelled) return;
           console.warn('[Location] search batch failed:', err);
@@ -933,14 +928,14 @@ export const LocationPage: React.FC = () => {
           if (!cancelled) setInitialLoading(false);
         }
       })();
-      return () => { cancelled = true; };
+      return () => { cancelled = true; session.abort(); };
     }
 
     // ── Browse path (cached) ──────────────────────────────────────────
     const cached = readCachedCity(activeCacheKey);
     const sameProfile = cached && cached.cuisinesKey === currentCuisinesKey;
 
-    if (cached && sameProfile) {
+    if (cached && sameProfile && !forceRetry) {
       // Fast path — hydrate straight from cache. No network, no spinner.
       // Cursors come back with whatever pageTokens were in flight when we
       // last wrote the cache, so load-more picks up exactly where it left off.
@@ -951,7 +946,7 @@ export const LocationPage: React.FC = () => {
         : buildQueryPool(cityKey, profile.topCuisines).map((query) => ({ query }));
       setExhausted(cached.exhausted);
       setInitialLoading(false);
-      return;
+      return () => { cancelled = true; session.abort(); };
     }
 
     // Slow path — either no cache, stale cache, or taste profile changed.
@@ -961,14 +956,15 @@ export const LocationPage: React.FC = () => {
     const hadPartialCache = !!cached;
     setPlacesPool(cached?.placesPool ?? []);
     seenIdsRef.current = new Set(cached?.seenIds ?? []);
-    cursorsRef.current = buildQueryPool(cityKey, profile.topCuisines)
-      .map((query) => ({ query }));
+    cursorsRef.current = sameProfile && cached.cursors.length > 0
+      ? cached.cursors.map(cursor => ({ ...cursor }))
+      : buildQueryPool(cityKey, profile.topCuisines).map(query => ({ query }));
     setExhausted(false);
     setInitialLoading(!hadPartialCache);
 
     (async () => {
       try {
-        const fresh = await fetchBatch(INITIAL_BATCH_SIZE);
+        const fresh = await fetchBatch(INITIAL_BATCH_SIZE, session.signal);
         if (cancelled) return;
         // Merge the fresh batch onto whatever we rehydrated from cache so we
         // don't nuke a working list when the fresh call fails or returns
@@ -976,7 +972,7 @@ export const LocationPage: React.FC = () => {
         setPlacesPool((prev) => {
           const byId = new Map<string, PlaceResult>();
           for (const p of prev) byId.set(p.id, p);
-          for (const p of fresh) if (!byId.has(p.id)) byId.set(p.id, p);
+          for (const p of fresh.places) if (!byId.has(p.id)) byId.set(p.id, p);
           return Array.from(byId.values());
         });
       } catch (err) {
@@ -987,10 +983,10 @@ export const LocationPage: React.FC = () => {
         if (!cancelled) setInitialLoading(false);
       }
     })();
-    return () => { cancelled = true; };
+    return () => { cancelled = true; session.abort(); };
     // `fetchBatch` already closes over lat/lng/city so listing it once is enough.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hasCoords, lat, lng, cityKey, activeCacheKey, currentCuisinesKey, debouncedSearch, retryToken]);
+  }, [hasCoords, lat, lng, cityKey, activeCacheKey, currentCuisinesKey, debouncedSearch, retryToken, browseScope]);
 
   // Persist the pool back to cache every time it changes (initial batch,
   // load-more appends, etc.) so the next visit to this city can skip the
@@ -999,7 +995,7 @@ export const LocationPage: React.FC = () => {
   // search is active so free-form queries don't overwrite the default
   // browse pool.
   useEffect(() => {
-    if (!activeCacheKey) return;
+    if (!activeCacheKey || poolScope !== browseScope) return;
     if (placesPool.length === 0) return;
     if (debouncedSearch) return;
     writeCachedCity(activeCacheKey, {
@@ -1011,51 +1007,36 @@ export const LocationPage: React.FC = () => {
       exhausted,
       cuisinesKey: currentCuisinesKey,
     });
-  }, [activeCacheKey, placesPool, exhausted, currentCuisinesKey, debouncedSearch]);
+  }, [activeCacheKey, placesPool, exhausted, currentCuisinesKey, debouncedSearch, poolScope, browseScope]);
 
   const loadMore = useCallback(async () => {
-    if (loadingMore || exhausted || initialLoading) return;
-    // Strict content filters (Friends / Experts only) are authoritative
-    // via augmentation — every known match is already spliced into the
-    // pool from signals.communityByRestaurant. Paginating Google further
-    // rarely produces matching rows, so we'd just spin the loader while
-    // appending nothing. Skip the fetch and let the list end naturally.
+    const session = pagingSession.current;
+    if (!session || session.signal.aborted || moreInFlight.current || loadingMore || exhausted || initialLoading) return;
     if (friendsOnly || expertsOnly) return;
+    moreInFlight.current = session;
     setLoadingMore(true);
     setLoadError(false);
     try {
-    // Keep paging until we've gathered roughly LOAD_MORE_TARGET fresh
-    // uniques or every cursor is drained. fetchBatch already dedupes
-    // against `seenIdsRef`, so as the pool grows each batch returns
-    // fewer net-new places — a single 3-cursor pass often only nets a
-    // handful once the obvious queries have been exhausted. Without
-    // looping, the user would click Load More and see 5 new rows; with
-    // it they see ~30 per click until the underlying pool truly runs
-    // out, which is the contract they expect.
-    const collected: PlaceResult[] = [];
-    for (let attempts = 0; attempts < LOAD_MORE_MAX_ATTEMPTS; attempts++) {
-      const fresh = await fetchBatch(LOAD_MORE_BATCH_SIZE);
-      for (const p of fresh) collected.push(p);
-      if (collected.length >= LOAD_MORE_TARGET) break;
-      if (cursorsRef.current.every((c) => c.drained)) break;
-      // Don't infinite-loop on a string of empty batches — give it one
-      // more retry past the first zero return, then bail.
-      if (fresh.length === 0 && attempts >= 2) break;
-    }
-    if (collected.length > 0) {
-      setPlacesPool((prev) => {
-        const merged = [...prev];
-        for (const p of collected) merged.push(p);
-        return merged;
-      });
-    }
+      let collected = 0;
+      for (let attempts = 0; attempts < LOAD_MORE_MAX_ATTEMPTS; attempts++) {
+        const batch = await fetchBatch(LOAD_MORE_BATCH_SIZE, session.signal);
+        session.signal.throwIfAborted();
+        // Publish each checkpoint before attempting another batch. A later
+        // failure cannot discard rows whose cursors already advanced.
+        setPlacesPool(prev => session.signal.aborted ? prev : [...prev, ...batch.places]);
+        collected += batch.places.length;
+        if (batch.failed || collected >= LOAD_MORE_TARGET || cursorsRef.current.every(c => c.drained)) break;
+        if (batch.places.length === 0 && attempts >= 2) break;
+      }
     } catch (err) {
+      if (session.signal.aborted) return;
       console.warn('[Location] load more failed:', err);
       setLoadError(true);
     } finally {
-      // Without this, one rejected page left loadingMore stuck true and
-      // the button permanently disabled.
-      setLoadingMore(false);
+      if (pagingSession.current === session) {
+        moreInFlight.current = null;
+        setLoadingMore(false);
+      }
     }
   }, [loadingMore, exhausted, initialLoading, fetchBatch, friendsOnly, expertsOnly]);
 
@@ -1073,7 +1054,7 @@ export const LocationPage: React.FC = () => {
   // re-fires the cuisine queries for the new city.
   useEffect(() => {
     cuisineBackfilledRef.current = new Set();
-  }, [cityKey]);
+  }, [browseScope]);
   useEffect(() => {
     if (!hasCoords || selectedCuisines.length === 0) return;
     const toBackfill = selectedCuisines.filter(
@@ -1081,10 +1062,11 @@ export const LocationPage: React.FC = () => {
     );
     if (toBackfill.length === 0) return;
     let cancelled = false;
+    const abort = new AbortController();
     (async () => {
-      const allFresh: PlaceResult[] = [];
       const priceLevels = selectedPrice > 0 ? [selectedPrice] : undefined;
       for (const type of toBackfill) {
+        const allFresh: PlaceResult[] = [];
         const word = typeToCuisineQueryWord(type);
         const queries = cityKey
           ? [
@@ -1098,13 +1080,15 @@ export const LocationPage: React.FC = () => {
               `popular ${word} restaurants`,
             ];
         try {
-          const results = await Promise.all(
+          const outcomes = await Promise.allSettled(
             queries.map((q) => searchPlacesByTextPaged(q, {
               lat, lng, radiusMeters,
               useRestriction: true,
-              priceLevels,
-            }).then((r) => r.places).catch(() => [] as PlaceResult[])),
+              priceLevels, signal: abort.signal,
+            }).then((r) => r.places)),
           );
+          if (cancelled) return;
+          const results = outcomes.flatMap(outcome => outcome.status === 'fulfilled' ? [outcome.value] : []);
           for (const list of results) {
             for (const p of list) {
               if (seenIdsRef.current.has(p.id)) continue;
@@ -1112,18 +1096,15 @@ export const LocationPage: React.FC = () => {
               allFresh.push(p);
             }
           }
-          cuisineBackfilledRef.current.add(type);
+          if (allFresh.length > 0) setPlacesPool(prev => cancelled ? prev : [...prev, ...allFresh]);
+          if (outcomes.every(outcome => outcome.status === 'fulfilled')) cuisineBackfilledRef.current.add(type);
         } catch (err) {
           console.error('[LocationPage] cuisine backfill error:', err);
         }
       }
-      if (cancelled) return;
-      if (allFresh.length > 0) {
-        setPlacesPool((prev) => [...prev, ...allFresh]);
-      }
     })();
-    return () => { cancelled = true; };
-  }, [hasCoords, lat, lng, cityKey, selectedCuisines, selectedPrice, radiusMeters]);
+    return () => { cancelled = true; abort.abort(); };
+  }, [hasCoords, lat, lng, cityKey, selectedCuisines, selectedPrice, radiusMeters, browseScope]);
 
   // When the user turns on "Friends only" or "Experts only", we augment
   // the Google-fetched pool with restaurants the circle has rated. Google's
@@ -2034,6 +2015,8 @@ export const LocationPage: React.FC = () => {
   const handleChatSearch = useCallback(async (query: string, city?: string): Promise<ScoredPlace[]> => {
     const q = query.trim();
     if (!q) return [];
+    const session = pagingSession.current;
+    if (!session || session.signal.aborted) return [];
     try {
       const priceLevels = selectedPrice > 0 ? [selectedPrice] : undefined;
       // Resolve which city to search in. When Claude passes a city
@@ -2074,11 +2057,12 @@ export const LocationPage: React.FC = () => {
         lng: anchor.lng,
         radiusMeters: anchor.radiusMeters,
         useRestriction: true,
-        priceLevels,
+        priceLevels, signal: session.signal,
       });
+      session.signal.throwIfAborted();
       track('search_completed', { feature: 'ai_assistant', properties: { query: q, city: targetCity || shortCityName, result_count: res.places.length, source: 'ai_search' } });
       const fresh: PlaceResult[] = [];
-      for (const p of res.places) {
+      for (const p of isOtherCity ? [] : res.places) {
         if (seenIdsRef.current.has(p.id)) continue;
         seenIdsRef.current.add(p.id);
         fresh.push(p);
@@ -2111,6 +2095,8 @@ export const LocationPage: React.FC = () => {
   // 15-min TTL cache, so re-clicking inside the window is free.
   const handleSearchHere = useCallback(async () => {
     const map = mapRef.current;
+    const session = pagingSession.current;
+    if (!session || session.signal.aborted) return;
     if (!map || searchingHere) return;
     // Re-searching the visible area replaces any AI-chat override.
     setAssistantPlaces(null);
@@ -2166,18 +2152,21 @@ export const LocationPage: React.FC = () => {
               radiusMeters,
               useRestriction: true,
               priceLevels,
-              pageToken,
+              pageToken, signal: session.signal,
             });
             out.push(...res.places);
             pageToken = res.nextPageToken || undefined;
             if (!pageToken) break;
           } catch {
+            if (session.signal.aborted) return [];
+            setLoadError(true);
             break;
           }
         }
         return out;
       };
       const results = await Promise.all(queries.map(exhaustQuery));
+      session.signal.throwIfAborted();
 
       const fresh: PlaceResult[] = [];
       for (const list of results) {
@@ -2191,9 +2180,10 @@ export const LocationPage: React.FC = () => {
         setPlacesPool((prev) => [...prev, ...fresh]);
       }
     } catch (err) {
+      if (session.signal.aborted) return;
       console.error('[LocationPage] handleSearchHere error:', err);
     } finally {
-      setSearchingHere(false);
+      if (pagingSession.current === session) setSearchingHere(false);
     }
   }, [searchingHere, selectedPrice, selectedCuisines]);
 
@@ -3010,10 +3000,7 @@ export const LocationPage: React.FC = () => {
           )}
 
           {initialLoading ? (
-            <div className="lp-empty">
-              <Loader2 size={18} className="animate-spin" style={{ display: 'inline-block', verticalAlign: '-3px', marginRight: 8 }} />
-              {debouncedSearch ? `Searching "${debouncedSearch}"…` : `Finding restaurants in ${cityDisplay}…`}
-            </div>
+            <PageSkeleton variant="list" compact />
           ) : loadError && visible.length === 0 ? (
             <div className="lp-empty">
               <strong>Couldn&rsquo;t load restaurants</strong>

@@ -10,6 +10,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
   searchPlacesByText,
+  searchPlacesByTextPaged,
   searchNearbyRestaurants,
   fetchLocationDataForPlace,
   TEXT_EXACT_SUFFICIENT_POOL,
@@ -337,4 +338,31 @@ it('keeps exact results when only the depth supplement fails, and retries that i
   expect(await search()).toHaveLength(2);
   expect(await search()).toHaveLength(7);
   expect(googleCalls()).toHaveLength(4);
+});
+
+
+describe('paginated search failure contract', () => {
+  const options = { lat: 40.7, lng: -74, radiusMeters: 10000, pageToken: 'next-page' };
+  it('rejects HTTP failure and retains the supplied page token for retry', async () => {
+    fetchMock.mockResolvedValueOnce({ ok: false, status: 503 })
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ ...placesResponse(1, 'retry-page'), nextPageToken: 'third-page' }) });
+    await expect(searchPlacesByTextPaged('city', options)).rejects.toThrow('503');
+    expect(await searchPlacesByTextPaged('city', options)).toMatchObject({ nextPageToken: 'third-page' });
+    expect(fetchMock.mock.calls.map(call => JSON.parse(call[1].body).pageToken)).toEqual(['next-page', 'next-page']);
+  });
+  it('distinguishes a successful empty final page from a network failure', async () => {
+    fetchMock.mockRejectedValueOnce(new TypeError('Failed to fetch'))
+      .mockResolvedValueOnce({ ok: true, json: async () => ({}) });
+    await expect(searchPlacesByTextPaged('city', options)).rejects.toThrow('Failed to fetch');
+    expect(await searchPlacesByTextPaged('city', options)).toEqual({ places: [], nextPageToken: null });
+  });
+  it('rejects malformed pagination metadata instead of passing it to the next request', async () => {
+    fetchMock.mockResolvedValue({ ok: true, json: async () => ({ places: [], nextPageToken: { unexpected: true } }) });
+    await expect(searchPlacesByTextPaged('city', options)).rejects.toThrow('Invalid Places');
+  });
+  it('does not fetch a cancelled page', async () => {
+    const controller = new AbortController(); controller.abort();
+    await expect(searchPlacesByTextPaged('city', { ...options, signal: controller.signal })).rejects.toMatchObject({ name: 'AbortError' });
+    expect(googleCalls()).toHaveLength(0);
+  });
 });

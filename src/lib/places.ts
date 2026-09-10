@@ -320,7 +320,7 @@ function sortByQuality(places: PlaceResult[]): PlaceResult[] {
 
 // Search failures must stay distinct from a valid empty response. Keep the
 // deadline active while reading the body too (not just until headers arrive).
-async function searchResponse(endpoint: string, init: RequestInit): Promise<{ places?: GooglePlace[] }> {
+async function searchResponse(endpoint: string, init: RequestInit): Promise<{ places?: GooglePlace[]; nextPageToken?: string }> {
   const controller = new AbortController();
   const cancel = () => controller.abort(init.signal?.reason);
   if (init.signal?.aborted) cancel();
@@ -333,7 +333,8 @@ async function searchResponse(endpoint: string, init: RequestInit): Promise<{ pl
     const data = await response.json();
     controller.signal.throwIfAborted();
     if (!data || typeof data !== 'object' || data.error ||
-        (data.places !== undefined && !Array.isArray(data.places))) {
+        Array.isArray(data) || (data.places !== undefined && !Array.isArray(data.places)) ||
+        (data.nextPageToken !== undefined && typeof data.nextPageToken !== 'string')) {
       throw new Error('Invalid Places search response');
     }
     return data;
@@ -859,6 +860,7 @@ export interface SearchPageOptions {
   pageToken?: string;
   /** 1–20. Defaults to 20. */
   pageSize?: number;
+  signal?: AbortSignal;
 }
 
 export interface SearchPageResult {
@@ -897,33 +899,17 @@ export async function searchPlacesByTextPaged(
   }
   if (pageToken) body.pageToken = pageToken;
 
-  try {
-    const res = await fetch(`${BASE_URL}/places:searchText`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Goog-Api-Key': GOOGLE_PLACES_KEY,
-        // nextPageToken is a top-level field — listing it explicitly is
-        // required alongside `places.*` in the field mask.
-        'X-Goog-FieldMask': `${FIELDS},nextPageToken`,
-      },
-      body: JSON.stringify(body),
-    });
-    if (!res.ok) {
-      // Keep diagnostics on the network tab only — the caller's fallback
-      // handles empty returns without needing the page to blow up.
-      console.error('[Places] searchPlacesByTextPaged failed:', res.status, await res.text().catch(() => ''));
-      return { places: [], nextPageToken: null };
-    }
-    const data = await res.json();
-    return {
-      places: mapPlaces(data.places || []),
-      nextPageToken: (data.nextPageToken as string) || null,
-    };
-  } catch (err) {
-    console.error('[Places] searchPlacesByTextPaged exception:', err);
-    return { places: [], nextPageToken: null };
-  }
+  const data = await searchResponse('places:searchText', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Goog-Api-Key': GOOGLE_PLACES_KEY,
+      'X-Goog-FieldMask': `${FIELDS},nextPageToken`,
+    },
+    body: JSON.stringify(body),
+    signal: opts.signal,
+  });
+  return { places: mapPlaces(data.places || []), nextPageToken: data.nextPageToken || null };
 }
 
 // NOTE: `photos` is intentionally omitted — the Places Photos media
