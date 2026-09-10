@@ -1,11 +1,12 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
-const { rows, tagRows, upserts, upsert, osmHits, lookupCalls, credited } = vi.hoisted(() => ({
+const { rows, tagRows, upserts, upsert, getSession, osmHits, lookupCalls, credited } = vi.hoisted(() => ({
   rows: [] as Array<{ restaurant_id: string; cuisine: string; source: string; confidence: number }>,
   /** restaurant_cuisine_tags — the crowd-sourced additional cuisines (071). */
   tagRows: [] as Array<{ restaurant_id: string; cuisine: string; votes: number; created_at: string }>,
   upserts: [] as Array<{ restaurant_id: string; cuisine: string; source: string }>,
   upsert: vi.fn(),
+  getSession: vi.fn(),
   /** What the OSM lookup will claim to have found, keyed by place id. */
   osmHits: {} as Record<string, string>,
   lookupCalls: [] as Array<Array<{ restaurantId: string; name: string }>>,
@@ -26,6 +27,7 @@ vi.mock('./cuisine-lookup', () => ({
 vi.mock('./supabase', () => ({
   supabaseConfigured: true,
   supabase: {
+    auth: { getSession },
     from: (table: string) => {
       const source = () => (table === 'restaurant_cuisine_tags' ? tagRows : rows) as Array<Record<string, unknown>>;
       // The tags read chains .in().order().order(); the primary read stops
@@ -63,6 +65,7 @@ import {
 const OPAQUE = { types: ['restaurant', 'point_of_interest', 'establishment'] };
 
 beforeEach(() => {
+  getSession.mockResolvedValue({data:{session:{user:{id:'test'}}}});
   rows.length = 0; tagRows.length = 0; upserts.length = 0; upsert.mockClear();
   lookupCalls.length = 0;
   for (const k of Object.keys(osmHits)) delete osmHits[k];
@@ -135,9 +138,9 @@ describe('publishRestaurantCuisine', () => {
     expect(upsert).not.toHaveBeenCalled();
   });
 
-  it('trims what it does send', () => {
+  it('trims what it does send', async () => {
     publishRestaurantCuisine('x', '  Thai  ', 'google');
-    expect(upserts).toEqual([{ restaurant_id: 'x', cuisine: 'Thai', source: 'google' }]);
+    await vi.waitFor(() => expect(upserts).toEqual([{ restaurant_id: 'x', cuisine: 'Thai', source: 'google' }]));
   });
 
   // The reviewed tiers come from the approve RPC and the consensus
@@ -457,4 +460,11 @@ describe('getRestaurantCuisineBatch · sources travel with the cuisines', () => 
     // Which is what lets the queue lock the first and not the second.
     expect(out.k.entries.map((e) => isCuisineRemovable(e.source))).toEqual([false, true]);
   });
+});
+
+it('guests never attempt cuisine cache writes', async () => {
+  getSession.mockResolvedValue({data:{session:null}});
+  publishRestaurantCuisine('guest-place', 'Thai', 'google');
+  await new Promise(resolve => setTimeout(resolve, 0));
+  expect(upsert).not.toHaveBeenCalled();
 });

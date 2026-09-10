@@ -1,3 +1,5 @@
+import { PhotoBackground } from '../components/PhotoBackground';
+import { mapStyle } from '../lib/map-theme';
 import { track } from '../lib/analytics';
 import { useTastePreferences } from '../hooks/useTastePreferences';
 import { usePageBack } from '../lib/usePageBack';
@@ -411,7 +413,7 @@ export const LocationPage: React.FC = () => {
   // layout is a full redesign (different header, hero, filter row,
   // card sizes, list item, etc.) so we branch the JSX rather than
   // patch the desktop CSS.
-  const { phoneMode } = useSettings();
+  const { phoneMode, darkMode } = useSettings();
   const [isNarrowViewport, setIsNarrowViewport] = useState(() =>
     typeof window !== 'undefined' && window.matchMedia('(max-width: 768px)').matches,
   );
@@ -1474,6 +1476,7 @@ export const LocationPage: React.FC = () => {
   const mapWrapperRef = useRef<HTMLDivElement | null>(null);
   const mapContainerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<mapboxgl.Map | null>(null);
+  const appliedMapThemeRef = useRef(darkMode);
   const markersRef = useRef<Record<string, mapboxgl.Marker>>({});
   const centerMarkerRef = useRef<mapboxgl.Marker | null>(null);
   const [mapReady, setMapReady] = useState(false);
@@ -1536,7 +1539,7 @@ export const LocationPage: React.FC = () => {
     mapboxgl.accessToken = MAPBOX_TOKEN;
     const map = new mapboxgl.Map({
       container: mapContainerRef.current,
-      style: 'mapbox://styles/mapbox/light-v11',
+      style: mapStyle(darkMode),
       center: [init.lng, init.lat],
       zoom: 12,
       attributionControl: false,
@@ -1551,6 +1554,7 @@ export const LocationPage: React.FC = () => {
     map.addControl(new mapboxgl.AttributionControl({ compact: true }));
     attachMapErrorFallback(map, mapContainerRef.current);
     mapRef.current = map;
+    appliedMapThemeRef.current = darkMode;
     map.on('load', () => {
       setMapReady(true);
       map.resize();
@@ -1565,6 +1569,19 @@ export const LocationPage: React.FC = () => {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hasCoords]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || appliedMapThemeRef.current === darkMode) return;
+    const applyTheme = () => {
+      appliedMapThemeRef.current = darkMode;
+      // Preserve the camera and DOM markers; avoid restarting initial loading.
+      map.setStyle(mapStyle(darkMode));
+    };
+    if (map.isStyleLoaded()) applyTheme();
+    else map.once('style.load', applyTheme);
+    return () => { map.off('style.load', applyTheme); };
+  }, [darkMode]);
 
   // Recenter + re-bound on city change. Mirrors LocationMap's pattern:
   // clear maxBounds, jump to the new centre, re-apply bounds. flyTo
@@ -2608,14 +2625,14 @@ export const LocationPage: React.FC = () => {
           <div className="gd-row is-mobile is-compact">
             {locationGuides.map((g) => (
               <Link key={g.id} to={`/guides/${g.id}`} className="gd-mini">
-                <div
+                <PhotoBackground
                   className="gd-mini-img"
                   style={g.image ? { backgroundImage: `url(${g.image})` } : undefined}
                 >
                   <div className="gd-stamp">
                     <BookOpen /> Guide · {g.count} spots
                   </div>
-                </div>
+                </PhotoBackground>
                 <h3 className="gd-mini-title">{g.title}</h3>
                 <p className="gd-mini-by">by {g.author}</p>
               </Link>
@@ -2666,7 +2683,7 @@ export const LocationPage: React.FC = () => {
                   const initial = (g.author || '?').charAt(0).toUpperCase();
                   return (
                     <Link key={g.id} to={`/guides/${g.id}`} className="gd-card">
-                      <div
+                      <PhotoBackground
                         className="gd-img"
                         style={g.image ? { backgroundImage: `url(${g.image})` } : undefined}
                       />

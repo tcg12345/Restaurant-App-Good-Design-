@@ -1,3 +1,4 @@
+import { PhotoBackground } from './PhotoBackground';
 import { track } from '../lib/analytics';
 import type { TastePreferencePatch } from '../lib/taste-preferences';
 // LocationPage AI chatbot — floating FAB + chat island.
@@ -703,13 +704,13 @@ const ChatTurn = React.memo<ChatTurnProps>(({
                     className="lp-chat-card lp-chat-card-recipe"
                     onClick={() => onNavigateRecipe(id)}
                   >
-                    <div
+                    <PhotoBackground
                       className="lp-chat-card-recipe-cover"
                       style={cover ? { backgroundImage: `url("${cover}")` } : undefined}
                       aria-hidden="true"
                     >
                       {!cover && <ChefHat size={18} />}
-                    </div>
+                    </PhotoBackground>
                     <div className="lp-chat-card-info">
                       <h4>{r.title}</h4>
                       <p>

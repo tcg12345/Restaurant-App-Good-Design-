@@ -1,3 +1,4 @@
+import { PageSkeleton } from '../components/PageSkeleton';
 import { usePageBack } from '../lib/usePageBack';
 /**
  * Admin verification review — /admin/verification.
@@ -88,11 +89,7 @@ export const AdminVerification: React.FC = () => {
   // gating on !isAdmin alone flashed this screen at genuine admins on slow
   // networks. Spin while 'unknown'; not-found only when definitively false.
   if (authLoading || adminChecked === 'unknown') {
-    return (
-      <div className="min-h-screen bg-surface flex items-center justify-center">
-        <Loader2 size={22} className="text-primary animate-spin" />
-      </div>
-    );
+    return <PageSkeleton variant="list" />;
   }
 
   if (!isAdmin) {
@@ -152,9 +149,7 @@ export const AdminVerification: React.FC = () => {
         </div>
 
         {loading ? (
-          <div className="flex items-center justify-center py-16">
-            <Loader2 size={22} className="text-on-surface/30 animate-spin" />
-          </div>
+          <PageSkeleton compact />
         ) : requests.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-16 gap-2.5 text-center">
             <span className="w-[46px] h-[46px] rounded-full bg-primary/10 text-primary flex items-center justify-center">

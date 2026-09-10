@@ -1,3 +1,4 @@
+import { mediaAccessVersion } from './media-access-scope';
 /**
  * Reels persistence layer.
  *
@@ -415,6 +416,7 @@ const SIGNED_URL_TTL_SECONDS = 60 * 60 * 24; // 24h
  *  genuinely-new paths cost a sign round-trip. Drops any that the viewer can't
  *  see (storage RLS denies → empty for that entry). */
 async function signVideoPaths(paths: string[]): Promise<Record<string, string>> {
+  const generation = mediaAccessVersion();
   const out: Record<string, string> = {};
   if (!supabaseConfigured || paths.length === 0) return out;
   // De-dup so we don't waste signatures on the same path twice.
@@ -434,6 +436,7 @@ async function signVideoPaths(paths: string[]): Promise<Record<string, string>> 
       console.warn('[Reels] createSignedUrls failed:', error.message);
       return out;
     }
+    if (generation !== mediaAccessVersion()) return {};
     for (const item of data || []) {
       const path = (item as { path?: string | null }).path;
       const url = (item as { signedUrl?: string }).signedUrl;

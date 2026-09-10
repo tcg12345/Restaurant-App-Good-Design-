@@ -1,3 +1,4 @@
+import { PhotoImage } from '../PhotoImage';
 /**
  * Editable primitives used inside the Guide Live Editor preview pane.
  *
@@ -261,7 +262,7 @@ export const EditableImage: React.FC<EditableImageProps> = ({
   return (
     <div className={cn('gle-img-wrap', className)} style={style}>
       {src ? (
-        <img
+        <PhotoImage
           src={src}
           alt={alt}
           referrerPolicy="no-referrer"

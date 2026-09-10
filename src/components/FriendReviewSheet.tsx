@@ -1,3 +1,4 @@
+import { PhotoImage } from './PhotoImage';
 import React, { useEffect, useRef, useState } from 'react';
 import { motion } from 'motion/react';
 import { useNavigate } from 'react-router-dom';
@@ -172,7 +173,7 @@ export const FriendReviewSheet: React.FC<FriendReviewSheetProps> = ({
         {photos.length > 0 && (
           <div className="mt-[18px] flex gap-2 overflow-x-auto no-scrollbar -mx-[22px] px-[22px] snap-x">
             {photos.map((p) => (
-              <img
+              <PhotoImage
                 key={p.id} src={p.url} alt=""
                 referrerPolicy="no-referrer"
                 className="flex-none w-[132px] h-[104px] rounded-[20px] object-cover snap-start bg-on-surface/[0.05]"

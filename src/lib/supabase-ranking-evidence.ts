@@ -3,22 +3,23 @@ import { isRankingEvidenceEvent, type OrderedRating, type RankingEvidenceEvent }
 import { readEvidence, recordEvidence, syncEvidence, type EvidenceRemote } from './ranking-evidence-store';
 
 const remote: EvidenceRemote = {
-  async load(ownerId) {
+  async load(ownerId, after) {
+    const { data, error } = await supabase.from('ranking_preference_events')
+      .select('id,event,sync_position').eq('user_id', ownerId)
+      .gt('sync_position', after).order('sync_position').limit(500);
+    if (error) throw error;
+    const rows = data ?? [];
     const events: RankingEvidenceEvent[] = [];
-    let cursor: string | undefined;
-    while (true) {
-      let query = supabase.from('ranking_preference_events').select('id,event').eq('user_id', ownerId).order('id').limit(500);
-      if (cursor) query = query.gt('id', cursor);
-      const { data, error } = await query;
-      if (error) throw error;
-      const rows = data ?? [];
-      for (const row of rows) {
-        if (!isRankingEvidenceEvent(row.event) || row.event.id !== row.id) throw new Error('Invalid stored preference event');
-        events.push(row.event);
+    let cursor = after;
+    for (const row of rows) {
+      if (!isRankingEvidenceEvent(row.event) || row.event.id !== row.id
+        || !Number.isSafeInteger(row.sync_position) || row.sync_position <= cursor) {
+        throw new Error('Invalid stored preference event or cursor');
       }
-      if (rows.length < 500) return events;
-      cursor = rows[rows.length - 1].id;
+      events.push(row.event);
+      cursor = row.sync_position;
     }
+    return { events, cursor, hasMore: rows.length === 500 };
   },
   async insert(ownerId, events) {
     const { error } = await supabase.from('ranking_preference_events').upsert(

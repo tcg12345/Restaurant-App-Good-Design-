@@ -1,3 +1,4 @@
+import { PhotoImage } from './PhotoImage';
 import { FeedNavigation } from './feed/FeedNavigation';
 import { useReels, type Reel } from '../contexts/ReelsContext';
 import { selectHomeFeedReels, insertReelRows } from '../lib/home-reels';
@@ -117,7 +118,7 @@ const ActivityPhoto: React.FC<{
         )}
         aria-label={aria}
       >
-        <img
+        <PhotoImage
           src={src}
           alt=""
           loading="lazy"
@@ -183,7 +184,7 @@ const PostMediaCarousel: React.FC<{
             key={it.id}
             className="relative w-full flex-shrink-0 snap-center aspect-square overflow-hidden bg-on-surface/[0.04]"
           >
-            <img
+            <PhotoImage
               src={it.mediaUrl}
               alt=""
               loading="lazy"
@@ -1270,7 +1271,7 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
         </div>}
         {lens === 'latest' && dishPreviews.length >= 2 && <section className="feed-dish-discovery" aria-label="Dish discovery"><h2>On the table</h2><div className="feed-dish-rail">
           {dishPreviews.map(dish => <button key={dish.key} onClick={() => { homeHaptic(); document.getElementById(`feed-entry-${dish.key}`)?.scrollIntoView({behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth',block:'start'}); }} aria-label={`See ${dish.dish}`}>
-            <img src={dish.url} alt="" loading="lazy" onError={() => setFailedDishImages(prev => new Set(prev).add(dish.url))} /><strong>{dish.dish}</strong><small>{dish.place || getName(dish.authorId)}</small>
+            <PhotoImage src={dish.url} alt="" loading="lazy" onError={() => setFailedDishImages(prev => new Set(prev).add(dish.url))} /><strong>{dish.dish}</strong><small>{dish.place || getName(dish.authorId)}</small>
           </button>)}
         </div></section>}
       </>}
@@ -1332,7 +1333,7 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
         </div>}
         {lens === 'latest' && dishPreviews.length >= 2 && <section className="feed-dish-discovery" aria-label="Dish discovery"><h2>On the table</h2><div className="feed-dish-rail">
           {dishPreviews.map(dish => <button key={dish.key} onClick={() => { homeHaptic(); document.getElementById(`feed-entry-${dish.key}`)?.scrollIntoView({behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth',block:'start'}); }} aria-label={`See ${dish.dish}`}>
-            <img src={dish.url} alt="" loading="lazy" onError={() => setFailedDishImages(prev => new Set(prev).add(dish.url))} /><strong>{dish.dish}</strong><small>{dish.place || getName(dish.authorId)}</small>
+            <PhotoImage src={dish.url} alt="" loading="lazy" onError={() => setFailedDishImages(prev => new Set(prev).add(dish.url))} /><strong>{dish.dish}</strong><small>{dish.place || getName(dish.authorId)}</small>
           </button>)}
         </div></section>}
       </>}

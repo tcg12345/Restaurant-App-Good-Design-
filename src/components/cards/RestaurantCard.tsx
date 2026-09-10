@@ -1,3 +1,4 @@
+import { PhotoImage } from '../PhotoImage';
 import type { RestaurantProvenance } from '../../lib/restaurant-provenance';
 import React from 'react';
 import { useSettings } from '../../contexts/SettingsContext';
@@ -133,7 +134,7 @@ export const RestaurantCard: React.FC<RestaurantCardProps> = ({
         className={cn('relative aspect-[4/3] overflow-hidden rounded-2xl bg-on-surface/5', className)}
       >
         {safe ? (
-          <img
+          <PhotoImage
             src={safe}
             alt={name}
             referrerPolicy="no-referrer"

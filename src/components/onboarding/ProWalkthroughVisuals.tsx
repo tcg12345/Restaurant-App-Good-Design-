@@ -1,3 +1,4 @@
+import { PhotoImage } from '../PhotoImage';
 import React from 'react';
 import { motion, useReducedMotion } from 'motion/react';
 import { ArrowUp, Check, Clock3, Sparkles, Users } from 'lucide-react';
@@ -11,14 +12,14 @@ const Reveal: React.FC<{ delay?: number; className?: string; children: React.Rea
 
 export const RecipePreview: React.FC = () => <div className="pro-demo pro-demo-recipes" role="img" aria-label="Example AI recipe preview: a salmon photo becomes a complete recipe">
   <div className="pro-demo-glow" />
-  <Reveal className="pro-recipe-photo"><img src={PHOTO} alt="" /><span><Sparkles size={12} /> Made with AI</span></Reveal>
+  <Reveal className="pro-recipe-photo"><PhotoImage src={PHOTO} alt="" /><span><Sparkles size={12} /> Made with AI</span></Reveal>
   <Reveal delay={.25} className="pro-recipe-result"><span className="pro-demo-label">YOUR RECIPE</span><strong>Miso-glazed salmon</strong><div className="pro-recipe-meta"><span><Clock3 size={12} /> 25 min</span><span><Users size={12} /> Serves 2</span></div><div className="pro-recipe-lines"><i /><i /><i /></div><span className="pro-recipe-ready"><Check size={13} /> Ready to make</span></Reveal>
 </div>;
 
 export const AssistantPreview: React.FC = () => <div className="pro-demo pro-demo-assistant" role="img" aria-label="Example assistant conversation suggesting a salmon dinner and ways to adapt it">
   <div className="pro-demo-glow" />
   <Reveal className="pro-chat-question">Something delicious with salmon?</Reveal>
-  <Reveal delay={.35} className="pro-chat-answer"><span className="pro-chat-model"><Sparkles size={15} /> GoodEats AI <small>Opus</small></span><p>Try miso-glazed salmon.<br />Savory, bright, and ready in 25 minutes.</p><img src={PHOTO} alt="" /></Reveal>
+  <Reveal delay={.35} className="pro-chat-answer"><span className="pro-chat-model"><Sparkles size={15} /> GoodEats AI <small>Opus</small></span><p>Try miso-glazed salmon.<br />Savory, bright, and ready in 25 minutes.</p><PhotoImage src={PHOTO} alt="" /></Reveal>
   <Reveal delay={.7} className="pro-chat-followup"><span>Make it gluten-free</span><span>What goes with it?</span></Reveal>
   <Reveal delay={.9} className="pro-chat-compose"><span>Ask anything…</span><span><ArrowUp size={16} /></span></Reveal>
 </div>;

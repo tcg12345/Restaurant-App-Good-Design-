@@ -1,3 +1,4 @@
+import { PhotoImage } from './PhotoImage';
 /**
  * AddReelModal — three-step flow.
  *
@@ -1222,7 +1223,7 @@ export const AddReelModal: React.FC = () => {
                   transition={{ duration: 0.2 }}
                   className="absolute inset-x-3 top-0.5 bottom-2"
                 >
-                  <img src={nativePick.thumbnailDataUrl} alt="" className="w-full h-full object-contain" />
+                  <PhotoImage src={nativePick.thumbnailDataUrl} alt="" className="w-full h-full object-contain" />
                 </motion.div>
               ) : (
                 <div className="absolute inset-0 flex flex-col items-center justify-center px-10 text-center">

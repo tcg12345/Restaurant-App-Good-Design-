@@ -1,3 +1,4 @@
+import { PhotoImage } from './PhotoImage';
 /**
  * Score history — how your score for one restaurant moved across visits.
  *
@@ -195,7 +196,7 @@ export const ScoreHistory: React.FC<{
                     {e.photos && e.photos.length > 0 && (
                       <div className="flex gap-1.5 overflow-x-auto no-scrollbar snap-x snap-mandatory">
                         {e.photos.slice(0, 8).map((ph, i) => (
-                          <img key={i} src={ph.url} alt="" className={cn('rounded-xl object-cover flex-shrink-0 snap-start', desktop ? 'w-24 h-24' : 'w-16 h-16')} referrerPolicy="no-referrer" />
+                          <PhotoImage key={i} src={ph.url} alt="" className={cn('rounded-xl object-cover flex-shrink-0 snap-start', desktop ? 'w-24 h-24' : 'w-16 h-16')} referrerPolicy="no-referrer" />
                         ))}
                       </div>
                     )}

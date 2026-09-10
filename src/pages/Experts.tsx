@@ -1,6 +1,7 @@
+import { PageSkeleton } from '../components/PageSkeleton';
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Star, Check, ArrowUpDown, ChevronDown, Loader2, MapPin, BadgeCheck } from 'lucide-react';
+import { Star, Check, ArrowUpDown, ChevronDown, MapPin, BadgeCheck } from 'lucide-react';
 import { VerifiedBadge } from '../components/VerifiedBadge';
 import { Link } from 'react-router-dom';
 import { cn } from '../lib/utils';
@@ -173,24 +174,19 @@ export const Experts: React.FC = () => {
   const formatCount = (n: number) => n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n);
 
   if (loading) {
-    return (
-      <div className="pb-32">
-        <div className="flex items-center justify-center py-20">
-          <Loader2 size={28} className="animate-spin text-primary" />
-        </div>
-      </div>
-    );
+    return <PageSkeleton variant="list" />;
   }
 
   if (experts.length === 0) {
     return (
-      <div className="pb-32">
+      <main className="pb-32 px-3 pt-safe-5">
+        <h1 className="text-2xl font-serif font-bold mb-5">Verified Users</h1>
         <div className="flex flex-col items-center justify-center py-20 px-6 text-center">
-          <BadgeCheck size={32} className="text-on-surface/15 mb-3" />
-          <p className="text-sm font-medium text-on-surface/40">No verified users yet</p>
-          <p className="text-xs text-on-surface/30 mt-1">Verified critics, chefs, and creators will appear here once they join</p>
+          <BadgeCheck size={32} className="text-on-surface/60 mb-3" />
+          <p className="text-sm font-medium text-on-surface/80">No verified users yet</p>
+          <p className="text-sm text-on-surface/70 mt-1">Verified critics, chefs, and creators will appear here once they join</p>
         </div>
-      </div>
+      </main>
     );
   }
 
@@ -279,8 +275,8 @@ export const Experts: React.FC = () => {
 
           {displayExperts.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-16 text-center">
-              <BadgeCheck size={28} className="text-on-surface/15 mb-3" />
-              <p className="text-sm font-medium text-on-surface/40">No verified users match that cuisine</p>
+              <BadgeCheck size={28} className="text-on-surface/60 mb-3" />
+              <p className="text-sm font-medium text-on-surface/80">No verified users match that cuisine</p>
               {cuisineFilter && (
                 <button onClick={() => setCuisineFilter(null)} className="mt-2 text-xs font-semibold text-primary">
                   Clear filter

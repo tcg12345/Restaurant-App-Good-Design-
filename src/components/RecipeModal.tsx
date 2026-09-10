@@ -1,3 +1,4 @@
+import { PhotoImage } from './PhotoImage';
 import { liftOverlayToTopLayer, acquireHardScrollLock } from '../lib/useBottomSheet';
 import { pushOverlay } from '../lib/overlay-registry';
 import { DeleteConfirmation } from './DeleteConfirmation';
@@ -307,7 +308,7 @@ export const RecipeModal: React.FC = () => {
                     <div className="mb-4">
                       {coverPhoto ? (
                         <div className="relative w-full aspect-video rounded-2xl overflow-hidden border border-on-surface/10">
-                          <img src={coverPhoto} alt="" className="w-full h-full object-cover" />
+                          <PhotoImage src={coverPhoto} alt="" className="w-full h-full object-cover" />
                           <div className="absolute top-2 right-2 flex gap-1.5">
                             <button onClick={() => coverInputRef.current?.click()}
                               className="w-8 h-8 rounded-full bg-black/50 flex items-center justify-center backdrop-blur-sm">
@@ -621,7 +622,7 @@ export const RecipeModal: React.FC = () => {
                                   isSelected && "ring-2 ring-primary ring-offset-1 ring-offset-surface z-10"
                                 )}
                               >
-                                <img src={photo.url} alt="" className="w-full h-full object-cover pointer-events-none" />
+                                <PhotoImage src={photo.url} alt="" className="w-full h-full object-cover pointer-events-none" />
                                 <button
                                   type="button"
                                   onClick={(e) => { e.stopPropagation(); removePhoto(idx); }}

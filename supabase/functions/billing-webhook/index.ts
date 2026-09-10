@@ -4,7 +4,8 @@ import { withRequestTelemetry } from '../_shared/api-telemetry.ts';
 // RevenueCat is the one source of purchase truth for every rail (App Store
 // on iOS, Stripe on the web, promotional grants made in its dashboard), so
 // this is the ONE webhook that writes the plan. Each delivery is logged in
-// subscription_events by its event id; a redelivery is a no-op.
+// subscription_events atomically with its plan updates; only completed deliveries
+// are treated as duplicates.
 //
 // Auth: RevenueCat sends the Authorization header value configured in its
 // dashboard; we compare it to REVENUECAT_WEBHOOK_SECRET. No Supabase JWT is
@@ -14,7 +15,7 @@ import { withRequestTelemetry } from '../_shared/api-telemetry.ts';
 // Secret:  supabase secrets set REVENUECAT_WEBHOOK_SECRET=...
 //          (RevenueCat → Integrations → Webhooks → Authorization header)
 
-import { serviceClient, writePlan, sourceLabel, UUID_RE, type PlanState } from '../_shared/billing.ts';
+import { serviceClient, sourceLabel, UUID_RE, type PlanState } from '../_shared/billing.ts';
 
 const WEBHOOK_SECRET = Deno.env.get('REVENUECAT_WEBHOOK_SECRET');
 const MAX_BODY_BYTES = 256 * 1024;
@@ -94,7 +95,9 @@ Deno.serve(withRequestTelemetry('billing-webhook', async (req) => {
   if (Number.isFinite(declared) && declared > MAX_BODY_BYTES) return new Response('Too large', { status: 413 });
   let body: { event?: RcEvent };
   try {
-    body = JSON.parse(await req.text());
+    const raw = await req.text();
+    if (new TextEncoder().encode(raw).byteLength > MAX_BODY_BYTES) return new Response('Too large', { status: 413 });
+    body = JSON.parse(raw);
   } catch {
     return new Response('Invalid JSON', { status: 400 });
   }
@@ -103,54 +106,42 @@ Deno.serve(withRequestTelemetry('billing-webhook', async (req) => {
 
   const db = serviceClient();
   const userId = userIdFor(ev);
-
-  // Log first; a duplicate id means we've already applied this event.
-  const { error: logErr } = await db.from('subscription_events').insert({
-    id: ev.id,
-    user_id: userId,
-    type: ev.type,
-    store: ev.store ?? null,
-    environment: ev.environment ?? null,
-    product_id: ev.product_id ?? null,
-    expires_at: typeof ev.expiration_at_ms === 'number' ? new Date(ev.expiration_at_ms).toISOString() : null,
-    payload: body,
-  });
-  if (logErr) {
-    if (logErr.code === '23505') return new Response(JSON.stringify({ ok: true, duplicate: true }), { status: 200 });
-    console.error('[billing-webhook] log failed:', logErr.message);
-    return new Response('Log failed', { status: 500 });
-  }
-
+  const updates: Array<{ user_id: string; plan: string; pro_until: string | null; pro_source: string | null; pro_will_renew: boolean | null }> = [];
+  const addPlan = (id: string, state: PlanState) => updates.push({ user_id: id, plan: state.plan, pro_until: state.proUntil, pro_source: state.proSource, pro_will_renew: state.proWillRenew });
+  let outcome: Record<string, unknown> = {};
   try {
     if (ev.type === 'TRANSFER') {
-      // The purchase moved between accounts: the old ones lose it, the new
-      // ones gain it. Only ids that are ours matter.
       for (const from of ev.transferred_from ?? []) {
-        if (UUID_RE.test(from)) await writePlan(db, from, { plan: 'free', proUntil: new Date().toISOString(), proSource: sourceLabel(ev.store, ev.environment), proWillRenew: false });
+        if (UUID_RE.test(from)) addPlan(from, { plan: 'free', proUntil: new Date().toISOString(), proSource: sourceLabel(ev.store, ev.environment), proWillRenew: false });
       }
       for (const to of ev.transferred_to ?? []) {
-        if (UUID_RE.test(to)) await writePlan(db, to, { plan: 'pro', proUntil: typeof ev.expiration_at_ms === 'number' ? new Date(ev.expiration_at_ms).toISOString() : null, proSource: sourceLabel(ev.store, ev.environment), proWillRenew: true });
+        if (UUID_RE.test(to)) addPlan(to, { plan: 'pro', proUntil: typeof ev.expiration_at_ms === 'number' ? new Date(ev.expiration_at_ms).toISOString() : null, proSource: sourceLabel(ev.store, ev.environment), proWillRenew: true });
       }
-      return new Response(JSON.stringify({ ok: true }), { status: 200 });
+    } else if (!userId) {
+      outcome = { unmatched: true };
+    } else if (ev.entitlement_ids?.length && !ev.entitlement_ids.includes(Deno.env.get('REVENUECAT_ENTITLEMENT') ?? 'pro')) {
+      outcome = { ignored: 'entitlement' };
+    } else {
+      const { data: prevRow, error: prevError } = await db.from('user_profiles').select('plan, pro_until, pro_source, pro_will_renew').eq('user_id', userId).maybeSingle();
+      if (prevError) throw new Error(`Previous plan read failed: ${prevError.message}`);
+      const prev: PlanState | null = prevRow
+        ? { plan: prevRow.plan === 'pro' ? 'pro' : 'free', proUntil: prevRow.pro_until ?? null, proSource: prevRow.pro_source ?? null, proWillRenew: prevRow.pro_will_renew ?? null }
+        : null;
+      const next = stateFor(ev, prev);
+      if (next) addPlan(userId, next);
+      outcome = { applied: !!next };
     }
-    if (!userId) {
-      // Anonymous RevenueCat id with no alias of ours yet: nothing to write.
-      return new Response(JSON.stringify({ ok: true, unmatched: true }), { status: 200 });
-    }
-    // Only the `pro` entitlement moves the plan; other entitlements (none
-    // today) are logged and ignored.
-    const ents = ev.entitlement_ids ?? [];
-    const entitlement = Deno.env.get('REVENUECAT_ENTITLEMENT') ?? 'pro';
-    if (ents.length > 0 && !ents.includes(entitlement)) {
-      return new Response(JSON.stringify({ ok: true, ignored: 'entitlement' }), { status: 200 });
-    }
-    const { data: prevRow } = await db.from('user_profiles').select('plan, pro_until, pro_source, pro_will_renew').eq('user_id', userId).maybeSingle();
-    const prev: PlanState | null = prevRow
-      ? { plan: prevRow.plan === 'pro' ? 'pro' : 'free', proUntil: prevRow.pro_until ?? null, proSource: prevRow.pro_source ?? null, proWillRenew: prevRow.pro_will_renew ?? null }
-      : null;
-    const next = stateFor(ev, prev);
-    if (next) await writePlan(db, userId, next);
-    return new Response(JSON.stringify({ ok: true, applied: !!next }), { status: 200 });
+    const { data: applied, error } = await db.rpc('apply_billing_event', {
+      event_record: {
+        id: ev.id, user_id: userId, type: ev.type, store: ev.store ?? null,
+        environment: ev.environment ?? null, product_id: ev.product_id ?? null,
+        expires_at: typeof ev.expiration_at_ms === 'number' ? new Date(ev.expiration_at_ms).toISOString() : null,
+        payload: body,
+      },
+      plan_updates: updates,
+    });
+    if (error) throw new Error(`Billing transaction failed: ${error.message}`);
+    return new Response(JSON.stringify({ ok: true, ...(applied === false ? { duplicate: true } : outcome) }), { status: 200 });
   } catch (err) {
     console.error('[billing-webhook] apply failed:', err);
     return new Response('Apply failed', { status: 500 });

@@ -159,9 +159,9 @@ function guardDeviceAccount(newUserId: string): boolean {
   try {
     const prev = localStorage.getItem(ACTIVE_USER_KEY);
     if (prev && prev !== newUserId) {
-      clearLocalAppData();
+      const cleanup = clearLocalAppData();
       localStorage.setItem(ACTIVE_USER_KEY, newUserId);
-      void clearWidgets().catch(() => {}).finally(() => window.location.reload());
+      void Promise.all([cleanup, clearWidgets().catch(() => {})]).finally(() => window.location.reload());
       return true;
     }
     localStorage.setItem(ACTIVE_USER_KEY, newUserId);
@@ -705,7 +705,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     // the same clean-identity technique guardDeviceAccount uses on an account
     // switch. (supabase.auth.signOut already cleared the session, so the reload
     // comes back signed-out.)
-    clearLocalAppData();
+    await clearLocalAppData();
     try {
       window.location.reload();
       return;

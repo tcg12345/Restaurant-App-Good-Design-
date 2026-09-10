@@ -1,3 +1,4 @@
+import { PhotoImage } from '../PhotoImage';
 /**
  * Pinned shelf — the three things a person put at the top of their profile.
  *
@@ -205,7 +206,7 @@ export const PinTile: React.FC<{ card: PinCard }> = ({ card }) => {
       aria-label={`${card.kind}: ${card.title}`}
     >
       {card.image ? (
-        <img src={card.image} alt="" className="absolute inset-0 w-full h-full object-cover" referrerPolicy="no-referrer" loading="lazy" />
+        <PhotoImage src={card.image} alt="" className="absolute inset-0 w-full h-full object-cover" referrerPolicy="no-referrer" loading="lazy" />
       ) : (
         <div className="absolute inset-0 flex items-center justify-center text-on-surface/25">
           <Icon size={30} />

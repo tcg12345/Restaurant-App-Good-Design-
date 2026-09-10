@@ -1,3 +1,5 @@
+import { PhotoBackground } from './PhotoBackground';
+import { PhotoImage } from './PhotoImage';
 import { DeleteConfirmation } from './DeleteConfirmation';
 import { comparisonDraft, stampComparisonStep, type PreferenceDraft } from '../lib/ranking-evidence';
 /** A continuous rating sheet: choose a feeling, place it on your list, add optional visit details. */
@@ -593,7 +595,7 @@ export const RatingFlowSheet: React.FC<{ state: Pick<ReturnType<typeof useLists>
             <div className="rf-pair mt-3.5 flex-1 min-h-0 flex flex-col justify-center" key={comparison.restaurantId}>
               <div className={cn('rf-comp-wrap', pick === 'new' && 'is-win', pick === 'old' && 'is-lose', pick === 'tie' && 'is-tie')}>
                 <button type="button" className="rf-comp-btn" disabled={!!pick} onClick={() => h2h && resolve(applyChoice(h2h, true), 'new')}>
-                  {restaurant.image && <img className="rf-comp-image" src={restaurant.image} alt="" referrerPolicy="no-referrer" />}
+                  {restaurant.image && <PhotoImage className="rf-comp-image" src={restaurant.image} alt="" referrerPolicy="no-referrer" />}
                   <span className="flex items-center gap-[7px] mb-[5px]">
                     <span className="w-1.5 h-1.5 rounded-full bg-primary" />
                     <span className="text-[9.5px] font-extrabold tracking-[1.3px] text-primary">THIS VISIT</span>
@@ -609,7 +611,7 @@ export const RatingFlowSheet: React.FC<{ state: Pick<ReturnType<typeof useLists>
               </div>
               <div className={cn('rf-comp-wrap', pick === 'old' && 'is-win', pick === 'new' && 'is-lose', pick === 'tie' && 'is-tie')}>
                 <button type="button" className="rf-comp-btn" disabled={!!pick} onClick={() => h2h && resolve(applyChoice(h2h, false), 'old')}>
-                  {comparison.image && <img className="rf-comp-image" src={comparison.image} alt="" referrerPolicy="no-referrer" />}
+                  {comparison.image && <PhotoImage className="rf-comp-image" src={comparison.image} alt="" referrerPolicy="no-referrer" />}
                   <span className="flex items-center gap-[7px] mb-[5px]">
                     <span className="text-[9.5px] font-extrabold tracking-[1.3px] text-ink-4">ON YOUR LIST</span>
                     {scoresUnlocked && (
@@ -1017,7 +1019,7 @@ export const RatingFlowSheet: React.FC<{ state: Pick<ReturnType<typeof useLists>
                   <div className="flex-1 min-h-0 overflow-auto flex flex-col gap-[9px]">
                     {photos.map((p, i) => (
                       <div key={`${p.url}-${i}`} className="rf-pop flex gap-2.5 items-center flex-shrink-0">
-                        <div
+                        <PhotoBackground
                           className="w-14 h-14 flex-shrink-0 rounded-xl bg-cover bg-center border border-line"
                           style={{ backgroundImage: p.url ? `url(${p.url})` : undefined }}
                         />

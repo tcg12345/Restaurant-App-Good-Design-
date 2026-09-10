@@ -1,3 +1,4 @@
+import { PhotoBackground } from '../PhotoBackground';
 import { ChefHat, ChevronRight, Sparkles, CheckCircle2, Clock, Users } from 'lucide-react';
 import type { HomeMeal } from '../../contexts/ListsContext';
 
@@ -26,13 +27,13 @@ export function RecipeDraftCard({ draft, publishedMealId, onOpen }: RecipeDraftC
       onClick={onOpen}
     >
       <div className="lp-chat-card-recipe-draft-top">
-        <div
+        <PhotoBackground
           className="lp-chat-card-recipe-draft-cover"
           style={cover ? { backgroundImage: `url("${cover}")` } : undefined}
           aria-hidden="true"
         >
           {!cover && <ChefHat size={20} />}
-        </div>
+        </PhotoBackground>
         <div className="lp-chat-card-recipe-draft-main">
           <div className="lp-chat-card-recipe-draft-eyebrow">
             {isPublished ? (

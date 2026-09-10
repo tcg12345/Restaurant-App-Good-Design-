@@ -1,3 +1,4 @@
+import { PhotoImage } from './PhotoImage';
 import { MobilePageSheet } from './MobilePageSheet';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
@@ -282,7 +283,7 @@ export const GuidesBrowser: React.FC<GuidesBrowserProps> = ({ open, onClose, cit
             >
               <div className="relative aspect-[1/0.78] overflow-hidden bg-on-surface/[0.04]">
                 {g.image ? (
-                  <img
+                  <PhotoImage
                     src={g.image}
                     alt=""
                     className="absolute inset-0 w-full h-full object-cover"

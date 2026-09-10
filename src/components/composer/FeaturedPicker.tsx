@@ -1,3 +1,4 @@
+import { PhotoImage } from '../PhotoImage';
 /**
  * FeaturedPicker — the one surface for attaching a restaurant or a
  * recipe to a post item or a reel.
@@ -125,7 +126,7 @@ export const FeaturedThumb: React.FC<{
       )}
     >
       {usable ? (
-        <img
+        <PhotoImage
           src={usable}
           alt=""
           loading="lazy"

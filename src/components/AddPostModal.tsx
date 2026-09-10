@@ -1,3 +1,4 @@
+import { PhotoImage } from './PhotoImage';
 /**
  * AddPostModal — four-step flow for creating a multi-media post.
  *
@@ -1417,7 +1418,7 @@ export const AddPostModal: React.FC = () => {
                       transition={{ duration: 0.2 }}
                       className="relative h-full w-full py-2"
                     >
-                      <img
+                      <PhotoImage
                         src={lastNativePick.thumbnailDataUrl}
                         alt=""
                         className="w-full h-full object-contain"
@@ -1505,7 +1506,7 @@ export const AddPostModal: React.FC = () => {
                               aria-label={`Remove item ${idx + 1}`}
                             >
                               {it.mediaType === 'photo' ? (
-                                <img src={it.previewUrl} alt="" className="w-full h-full object-cover" />
+                                <PhotoImage src={it.previewUrl} alt="" className="w-full h-full object-cover" />
                               ) : (
                                 <video src={it.previewUrl} muted playsInline preload="metadata" className="w-full h-full object-cover" />
                               )}
@@ -1600,7 +1601,7 @@ export const AddPostModal: React.FC = () => {
                         <div className="flex items-center gap-2.5 min-w-0">
                           <div className="w-9 h-9 rounded-lg overflow-hidden flex-shrink-0 bg-on-surface/[0.06]">
                             {activeItem.mediaType === 'photo' ? (
-                              <img src={activeItem.previewUrl} alt="" className="w-full h-full object-cover" />
+                              <PhotoImage src={activeItem.previewUrl} alt="" className="w-full h-full object-cover" />
                             ) : (
                               <video src={activeItem.previewUrl} muted playsInline preload="metadata" className="w-full h-full object-cover" />
                             )}
@@ -1658,7 +1659,7 @@ export const AddPostModal: React.FC = () => {
                                   )}
                                 >
                                   {it.mediaType === 'photo' ? (
-                                    <img src={it.previewUrl} alt="" className="w-full h-full object-cover" />
+                                    <PhotoImage src={it.previewUrl} alt="" className="w-full h-full object-cover" />
                                   ) : (
                                     <video src={it.previewUrl} muted playsInline preload="metadata" className="w-full h-full object-cover" />
                                   )}
@@ -2077,7 +2078,7 @@ export const AddPostModal: React.FC = () => {
                             )}
                           >
                             {it.mediaType === 'photo' ? (
-                              <img src={it.previewUrl} alt="" draggable={false} className="w-full h-full object-cover" />
+                              <PhotoImage src={it.previewUrl} alt="" draggable={false} className="w-full h-full object-cover" />
                             ) : (
                               <video src={it.previewUrl} muted playsInline preload="metadata" className="w-full h-full object-cover" />
                             )}
@@ -2185,7 +2186,7 @@ export const AddPostModal: React.FC = () => {
                                 >
                                   <div className="w-[46px] h-[46px] rounded-[10px] overflow-hidden flex-shrink-0 bg-on-surface/[0.06] relative">
                                     {it.mediaType === 'photo' ? (
-                                      <img src={it.previewUrl} alt="" draggable={false} className="w-full h-full object-cover" />
+                                      <PhotoImage src={it.previewUrl} alt="" draggable={false} className="w-full h-full object-cover" />
                                     ) : (
                                       <video src={it.previewUrl} muted playsInline preload="metadata" className="w-full h-full object-cover" />
                                     )}
@@ -2367,7 +2368,7 @@ export const AddPostModal: React.FC = () => {
                                   <div className="flex items-center gap-2.5">
                                     <div className="w-9 h-9 rounded-lg overflow-hidden flex-shrink-0 bg-on-surface/[0.06]">
                                       {it.mediaType === 'photo' ? (
-                                        <img src={it.previewUrl} alt="" draggable={false} className="w-full h-full object-cover" />
+                                        <PhotoImage src={it.previewUrl} alt="" draggable={false} className="w-full h-full object-cover" />
                                       ) : (
                                         <video src={it.previewUrl} muted playsInline preload="metadata" className="w-full h-full object-cover" />
                                       )}

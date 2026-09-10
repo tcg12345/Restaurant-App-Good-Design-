@@ -1,3 +1,4 @@
+import { PhotoImage } from '../components/PhotoImage';
 import type { RestaurantProvenance } from '../lib/restaurant-provenance';
 import { track, trackRestaurant } from '../lib/analytics';
 import React, { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo } from 'react';
@@ -640,7 +641,7 @@ export const SearchMain: React.FC<{
         )}
       >
         {r.photos[0] ? (
-          <img
+          <PhotoImage
             src={r.photos[0]}
             alt=""
             loading="lazy"
@@ -818,7 +819,7 @@ export const SearchMain: React.FC<{
         className="group flex items-center gap-3 p-4 rounded-2xl border border-on-surface/[0.07] bg-surface hover:border-on-surface/[0.16] hover:shadow-sm transition-all text-left"
       >
         {r.photos[0] ? (
-          <img
+          <PhotoImage
             src={r.photos[0]}
             alt=""
             loading="lazy"

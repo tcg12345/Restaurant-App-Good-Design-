@@ -1,3 +1,4 @@
+import { PhotoImage } from './PhotoImage';
 import { restaurantDataSource, type RestaurantProvenance, type RestaurantDataSource } from '../lib/restaurant-provenance';
 import { useRestaurantAnalytics } from '../lib/useRestaurantAnalytics';
 /**
@@ -582,7 +583,7 @@ export const RestaurantPanelBody: React.FC<{
           style={{ overscrollBehavior: 'none' }}
         >
           <div className="rp-content">
-          {!noHero && snapshot.image && !imageFailed && <img src={snapshot.image} alt="" className="rp-hero-photo" referrerPolicy="no-referrer" onError={() => setImageFailed(true)} />}
+          {!noHero && snapshot.image && !imageFailed && <PhotoImage src={snapshot.image} alt="" className="rp-hero-photo" referrerPolicy="no-referrer" onError={() => setImageFailed(true)} />}
           {headSlot}
         {/* Identity — the main detail page's lead: the name says it in
             large serif ON the surface, with the cuisine speaking in the
@@ -842,7 +843,7 @@ export const RestaurantPanelBody: React.FC<{
                         {hasPhotos ? (
                           <span className="flex gap-1.5 overflow-x-auto scrollbar-hide" style={{ scrollbarWidth: 'none' }}>
                             {myRating.photos.map((p, i) => (
-                              <img
+                              <PhotoImage
                                 key={i}
                                 src={photoBlobMap[p.url] ?? p.url}
                                 alt=""
@@ -912,7 +913,7 @@ export const RestaurantPanelBody: React.FC<{
                     className="relative aspect-square rounded-xl overflow-hidden bg-on-surface/[0.05] ring-1 ring-on-surface/[0.06] hover:ring-on-surface/[0.14] transition-shadow"
                     aria-label={p.caption || `Photo ${idx + 1} of ${communityPhotosDisplay.length}`}
                   >
-                    <img
+                    <PhotoImage
                       src={p.url}
                       alt=""
                       className="absolute inset-0 w-full h-full object-cover"

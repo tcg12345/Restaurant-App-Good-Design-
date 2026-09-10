@@ -1,3 +1,4 @@
+import { PhotoImage } from './PhotoImage';
 import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { animate, motion, useMotionValue, useReducedMotion, useTransform, useDragControls } from 'motion/react';
 import { ArrowUp, ChevronLeft, ChevronRight, Images, LayoutGrid, ImageOff, Sparkles, Search, X } from 'lucide-react';
@@ -16,7 +17,7 @@ function Photo({ url, alt, className = '', lazy = false }: { url: string; alt: s
   const [failed, setFailed] = useState(false);
   useEffect(() => setFailed(false), [url]);
   return failed ? <span className={`rps-photo-failed ${className}`} role="img" aria-label={`${alt}. Photo unavailable`}><ImageOff size={28} /><span>Photo unavailable</span></span>
-    : <img loading={lazy ? "lazy" : "eager"} decoding="async" className={className} src={url} alt={alt} referrerPolicy="no-referrer" draggable={false} onError={() => setFailed(true)} />;
+    : <PhotoImage loading={lazy ? "lazy" : "eager"} decoding="async" className={className} src={url} alt={alt} referrerPolicy="no-referrer" draggable={false} onError={() => setFailed(true)} />;
 }
 interface Props {
   name: string;

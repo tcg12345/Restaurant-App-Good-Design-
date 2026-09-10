@@ -215,15 +215,16 @@ export function publishRestaurantCuisine(restaurantId: string, cuisine: string, 
   // never from here. The server refuses them from a client anyway; this
   // makes the rule visible at the call site.
   if (SERVER_ONLY.has(source)) return;
-  void supabase.from('restaurant_cuisine')
-    .upsert({ restaurant_id: restaurantId, cuisine: trimmed, source }, { onConflict: 'restaurant_id' })
-    .then(({ error }) => {
-      if (error) { console.warn('[Cuisine] cache write failed:', error.message); return; }
-      // The server may well have dropped this as weaker than what it
-      // already had — announcing anyway is correct and cheap, because a
-      // listener re-reads and finds nothing new.
-      announceCuisineChange(restaurantId);
-    });
+  void (async () => {
+    // getSession reads the local session; guests should never issue a
+    // write that the database will reject.
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) return;
+    const { error } = await supabase.from('restaurant_cuisine')
+      .upsert({ restaurant_id: restaurantId, cuisine: trimmed, source }, { onConflict: 'restaurant_id' });
+    if (error) { console.warn('[Cuisine] cache write failed:', error.message); return; }
+    announceCuisineChange(restaurantId);
+  })().catch(() => { /* Cache enrichment must never interrupt navigation. */ });
 }
 
 /**

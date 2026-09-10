@@ -1,3 +1,4 @@
+import { PhotoImage } from '../PhotoImage';
 import React from 'react';
 import { Link } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
@@ -93,7 +94,7 @@ export const ProfileRestaurantRow: React.FC<Props> = ({ rating, photos, expanded
                       rel="noreferrer"
                       className="aspect-square rounded-lg overflow-hidden bg-on-surface/[0.05] block hover:scale-[1.02] transition-transform"
                     >
-                      <img src={p.url} alt={p.caption || ''} referrerPolicy="no-referrer" className="w-full h-full object-cover" />
+                      <PhotoImage src={p.url} alt={p.caption || ''} referrerPolicy="no-referrer" className="w-full h-full object-cover" />
                     </a>
                   ))}
                 </div>

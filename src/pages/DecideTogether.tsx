@@ -1,3 +1,4 @@
+import { PhotoImage } from '../components/PhotoImage';
 import { useLocalBack } from '../lib/back-navigation';
 import { usePageBack } from '../lib/usePageBack';
 import { Capacitor } from "@capacitor/core";
@@ -291,7 +292,7 @@ export const DecideTogether: React.FC = () => {
   const featurePhoto = (p: GroupPlace, cls = "") => (
     <div className={`gs-photo ${cls}`}>
       {p.photoUrl ? (
-        <img src={p.photoUrl} alt={p.name} />
+        <PhotoImage src={p.photoUrl} alt={p.name} />
       ) : (
         <div className="gs-no-photo">
           <Utensils size={64} strokeWidth={1} />

@@ -1,3 +1,4 @@
+import { PhotoImage } from './PhotoImage';
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { ArrowUpRight, Clapperboard, Play, ChevronRight } from 'lucide-react';
@@ -14,7 +15,7 @@ function ReelPoster({ reel }: { reel: Reel }) {
     ? muxPosterUrl(reel.muxPlaybackId, { width: 640, token: reel.muxTokens?.thumbnail }) : undefined);
   const [failed, setFailed] = useState<string>();
   return <>
-    {src && failed !== src ? <img src={src} alt="" loading="lazy" decoding="async" draggable={false} onError={() => setFailed(src)} /> : <Clapperboard className="home-reel-fallback" aria-hidden="true" size={32} />}
+    {src && failed !== src ? <PhotoImage src={src} alt="" loading="lazy" decoding="async" draggable={false} onError={() => setFailed(src)} /> : <Clapperboard className="home-reel-fallback" aria-hidden="true" size={32} />}
     <span className="home-reel-shade" />
   </>;
 }

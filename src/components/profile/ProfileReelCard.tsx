@@ -1,3 +1,4 @@
+import { PhotoImage } from '../PhotoImage';
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Film, Heart, MessageCircle, Play } from 'lucide-react';
@@ -34,7 +35,7 @@ export const ProfileReelCard: React.FC<{ reel: Reel }> = ({ reel }) => {
     >
       <div className="relative aspect-[9/14] overflow-hidden">
         {reel.posterUrl ? (
-          <img src={reel.posterUrl} alt="" referrerPolicy="no-referrer" className="absolute inset-0 w-full h-full object-cover" />
+          <PhotoImage src={reel.posterUrl} alt="" referrerPolicy="no-referrer" className="absolute inset-0 w-full h-full object-cover" />
         ) : reel.videoUrl ? (
           <video src={reel.videoUrl} muted playsInline preload="metadata" className="absolute inset-0 w-full h-full object-cover" />
         ) : (

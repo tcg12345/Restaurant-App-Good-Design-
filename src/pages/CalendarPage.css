@@ -1,7 +1,7 @@
 /* Calendar: compact dates, calm surfaces, and motion that follows selection. */
-.meal-calendar,.meal-dialog{--meal-ink:var(--color-on-surface,#232c29);--meal-paper:var(--color-paper,#fff);--meal-line:color-mix(in srgb,var(--meal-ink) 9%,transparent);--meal-muted:var(--color-ink-3,#717b76);--meal-green:#315f4b;--meal-green-soft:#eaf2ed;--meal-clay:#aa664a;--meal-clay-soft:#f7eee8;color:var(--meal-ink);font-family:var(--font-sans, -apple-system, BlinkMacSystemFont, sans-serif)}
+.meal-calendar,.meal-dialog{--meal-font:-apple-system,BlinkMacSystemFont,var(--font-sans),sans-serif;--meal-ink:var(--color-on-surface,#232c29);--meal-paper:var(--color-paper,#fff);--meal-line:color-mix(in srgb,var(--meal-ink) 9%,transparent);--meal-muted:var(--color-ink-3,#717b76);--meal-green:#315f4b;--meal-green-soft:#eaf2ed;--meal-clay:#aa664a;--meal-clay-soft:#f7eee8;color:var(--meal-ink);font-family:var(--meal-font)}
 .dark .meal-calendar,.dark .meal-dialog{--meal-green:#b9dcc8;--meal-green-soft:#283c32;--meal-clay:#deb09a;--meal-clay-soft:#3b302b}
-.meal-calendar{max-width:1120px;margin:0 auto;padding:28px clamp(20px,4vw,48px) 100px;width:100%;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Display",var(--font-sans),sans-serif}
+.meal-calendar{max-width:1120px;margin:0 auto;padding:28px clamp(20px,4vw,48px) 100px;width:100%;font-family:var(--meal-font)}
 .meal-calendar button,.meal-dialog button{cursor:pointer;-webkit-tap-highlight-color:transparent}
 .meal-calendar button:focus-visible,.meal-calendar input:focus-visible,.meal-dialog button:focus-visible,.meal-dialog input:focus-visible,.meal-dialog select:focus-visible,.meal-dialog textarea:focus-visible{outline:2px solid var(--meal-green);outline-offset:3px}
 .meal-calendar button:disabled,.meal-dialog button:disabled{opacity:.45;cursor:default}
@@ -90,7 +90,7 @@
 .meal-booking-nudge{display:flex;align-items:center;gap:11px;padding:14px 16px;background:color-mix(in srgb,var(--meal-clay-soft) 70%,transparent);border:1px solid color-mix(in srgb,var(--meal-clay) 12%,transparent);color:var(--meal-clay);border-radius:17px;margin-top:18px;text-align:left;width:100%}
 .meal-booking-nudge>span{flex:1;min-width:0}.meal-booking-nudge strong{display:block;font-size:11px;font-weight:600}.meal-booking-nudge small{display:block;font-size:10px;margin-top:4px;overflow-wrap:anywhere}
 .meal-button{min-height:43px;padding:11px 17px;border-radius:22px;display:inline-flex;align-items:center;justify-content:center;gap:7px;font-size:12px;font-weight:600;line-height:1.4;border:1px solid transparent;white-space:nowrap}
-.meal-button.primary{background:var(--meal-green);color:#fff;box-shadow:0 3px 9px #183c2410}.dark .meal-button.primary{color:#172e22}
+.meal-button.primary{background:var(--color-primary);color:var(--color-on-primary);box-shadow:0 3px 9px #183c2410}
 .meal-button.secondary{border-color:var(--meal-line);background:var(--meal-paper);color:var(--meal-ink)}
 .meal-button.full{width:100%;margin-bottom:10px}.meal-button.danger{background:#aa3c30;color:#fff}
 .meal-eyebrow{display:block;color:var(--meal-muted);font-size:9px;line-height:1.5;font-weight:650;letter-spacing:1.2px}
@@ -108,13 +108,13 @@
 .meal-dialog{background:var(--meal-paper);color:var(--meal-ink);border:1px solid var(--meal-line);border-radius:23px;width:min(540px,calc(100vw - 32px));max-height:min(88dvh,900px);padding:0;margin:auto;box-shadow:0 20px 100px #0003;overscroll-behavior:contain}
 .meal-dialog::backdrop{background:#17221b70;backdrop-filter:blur(5px)}
 .meal-dialog-inner>header{display:flex;align-items:flex-start;gap:20px;justify-content:space-between;padding:27px 28px 21px;border-bottom:1px solid var(--meal-line)}
-.meal-dialog h2{font-family:var(--font-display);font-weight:450;font-size:29px;line-height:1.2;margin-top:9px;overflow-wrap:anywhere}
+.meal-dialog h2{font-family:inherit;font-weight:650;font-size:25px;line-height:1.2;margin-top:9px;overflow-wrap:anywhere}
 .meal-dialog header p{font-size:11px;color:var(--meal-muted);line-height:1.65;margin-top:9px}
 .meal-form{padding:22px 28px 25px}.meal-form fieldset{border:0;margin:0;padding:0;min-width:0}
 .meal-type-switch{display:flex;gap:8px;margin-bottom:23px}.meal-type-switch>button{display:flex;align-items:center;justify-content:center;gap:7px;flex:1;padding:12px 6px;min-height:46px;border:1px solid var(--meal-line);border-radius:11px;font-size:11px;color:var(--meal-muted)}
 .meal-type-switch>button[aria-pressed=true]{border-color:var(--meal-green);color:var(--meal-green);background:var(--meal-green-soft);font-weight:750}
 .meal-form label{display:block;font-size:11px;font-weight:750;margin-bottom:17px}.meal-form label>span{color:var(--meal-muted);font-weight:400;margin-left:3px}
-.meal-form input,.meal-form select,.meal-form textarea{display:block;margin-top:7px;border:1px solid var(--meal-line);border-radius:9px;width:100%;background:var(--meal-paper);color:var(--meal-ink);padding:12px;font-family:inherit;font-size:13px;font-weight:450;min-height:44px;min-width:0;box-sizing:border-box}
+.meal-form input,.meal-form select,.meal-form textarea{display:block;margin-top:7px;border:1px solid var(--meal-line);border-radius:9px;width:100%;background:var(--meal-paper);color:var(--meal-ink);padding:12px;font-family:inherit;font-size:16px;font-weight:450;min-height:44px;min-width:0;box-sizing:border-box}
 .meal-form input::placeholder,.meal-form textarea::placeholder{color:var(--meal-muted);opacity:.8}.meal-form textarea{resize:vertical;min-height:90px}
 .meal-form-row{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:13px}
 .meal-field-hint{font-size:10px;line-height:1.7;color:var(--meal-muted);margin:-8px 0 17px}
@@ -132,10 +132,16 @@
 .meal-review-prompt>p{font-size:13px;line-height:1.9;color:var(--meal-muted);margin-bottom:23px}.meal-review-skip{display:flex;justify-content:space-around;gap:15px;margin-top:9px}.meal-review-skip button{font-size:11px;color:var(--meal-muted);padding:10px}
 /* Detail/review sheets share the page's restrained type and rounded surfaces. */
 .meal-dialog{max-width:calc(100vw - 32px)}
-.meal-dialog h2{font-family:-apple-system,BlinkMacSystemFont,var(--font-sans),sans-serif;font-weight:650;letter-spacing:-.6px;font-size:25px}
+.meal-dialog h2{font-family:var(--meal-font);font-weight:650;letter-spacing:-.6px;font-size:25px}
 .meal-plan-detail-dialog .meal-detail{overflow-y:auto;min-height:0;overscroll-behavior:contain}
 .meal-detail-facts{padding:18px;border:1px solid var(--meal-line);border-radius:18px;background:var(--color-surface)}
 .meal-detail-actions button{border-radius:12px;min-height:44px}
 @media(max-width:540px){.meal-dialog{width:100%;max-width:100vw;max-height:92dvh;border-radius:24px 24px 0 0;margin:auto 0 0;border-bottom:0;padding-bottom:env(safe-area-inset-bottom)}.meal-dialog-inner>header{padding:23px 21px 18px}.meal-detail,.meal-review-prompt{padding:21px}.meal-detail-actions button{font-size:10px}}
 
 .meal-view-details{margin-bottom:20px;min-height:48px;gap:10px}.meal-view-details>span{flex:1;text-align:left}.meal-view-details>svg{flex-shrink:0}
+
+/* Calendar sheets share one close affordance and readable controls. */
+.meal-dialog header .meal-icon-button{width:44px;height:44px;background:var(--color-surface);color:var(--meal-ink)}
+.meal-dialog header p{font-size:13px}
+.meal-dialog .meal-eyebrow{font-size:10px}
+@media(prefers-reduced-motion:reduce){.meal-dialog *{scroll-behavior:auto!important;transition:none!important}.plan-spinner{animation:none}}

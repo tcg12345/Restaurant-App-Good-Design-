@@ -1,3 +1,4 @@
+import { PhotoImage } from './PhotoImage';
 /**
  * ProfileReelsSection — compact reels grid used on both the signed-in
  * user's Profile page and other users' UserProfile pages.
@@ -180,7 +181,7 @@ export const ProfilePostsSection: React.FC<ProfilePostsSectionProps> = ({
                   {cover?.mediaType === 'video' && cover.mediaUrl ? (
                     <video src={firstFrameSrc(cover.mediaUrl)} poster={cover.posterUrl || undefined} muted playsInline preload="metadata" className="pointer-events-none absolute inset-0 w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.04]" />
                   ) : cover?.mediaUrl ? (
-                    <img src={cover.mediaUrl} alt="" draggable={false} loading="lazy" decoding="async" className="pointer-events-none absolute inset-0 w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.04]" />
+                    <PhotoImage src={cover.mediaUrl} alt="" draggable={false} loading="lazy" decoding="async" className="pointer-events-none absolute inset-0 w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.04]" />
                   ) : null}
                   <div className="pointer-events-none absolute inset-0" style={{ background: 'linear-gradient(to top, rgba(22,13,8,0.80), rgba(22,13,8,0) 58%)' }} />
                   <div className="absolute inset-x-0 bottom-0 p-4 text-left">
@@ -229,7 +230,7 @@ export const ProfilePostsSection: React.FC<ProfilePostsSectionProps> = ({
               {cover?.mediaType === 'video' && cover.mediaUrl ? (
                 <video src={firstFrameSrc(cover.mediaUrl)} poster={cover.posterUrl || undefined} muted playsInline preload="metadata" className="pointer-events-none absolute inset-0 w-full h-full object-cover" />
               ) : cover?.mediaUrl ? (
-                <img src={cover.mediaUrl} alt="" draggable={false} loading="lazy" decoding="async" className="pointer-events-none absolute inset-0 w-full h-full object-cover" />
+                <PhotoImage src={cover.mediaUrl} alt="" draggable={false} loading="lazy" decoding="async" className="pointer-events-none absolute inset-0 w-full h-full object-cover" />
               ) : null}
               <div className="pointer-events-none absolute inset-0" style={{ background: 'linear-gradient(to top, rgba(22,13,8,0.78), rgba(22,13,8,0) 58%)' }} />
               <div className="absolute inset-x-0 bottom-0 p-2 text-left">
@@ -523,7 +524,7 @@ export const ProfileGuidesSection: React.FC<ProfileGuidesSectionProps> = ({
                   aria-label={g.title || 'Open guide'}
                 >
                   {g.coverPhoto ? (
-                    <img src={g.coverPhoto} alt={g.title} referrerPolicy="no-referrer" draggable={false} className="absolute inset-0 w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.03]" />
+                    <PhotoImage src={g.coverPhoto} alt={g.title} referrerPolicy="no-referrer" draggable={false} className="absolute inset-0 w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.03]" />
                   ) : (
                     <div className={cn('absolute inset-0 grid place-items-center bg-gradient-to-br', isRecipes ? 'from-amber-700 to-stone-900' : 'from-stone-700 to-stone-900')}>
                       <Icon size={40} className="text-white/25" />
@@ -591,7 +592,7 @@ export const ProfileGuidesSection: React.FC<ProfileGuidesSectionProps> = ({
               aria-label={g.title || 'Open guide'}
             >
               {g.coverPhoto ? (
-                <img src={g.coverPhoto} alt={g.title} referrerPolicy="no-referrer" draggable={false} className="pointer-events-none absolute inset-0 w-full h-full object-cover" />
+                <PhotoImage src={g.coverPhoto} alt={g.title} referrerPolicy="no-referrer" draggable={false} className="pointer-events-none absolute inset-0 w-full h-full object-cover" />
               ) : (
                 <div className={cn('absolute inset-0 grid place-items-center bg-gradient-to-br', isRecipes ? 'from-amber-700 to-stone-900' : 'from-stone-700 to-stone-900')}>
                   <Icon size={30} className="text-white/25" />

@@ -110,3 +110,42 @@ it('collects notification decisions immediately with their safe properties and r
  rpc.mockClear();a.setAnalyticsOptOut(true);
  a.track('notification_permission_result',{properties:{outcome:'allowed'}});await a.flushAnalytics();expect(rpc).not.toHaveBeenCalled();
 });
+
+describe('optional PostHog mirror traffic', () => {
+ const ph = { init: vi.fn(), capture: vi.fn(), opt_in_capturing: vi.fn(), opt_out_capturing: vi.fn(), identify: vi.fn(), reset: vi.fn(), startSessionRecording: vi.fn() };
+ beforeEach(() => {
+  vi.useFakeTimers(); vi.stubEnv('VITE_POSTHOG_KEY', 'test-public-key');
+  Object.values(ph).forEach(mock => mock.mockClear());
+  vi.doMock('posthog-js', () => ({ default: ph }));
+ });
+ afterEach(() => { vi.clearAllTimers(); vi.doUnmock('posthog-js'); });
+ it('keeps result/impression/API detail in the collector without flooding PostHog', async () => {
+  const a = await import('./analytics'); a.setAnalyticsIdentity('user', false); a.startAnalytics();
+  for (let i = 0; i < 60; i++) for (const event of ['restaurant_returned', 'restaurant_seen', 'api_request', 'feature_seen']) a.track(event);
+  a.track('restaurant_saved', { restaurant_id: 'saved' });
+  await vi.dynamicImportSettled();
+  expect(ph.capture.mock.calls.map(([event]) => event)).toEqual(['restaurant_saved']);
+  for (let i = 0; i < 8; i++) await a.flushAnalytics();
+  const rows = rpc.mock.calls.flatMap(([, args]) => args.events);
+  expect(rows.filter(row => row.event === 'restaurant_returned')).toHaveLength(60);
+  expect(rows.filter(row => row.event === 'api_request')).toHaveLength(60);
+ });
+ it('paces startup backlogs, prioritizes saves and drops old-account mirror rows', async () => {
+  const a = await import('./analytics'); a.setAnalyticsIdentity('old', false);
+  for (let i = 0; i < 35; i++) a.track('restaurant_opened');
+  a.track('restaurant_saved'); a.startAnalytics(); await vi.dynamicImportSettled();
+  expect(ph.capture).toHaveBeenCalledTimes(10);
+  expect(ph.capture.mock.calls[0][0]).toBe('restaurant_saved');
+  await vi.advanceTimersByTimeAsync(1000); expect(ph.capture).toHaveBeenCalledTimes(15);
+  a.setAnalyticsIdentity('new', false); a.track('page_view');
+  await vi.advanceTimersByTimeAsync(1000);
+  expect(ph.capture).toHaveBeenCalledTimes(16);
+  expect(ph.capture.mock.calls.at(-1)?.[1].user_id).toBe('new');
+ });
+ it('clears pending mirror rows on opt-out', async () => {
+  const a = await import('./analytics'); a.setAnalyticsIdentity('user', false);
+  for (let i = 0; i < 30; i++) a.track('page_view');
+  a.setAnalyticsOptOut(true); a.startAnalytics(); await vi.dynamicImportSettled();
+  await vi.advanceTimersByTimeAsync(5000); expect(ph.capture).not.toHaveBeenCalled();
+ });
+});

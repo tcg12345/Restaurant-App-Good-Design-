@@ -1,3 +1,4 @@
+import { PhotoImage } from '../PhotoImage';
 import React, { useRef, useState } from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import type { FeedPostMedia } from './FeedPost';
@@ -65,7 +66,7 @@ export const FeedPhotoCarousel: React.FC<{
         tabIndex={pageIndex === current ? 0 : -1}
         aria-label={`Expand photo ${i + 1} of ${photos.length}${photo.caption ? `: ${photo.caption}` : ''}`}
         onClick={event => { if (event.detail === 0 || !pointer.current?.moved) onOpen(i); }}>
-        <img src={photo.url} alt={photo.caption || `${name}, photo ${i + 1}`} loading="lazy" decoding="async" draggable={false} referrerPolicy="no-referrer" onError={() => onError(photo.id)} />
+        <PhotoImage src={photo.url} alt={photo.caption || `${name}, photo ${i + 1}`} loading="lazy" decoding="async" draggable={false} referrerPolicy="no-referrer" onError={() => onError(photo.id)} />
         {photo.caption && <span className="feed-photo-caption">{photo.caption}</span>}
       </button>; })}
       </div>)}

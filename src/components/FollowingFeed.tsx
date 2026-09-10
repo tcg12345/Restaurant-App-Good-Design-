@@ -1,3 +1,4 @@
+import { PhotoImage } from './PhotoImage';
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
@@ -721,7 +722,7 @@ export const FollowingFeed: React.FC<{
                       </div>
                       {safe && (
                         <div className="h-[52px] w-[52px] flex-shrink-0 overflow-hidden rounded-[12px] bg-on-surface/[0.05]">
-                          <img src={safe} alt="" className="h-full w-full object-cover" referrerPolicy="no-referrer" />
+                          <PhotoImage src={safe} alt="" className="h-full w-full object-cover" referrerPolicy="no-referrer" />
                         </div>
                       )}
                       <button

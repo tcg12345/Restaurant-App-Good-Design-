@@ -1,3 +1,4 @@
+import { PageSkeleton } from '../components/PageSkeleton';
 /** A focused verification application with the shared Settings shell. */
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -225,7 +226,7 @@ export const VerificationApply: React.FC = () => {
   return <MotionConfig reducedMotion="user"><div className="settings-design settings-verification">
     <header className="settings-header"><GlassButton id="verification-back" className="settings-back" symbol="chevron.left" label="Back" onClick={() => !status && step > 0 ? setStep(s => s - 1) : back()}><ArrowLeft size={22} /></GlassButton><h1>Verification</h1></header>
     <main className="settings-scroll"><div className="settings-content">
-      {!loaded ? <div className="settings-empty" role="status"><Loader2 className="animate-spin" /><p>Loading application…</p></div> : status ? <div className="settings-verification-status">
+      {!loaded ? <PageSkeleton compact /> : status ? <div className="settings-verification-status">
         {status === 'verified' ? <VerifiedBadge size={48} /> : <Clock size={40} />}
         <h2>{status === 'verified' ? 'You’re verified' : submitted ? 'Application received' : 'Under review'}</h2>
         <p>{status === 'verified' ? 'Your badge is live. Manage your public status in Verification settings.' : 'We’ll notify you in the app when your application has been reviewed.'}</p>

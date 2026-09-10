@@ -23,6 +23,24 @@ let started = false;
 let memoryOptOut = false;
 const immediateEvents = new Set(['notification_permission_result', 'notification_permission_status', 'notification_prompt_skipped', 'notification_preference_changed', 'restaurant_saved', 'restaurant_unsaved', 'restaurant_rated', 'restaurant_list_added']);
 
+// Detailed operational/impression rows belong in the first-party collector.
+// Mirroring entire result pools to PostHog exhausted its burst budget before
+// a person could open or save a restaurant. Keep the SDK limiter enabled.
+const collectorOnlyEvents = new Set(['api_request', 'restaurant_returned', 'restaurant_seen', 'feature_seen']);
+let mirrorTokens = 10;
+let mirrorRefillAt = Date.now();
+function flushPosthog() {
+  if (!posthog || !identityReady || blocked || optedOut()) return;
+  const now = Date.now();
+  mirrorTokens = Math.min(10, mirrorTokens + Math.max(0, now - mirrorRefillAt) / 1000 * 5);
+  mirrorRefillAt = now;
+  while (mirrorTokens >= 1 && posthogQueue.length) {
+    const row = posthogQueue.shift()!;
+    mirrorTokens--;
+    try { posthog.capture(row.event, row); } catch { /* optional sink */ }
+  }
+}
+
 // Retain business actions before background traffic when offline or saturated.
 function boundedQueue(rows: Event[]) {
   if (rows.length <= 300) return rows;
@@ -76,8 +94,12 @@ function enqueue(event: string, fields: AnalyticsFields = {}) {
   if (immediateEvents.has(event)) queue.unshift(row);
   else queue.push(row);
   queue = boundedQueue(queue);
-  if (posthog) { try { posthog.capture(event, row); } catch { /* optional sink */ } }
-  else { posthogQueue.push(row); if (posthogQueue.length>300) posthogQueue.shift(); }
+  if (import.meta.env.VITE_POSTHOG_KEY && !collectorOnlyEvents.has(event)) {
+    if (immediateEvents.has(event)) posthogQueue.unshift(row);
+    else posthogQueue.push(row);
+    posthogQueue = boundedQueue(posthogQueue);
+    flushPosthog();
+  }
   if (immediateEvents.has(event) || queue.length >= 40) void flushAnalytics();
 }
 export function track(event: string, fields: AnalyticsFields = {}) {
@@ -138,6 +160,7 @@ export function startAnalytics() {
   if (started || !analyticsEnabled) return;
   started = true;
   window.setInterval(() => void flushAnalytics(), 10_000);
+  if (import.meta.env.VITE_POSTHOG_KEY) window.setInterval(flushPosthog, 1000);
   document.addEventListener('visibilitychange', () => { if (document.hidden) void flushAnalytics(); });
   window.addEventListener('pagehide', () => { void flushAnalytics(); });
   const key = import.meta.env.VITE_POSTHOG_KEY;
@@ -152,7 +175,7 @@ export function startAnalytics() {
     if (identityReady && !blocked && !optedOut()) { ph.opt_in_capturing(); if (userId) ph.identify(userId); }
     // Replay is deliberately an explicit deployment decision, never enabled by merely adding a key.
     if (identityReady && !blocked && !optedOut()) {
-      for (const row of posthogQueue.splice(0)) ph.capture(row.event, row);
+      flushPosthog();
       if (import.meta.env.VITE_POSTHOG_REPLAY === 'true') ph.startSessionRecording();
     }
   }).catch(() => { /* optional sink */ });

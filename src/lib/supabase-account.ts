@@ -1,4 +1,5 @@
 import { disconnectNotifications } from './native-notifications';
+import { clearNativeMetadata } from './native-metadata';
 /**
  * Account lifecycle: in-app account deletion, and attaching a phone
  * number to an existing account.
@@ -131,7 +132,9 @@ const DEVICE_SCOPED_KEYS = ['goodeats-preauth-done', 'gourmad-preauth-done'];
  * AuthContext when a different user signs in on this device — so no personal
  * data leaks across accounts or lingers on the hardware.
  */
-export function clearLocalAppData(): void {
+export function clearLocalAppData(): Promise<void> {
+  // Clear memory immediately, then await serial disk cleanup before reload.
+  const nativeCleanup = clearNativeMetadata();
   try {
     const doomed: string[] = [];
     for (let i = 0; i < localStorage.length; i++) {
@@ -147,4 +150,5 @@ export function clearLocalAppData(): void {
   // the page, so the JS heap would otherwise keep serving the prior user's
   // private-bucket URLs.
   clearSignedUrlCache();
+  return nativeCleanup;
 }

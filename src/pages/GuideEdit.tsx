@@ -1,3 +1,4 @@
+import { PageSkeleton } from '../components/PageSkeleton';
 import { usePageBack } from '../lib/usePageBack';
 /**
  * GuideEdit — route wrapper for /guides/:id/edit. Loads the existing
@@ -6,7 +7,6 @@ import { usePageBack } from '../lib/usePageBack';
  */
 import React, { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
-import { Loader2 } from 'lucide-react';
 import { getGuideById, type Guide } from '../lib/supabase-guides';
 import { useAuth } from '../contexts/AuthContext';
 import { useGuideCreator } from '../contexts/GuideCreatorContext';
@@ -49,11 +49,7 @@ export const GuideEdit: React.FC = () => {
   }, [opened, isOpen, goBack]);
 
   if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-cream">
-        <Loader2 size={28} className="animate-spin text-primary/60" />
-      </div>
-    );
+    return <PageSkeleton variant="detail" />;
   }
 
   if (!guide || guide.userId !== user?.id) {

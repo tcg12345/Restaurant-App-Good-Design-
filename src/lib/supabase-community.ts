@@ -1830,31 +1830,17 @@ export async function getExpertRecommendations(restaurantId: string): Promise<Ex
   try {
     const { data, error } = await supabase
       .from('expert_recommendations')
-      .select('*, user_profiles!expert_recommendations_user_id_fkey(display_name, username)')
+      .select('*')
       .eq('restaurant_id', restaurantId)
       .order('updated_at', { ascending: false });
-    if (error) {
-      // Fallback: if join fails (FK not recognized), fetch separately
-      console.warn('[Expert] Join failed, falling back to separate queries:', error.message);
-      const { data: recs, error: recErr } = await supabase
-        .from('expert_recommendations')
-        .select('*')
-        .eq('restaurant_id', restaurantId)
-        .order('updated_at', { ascending: false });
-      if (recErr || !recs || recs.length === 0) return [];
-      const userIds = [...new Set(recs.map((r: any) => r.user_id))];
-      const profiles = await getProfilesByIds(userIds);
-      return recs.map((r: any) => ({
-        ...r,
-        expert_name: profiles[r.user_id]?.display_name || 'Expert',
-        expert_username: profiles[r.user_id]?.username || '',
-      })) as ExpertRecommendation[];
-    }
-    return (data || []).map((r: any) => ({
+    if (error || !data?.length) return [];
+    // The author FK targets auth.users, not user_profiles. Fetch public
+    // display information in one batch instead of attempting an invalid join.
+    const profiles = await getProfilesByIds([...new Set(data.map((r: any) => r.user_id as string))]);
+    return data.map((r: any) => ({
       ...r,
-      expert_name: r.user_profiles?.display_name || 'Expert',
-      expert_username: r.user_profiles?.username || '',
-      user_profiles: undefined,
+      expert_name: profiles[r.user_id]?.display_name || 'Expert',
+      expert_username: profiles[r.user_id]?.username || '',
     })) as ExpertRecommendation[];
   } catch (err) { console.error('[Expert] getRecommendations exception:', err); return []; }
 }

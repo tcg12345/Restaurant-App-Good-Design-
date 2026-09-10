@@ -1,7 +1,9 @@
-import React, { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react';
-import { AnimatePresence, motion } from 'motion/react';
+import React, { createContext, useCallback, useContext, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
 import { useAuth } from './AuthContext';
 import { Auth } from '../pages/Auth';
+import { acquireHardScrollLock, liftOverlayToTopLayer } from '../lib/useBottomSheet';
+import { pushOverlay } from '../lib/overlay-registry';
 
 /**
  * On-demand sign-in. Guests browse the app freely (App Store Guideline
@@ -58,17 +60,7 @@ export const SignInModalProvider: React.FC<{ children: ReactNode }> = ({ childre
       {children}
       <AnimatePresence>
         {open && (
-          <motion.div
-            key="signin-overlay"
-            className="fixed inset-0 z-[100] bg-surface"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
-            role="dialog"
-            aria-modal="true"
-            aria-label="Sign in"
-          >
+          <SignInSurface key="signin-overlay" onClose={close}>
             {/* Close (stay a guest) */}
             <button
               type="button"
@@ -89,9 +81,62 @@ export const SignInModalProvider: React.FC<{ children: ReactNode }> = ({ childre
             )}
             {/* In the overlay, "Browse without an account" just dismisses. */}
             <Auth onBrowseAsGuest={close} />
-          </motion.div>
+          </SignInSurface>
         )}
       </AnimatePresence>
     </SignInModalContext.Provider>
   );
+};
+
+/** Keep presentation/focus ownership through the exit animation. */
+const SignInSurface: React.FC<{ children: ReactNode; onClose: () => void }> = ({ children, onClose }) => {
+  const layer = useRef<HTMLDivElement>(null);
+  const closeRef = useRef(onClose); closeRef.current = onClose;
+  const reduced = useReducedMotion();
+  useLayoutEffect(() => {
+    const el = layer.current;
+    if (!el) return;
+    const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    liftOverlayToTopLayer(el);
+    const releaseLock = acquireHardScrollLock();
+    const releaseOverlay = pushOverlay({ dimPresenter: false });
+    // Remove the presenting sheet and page from keyboard/assistive navigation
+    // while retaining their state for cancellation. Never inert an ancestor.
+    const background: Array<{ node: HTMLElement; inert: boolean; hidden: string | null }> = [];
+    for (let branch: HTMLElement | null = el; branch?.parentElement; branch = branch.parentElement) {
+      for (const sibling of Array.from(branch.parentElement.children)) {
+        if (!(sibling instanceof HTMLElement) || sibling === branch) continue;
+        background.push({ node: sibling, inert: sibling.inert, hidden: sibling.getAttribute('aria-hidden') });
+        sibling.inert = true; sibling.setAttribute('aria-hidden', 'true');
+      }
+      if (branch.parentElement === document.body) break;
+    }
+    // Focus the surface, not an input: opening sign-in should not summon the keyboard.
+    el.focus({ preventScroll: true });
+    const keyboard = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); closeRef.current(); return; }
+      if (event.key !== 'Tab') return;
+      const controls = (Array.from(el.querySelectorAll('button:not([disabled]),a[href],input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])')) as HTMLElement[])
+        .filter(control => control.getClientRects().length > 0 && !control.closest('[inert],[hidden]'));
+      const first = controls[0], last = controls[controls.length - 1];
+      if (!first) { event.preventDefault(); el.focus(); return; }
+      const active = document.activeElement;
+      if (event.shiftKey && (active === first || active === el || !el.contains(active))) { event.preventDefault(); last.focus(); }
+      else if (!event.shiftKey && (active === last || active === el || !el.contains(active))) { event.preventDefault(); first.focus(); }
+    };
+    el.addEventListener('keydown', keyboard);
+    return () => {
+      el.removeEventListener('keydown', keyboard);
+      for (const { node, inert, hidden } of background) {
+        node.inert = inert;
+        if (hidden === null) node.removeAttribute('aria-hidden'); else node.setAttribute('aria-hidden', hidden);
+      }
+      releaseOverlay(); releaseLock();
+      if (previous?.isConnected && (document.activeElement === document.body || el.contains(document.activeElement))) previous.focus({ preventScroll: true });
+    };
+  }, []);
+  return <motion.div ref={layer} className="fixed inset-0 z-[100] bg-surface overflow-y-auto"
+    initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+    transition={{ duration: reduced ? 0 : .2, ease: [.22, 1, .36, 1] }}
+    role="dialog" aria-modal="true" aria-label="Sign in" tabIndex={-1}>{children}</motion.div>;
 };

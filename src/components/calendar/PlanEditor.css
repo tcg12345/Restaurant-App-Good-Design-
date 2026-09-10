@@ -17,14 +17,14 @@
   align-items: center;
 }
 .plan-editor-dialog .meal-dialog-inner > header h2 {
-  font-family: var(--font-sans);
+  font-family: inherit;
   font-size: 23px;
   font-weight: 750;
   letter-spacing: -.8px;
   margin-top: 6px;
 }
-.plan-editor-dialog .meal-dialog-inner > header p { font-size: 11px; margin-top: 5px; }
-.plan-editor-dialog .meal-eyebrow { font-size: 8px; letter-spacing: 1.6px; }
+.plan-editor-dialog .meal-dialog-inner > header p { font-size: 13px; margin-top: 5px; }
+.plan-editor-dialog .meal-eyebrow { font-size: 12px; letter-spacing: 1.6px; }
 .plan-editor-dialog .meal-icon-button { background: var(--color-surface); }
 .plan-editor {
   min-height: 0;
@@ -34,137 +34,137 @@
 }
 .plan-editor fieldset { border: 0; padding: 0; margin: 0; min-width: 0; }
 .plan-progress { display: flex; align-items: center; padding: 17px 30px; gap: 14px; flex-shrink: 0; }
-.plan-progress button { display: flex; align-items: center; gap: 8px; color: var(--meal-muted); font-size: 11px; font-weight: 650; min-height: 28px; }
-.plan-progress button > span { display: flex; align-items: center; justify-content: center; width: 23px; height: 23px; border: 1px solid var(--meal-line); border-radius: 50%; font-size: 10px; }
+.plan-progress button { display: flex; align-items: center; gap: 8px; color: var(--meal-muted); font-size: 12px; font-weight: 650; min-height: 44px; }
+.plan-progress button > span { display: flex; align-items: center; justify-content: center; width: 23px; height: 23px; border: 1px solid var(--meal-line); border-radius: 50%; font-size: 12px; }
 .plan-progress button[aria-current=step] { color: var(--meal-green); }
 .plan-progress button[aria-current=step] > span { background: var(--meal-green); color: var(--meal-paper); border-color: var(--meal-green); }
 .plan-progress > div { height: 1px; background: var(--meal-line); flex: 1; max-width: 60px; }
 .plan-editor-scroll { min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 6px 30px 26px; scrollbar-width: thin; scrollbar-color: var(--meal-line) transparent; }
 .plan-step-heading { margin-bottom: 21px; }
-.plan-step-heading h3 { font-family: var(--font-display); font-size: 28px; font-weight: 450; line-height: 1.2; letter-spacing: -.6px; outline: none; }
-.plan-step-heading p { font-size: 11px; color: var(--meal-muted); line-height: 1.7; margin-top: 7px; }
+.plan-step-heading h3 { font-family: inherit; font-size: 25px; font-weight: 650; line-height: 1.2; letter-spacing: -.6px; outline: none; }
+.plan-step-heading p { font-size: 13px; color: var(--meal-muted); line-height: 1.7; margin-top: 7px; }
 .plan-kind-cards { display: grid; grid-template-columns: 1fr 1fr; gap: 11px; margin-bottom: 28px; }
 .plan-kind-cards > button { position: relative; display: flex; flex-direction: column; gap: 15px; text-align: left; padding: 18px; border: 1px solid var(--meal-line); border-radius: 16px; background: var(--meal-paper); }
 .plan-kind-cards > button[aria-pressed=true] { background: color-mix(in srgb, var(--meal-green-soft) 65%, var(--meal-paper)); border-color: var(--meal-green); box-shadow: inset 0 0 0 .5px var(--meal-green); }
 .plan-kind-cards > button:hover { border-color: var(--meal-green); }
 .plan-kind-icon { width: 42px; height: 42px; display: flex; align-items: center; justify-content: center; border: 1px solid var(--meal-line); border-radius: 12px; color: var(--meal-muted); background: var(--meal-paper); }
 .plan-kind-cards > button[aria-pressed=true] .plan-kind-icon { border-color: transparent; background: var(--meal-green); color: var(--meal-paper); }
-.plan-kind-cards strong { display: block; font-size: 12px; font-weight: 750; line-height: 1.5; }
-.plan-kind-cards small { display: block; font-size: 9px; color: var(--meal-muted); line-height: 1.6; margin-top: 4px; }
+.plan-kind-cards strong { display: block; font-size: 14px; font-weight: 750; line-height: 1.5; }
+.plan-kind-cards small { display: block; font-size: 12px; color: var(--meal-muted); line-height: 1.6; margin-top: 4px; }
 .plan-choice-check { position: absolute; top: 17px; right: 16px; display: flex; align-items: center; justify-content: center; width: 17px; height: 17px; border: 1px solid var(--meal-line); border-radius: 50%; }
 .plan-kind-cards > button[aria-pressed=true] .plan-choice-check { background: var(--meal-green); border-color: var(--meal-green); color: var(--meal-paper); }
 .plan-input-label { display: block; font-size: 12px; font-weight: 750; margin-bottom: 10px; }
 .plan-search-input { display: flex; align-items: center; gap: 10px; padding: 0 14px; border: 1px solid var(--meal-line); border-radius: 12px; background: var(--color-surface); transition: border-color .15s, box-shadow .15s; }
 .plan-search-input:focus-within { border-color: var(--meal-green); box-shadow: 0 0 0 3px color-mix(in srgb, var(--meal-green) 10%, transparent); }
 .plan-search-input > svg { flex-shrink: 0; color: var(--meal-muted); }
-.plan-search-input input { width: 100%; min-width: 0; font-family: inherit; font-size: 12px; color: var(--meal-ink); padding: 17px 0; background: transparent; outline: none !important; }
+.plan-search-input input { width: 100%; min-width: 0; font-family: inherit; font-size: 16px; color: var(--meal-ink); padding: 17px 0; background: transparent; outline: none !important; }
 .plan-search-input input::placeholder { color: var(--meal-muted); }
-.plan-clear-input { width: 27px; height: 32px; display: flex; align-items: center; justify-content: center; color: var(--meal-muted); flex-shrink: 0; }
-.plan-search-action { display: flex; align-items: center; gap: 6px; padding: 11px 0 4px; font-size: 11px; font-weight: 700; color: var(--meal-green); }
+.plan-clear-input { width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; color: var(--meal-muted); flex-shrink: 0; }
+.plan-search-action { min-height: 44px; display: flex; align-items: center; gap: 6px; padding: 11px 0 4px; font-size: 12px; font-weight: 700; color: var(--meal-green); }
 .plan-search-action:disabled { cursor: default !important; }
 .plan-search-action svg:last-child { margin-left: 3px; }
-.plan-input-hint { color: var(--meal-muted); font-size: 10px; line-height: 1.8; margin-top: 9px; }
+.plan-input-hint { color: var(--meal-muted); font-size: 12px; line-height: 1.8; margin-top: 9px; }
 .plan-picked-source { display: flex; align-items: flex-start; gap: 13px; border: 1px solid var(--meal-line); border-radius: 13px; padding: 16px; background: var(--color-surface); }
 .plan-picked-icon { width: 40px; height: 40px; display: flex; align-items: center; justify-content: center; background: var(--meal-green-soft); color: var(--meal-green); border-radius: 11px; flex-shrink: 0; }
 .plan-picked-source > div { min-width: 0; flex: 1; }
 .plan-picked-source strong { display: block; font-size: 13px; font-weight: 750; line-height: 1.6; overflow-wrap: anywhere; }
-.plan-picked-source small { display: block; font-size: 10px; line-height: 1.7; margin-top: 3px; color: var(--meal-muted); }
-.plan-picked-source > div > span { display: flex; align-items: center; gap: 4px; color: var(--meal-green); font-size: 9px; font-weight: 650; margin-top: 7px; }
-.plan-picked-source > button { font-size: 10px; font-weight: 700; color: var(--meal-green); padding: 8px 0 8px 6px; }
+.plan-picked-source small { display: block; font-size: 12px; line-height: 1.7; margin-top: 3px; color: var(--meal-muted); }
+.plan-picked-source > div > span { display: flex; align-items: center; gap: 4px; color: var(--meal-green); font-size: 12px; font-weight: 650; margin-top: 7px; }
+.plan-picked-source > button { min-height: 44px; font-size: 12px; font-weight: 700; color: var(--meal-green); padding: 8px 0 8px 6px; }
 .plan-suggestions { margin-top: 22px; }
-.plan-suggestions-label { display: flex; align-items: center; gap: 6px; font-size: 8px; font-weight: 700; letter-spacing: 1.2px; color: var(--meal-muted); margin-bottom: 10px; }
+.plan-suggestions-label { display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 700; letter-spacing: 1.2px; color: var(--meal-muted); margin-bottom: 10px; }
 .plan-suggestions > button { display: flex; align-items: center; gap: 11px; width: 100%; padding: 12px 6px; text-align: left; border-bottom: 1px solid var(--meal-line); }
 .plan-suggestions > button:last-child { border-bottom: 0; }
 .plan-suggestions > button:hover { background: var(--color-surface); border-radius: 10px; }
 .plan-suggestion-icon { width: 35px; height: 35px; border-radius: 10px; display: flex; align-items: center; justify-content: center; color: var(--meal-green); background: var(--meal-green-soft); flex-shrink: 0; }
 .plan-suggestions button > span:nth-child(2) { flex: 1; min-width: 0; }
-.plan-suggestions strong { font-size: 11px; line-height: 1.5; display: block; font-weight: 700; }
-.plan-suggestions small { font-size: 9px; line-height: 1.6; display: block; color: var(--meal-muted); margin-top: 3px; }
+.plan-suggestions strong { font-size: 12px; line-height: 1.5; display: block; font-weight: 700; }
+.plan-suggestions small { font-size: 12px; line-height: 1.6; display: block; color: var(--meal-muted); margin-top: 3px; }
 .plan-suggestions button > svg { color: var(--meal-muted); flex-shrink: 0; }
 .plan-gentle-note { display: flex; align-items: flex-start; gap: 10px; padding: 18px 0 0; margin-top: 25px; border-top: 1px solid var(--meal-line); color: var(--meal-green); }
 .plan-gentle-note svg { flex-shrink: 0; margin-top: 2px; }
-.plan-gentle-note p { font-size: 10px; line-height: 1.8; }
+.plan-gentle-note p { font-size: 12px; line-height: 1.8; }
 .plan-gentle-note span { color: var(--meal-muted); }
 .plan-selection-summary { display: flex; gap: 11px; align-items: center; width: 100%; text-align: left; background: var(--color-surface); border: 1px solid var(--meal-line); border-radius: 12px; padding: 12px; margin-bottom: 22px; }
 .plan-selection-summary > span:nth-child(2) { flex: 1; min-width: 0; }
-.plan-selection-summary small { display: block; font-size: 7px; letter-spacing: 1px; font-weight: 750; color: var(--meal-muted); margin-bottom: 4px; }
+.plan-selection-summary small { display: block; font-size: 12px; letter-spacing: 1px; font-weight: 750; color: var(--meal-muted); margin-bottom: 4px; }
 .plan-selection-summary strong { display: block; font-size: 12px; font-weight: 750; overflow-wrap: anywhere; }
-.plan-selection-summary > span:last-child { font-size: 10px; color: var(--meal-green); font-weight: 700; padding: 6px; }
+.plan-selection-summary > span:last-child { font-size: 12px; color: var(--meal-green); font-weight: 700; padding: 6px; }
 .plan-selection-summary .plan-picked-icon { width: 35px; height: 35px; }
 .plan-field-section { margin-bottom: 24px; }
 .plan-field-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 11px; }
 .plan-field-heading > span:first-child { display: flex; align-items: center; gap: 7px; font-size: 12px; font-weight: 750; }
 .plan-field-heading > span:first-child > svg { color: var(--meal-muted); }
-.plan-field-heading > span:last-child:not(:first-child) { font-size: 10px; color: var(--meal-muted); }
+.plan-field-heading > span:last-child:not(:first-child) { font-size: 12px; color: var(--meal-muted); }
 .plan-date-options { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 7px; }
 .plan-date-options > button { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5px; min-height: 66px; padding: 10px 4px; border: 1px solid var(--meal-line); border-radius: 10px; }
-.plan-date-options strong { font-size: 10px; font-weight: 700; }
-.plan-date-options button > span { font-size: 9px; color: var(--meal-muted); display: flex; align-items: center; gap: 3px; }
+.plan-date-options strong { font-size: 12px; font-weight: 700; }
+.plan-date-options button > span { font-size: 12px; color: var(--meal-muted); display: flex; align-items: center; gap: 3px; }
 .plan-date-options > button[aria-pressed=true], .plan-time-options > button[aria-pressed=true], .plan-duration-options > button[aria-pressed=true], .plan-booking-options > button[aria-pressed=true] { background: var(--meal-green-soft); color: var(--meal-green); border-color: var(--meal-green); }
 .plan-date-options > button[aria-pressed=true] > span { color: var(--meal-green); }
 .plan-date-options button:hover, .plan-time-options button:hover, .plan-duration-options button:hover, .plan-booking-options button:hover { border-color: var(--meal-green); }
 .plan-date-popover { border: 1px solid var(--meal-line); border-radius: 13px; padding: 12px; margin-top: 11px; background: var(--color-surface); }
 .plan-date-month { display: flex; align-items: center; justify-content: space-between; margin-bottom: 9px; }
 .plan-date-month > strong { font-size: 12px; font-weight: 750; }
-.plan-date-month > button { width: 34px; height: 34px; display: flex; align-items: center; justify-content: center; border-radius: 8px; color: var(--meal-muted); }
+.plan-date-month > button { width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; border-radius: 8px; color: var(--meal-muted); }
 .plan-date-month > button:hover { background: var(--meal-paper); }
 .plan-date-weekdays, .plan-date-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 5px; }
-.plan-date-weekdays { text-align: center; font-size: 9px; font-weight: 650; color: var(--meal-muted); padding-bottom: 8px; }
-.plan-date-grid button { height: 36px; font-size: 11px; border-radius: 8px; position: relative; }
+.plan-date-weekdays { text-align: center; font-size: 12px; font-weight: 650; color: var(--meal-muted); padding-bottom: 8px; }
+.plan-date-grid button { height: 36px; font-size: 12px; border-radius: 8px; position: relative; }
 .plan-date-grid button[data-outside=true] { color: var(--meal-muted); opacity: .5; }
 .plan-date-grid button[aria-current=date]:not([aria-pressed=true]) { box-shadow: inset 0 0 0 1px var(--meal-line); font-weight: 800; }
 .plan-date-grid button:hover { background: var(--meal-green-soft); }
 .plan-date-grid button[aria-pressed=true] { background: var(--meal-green); color: var(--meal-paper); opacity: 1; font-weight: 800; }
 .plan-date-grid button > svg { position: absolute; right: 3px; bottom: 4px; }
 .plan-time-options { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 7px; }
-.plan-time-options > button, .plan-duration-options > button { min-height: 41px; padding: 9px 5px; border: 1px solid var(--meal-line); border-radius: 9px; font-size: 11px; font-weight: 650; }
-.plan-time-options > .plan-custom-choice { grid-column: 1 / -1; border: 0; min-height: 30px; justify-self: start; padding: 6px 1px; font-size: 10px; }
+.plan-time-options > button, .plan-duration-options > button { min-height: 44px; padding: 9px 5px; border: 1px solid var(--meal-line); border-radius: 9px; font-size: 12px; font-weight: 650; }
+.plan-time-options > .plan-custom-choice { grid-column: 1 / -1; border: 0; min-height: 44px; justify-self: start; padding: 6px 1px; font-size: 12px; }
 .plan-custom-choice { display: flex; align-items: center; justify-content: center; gap: 5px; color: var(--meal-muted); }
 .plan-time-options > .plan-custom-choice[aria-pressed=true] { background: transparent; }
-.plan-timezone { font-size: 9px; color: var(--meal-muted); margin-top: 4px; }
+.plan-timezone { font-size: 12px; color: var(--meal-muted); margin-top: 4px; }
 .plan-duration-options { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 7px; }
-.plan-custom-input { display: flex; align-items: center; justify-content: space-between; gap: 14px; font-size: 11px; font-weight: 650; margin: 11px 0; padding: 10px 13px; border-radius: 10px; background: var(--color-surface); }
-.plan-custom-input input { width: 145px; min-width: 0; min-height: 42px; font-size: 14px; font-family: inherit; padding: 8px 10px; background: var(--meal-paper); color: var(--meal-ink); border: 1px solid var(--meal-line); border-radius: 8px; }
+.plan-custom-input { display: flex; align-items: center; justify-content: space-between; gap: 14px; font-size: 12px; font-weight: 650; margin: 11px 0; padding: 10px 13px; border-radius: 10px; background: var(--color-surface); }
+.plan-custom-input input { width: 145px; min-width: 0; min-height: 44px; font-size: 16px; font-family: inherit; padding: 8px 10px; background: var(--meal-paper); color: var(--meal-ink); border: 1px solid var(--meal-line); border-radius: 8px; }
 .plan-people-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; border-block: 1px solid var(--meal-line); padding: 17px 0; margin-bottom: 24px; }
 .plan-people-row > div > span { display: flex; align-items: center; gap: 7px; font-size: 12px; font-weight: 750; }
 .plan-people-row > div > span > svg { color: var(--meal-muted); }
-.plan-people-row small { display: block; font-size: 10px; color: var(--meal-muted); margin-top: 5px; }
+.plan-people-row small { display: block; font-size: 12px; color: var(--meal-muted); margin-top: 5px; }
 .plan-stepper { display: flex; align-items: center; gap: 2px; border: 1px solid var(--meal-line); padding: 3px; border-radius: 11px; background: var(--color-surface); }
-.plan-stepper button { width: 36px; height: 36px; display: flex; align-items: center; justify-content: center; border-radius: 8px; background: var(--meal-paper); color: var(--meal-green); }
-.plan-stepper input { width: 40px; text-align: center; appearance: textfield; -moz-appearance: textfield; background: transparent; color: var(--meal-ink); font-size: 15px; font-family: inherit; font-weight: 700; }
+.plan-stepper button { width: 44px; height: 44px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; border-radius: 8px; background: var(--meal-paper); color: var(--meal-green); }
+.plan-stepper input { width: 40px; text-align: center; appearance: textfield; -moz-appearance: textfield; background: transparent; color: var(--meal-ink); font-size: 16px; font-family: inherit; font-weight: 700; }
 .plan-stepper input::-webkit-inner-spin-button, .plan-stepper input::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
 .plan-booking-options { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
 .plan-booking-options > button { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 14px 4px 12px; border-radius: 11px; border: 1px solid var(--meal-line); }
 .plan-booking-options > button > svg { color: var(--meal-muted); }
 .plan-booking-options > button[aria-pressed=true] > svg { color: var(--meal-green); }
-.plan-booking-options strong { font-size: 10px; font-weight: 750; }
-.plan-booking-options small { font-size: 8px; color: var(--meal-muted); margin-top: -4px; }
+.plan-booking-options strong { overflow-wrap: anywhere; font-size: 12px; font-weight: 750; }
+.plan-booking-options small { font-size: 12px; color: var(--meal-muted); margin-top: -4px; }
 .plan-conflict { display: flex; gap: 9px; align-items: flex-start; color: var(--meal-clay); background: var(--meal-clay-soft); border-radius: 11px; padding: 13px; margin-bottom: 20px; }
 .plan-conflict > svg { flex-shrink: 0; margin-top: 2px; }
-.plan-conflict p { font-size: 10px; line-height: 1.8; }
-.plan-conflict strong { display: block; font-weight: 750; font-size: 11px; margin-bottom: 2px; }
+.plan-conflict p { font-size: 12px; line-height: 1.8; }
+.plan-conflict strong { display: block; font-weight: 750; font-size: 12px; margin-bottom: 2px; }
 .plan-extra-details { border: 1px solid var(--meal-line); border-radius: 12px; overflow: hidden; }
 .plan-details-toggle { display: flex; align-items: center; gap: 10px; width: 100%; padding: 15px; text-align: left; }
 .plan-details-toggle > span { flex: 1; min-width: 0; }
 .plan-details-toggle > svg { flex-shrink: 0; color: var(--meal-muted); }
-.plan-details-toggle strong { display: block; font-size: 11px; font-weight: 700; }
-.plan-details-toggle small { display: block; font-size: 9px; color: var(--meal-muted); line-height: 1.6; margin-top: 4px; }
+.plan-details-toggle strong { display: block; font-size: 12px; font-weight: 700; }
+.plan-details-toggle small { display: block; font-size: 12px; color: var(--meal-muted); line-height: 1.6; margin-top: 4px; }
 .plan-details-toggle[aria-expanded=true] > svg:last-child { transform: rotate(180deg); }
 .plan-details-content { border-top: 1px solid var(--meal-line); padding: 16px; }
-.plan-details-content label { font-size: 11px; font-weight: 700; display: block; margin-bottom: 15px; }
+.plan-details-content label { font-size: 12px; font-weight: 700; display: block; margin-bottom: 15px; }
 .plan-details-content label:last-child { margin-bottom: 0; }
-.plan-details-content input, .plan-details-content textarea { display: block; margin-top: 8px; padding: 12px; background: var(--color-surface); border: 1px solid var(--meal-line); border-radius: 8px; width: 100%; font-size: 12px; color: var(--meal-ink); font-family: inherit; font-weight: 450; }
+.plan-details-content input, .plan-details-content textarea { display: block; margin-top: 8px; padding: 12px; background: var(--color-surface); border: 1px solid var(--meal-line); border-radius: 8px; width: 100%; font-size: 16px; color: var(--meal-ink); font-family: inherit; font-weight: 450; }
 .plan-details-content textarea { min-height: 92px; resize: vertical; }
 .plan-editor-footer { border-top: 1px solid var(--meal-line); padding: 17px 30px 23px; flex-shrink: 0; background: var(--meal-paper); box-shadow: 0 -8px 20px color-mix(in srgb, var(--meal-paper) 65%, transparent); }
 .plan-footer-actions { display: flex; align-items: center; gap: 14px; }
-.plan-footer-back { display: flex; align-items: center; justify-content: center; gap: 6px; min-width: 78px; height: 47px; font-size: 11px; font-weight: 700; color: var(--meal-muted); border-radius: 11px; }
+.plan-footer-back { display: flex; align-items: center; justify-content: center; gap: 6px; min-width: 78px; height: 47px; font-size: 12px; font-weight: 700; color: var(--meal-muted); border-radius: 11px; }
 .plan-footer-back:hover { background: var(--color-surface); }
-.plan-continue { display: flex; align-items: center; justify-content: center; gap: 10px; min-height: 47px; border-radius: 12px; flex: 1; padding: 13px; background: var(--meal-green); color: var(--meal-paper); font-size: 12px; font-weight: 750; }
+.plan-continue { display: flex; align-items: center; justify-content: center; gap: 10px; min-height: 47px; border-radius: 12px; flex: 1; padding: 13px; background: var(--color-primary); color: var(--color-on-primary); font-size: 14px; font-weight: 750; }
 .plan-continue:hover { filter: brightness(1.08); }
-.plan-save-summary { display: flex; align-items: center; justify-content: center; gap: 7px; margin-bottom: 14px; font-size: 10px; color: var(--meal-muted); }
+.plan-save-summary { display: flex; align-items: center; justify-content: center; gap: 7px; margin-bottom: 14px; font-size: 12px; color: var(--meal-muted); }
 .plan-save-summary > span { display: flex; gap: 7px; align-items: center; flex-wrap: wrap; }
 .plan-save-summary i { width: 3px; height: 3px; border-radius: 50%; background: var(--meal-muted); opacity: .5; }
-.plan-editor-error { display: flex; align-items: flex-start; gap: 7px; font-size: 11px; color: var(--color-danger); line-height: 1.7; padding-bottom: 13px; }
+.plan-editor-error { display: flex; align-items: flex-start; gap: 7px; font-size: 12px; color: var(--color-danger); line-height: 1.7; padding-bottom: 13px; }
 .plan-editor-error > svg { flex-shrink: 0; margin-top: 2px; }
 .plan-spinner { animation: plan-spin 1s linear infinite; }
 @keyframes plan-spin { to { transform: rotate(360deg); } }
@@ -172,36 +172,35 @@
   .meal-dialog.plan-editor-dialog .meal-dialog-inner { width: 100%; max-width: 100vw; max-height: calc(100dvh - max(12px, env(safe-area-inset-top))); padding-bottom: 0; border-radius: 24px 24px 0 0; }
   .plan-editor-dialog .meal-dialog-inner > header { padding: 22px 22px 18px; }
   .plan-editor-dialog .meal-dialog-inner > header h2 { font-size: 22px; }
-  .plan-editor-dialog .meal-dialog-inner > header p { font-size: 10px; }
+  .plan-editor-dialog .meal-dialog-inner > header p { font-size: 13px; }
   .plan-progress { padding: 15px 22px; }
   .plan-editor-scroll { padding: 4px 22px 23px; }
-  .plan-step-heading h3 { font-size: 26px; }
+  .plan-step-heading h3 { font-size: 24px; }
   .plan-kind-cards { gap: 9px; margin-bottom: 23px; }
   .plan-kind-cards > button { padding: 15px 13px; gap: 13px; }
-  .plan-kind-cards strong { font-size: 11px; }
-  .plan-kind-cards small { font-size: 8px; }
+  .plan-kind-cards strong { font-size: 13px; }
+  .plan-kind-cards small { font-size: 12px; }
   .plan-kind-icon { width: 39px; height: 39px; }
   .plan-search-input { padding-inline: 12px; }
   .plan-search-input input { font-size: 16px; padding-block: 15px; }
-  .plan-search-input input::placeholder { font-size: 12px; }
+  .plan-search-input input::placeholder { font-size: 16px; }
   .plan-date-options { gap: 5px; }
-  .plan-date-options strong { font-size: 9px; }
-  .plan-date-options > button > span { font-size: 8px; }
+  .plan-date-options strong { font-size: 12px; }
+  .plan-date-options > button > span { font-size: 12px; }
   .plan-date-options > button { min-height: 64px; }
   .plan-date-custom > span > svg:first-child { display: none; }
   .plan-duration-options { gap: 5px; }
-  .plan-duration-options > button { font-size: 10px; }
-  .plan-field-heading > span:last-child:not(:first-child) { font-size: 9px; }
-  .plan-people-row > div > span { font-size: 11px; }
-  .plan-stepper button { width: 34px; }
+  .plan-duration-options > button { font-size: 12px; }
+  .plan-field-heading > span:last-child:not(:first-child) { font-size: 12px; }
+  .plan-people-row > div > span { font-size: 12px; }
   .plan-stepper input { width: 34px; font-size: 16px; }
   .plan-booking-options { gap: 6px; }
-  .plan-booking-options strong { font-size: 10px; }
-  .plan-booking-options small { font-size: 7.5px; }
+  .plan-booking-options strong { overflow-wrap: anywhere; font-size: 12px; }
+  .plan-booking-options small { font-size: 12px; }
   .plan-details-content input, .plan-details-content textarea, .plan-custom-input input { font-size: 16px; }
   .plan-editor-footer { padding: 15px 22px max(18px, env(safe-area-inset-bottom)); }
   .plan-footer-back { min-width: 64px; }
-  .plan-save-summary { font-size: 9px; }
+  .plan-save-summary { font-size: 12px; }
 }
 @media (max-height: 560px) {
   .plan-editor-dialog .meal-dialog-inner > header { padding-block: 12px; }
@@ -248,4 +247,14 @@
     padding-bottom: max(var(--kb-height, 0px), var(--plan-bottom-inset, 0px));
   }
   .meal-sheet-dialog .meal-dialog-inner { border-bottom: 0; }
+}
+
+/* Let descriptions wrap instead of shrinking type on narrow phones. */
+@media (max-width: 360px) {
+  .plan-date-options { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .plan-duration-options { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .plan-booking-options { grid-template-columns: 1fr; }
+  .plan-booking-options > button { gap: 6px; padding: 12px; }
+  .plan-people-row { flex-wrap: wrap; }
+  .plan-field-heading { flex-wrap: wrap; gap: 6px; }
 }

@@ -1,3 +1,4 @@
+import { PhotoImage } from '../components/PhotoImage';
 import { useLocalBack } from '../lib/back-navigation';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation } from 'react-router-dom';
@@ -211,7 +212,7 @@ const PostSurface: React.FC<{
             {last.previewUrl && last.kind === 'video' ? (
               <video src={last.previewUrl} muted playsInline autoPlay loop className="w-full h-full object-contain" />
             ) : last.previewUrl || last.thumb ? (
-              <img src={last.previewUrl || last.thumb} alt="" className="w-full h-full object-contain" />
+              <PhotoImage src={last.previewUrl || last.thumb} alt="" className="w-full h-full object-contain" />
             ) : null}
             {count > 1 && (
               <div className="absolute top-2 left-1/2 -translate-x-1/2 rounded-full bg-black/60 backdrop-blur px-2.5 py-1 text-[11px] font-bold text-white tabular-nums">
@@ -341,7 +342,7 @@ const PostSurface: React.FC<{
                   {p.previewUrl && p.kind === 'video' ? (
                     <video src={p.previewUrl} muted playsInline preload="metadata" className="w-full h-full object-cover" />
                   ) : (
-                    <img src={p.previewUrl || p.thumb} alt="" className="w-full h-full object-cover" />
+                    <PhotoImage src={p.previewUrl || p.thumb} alt="" className="w-full h-full object-cover" />
                   )}
                   {p.loading && <span className="absolute inset-0 bg-white/40 animate-pulse" />}
                   <span className="absolute top-1 right-1 w-5 h-5 rounded-full bg-primary border-2 border-white text-on-primary text-[10px] font-bold flex items-center justify-center">

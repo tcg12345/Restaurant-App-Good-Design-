@@ -1,3 +1,5 @@
+import { PageSkeleton } from '../components/PageSkeleton';
+import { PhotoImage } from '../components/PhotoImage';
 import { usePageBack } from '../lib/usePageBack';
 import '../components/social/SocialDesign.css';
 /**
@@ -29,7 +31,7 @@ import '../components/social/SocialDesign.css';
 import React, { useState, useEffect, useMemo } from 'react';
 import { motion } from 'motion/react';
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
-import { ChevronDown, Loader2, Lock, MapPin, Search, Star, UserCircle, Users } from 'lucide-react';
+import { ChevronDown, Lock, MapPin, Search, Star, UserCircle, Users } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useAuth } from '../contexts/AuthContext';
 import { useLists } from '../contexts/ListsContext';
@@ -281,9 +283,7 @@ export const FollowList: React.FC = () => {
   if (loading) {
     return (
       <Sheet title=" " onDismiss={dismiss}>
-        <div className="flex flex-col items-center py-20 text-on-surface/40">
-          <Loader2 size={26} className="animate-spin" />
-        </div>
+        <PageSkeleton compact />
       </Sheet>
     );
   }
@@ -434,7 +434,7 @@ export const FollowList: React.FC = () => {
                   <span className="w-6 flex-none text-right font-sans text-[15px] font-bold leading-none tabular-nums text-on-surface/30">{i + 1}</span>
                   <div className="h-12 w-12 flex-none overflow-hidden rounded-[14px] bg-on-surface/[0.06] flex items-center justify-center">
                     {r.image ? (
-                      <img src={r.image} alt="" className="h-full w-full object-cover" referrerPolicy="no-referrer" />
+                      <PhotoImage src={r.image} alt="" className="h-full w-full object-cover" referrerPolicy="no-referrer" />
                     ) : (
                       <MapPin size={16} className="text-on-surface/30" />
                     )}
@@ -452,12 +452,10 @@ export const FollowList: React.FC = () => {
           </ol>
         )
       ) : (
-        // `people` is null until this tab's first fetch lands — spinner
+        // `people` is null until this tab's first fetch lands — skeleton
         // (listLoading alone would flash the empty state pre-effect).
         !people ? (
-          <div className="flex flex-col items-center py-16 text-on-surface/40">
-            <Loader2 size={22} className="animate-spin" />
-          </div>
+          <PageSkeleton compact />
         ) : !filteredPeople || filteredPeople.length === 0 ? (
           q
             ? emptyState('No matches', 'Try a different name or username.', <Search size={22} strokeWidth={1.9} />)

@@ -1,3 +1,4 @@
+import { PhotoImage } from '../components/PhotoImage';
 import { usePageBack } from '../lib/usePageBack';
 import React, { useState, useRef } from 'react';
 import { motion } from 'motion/react';
@@ -282,7 +283,7 @@ export const ImportRestaurants: React.FC = () => {
             {shotPreviews.length > 0 && (
               <div className="flex justify-center gap-2">
                 {shotPreviews.slice(0, 4).map((src, i) => (
-                  <img key={i} src={src} alt="" className="w-14 h-24 rounded-lg object-cover object-top border border-on-surface/10" />
+                  <PhotoImage key={i} src={src} alt="" className="w-14 h-24 rounded-lg object-cover object-top border border-on-surface/10" />
                 ))}
                 {shotPreviews.length > 4 && (
                   <div className="w-14 h-24 rounded-lg bg-on-surface/[0.05] border border-on-surface/10 flex items-center justify-center text-xs font-bold text-on-surface/50">
@@ -403,7 +404,7 @@ export const ImportRestaurants: React.FC = () => {
                     {(item.status === 'not_found' || item.status === 'error') && <XCircle size={19} className="text-red-400" />}
                   </div>
                   {item.placeResult?.photoUrl && (
-                    <img src={item.placeResult.photoUrl} alt="" className="w-11 h-11 rounded-xl object-cover flex-shrink-0" referrerPolicy="no-referrer" />
+                    <PhotoImage src={item.placeResult.photoUrl} alt="" className="w-11 h-11 rounded-xl object-cover flex-shrink-0" referrerPolicy="no-referrer" />
                   )}
                   <div className="flex-1 min-w-0">
                     <div className="font-serif font-bold text-[15px] leading-tight text-on-surface truncate">{item.restaurant.name}</div>

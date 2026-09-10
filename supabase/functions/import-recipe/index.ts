@@ -1,3 +1,4 @@
+import { fetchPublicPage, publicPageUrl } from '../_shared/public-page.ts';
 import { instrumentedFetch as fetch, withRequestTelemetry, setTelemetryUser } from '../_shared/api-telemetry.ts';
 // AI Recipe Importer — Supabase Edge Function (Deno).
 //
@@ -286,8 +287,6 @@ const MAX_TEXT_CHARS = 24000;      // pasted text / page text handed to the mode
 const MAX_JSONLD_CHARS = 15000;    // extracted JSON-LD handed to the model
 const MAX_IMAGES = 3;
 const MAX_IMAGE_B64_CHARS = 6_500_000; // ≈ 4.8MB binary per image
-const FETCH_TIMEOUT_MS = 12000;
-const MAX_HTML_BYTES = 2_500_000;
 
 const SYSTEM_PROMPT = [
   'You are a meticulous recipe transcriber. You are given source material that may contain a recipe — a web page (its structured data and/or readable text), pasted text, or photos. Your job is to extract THE recipe and return it by calling the `build_recipe` tool exactly once. You never chat or add commentary.',
@@ -342,29 +341,6 @@ function jsonError(status: number, message: string): Response {
 
 /* ── URL mode helpers ─────────────────────────────────────────── */
 
-/** Basic SSRF guard: only public http(s) hosts. */
-function isFetchableUrl(raw: string): URL | null {
-  let u: URL;
-  try {
-    u = new URL(raw);
-  } catch {
-    return null;
-  }
-  if (u.protocol !== 'http:' && u.protocol !== 'https:') return null;
-  const host = u.hostname.toLowerCase();
-  if (host === 'localhost' || host.endsWith('.local') || host.endsWith('.internal')) return null;
-  // IPv4 literal in a private / loopback / link-local range.
-  const ip4 = host.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
-  if (ip4) {
-    const [a, b] = [Number(ip4[1]), Number(ip4[2])];
-    if (a === 10 || a === 127 || a === 0 || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || (a === 169 && b === 254)) {
-      return null;
-    }
-  }
-  if (host.includes(':')) return null; // IPv6 literals — skip entirely
-  return u;
-}
-
 /** Pull every JSON-LD block that mentions a Recipe. */
 function extractRecipeJsonLd(html: string): string {
   const blocks: string[] = [];
@@ -402,48 +378,6 @@ function htmlToText(html: string): string {
     .replace(/[ \t]+/g, ' ')
     .replace(/\n\s*\n\s*/g, '\n')
     .trim();
-}
-
-async function fetchPage(u: URL): Promise<{ html?: string; error?: string }> {
-  let res: Response;
-  try {
-    res = await fetch(u.toString(), {
-      redirect: 'follow',
-      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36 GoodEatsImporter/1.0',
-        'Accept': 'text/html,application/xhtml+xml',
-        'Accept-Language': 'en',
-      },
-    });
-  } catch (err) {
-    const name = (err as { name?: string })?.name;
-    return { error: name === 'TimeoutError' ? 'That site took too long to respond.' : 'Could not reach that link.' };
-  }
-  if (!res.ok) return { error: `That link answered with HTTP ${res.status}.` };
-  const type = (res.headers.get('content-type') || '').toLowerCase();
-  if (type && !type.includes('html') && !type.includes('text')) {
-    return { error: 'That link is not a web page. Try the page the recipe lives on.' };
-  }
-  // Stream-read with a byte cap so a huge page can't blow memory.
-  const reader = res.body?.getReader();
-  if (!reader) return { error: 'Could not read that page.' };
-  const chunks: Uint8Array[] = [];
-  let total = 0;
-  try {
-    while (total < MAX_HTML_BYTES) {
-      const { value, done } = await reader.read();
-      if (done) break;
-      chunks.push(value);
-      total += value.byteLength;
-    }
-  } finally {
-    try { await reader.cancel(); } catch { /* ignore */ }
-  }
-  const buf = new Uint8Array(total);
-  let off = 0;
-  for (const c of chunks) { buf.set(c.subarray(0, Math.min(c.byteLength, total - off)), off); off += c.byteLength; if (off >= total) break; }
-  return { html: new TextDecoder('utf-8', { fatal: false }).decode(buf) };
 }
 
 /* ── Image mode helpers ───────────────────────────────────────── */
@@ -491,9 +425,9 @@ async function handler(req: Request): Promise<Response> {
   let content: Array<Record<string, unknown>>;
 
   if (typeof body.url === 'string' && body.url.trim()) {
-    const u = isFetchableUrl(body.url.trim());
+    const u = publicPageUrl(body.url.trim());
     if (!u) return jsonError(400, "That doesn't look like a valid public web address.");
-    const { html, error } = await fetchPage(u);
+    const { html, error } = await fetchPublicPage(u.href);
     if (!html) return jsonError(422, error || 'Could not read that page.');
     const jsonLd = extractRecipeJsonLd(html);
     const pageText = htmlToText(html).slice(0, jsonLd ? 8000 : MAX_TEXT_CHARS);

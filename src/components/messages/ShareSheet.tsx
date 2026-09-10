@@ -1,3 +1,4 @@
+import { PhotoImage } from '../PhotoImage';
 import { useSocialDialog } from '../social/useSocialDialog';
 import '../social/SocialDesign.css';
 import './ShareSheet.css';
@@ -94,7 +95,7 @@ const ShareRow: React.FC<{
   return <button type="button" onClick={onPick} aria-pressed={picked}
     className={cn('message-share-row', picked && 'is-selected')}>
     <span className="message-share-thumb" aria-hidden="true">
-      {image && !failed ? <img src={image} alt="" loading="lazy" onError={() => setFailed(true)} />
+      {image && !failed ? <PhotoImage src={image} alt="" loading="lazy" onError={() => setFailed(true)} />
         : kind === 'recipe' ? <ChefHat size={22} strokeWidth={1.6} /> : <Store size={22} strokeWidth={1.6} />}
     </span>
     <span className="message-share-copy"><strong>{name}</strong>{meta && <span>{meta}</span>}</span>

@@ -1,3 +1,4 @@
+import { PhotoImage } from '../PhotoImage';
 /**
  * GuideRender — shared visual primitives used by both the public
  * `/guides/:id` reader page and the Live Editor's preview pane.
@@ -275,7 +276,7 @@ export interface EditorAdapter {
 }
 
 const defaultImage: NonNullable<EditorAdapter['renderImage']> = ({ src, alt, className, style }) => (
-  src ? <img src={src} alt={alt || ''} referrerPolicy="no-referrer" className={className} style={style} /> : null
+  src ? <PhotoImage src={src} alt={alt || ''} referrerPolicy="no-referrer" className={className} style={style} /> : null
 );
 
 const defaultChips: NonNullable<EditorAdapter['renderChips']> = ({ values, chipClass }) => (
@@ -404,7 +405,7 @@ export const GuideHero: React.FC<{
               <div className={cn('gle-author-chip', isOverlay && 'dark')}>
                 <div className="gle-author-avatar">
                   {author.avatar
-                    ? <img src={author.avatar} alt="" referrerPolicy="no-referrer" />
+                    ? <PhotoImage src={author.avatar} alt="" referrerPolicy="no-referrer" />
                     : <span>{(author.name || 'A')[0].toUpperCase()}</span>}
                 </div>
                 <div className="gle-author-id">
@@ -1047,7 +1048,7 @@ export const GuideAuthor: React.FC<{
       <div className="gle-ap-row">
         <div className="gle-ap-avatar">
           {avatar
-            ? <img src={avatar} alt="" referrerPolicy="no-referrer" />
+            ? <PhotoImage src={avatar} alt="" referrerPolicy="no-referrer" />
             : <span>{(name || 'A')[0]?.toUpperCase() || 'U'}</span>}
         </div>
         <div className="gle-ap-body">

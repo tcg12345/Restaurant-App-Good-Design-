@@ -1,3 +1,4 @@
+import { PhotoImage } from './PhotoImage';
 // "Recreate a dish" mode of the recipe modal — one photo of a plated dish
 // in, one complete AI-authored draft out. The photo comes from the
 // camera, the library, the user's own rating photos, or a restaurant's
@@ -282,7 +283,7 @@ export const DishPhotoGenerator: React.FC<DishPhotoGeneratorProps> = ({
           {loading && photo ? (
             <motion.div key="creating" initial={{ opacity: 0, y: reduceMotion ? 0 : 16 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={transition} className="dish-creating">
               <div className="dish-orbit-photo">
-                <img src={photo.dataUrl} alt="The dish being recreated" />
+                <PhotoImage src={photo.dataUrl} alt="The dish being recreated" />
                 <div className="dish-photo-sheen" aria-hidden="true" />
                 <span className="dish-photo-badge"><Sparkles size={17} /></span>
               </div>
@@ -307,7 +308,7 @@ export const DishPhotoGenerator: React.FC<DishPhotoGeneratorProps> = ({
               {photo ? (
                 <div className="dish-selected">
                   <div className="dish-selected-image">
-                    <img src={photo.dataUrl} alt="Your selected dish" />
+                    <PhotoImage src={photo.dataUrl} alt="Your selected dish" />
                     <span className="dish-selected-label"><Check size={13} /> Photo added</span>
                     <button type="button" className="dish-change" onClick={() => setSheetOpen(true)} disabled={photoBusy}><RefreshCw size={14} /> Change</button>
                     {photoBusy && <div className="dish-photo-busy" role="status"><Loader2 size={24} className="rcx-spin" /><span className="sr-only">Preparing photo</span></div>}

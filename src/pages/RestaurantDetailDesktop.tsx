@@ -1,3 +1,4 @@
+import { PhotoImage } from '../components/PhotoImage';
 import { usePageBack } from '../lib/usePageBack';
 import { SCORE_UNLOCK_THRESHOLD } from '../lib/scoreUnlock';
 import './RestaurantDetail.css';
@@ -290,7 +291,7 @@ export const RestaurantDetailDesktop: React.FC = () => {
         {hasPhotos ? (
           // Photo hero — full-bleed image with overlaid name, score, actions.
           <div className="relative h-[380px] rounded-[24px] overflow-hidden bg-on-surface/[0.06] shadow-sm">
-            <img src={photos[photoIndex]} alt={place.name} referrerPolicy="no-referrer" className="absolute inset-0 w-full h-full object-cover" />
+            <PhotoImage src={photos[photoIndex]} alt={place.name} referrerPolicy="no-referrer" className="absolute inset-0 w-full h-full object-cover" />
             <div className="absolute inset-0" style={{ background: 'linear-gradient(to top, rgba(14,10,8,0.88) 2%, rgba(14,10,8,0.34) 42%, rgba(14,10,8,0.04) 100%)' }} />
 
             {photos.length > 0 && (
@@ -614,7 +615,7 @@ export const RestaurantDetailDesktop: React.FC = () => {
                           <Row label="Photos" edit={() => openAt('photos')}>
                             {hasMyPhotos ? (
                               <div className="flex gap-2 overflow-x-auto no-scrollbar">
-                                {myRating.photos.map((p, i) => <img key={i} src={p.url} alt="" referrerPolicy="no-referrer" className="w-[52px] h-[52px] rounded-xl object-cover flex-shrink-0" />)}
+                                {myRating.photos.map((p, i) => <PhotoImage key={i} src={p.url} alt="" referrerPolicy="no-referrer" className="w-[52px] h-[52px] rounded-xl object-cover flex-shrink-0" />)}
                               </div>
                             ) : <button type="button" onClick={() => openAt('photos')} className="text-sm font-serif italic text-on-surface/35 hover:text-on-surface/60 text-left">Add photos…</button>}
                           </Row>

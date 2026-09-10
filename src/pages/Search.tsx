@@ -1,3 +1,4 @@
+import { useTabActive } from '../components/RetainedTabLocation';
 import { usePageBack } from '../lib/usePageBack';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
@@ -42,6 +43,7 @@ const TABS: ReadonlyArray<readonly [SearchTab, string]> = [
    this page's chrome instead of its own. */
 
 const PhoneSearch: React.FC = () => {
+  const tabActive = useTabActive();
   const goBack = usePageBack('/pantry');
   const navigate = useNavigate();
   const routerLocation = useLocation();
@@ -177,9 +179,10 @@ const PhoneSearch: React.FC = () => {
   // the shared hide flag can't stomp it) and the assistant FAB, hidden on
   // the map, steps in — the one part of this page with room for it.
   useEffect(() => {
+    if (!tabActive) return;
     setSearchTakeoverOpen(searching);
     return () => setSearchTakeoverOpen(false);
-  }, [searching]);
+  }, [searching, tabActive]);
 
   const openSearch = () => {
     setSearching(true);
@@ -194,7 +197,7 @@ const PhoneSearch: React.FC = () => {
   // move Messages makes for its openUserId link. Guarded on the pathname
   // because this page stays mounted (keep-alive) while other routes show.
   useEffect(() => {
-    if (routerLocation.pathname !== '/search') return;
+    if (!tabActive || routerLocation.pathname !== '/search') return;
     const state = routerLocation.state as { openTakeover?: boolean; recipeQuery?: string } | null;
     if (state?.openTakeover) {
       setTab('discover');
@@ -209,7 +212,7 @@ const PhoneSearch: React.FC = () => {
       navigate('/search', { replace: true, state: null });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [routerLocation]);
+  }, [routerLocation, tabActive]);
   // Closing with an empty draft is the clear: the map drops its query and
   // restores the pre-search places.
   const closeSearch = () => {
@@ -603,13 +606,15 @@ const PhoneSearch: React.FC = () => {
    page — field, map entry, embedded results — still fits the shape of the
    screen better than a full-bleed map behind floating chips would. */
 const ClassicSearch: React.FC = () => {
+  const tabActive = useTabActive();
   const navigate = useNavigate();
   const [searching, setSearching] = useState(false);
   const { setHideBottomNav } = useSettings();
   useEffect(() => {
+    if (!tabActive) return;
     setHideBottomNav(searching);
     return () => setHideBottomNav(false);
-  }, [searching, setHideBottomNav]);
+  }, [searching, tabActive, setHideBottomNav]);
   const [query, setQuery] = useState('');
   const inputRef = useRef<HTMLInputElement | null>(null);
   const glassActive = useGlassButtonsActive();

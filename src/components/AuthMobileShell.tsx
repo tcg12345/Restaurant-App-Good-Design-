@@ -1,3 +1,4 @@
+import { PhotoBackground } from './PhotoBackground';
 import React, { useState } from 'react';
 import { motion } from 'motion/react';
 import { ArrowLeft, Loader2 } from 'lucide-react';
@@ -31,7 +32,7 @@ export const MeshBackground: React.FC = () => (
       transition={{ duration: 20, repeat: Infinity, ease: 'easeInOut' }}
     />
     {/* Grain — tiny SVG noise multiplied over the blobs */}
-    <div
+    <PhotoBackground
       className="absolute inset-0 opacity-[0.05] mix-blend-overlay"
       style={{
         backgroundImage:

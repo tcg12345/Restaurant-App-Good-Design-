@@ -1,3 +1,4 @@
+import { PhotoImage } from './PhotoImage';
 import { HOME_REELS_EXPERIMENT } from '../lib/home-reels-experiment';
 import { track } from '../lib/analytics';
 import { FEATURE_ROUTES } from '../lib/analytics-features';
@@ -117,7 +118,7 @@ export const BottomNav: React.FC<{ routeVisible?: boolean }> = ({ routeVisible =
         >
           {({ isActive }) => (
             item.path === '/profile' && profile?.avatar_url ? (
-              <img
+              <PhotoImage
                 src={profile.avatar_url}
                 alt=""
                 className={cn('h-6 w-6 rounded-full object-cover', isActive ? 'ring-2 ring-on-surface' : 'ring-1 ring-on-surface/30')}

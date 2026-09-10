@@ -391,7 +391,7 @@ export const SettingsPage: React.FC = () => {
       setAccountError(result.error || 'Could not delete the account. Please try again.');
       return;
     }
-    clearLocalAppData();
+    await clearLocalAppData();
     // Hard reload so provider state (still holding the deleted account's
     // data in memory) is torn down too — the sign-out clean-slate pattern.
     window.location.reload();

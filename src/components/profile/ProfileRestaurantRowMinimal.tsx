@@ -1,3 +1,4 @@
+import { PhotoImage } from '../PhotoImage';
 import React, { useId, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { ArrowRight, ChevronDown, Bookmark } from 'lucide-react';
@@ -51,7 +52,7 @@ export const ProfileRestaurantRowMinimal: React.FC<Props> = ({
           <div className="public-rating-details">
             {rating.address && <p>{rating.address}</p>}
             {rating.notes?.trim() && <p className="public-rating-full-note" aria-label={`${ownerName}'s note`}>{rating.notes}</p>}
-            {photos.length > 0 && <div className="public-rating-photos">{photos.slice(0, 6).map((photo, index) => <button key={photo.id} type="button" onClick={() => setGalleryAt(index)} aria-label={index === 5 && photos.length > 6 ? `View all ${photos.length} photos` : photo.caption || `View photo ${index + 1}`}><img src={photo.url} alt={photo.caption || ''} loading="lazy" referrerPolicy="no-referrer" />{index === 5 && photos.length > 6 && <span>+{photos.length - 6}</span>}</button>)}</div>}
+            {photos.length > 0 && <div className="public-rating-photos">{photos.slice(0, 6).map((photo, index) => <button key={photo.id} type="button" onClick={() => setGalleryAt(index)} aria-label={index === 5 && photos.length > 6 ? `View all ${photos.length} photos` : photo.caption || `View photo ${index + 1}`}><PhotoImage src={photo.url} alt={photo.caption || ''} loading="lazy" referrerPolicy="no-referrer" />{index === 5 && photos.length > 6 && <span>+{photos.length - 6}</span>}</button>)}</div>}
             {!!rating.tags?.length && <div className="public-rating-tags">{rating.tags.map(tag => <span key={tag}>#{tag}</span>)}</div>}
             <Link className="public-rating-link" to={`/restaurant/${rating.restaurant_id}`}>View restaurant<ArrowRight size={14} /></Link>
           </div>

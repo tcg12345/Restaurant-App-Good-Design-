@@ -1,3 +1,4 @@
+import { PhotoImage } from '../components/PhotoImage';
 import { useRouteSettled } from '../components/RouteMotionLayer';
 import { ReelMediaPoster } from '../components/ReelMediaPoster';
 import { reelEntryKey } from '../lib/reel-entry';
@@ -389,7 +390,7 @@ const ReelSlideInner: React.FC<ReelSlideProps> = ({ reel, active, near, preloadF
             return (
               <div className="absolute inset-0 bg-black">
                 {reel.posterUrl && (
-                  <img
+                  <PhotoImage
                     src={reel.posterUrl}
                     alt=""
                     className={cn('absolute inset-0 w-full h-full', phoneMode ? 'object-cover' : 'object-contain')}

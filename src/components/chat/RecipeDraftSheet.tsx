@@ -1,3 +1,4 @@
+import { PhotoImage } from '../PhotoImage';
 import React, { useEffect, useRef, useState } from 'react';
 import { liftOverlayToTopLayer } from '../../lib/useBottomSheet';
 import { motion, AnimatePresence } from 'motion/react';
@@ -398,7 +399,7 @@ export const RecipeDraftSheet: React.FC<RecipeDraftSheetProps> = ({
                     </div>
                   ) : cover ? (
                     <div className="relative w-full rounded-2xl overflow-hidden bg-on-surface/[0.05] aspect-[16/9]">
-                      <img
+                      <PhotoImage
                         src={cover}
                         alt={draft.name}
                         className="absolute inset-0 w-full h-full object-cover"
@@ -482,7 +483,7 @@ export const RecipeDraftSheet: React.FC<RecipeDraftSheetProps> = ({
                 </div>
               ) : cover ? (
                 <div className="mb-5 w-full rounded-2xl overflow-hidden bg-on-surface/[0.05] aspect-[16/9] relative">
-                  <img
+                  <PhotoImage
                     src={cover}
                     alt={draft.name}
                     className="absolute inset-0 w-full h-full object-cover"

@@ -1,3 +1,4 @@
+import { PhotoImage } from '../PhotoImage';
 import React from 'react';
 import { ImageOff } from 'lucide-react';
 import { cn, safeImage } from '../../lib/utils';
@@ -65,7 +66,7 @@ export const CardMedia: React.FC<CardMediaProps> = ({
   return (
     <div className={cn('relative overflow-hidden bg-on-surface/5', aspectClass(aspect as CardMediaAspect), roundedClass, className)}>
       {safe ? (
-        <img
+        <PhotoImage
           src={safe}
           alt={alt}
           referrerPolicy="no-referrer"

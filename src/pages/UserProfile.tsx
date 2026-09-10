@@ -1,10 +1,15 @@
+import { PageSkeleton } from '../components/PageSkeleton';
+import { resolvePhotoUrl } from '../lib/photo-access';
+import { mediaAccessVersion, onMediaAccessChange } from '../lib/media-access-scope';
+import { PhotoImage } from '../components/PhotoImage';
+import { mapStyle } from '../lib/map-theme';
 import { useEntryState } from '../lib/useEntryState';
 import { usePageBack } from '../lib/usePageBack';
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { PinnedShelf, usePinnedCards } from '../components/profile/PinnedShelf';
 import { normalizePins } from '../lib/pins';
-import { ArrowLeft, Lock, UserCircle, Loader2, Check, Star, MapPin, ChevronDown, Search, SlidersHorizontal, X, Map as MapIcon, Send, ArrowUpDown, Image as ImageIcon, Plus } from 'lucide-react';
+import { ArrowLeft, Lock, UserCircle, Check, Star, MapPin, ChevronDown, Search, SlidersHorizontal, X, Map as MapIcon, Send, ArrowUpDown, Image as ImageIcon, Plus } from 'lucide-react';
 import { ShareIcon } from '../components/icons/ShareIcon';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
@@ -87,7 +92,7 @@ export const UserProfile: React.FC = () => {
   const { requireSignIn } = useSignInModal();
   const { reels } = useReels();
   const { posts } = usePosts();
-  const { phoneMode, twoDecimalScores } = useSettings();
+  const { phoneMode, twoDecimalScores, darkMode } = useSettings();
   const { restaurantMeta, toggleWishlist, isWishlisted } = useLists();
   const userId = user?.id ?? null;
 
@@ -135,6 +140,7 @@ export const UserProfile: React.FC = () => {
 
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<mapboxgl.Map | null>(null);
+  const appliedMapThemeRef = useRef(darkMode);
   const sortBtnRef = useRef<HTMLDivElement>(null);
 
   // Reference-style top bar (mobile): the bar itself never leaves — a mini
@@ -452,14 +458,16 @@ export const UserProfile: React.FC = () => {
 
     const map = new mapboxgl.Map({
       container: mapContainerRef.current,
-      style: 'mapbox://styles/mapbox/light-v11',
+      style: mapStyle(darkMode),
       center: [-73.99, 40.73],
       zoom: 3,
       accessToken: MAPBOX_TOKEN,
     });
     attachMapErrorFallback(map, mapContainerRef.current);
     mapRef.current = map;
+    appliedMapThemeRef.current = darkMode;
 
+    let cleanupPopupPhoto = () => {};
     map.on('load', async () => {
       const bounds = new mapboxgl.LngLatBounds();
       let hasMarkers = false;
@@ -477,6 +485,7 @@ export const UserProfile: React.FC = () => {
         const rid = r.restaurant_id;
         el.addEventListener('click', (e) => {
           e.stopPropagation();
+          cleanupPopupPhoto();
           if (activePopup) activePopup.remove();
           // Popup content is built with DOM APIs: every community_ratings
           // field is attacker-controlled, so user strings only ever go
@@ -486,7 +495,11 @@ export const UserProfile: React.FC = () => {
           content.addEventListener('click', () => navigate(`/restaurant/${rid}`));
           if (r.photo_url) {
             const img = document.createElement('img');
-            img.src = r.photo_url;
+            const generation = mediaAccessVersion();
+            cleanupPopupPhoto = onMediaAccessChange(() => { img.removeAttribute('src'); });
+            void resolvePhotoUrl(r.photo_url).then(url => {
+              if (url && generation === mediaAccessVersion() && img.isConnected) img.src = url;
+            });
             img.referrerPolicy = 'no-referrer';
             img.style.cssText = 'width:100%;height:100px;object-fit:cover;border-radius:8px;margin-bottom:8px;';
             content.appendChild(img);
@@ -530,7 +543,7 @@ export const UserProfile: React.FC = () => {
             .setLngLat([lng, lat])
             .setDOMContent(content)
             .addTo(map);
-          popup.on('close', () => { activePopup = null; });
+          popup.on('close', () => { cleanupPopupPhoto(); activePopup = null; });
           activePopup = popup;
         });
 
@@ -589,8 +602,21 @@ export const UserProfile: React.FC = () => {
       }
     });
 
-    return () => { map.remove(); mapRef.current = null; };
+    return () => { cleanupPopupPhoto(); map.remove(); mapRef.current = null; };
   }, [showMapPage, userRatings, resolvedCoords, navigate, userId]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || appliedMapThemeRef.current === darkMode) return;
+    const applyTheme = () => {
+      appliedMapThemeRef.current = darkMode;
+      // Preserve the camera and DOM markers; avoid restarting initial loading.
+      map.setStyle(mapStyle(darkMode));
+    };
+    if (map.isStyleLoaded()) applyTheme();
+    else map.once('style.load', applyTheme);
+    return () => { map.off('style.load', applyTheme); };
+  }, [darkMode]);
 
   const invalidateProfileCache = () => {
     if (username) delete profileCache[`${username}_${userId}`];
@@ -691,11 +717,7 @@ export const UserProfile: React.FC = () => {
   }, [sortOpen]);
 
   if (loading) {
-    return (
-      <div className="min-h-screen bg-surface flex items-center justify-center">
-        <Loader2 size={32} className="animate-spin text-primary" />
-      </div>
-    );
+    return <PageSkeleton variant="profile" />;
   }
 
   if (!profile) {
@@ -881,7 +903,7 @@ export const UserProfile: React.FC = () => {
                 }}
               >
                 {profile.avatar_url ? (
-                  <img src={profile.avatar_url} alt="" referrerPolicy="no-referrer" className="absolute inset-0 w-full h-full object-cover" />
+                  <PhotoImage src={profile.avatar_url} alt="" referrerPolicy="no-referrer" className="absolute inset-0 w-full h-full object-cover" />
                 ) : (
                   <span className="font-serif font-bold text-[46px] leading-none text-primary">
                     {profile.display_name.charAt(0).toUpperCase()}
@@ -1323,7 +1345,7 @@ export const UserProfile: React.FC = () => {
           >
             <span className="relative flex-none w-[26px] h-[26px] rounded-full overflow-hidden bg-primary/[0.13] text-primary flex items-center justify-center font-serif font-bold text-[12px]">
               {profile.avatar_url ? (
-                <img src={profile.avatar_url} alt="" referrerPolicy="no-referrer" className="absolute inset-0 w-full h-full object-cover" />
+                <PhotoImage src={profile.avatar_url} alt="" referrerPolicy="no-referrer" className="absolute inset-0 w-full h-full object-cover" />
               ) : profile.display_name.charAt(0).toUpperCase()}
             </span>
             <span className="min-w-0 font-serif font-bold text-[15px] tracking-[-0.025em] text-on-surface truncate">
@@ -1354,7 +1376,7 @@ export const UserProfile: React.FC = () => {
 
       <section className="public-profile-identity" aria-label="Profile">
         <div className="public-profile-avatar">
-          {profile.avatar_url ? <img src={profile.avatar_url} alt="" referrerPolicy="no-referrer" /> : <span>{profile.display_name.charAt(0).toUpperCase()}</span>}
+          {profile.avatar_url ? <PhotoImage src={profile.avatar_url} alt="" referrerPolicy="no-referrer" /> : <span>{profile.display_name.charAt(0).toUpperCase()}</span>}
         </div>
         <div className="public-profile-name">
           <div><h1>{profile.display_name}</h1>{profile.is_verified && <VerifiedBadge size={18} />}{!profile.is_public && <Lock size={14} />}</div>

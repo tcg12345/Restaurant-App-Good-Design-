@@ -1,3 +1,4 @@
+import { PhotoImage } from './PhotoImage';
 import { useDevicePreference } from '../lib/device-preferences';
 import React, { useEffect, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
@@ -57,7 +58,7 @@ export function HomeHighlights({ items, active, onOpen, onSeen, compact = false 
     <AnimatePresence initial={false}>
       <motion.button key={item.id} className={`home-highlight${item.image ? ' has-image' : ''}`} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: reduced ? 0 : .18 }}
         onClick={() => { if (performance.now() < suppressClickUntil.current) return; homeHaptic(); onOpen(item); }} aria-label={`${item.eyebrow}: ${item.title}. ${item.cta}`}>
-        <div className="home-highlight-art" aria-hidden="true"><Icon strokeWidth={1} />{item.image && <img src={item.image} alt="" onError={e => { e.currentTarget.style.display = 'none'; }} />}</div>
+        <div className="home-highlight-art" aria-hidden="true"><Icon strokeWidth={1} />{item.image && <PhotoImage src={item.image} alt="" onError={e => { e.currentTarget.style.display = 'none'; }} />}</div>
         <div className="home-highlight-shade" />
         <div className="home-highlight-copy"><span>{item.eyebrow}</span><h2>{item.title}</h2><p>{item.detail}</p><strong>{item.cta}<ArrowUpRight size={18} /></strong></div>
       </motion.button>

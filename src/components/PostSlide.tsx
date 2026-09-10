@@ -1,3 +1,4 @@
+import { PhotoImage } from './PhotoImage';
 /**
  * PostSlide — full-screen vertical slot for a multi-item post.
  *
@@ -232,7 +233,7 @@ const MediaFrameInner: React.FC<MediaFrameProps> = ({ item, postActive, itemActi
     return (
       <div className="absolute inset-0 bg-black">
         {item.posterUrl && (
-          <img src={item.posterUrl} alt="" className="absolute inset-0 w-full h-full object-contain" />
+          <PhotoImage src={item.posterUrl} alt="" className="absolute inset-0 w-full h-full object-contain" />
         )}
         <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black/30">
           <div className="w-9 h-9 rounded-full border-2 border-white/30 border-t-white animate-spin" />
@@ -276,7 +277,7 @@ const MediaFrameInner: React.FC<MediaFrameProps> = ({ item, postActive, itemActi
   // appears whole on first paint instead of streaming in band-by-band.
   if (!photoSrc) return placeholder;
   return (
-    <img
+    <PhotoImage
       // Remount on each retry so the browser re-requests the same URL
       // rather than reusing the failed image entry from its cache.
       key={attempt}

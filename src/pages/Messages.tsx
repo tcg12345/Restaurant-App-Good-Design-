@@ -1,3 +1,5 @@
+import { PageSkeleton } from '../components/PageSkeleton';
+import { PhotoImage } from '../components/PhotoImage';
 import { usePageBack } from '../lib/usePageBack';
 import { RoomInviteMessage } from '../components/chat/RoomInviteMessage';
 import React, { useState, useEffect, useLayoutEffect, useRef, useMemo } from 'react';
@@ -118,7 +120,7 @@ const RestaurantShareCard: React.FC<{
       <div className="flex items-center gap-3 p-2.5">
         <span className="grid h-[52px] w-[52px] flex-none place-items-center overflow-hidden rounded-[14px] bg-on-surface/[0.07]">
           {restaurant.image
-            ? <img src={restaurant.image} alt="" className="h-full w-full object-cover" referrerPolicy="no-referrer" onError={(e) => { e.currentTarget.style.display = 'none'; }} />
+            ? <PhotoImage src={restaurant.image} alt="" className="h-full w-full object-cover" referrerPolicy="no-referrer" onError={(e) => { e.currentTarget.style.display = 'none'; }} />
             : <Store size={19} className="text-on-surface/35" />}
         </span>
         <span className="min-w-0 flex-1">
@@ -164,7 +166,7 @@ const RecipeShareCard: React.FC<{
       <div className="flex items-center gap-3 p-2.5">
         <span className="grid h-[52px] w-[52px] flex-none place-items-center overflow-hidden rounded-[14px] bg-on-surface/[0.07]">
           {recipe.image
-            ? <img src={recipe.image} alt="" className="h-full w-full object-cover" referrerPolicy="no-referrer" onError={(e) => { e.currentTarget.style.display = 'none'; }} />
+            ? <PhotoImage src={recipe.image} alt="" className="h-full w-full object-cover" referrerPolicy="no-referrer" onError={(e) => { e.currentTarget.style.display = 'none'; }} />
             : <ChefHat size={19} className="text-on-surface/35" />}
         </span>
         <span className="min-w-0 flex-1">
@@ -245,7 +247,7 @@ const PostShareCard: React.FC<{
         <video src={firstFrameSrc(post.coverUrl)} muted playsInline preload="metadata" className="absolute inset-0 h-full w-full object-cover" />
       )}
       {post.coverUrl && post.coverMediaType === 'photo' && (
-        <img src={post.coverUrl} alt="" className="absolute inset-0 h-full w-full object-cover" referrerPolicy="no-referrer" onError={(e) => { e.currentTarget.style.display = 'none'; }} />
+        <PhotoImage src={post.coverUrl} alt="" className="absolute inset-0 h-full w-full object-cover" referrerPolicy="no-referrer" onError={(e) => { e.currentTarget.style.display = 'none'; }} />
       )}
       {/* A carousel says so with the stacked-squares glyph, like the feed. */}
       {post.itemCount > 1 && (
@@ -861,7 +863,7 @@ const ChatView: React.FC<{
                         />
                       )}
                       {msg.sharedGuide && <button className={cn(shareCardShell(isMe, false), 'w-[264px]')} onClick={() => navigate(`/guides/${msg.sharedGuide!.guideId}`)}>
-                        {msg.sharedGuide.coverPhoto && <img className="w-full h-32 object-cover" src={msg.sharedGuide.coverPhoto} alt="" />}
+                        {msg.sharedGuide.coverPhoto && <PhotoImage className="w-full h-32 object-cover" src={msg.sharedGuide.coverPhoto} alt="" />}
                         <span className="flex items-center gap-3 p-3.5"><BookOpen size={20} /><span className="min-w-0"><strong className="block text-sm">{msg.sharedGuide.title}</strong><span className="block mt-1 text-xs text-on-surface/55">{msg.sharedGuide.entryCount} {msg.sharedGuide.type === 'recipes' ? 'recipes' : 'places'} · {msg.sharedGuide.authorName}</span></span></span>
                       </button>}
                       {msg.sharedPost && (
@@ -1570,7 +1572,7 @@ const MessagesPage: React.FC<{ embedded?: boolean }> = ({ embedded = false }) =>
       <GlassButton id="conversation-back" symbol="chevron.left" label="Back" onClick={backToInbox}
         className="w-11 h-11 rounded-full grid place-items-center"><ArrowLeft size={21} /></GlassButton>
       <div className="py-16 text-center text-on-surface/60" role="status">
-        {chatLoading ? <span className="inline-block h-6 w-6 rounded-full border-2 border-current border-t-transparent motion-safe:animate-spin" aria-label="Loading conversation" /> : 'This conversation is unavailable.'}
+        {chatLoading ? <PageSkeleton compact /> : 'This conversation is unavailable.'}
       </div>
     </div>;
   }

@@ -1,3 +1,4 @@
+import { PhotoImage } from './PhotoImage';
 import React, { useState, useRef } from 'react';
 import { GlassButton } from '../lib/glass-buttons';
 import { motion, AnimatePresence } from 'motion/react';
@@ -697,7 +698,7 @@ export const ImportRecipesModal: React.FC<Props> = ({ open, onClose }) => {
                           {item.status === 'error' && <XCircle className="w-5 h-5 text-red-400" />}
                         </div>
                         {item.recipe.photos[0] && (
-                          <img
+                          <PhotoImage
                             src={item.recipe.photos[0]}
                             alt={item.recipe.title}
                             className="w-10 h-10 rounded-lg object-cover flex-shrink-0"

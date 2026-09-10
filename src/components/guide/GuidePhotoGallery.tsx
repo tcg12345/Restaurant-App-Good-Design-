@@ -1,3 +1,4 @@
+import { PhotoImage } from '../PhotoImage';
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { motion, useReducedMotion } from 'motion/react';
@@ -11,7 +12,7 @@ export function GalleryImage({ url, alt, eager = false }: { url: string; alt: st
   const [failed, setFailed] = useState(false);
   useEffect(() => setFailed(false), [url]);
   return failed ? <span className="guide-gallery-unavailable" role="img" aria-label={`${alt}. Photo unavailable`}><ImageOff size={24} /><span>Photo unavailable</span></span>
-    : <img src={url} alt={alt} loading={eager ? 'eager' : 'lazy'} decoding="async" draggable={false} referrerPolicy="no-referrer" onError={() => setFailed(true)} />;
+    : <PhotoImage src={url} alt={alt} loading={eager ? 'eager' : 'lazy'} decoding="async" draggable={false} referrerPolicy="no-referrer" onError={() => setFailed(true)} />;
 }
 
 export function GuidePhotoGallery({ name, photos, initialIndex, onClose }: {

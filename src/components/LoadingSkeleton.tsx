@@ -28,7 +28,7 @@ interface LoadingSkeletonProps {
 // color. Exported because screens with their own row geometry (the
 // messages list, the circle's activity feed) build bespoke placeholders
 // that still have to pulse at exactly this tint.
-export const SKELETON_PULSE = 'animate-pulse bg-on-surface/[0.06]';
+export const SKELETON_PULSE = 'motion-safe:animate-pulse bg-on-surface/[0.06]';
 const PULSE = SKELETON_PULSE;
 
 export const LoadingSkeleton: React.FC<LoadingSkeletonProps> = ({

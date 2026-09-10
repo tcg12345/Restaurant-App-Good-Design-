@@ -1,3 +1,4 @@
+import { canonicalPhotoUrl, photoReference, resolvePhotoUrl } from './photo-access';
 /**
  * Canonical photo pipeline for the rating / recipe / meal / guide modals.
  *
@@ -137,7 +138,7 @@ export async function compressImage(file: File, opts: CompressImageOptions = {})
  * back to an inline data URL.
  */
 export async function uploadPhoto(input: string | Blob): Promise<string> {
-  if (typeof input === 'string' && /^https?:\/\//i.test(input)) return input; // already uploaded
+  if (typeof input === 'string' && /^https?:\/\//i.test(input)) return canonicalPhotoUrl(input); // persist a stable reference, never a signed token
   if (!supabaseConfigured) throw new Error('supabase not configured');
 
   const blob = typeof input === 'string' ? dataUrlToBlob(input) : input;
@@ -155,7 +156,7 @@ export async function uploadPhoto(input: string | Blob): Promise<string> {
     path,
     file: blob,
     contentType: 'image/jpeg',
-    cacheControlSeconds: 60 * 60 * 24 * 365, // immutable object — cache a year
+    cacheControlSeconds: 900, // align newly uploaded media with signed read lifetime
   });
   const { data } = supabase.storage.from(PHOTOS_BUCKET).getPublicUrl(path);
   if (!data?.publicUrl) throw new Error('no public URL');
@@ -181,15 +182,10 @@ export async function deletePhotoObjects(urls: string[]): Promise<number> {
   const { data: sessionData } = await supabase.auth.getSession();
   const uid = sessionData.session?.user?.id;
   if (!uid) return 0;
-  // Public URLs look like …/storage/v1/object/public/photos/<uid>/<file>.
-  const marker = `/storage/v1/object/public/${PHOTOS_BUCKET}/`;
   const paths: string[] = [];
   for (const url of urls) {
-    if (typeof url !== 'string') continue;
-    const at = url.indexOf(marker);
-    if (at === -1) continue;
-    const path = decodeURIComponent(url.slice(at + marker.length).split('?')[0]);
-    if (path.startsWith(`${uid}/`)) paths.push(path);
+    const ref = photoReference(url);
+    if (ref?.bucket === PHOTOS_BUCKET && ref.path.startsWith(`${uid}/`)) paths.push(ref.path);
   }
   if (paths.length === 0) return 0;
   const { error } = await supabase.storage.from(PHOTOS_BUCKET).remove(paths);
@@ -204,7 +200,9 @@ export async function deletePhotoObjects(urls: string[]): Promise<number> {
  *  so an undecodable source rejects instead of hanging), then re-encode it to
  *  a size-capped JPEG data URL over a white background. Used for
  *  already-in-memory images (e.g. an AI-generated hero photo). */
-export function compressDataUrl(src: string, opts: CompressImageOptions = {}): Promise<string> {
+export async function compressDataUrl(src: string, opts: CompressImageOptions = {}): Promise<string> {
+  const resolved = await resolvePhotoUrl(src);
+  if (!resolved) throw new Error('Photo is unavailable.');
   const { maxDim = 800, quality = 0.6 } = opts;
   return new Promise((resolve, reject) => {
     const img = document.createElement('img');
@@ -216,7 +214,8 @@ export function compressDataUrl(src: string, opts: CompressImageOptions = {}): P
         reject(err instanceof Error ? err : new Error('encode failed'));
       }
     };
-    img.src = src;
+    img.crossOrigin = 'anonymous';
+    img.src = resolved;
   });
 }
 

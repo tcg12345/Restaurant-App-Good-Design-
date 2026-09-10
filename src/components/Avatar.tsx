@@ -1,3 +1,4 @@
+import { PhotoImage } from './PhotoImage';
 import React, { useEffect, useState } from 'react';
 import { cn } from '../lib/utils';
 
@@ -46,7 +47,7 @@ export const Avatar: React.FC<{
       style={{ width: size, height: size, ...(!showPhoto ? fallbackStyle : undefined) }}
     >
       {showPhoto ? (
-        <img
+        <PhotoImage
           src={src!}
           alt=""
           referrerPolicy="no-referrer"

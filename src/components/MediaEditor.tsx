@@ -1,3 +1,5 @@
+import { resolvePhotoUrl } from '../lib/photo-access';
+import { PhotoImage } from './PhotoImage';
 /**
  * MediaEditor — Instagram-style per-item editor for photos and videos.
  *
@@ -273,12 +275,14 @@ function defaultCropForRatio(ratio: AspectRatio, sourceWidth: number, sourceHeig
 /* ── Photo apply (canvas) ────────────────────────────────────────────── */
 
 async function loadImage(src: string): Promise<HTMLImageElement> {
+  const resolved = await resolvePhotoUrl(src);
+  if (!resolved) throw new Error('Photo is unavailable.');
   return new Promise((resolve, reject) => {
     const img = new Image();
     img.crossOrigin = 'anonymous';
     img.onload = () => resolve(img);
     img.onerror = (e) => reject(e);
-    img.src = src;
+    img.src = resolved;
   });
 }
 
@@ -1544,7 +1548,7 @@ const FilterTab: React.FC<{
   grid?: boolean;
 }> = ({ edits, setEdits, previewUrl, grid = false }) => {
   const swatchInner = (filter: string) => previewUrl ? (
-    <img src={previewUrl} alt="" draggable={false} className="w-full h-full object-cover" style={{ filter }} />
+    <PhotoImage src={previewUrl} alt="" draggable={false} className="w-full h-full object-cover" style={{ filter }} />
   ) : (
     <div className="w-full h-full bg-gradient-to-br from-amber-200 to-rose-300" style={{ filter }} />
   );
@@ -1836,7 +1840,7 @@ const TrimTab: React.FC<{ item: EditableItem; edits: EditState; setEdits: (n: Pa
           {frames.map((src, i) => (
             <div key={i} className="flex-1 min-w-0 h-full overflow-hidden pointer-events-none">
               {src ? (
-                <img
+                <PhotoImage
                   src={src}
                   alt=""
                   draggable={false}
@@ -2040,7 +2044,7 @@ export const EditorStage: React.FC<{
   return (
     <div className={cn('relative w-full h-full', className)}>
       {item.mediaType === 'photo' ? (
-        <img
+        <PhotoImage
           src={item.previewUrl}
           alt=""
           draggable={false}

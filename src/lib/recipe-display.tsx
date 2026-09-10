@@ -1,3 +1,5 @@
+import { MotionPhotoImage } from '../components/MotionPhotoImage';
+import { PhotoImage } from '../components/PhotoImage';
 /**
  * Shared helpers + components for rendering the editorial home meal / recipe
  * detail layout. Used by both the Pantry (author's own recipes) and the new
@@ -246,7 +248,7 @@ export const PhotoLightbox: React.FC<{
 
         {/* Photo */}
         <div className="flex-1 flex items-center justify-center px-4 min-h-0" onClick={(e) => e.stopPropagation()}>
-          <motion.img
+          <MotionPhotoImage
             key={photo.url}
             src={photo.url}
             alt={photo.caption || `Photo ${index + 1}`}
@@ -654,7 +656,7 @@ export const RecipeReviewList: React.FC<RecipeReviewListProps> = ({ reviews, pro
               </p>
             )}
             {r.photo && (
-              <img src={r.photo} alt="" className="mt-2 w-full rounded-xl object-cover max-h-48" />
+              <PhotoImage src={r.photo} alt="" className="mt-2 w-full rounded-xl object-cover max-h-48" />
             )}
           </li>
         );

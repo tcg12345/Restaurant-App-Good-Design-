@@ -1,10 +1,11 @@
+import { PageSkeleton } from '../components/PageSkeleton';
 import { usePageBack } from '../lib/usePageBack';
 import React, { useEffect, useMemo, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useSettings } from '../contexts/SettingsContext';
 import { useHeaderFade } from '../lib/useHeaderFade';
-import { ArrowLeft, Loader2, Users } from 'lucide-react';
+import { ArrowLeft, Users } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useAuth } from '../contexts/AuthContext';
 import { getPlaceName } from '../lib/places';
@@ -183,11 +184,7 @@ export const RestaurantCircleReviews: React.FC = () => {
   const FILTERS: Filter[] = withPhotos.size > 0 ? ['Recent', 'Top rated', 'With photos'] : ['Recent', 'Top rated'];
 
   if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-cream">
-        <Loader2 size={32} className="animate-spin text-on-surface/35" />
-      </div>
-    );
+    return <PageSkeleton variant="list" />;
   }
 
   return (

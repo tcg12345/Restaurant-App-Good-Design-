@@ -1,3 +1,4 @@
+import { PhotoImage } from './PhotoImage';
 /**
  * RestaurantFeaturedReels — horizontal strip of real reel cards that
  * feature a specific restaurant. Used in:
@@ -64,7 +65,7 @@ const ReelCard: React.FC<CardProps> = ({ reel, size, onOpen }) => {
       {/* Real poster frame (Mux thumbnail or signed storage poster). Falls
           back to the reel's own gradient while it decodes / if absent. */}
       {reel.posterUrl ? (
-        <img
+        <PhotoImage
           src={reel.posterUrl}
           alt=""
           draggable={false}

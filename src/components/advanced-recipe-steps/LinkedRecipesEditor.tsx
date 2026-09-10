@@ -1,3 +1,4 @@
+import { PhotoImage } from '../PhotoImage';
 // Shared "Linked recipes" block rendered at the bottom of both the
 // Ingredients and Method steps. Linking is one list on the recipe —
 // the same rows appear on both steps — but each ref carries placement
@@ -57,7 +58,7 @@ export const LinkedRecipesEditor: React.FC<Props> = ({ state, dispatch, defaultP
         <div key={ref.id} className="arb-linked-row">
           {ref.coverPhoto && (
             <div className="arb-linked-thumb">
-              <img
+              <PhotoImage
                 src={ref.coverPhoto}
                 alt=""
                 loading="lazy"

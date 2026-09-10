@@ -1,3 +1,4 @@
+import { PhotoImage } from '../components/PhotoImage';
 import { DeleteConfirmation } from '../components/DeleteConfirmation';
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
@@ -96,7 +97,7 @@ const GuideCard: React.FC<{ guide: Guide }> = ({ guide }) => (
       guide.coverGradient,
     )}>
       {guide.bgImage && (
-        <img
+        <PhotoImage
           src={guide.bgImage}
           alt=""
           className="absolute inset-0 w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.04]"

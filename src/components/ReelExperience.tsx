@@ -1,3 +1,4 @@
+import { PhotoImage } from './PhotoImage';
 import React, { useEffect, useRef, useState } from 'react';
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
 import { ChefHat, ChevronRight, Film, ImagePlus, MapPin, X } from 'lucide-react';
@@ -33,7 +34,7 @@ export function ReelAttachment({ title, subtitle, image, recipe, score, onClick 
   return <button type="button" className="reel-attachment" onClick={onClick} aria-label={`${recipe ? 'View recipe' : 'View restaurant'}: ${title}`}>
     <span className="reel-attachment-image">
       {recipe ? <ChefHat size={20} /> : <MapPin size={20} />}
-      {image && <img src={image} alt="" loading="lazy" onError={e => { e.currentTarget.hidden = true; }} />}
+      {image && <PhotoImage src={image} alt="" loading="lazy" onError={e => { e.currentTarget.hidden = true; }} />}
     </span>
     <span className="reel-attachment-copy"><strong>{title}</strong><span>{subtitle || (recipe ? 'View recipe' : 'Explore this place')}</span></span>
     {!!score && <span className="reel-attachment-score" aria-label={`Rated ${score.toFixed(1)} out of 10`}>{score.toFixed(1)}</span>}

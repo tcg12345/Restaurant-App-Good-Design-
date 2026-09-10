@@ -1,3 +1,4 @@
+import { PhotoImage } from './PhotoImage';
 /**
  * The card used for a run of ratings ("Also rated this week") in the feed.
  *
@@ -103,7 +104,7 @@ export const RatingStripCard: React.FC<RatingStripCardProps> = ({
         >
           {hasPhoto && (
             <>
-              <img
+              <PhotoImage
                 src={photo!}
                 alt=""
                 loading="lazy"

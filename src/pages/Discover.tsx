@@ -1,3 +1,6 @@
+import { PageSkeleton } from '../components/PageSkeleton';
+import { useTabActive } from '../components/RetainedTabLocation';
+import { PhotoImage } from '../components/PhotoImage';
 import { HOME_REELS_EXPERIMENT } from '../lib/home-reels-experiment';
 import { HomeReels } from '../components/HomeReels';
 import { recipePreferenceScore } from '../lib/taste-preferences';
@@ -851,6 +854,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, sear
   // reshuffle as the user pans the map between searches.
   const [scoreAnchor, setScoreAnchor] = useState<{ lat: number; lng: number; radiusM: number } | null>(null);
   const [isSearching, setIsSearching] = useState(false);
+  const [placesFailure, setPlacesFailure] = useState<{ query?: string } | null>(null);
   const [showSearchInput, setShowSearchInput] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [filterSheetOpen, setFilterSheetOpen] = useState(false);
@@ -865,7 +869,8 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, sear
   // gone everywhere for the rest of the session. The route check is the other
   // half: a layer that isn't the page you're on must not speak for the tab bar
   // at all.
-  const ownsRoute = location.pathname === '/' || location.pathname === '/map' || (searchTab && location.pathname === '/search');
+  const tabActive = useTabActive();
+  const ownsRoute = tabActive && (location.pathname === '/' || location.pathname === '/map' || (searchTab && location.pathname === '/search'));
   useEffect(() => {
     if (!ownsRoute) return;
     setHideBottomNav(filterSheetOpen);
@@ -1698,11 +1703,11 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, sear
    */
   const askedForLocationRef = useRef(false);
   useEffect(() => {
-    if (mode !== 'home' || homeLocationCtx?.status !== 'none') return;
+    if (!tabActive || mode !== 'home' || homeLocationCtx?.status !== 'none') return;
     if (askedForLocationRef.current) return;
     askedForLocationRef.current = true;
     homeLocationCtx.useCurrent().catch(() => {});
-  }, [mode, homeLocationCtx]);
+  }, [tabActive, mode, homeLocationCtx]);
 
   // An explicit location pick, from wherever it was made: the home picker,
   // the map's location chip, "use my current location". `setHomeLocation`
@@ -2377,6 +2382,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, sear
     // does NOT clear it, because it's also invoked automatically right
     // after the user picks a location from the location-search dropdown.
     setIsSearching(true);
+    setPlacesFailure(null);
     setShowSearchHere(false);
     try {
       const center = map.getCenter();
@@ -2393,6 +2399,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, sear
       const cuisineTypes = cuisines ?? filtersRef.current.selectedCuisines;
       const price = filtersRef.current.selectedPrice;
       const results = await searchNearbyRestaurants(center.lat, center.lng, radius, cuisineTypes, price, undefined, abort.signal);
+      abort.signal.throwIfAborted();
       // Merge Michelin dataset entries FIRST so they participate in the sort.
       const merged = await mergeMichelinResults(results, center.lat, center.lng, radius);
       const sorted = getFilteredPlaces(merged, filtersRef.current.sortBy, 0); // price already filtered server-side
@@ -2407,6 +2414,8 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, sear
       tabDataCache.discoverPlaces = sorted;
       tabDataCache.discoverLoaded = true;
     } catch (err) {
+      if (placesReqRef.current !== req || abort.signal.aborted) return;
+      setPlacesFailure({});
       console.error('Places search failed:', err);
     } finally {
       if (placesReqRef.current === req) setIsSearching(false);
@@ -2529,6 +2538,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, sear
     // An explicit text search ends any AI-chat map takeover.
     assistantPlotActiveRef.current = false;
     setIsSearching(true);
+    setPlacesFailure(null);
     setSelectedMarker(null);
     setShowSearchHere(false);
     const req = ++placesReqRef.current;
@@ -2549,7 +2559,8 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, sear
       const a = Math.sin(dlat/2)**2 + Math.cos(nw.lat*Math.PI/180)*Math.cos(se.lat*Math.PI/180)*Math.sin(dlng/2)**2;
       const searchRadius = Math.max(6371000 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)) / 2, 2000);
       const useRestriction = !!searchLocationBias;
-      const results = await searchPlacesByText(query, lat, lng, searchRadius, useRestriction, undefined, abort.signal);
+      const results = await searchPlacesByText(query, lat, lng, searchRadius, useRestriction, undefined, abort.signal, { throwOnError: true });
+      abort.signal.throwIfAborted();
       // Merge Michelin dataset entries FIRST so they participate in the sort.
       const merged = await mergeMichelinResults(results, lat, lng, searchRadius);
       const filtered = getFilteredPlaces(merged, filtersRef.current.sortBy, filtersRef.current.selectedPrice);
@@ -2568,6 +2579,8 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, sear
       // Add expert overlay markers in the visible area
       setTimeout(() => addExpertOverlayRef.current?.(), 1200);
     } catch (err) {
+      if (placesReqRef.current !== req || abort.signal.aborted) return;
+      setPlacesFailure({ query });
       console.error('Text search failed:', err);
     } finally {
       if (placesReqRef.current === req) setIsSearching(false);
@@ -2693,7 +2706,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, sear
       onAssistantPlaces: handleAssistantPlaces,
     };
   }, [mode, assistantVisible, restaurantMeta, assistantCityLabel, assistantShortCity, selectedCuisines, selectedPrice, sortBy, discoverRadius, referenceLocation, mapCenter, handleAssistantSearch, handleAssistantPlaces]);
-  useSetAssistantPageContext(assistantPageContext);
+  useSetAssistantPageContext(assistantPageContext, ownsRoute);
 
   // The key of the location this map itself last chose, written SYNCHRONOUSLY
   // in handleSelectLocation so the follow-the-anchor effect can tell "the
@@ -2983,13 +2996,13 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, sear
   // left it.
   const handledFocusStateRef = useRef(false);
   useEffect(() => {
-    if (mode !== 'map') return;
+    if (!tabActive || mode !== 'map') return;
     if (handledFocusStateRef.current) return;
     if (!mapReady) return;
     if (!(location.state as any)?.focus) return;
     handledFocusStateRef.current = true;
     navigate(location.pathname, { replace: true, state: null });
-  }, [mode, location.state, location.pathname, mapReady, navigate]);
+  }, [tabActive, mode, location.state, location.pathname, mapReady, navigate]);
 
   // Deep-link from the Pantry: `navigate('/map', { state: { listView: { id } } })`
   // opens the map in My-Ratings mode pre-filtered to that list (id may be a
@@ -3935,7 +3948,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, sear
         </div>
         {hasImage && (
           <div className="h-[52px] w-[52px] flex-shrink-0 overflow-hidden rounded-[12px] bg-on-surface/[0.05]">
-            <img src={safe} alt="" className="h-full w-full object-cover" referrerPolicy="no-referrer" />
+            <PhotoImage src={safe} alt="" className="h-full w-full object-cover" referrerPolicy="no-referrer" />
           </div>
         )}
         <div className="flex flex-shrink-0 items-center gap-0.5">
@@ -3952,11 +3965,22 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, sear
     );
   };
 
+  const placesRetryNotice = placesFailure && mapMode === 'discover' && !isSearching ? (
+    <div role="status" className="flex items-center gap-3 rounded-2xl border border-on-surface/10 bg-surface px-4 py-3 text-[13px] text-on-surface">
+      <p className="min-w-0 flex-1">Couldn't refresh restaurants. {places.length > 0 ? 'Previous results are still shown.' : 'Check your connection and try again.'}</p>
+      <button type="button" className="min-h-11 shrink-0 rounded-xl px-3 font-semibold text-primary active:bg-on-surface/5"
+        onClick={() => placesFailure.query ? void handleSearch(placesFailure.query) : void fetchNearby()}>
+        Retry
+      </button>
+    </div>
+  ) : null;
+
   const panelEmptyMessage = (() => {
     if (mapMode === 'myratings') return activeFilterCount > 0 || panelTextQ ? 'No ratings match these filters.' : 'No rated restaurants yet.';
     if (mapMode === 'friends') return activeFilterCount > 0 || panelTextQ ? 'No friend ratings match these filters.' : 'No friend ratings yet.';
     if (mapMode === 'experts') return activeFilterCount > 0 || panelTextQ ? 'No expert ratings match these filters.' : 'No expert ratings yet.';
     if (mapMode === 'recipes') return friendRecipesLoading ? 'Loading recipes…' : 'No recipes from friends yet.';
+    if (placesFailure) return 'Restaurant search is temporarily unavailable.';
     return isSearching ? 'Searching…' : (panelTextQ ? 'No restaurants match your search.' : 'Pan the map and hit "Search this area".');
   })();
 
@@ -4270,6 +4294,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, sear
           own top chrome (back arrow, name, meta row) takes their place
           and everything beneath shifts up smoothly. */}
       <div className="flex-shrink-0">
+        {placesRetryNotice && <div className="px-5 pb-3">{placesRetryNotice}</div>}
         <AnimatePresence initial={false}>
           {!selectedPlace && (
             <motion.div
@@ -5357,7 +5382,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, sear
               style={phoneMode ? { paddingTop: homeHeaderH } : undefined}
             >
 
-              {/* Search results in full state. The full-screen spinner only
+              {/* Search results in full state. The content skeleton only
                   shows when there's nothing to keep on screen — while a new
                   debounce cycle is in flight the PREVIOUS results stay
                   rendered, dimmed, so typing doesn't flash the whole list
@@ -5365,10 +5390,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, sear
               {discoverSearchActive && (
                 <div className={cn("mt-4", phoneMode && "px-5")}>
                   {isSearching && places.length === 0 ? (
-                    <div className="flex items-center justify-center py-16">
-                      <Loader2 size={24} className="text-primary animate-spin" />
-                      <span className="ml-3 text-sm text-on-surface/50 font-medium">Searching restaurants...</span>
-                    </div>
+                    <PageSkeleton compact />
                   ) : !searchQuery.trim() ? (
                     recentViews.length > 0 ? (
                       <section className="pt-2">
@@ -5395,9 +5417,9 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, sear
                               <Link to={`/restaurant/${place.id}`}>
                                 <div className="w-32 h-24 rounded-xl overflow-hidden mb-1.5 bg-muted">
                                   {place.image ? (
-                                    <img src={place.image} alt={place.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform" referrerPolicy="no-referrer" />
+                                    <PhotoImage src={place.image} alt={place.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform" referrerPolicy="no-referrer" />
                                   ) : (place as any).photoUrl ? (
-                                    <img src={(place as any).photoUrl} alt={place.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform" referrerPolicy="no-referrer" />
+                                    <PhotoImage src={(place as any).photoUrl} alt={place.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform" referrerPolicy="no-referrer" />
                                   ) : (
                                     <div className="w-full h-full flex items-center justify-center bg-on-surface/5 text-on-surface/20 font-serif text-xl font-bold">{place.name.charAt(0)}</div>
                                   )}
@@ -5603,7 +5625,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, sear
                               <Link key={r.id} to={`/recipe/${r.userId}/${r.id}`} className="group flex items-center gap-3 py-3">
                                 <div className="w-[52px] h-[52px] rounded-xl overflow-hidden flex-shrink-0 bg-on-surface/[0.04]">
                                   {cover ? (
-                                    <img src={cover} alt="" loading="lazy" decoding="async" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                                    <PhotoImage src={cover} alt="" loading="lazy" decoding="async" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
                                   ) : (
                                     <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-on-surface/[0.06] to-on-surface/[0.02]">
                                       <ChefHat size={20} className="text-on-surface/25" strokeWidth={1.5} />
@@ -5636,7 +5658,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, sear
                             <Link key={g.id} to={`/guides/${g.id}`} className="group flex items-center gap-3 py-3">
                               <div className="w-12 h-12 rounded-xl bg-on-surface flex items-center justify-center flex-shrink-0 overflow-hidden">
                                 {g.coverPhoto ? (
-                                  <img src={g.coverPhoto} alt="" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                                  <PhotoImage src={g.coverPhoto} alt="" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
                                 ) : (
                                   <BookOpen size={18} className="text-surface" />
                                 )}
@@ -6032,6 +6054,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, sear
             </div>
           )}
 
+          {placesRetryNotice && <div className="pt-3">{placesRetryNotice}</div>}
           {/* Friend/list dropdowns removed — all filtering now in filter sheet */}
         </div>
 
@@ -6104,10 +6127,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, sear
           {/* Recipes tab content — friends' public home meals */}
           {mapMode === 'recipes' && (
             friendRecipesLoading ? (
-              <div className="flex items-center justify-center py-12">
-                <Loader2 size={24} className="text-recipes animate-spin" />
-                <span className="ml-3 text-sm text-on-surface/50 font-medium">Loading recipes...</span>
-              </div>
+              <PageSkeleton compact />
             ) : friendRecipes.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-12 text-center">
                 <ChefHat size={32} className="text-on-surface/20 mb-3" />
@@ -6135,7 +6155,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, sear
                     >
                       <div className="w-16 h-16 rounded-lg overflow-hidden flex-shrink-0 bg-recipes-tint self-center">
                         {cover ? (
-                          <img src={cover} alt={meal.name} loading="lazy" decoding="async" className="w-full h-full object-cover group-hover:scale-105 transition-transform" />
+                          <PhotoImage src={cover} alt={meal.name} loading="lazy" decoding="async" className="w-full h-full object-cover group-hover:scale-105 transition-transform" />
                         ) : (
                           <div className="w-full h-full flex items-center justify-center text-recipes/50">
                             <ChefHat size={22} />
@@ -6175,14 +6195,11 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, sear
             <div className="space-y-4">
                   {/* ── Search mode content ── */}
                   {/* Same keep-previous-results treatment as the home
-                      search: the full spinner only when there's nothing
+                      search: the skeleton only when there's nothing
                       rendered yet; otherwise dim the stale list. */}
                   {discoverSearchActive ? (
                     isSearching && places.length === 0 ? (
-                      <div className="flex items-center justify-center py-12">
-                        <Loader2 size={24} className="text-primary animate-spin" />
-                        <span className="ml-3 text-sm text-on-surface/50 font-medium">Searching restaurants...</span>
-                      </div>
+                      <PageSkeleton compact />
                     ) : !searchQuery.trim() ? (
                       <div className="flex flex-col items-center justify-center py-16 text-center">
                         <Search size={32} className="text-on-surface/15 mb-3" />
@@ -6221,10 +6238,7 @@ export const Discover: React.FC<DiscoverProps> = ({ mode = 'home', variant, sear
 
                   {/* Nearby Restaurants — vertical list */}
                   {isSearching && places.length === 0 ? (
-                    <div className="flex items-center justify-center py-8">
-                      <Loader2 size={20} className="text-primary animate-spin" />
-                      <span className="ml-2 text-sm text-on-surface/50 font-medium">Finding nearby...</span>
-                    </div>
+                    <PageSkeleton compact />
                   ) : places.length > 0 ? (
                     <section className={searchTab ? 'mt-1' : 'mt-5'}>
                       {!searchTab && (

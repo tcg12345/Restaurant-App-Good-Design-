@@ -1,3 +1,4 @@
+import { PhotoImage } from '../components/PhotoImage';
 import { useTastePreferences } from '../hooks/useTastePreferences';
 import { recipePreferenceScore } from '../lib/taste-preferences';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
@@ -286,7 +287,7 @@ const RecipeTile: React.FC<{ recipe: Recipe; author?: UserProfile; saved: boolea
   const name = author?.display_name || author?.username || 'Community cook';
   return <article className={cn('rd-card', hero && 'rd-card--hero', !hasPhoto && 'rd-card--no-photo')}>
     <button className="rd-card-open" onClick={onOpen} aria-label={`View ${r.title}`}>
-      <div className="rd-card-image">{hasPhoto ? <img src={photo} alt="" loading={hero ? 'eager' : 'lazy'} decoding="async" referrerPolicy="no-referrer" onError={() => setFailedPhoto(photo)} /> : <div className="rd-photo-fallback"><ChefHat size={hero ? 70 : 42} strokeWidth={1} /><span>{r.cuisine || 'From the kitchen'}</span></div>}
+      <div className="rd-card-image">{hasPhoto ? <PhotoImage src={photo} alt="" loading={hero ? 'eager' : 'lazy'} decoding="async" referrerPolicy="no-referrer" onError={() => setFailedPhoto(photo)} /> : <div className="rd-photo-fallback"><ChefHat size={hero ? 70 : 42} strokeWidth={1} /><span>{r.cuisine || 'From the kitchen'}</span></div>}
         {hero && <span className="rd-feature-label">{label}</span>}
       </div>
       <div className="rd-card-copy"><p className="rd-card-category">{r.cuisine || 'Community recipe'}</p><h3>{r.title}</h3><p className="rd-card-author">{name}{author?.is_verified && <Check size={12} aria-label="Verified" />}</p><div className="rd-card-meta">{time && <span><Clock size={13} />{time}</span>}{r.difficulty && <span>{prettyTag(r.difficulty)}</span>}{hero && !!r.servings && <span>Serves {r.servings}</span>}</div>{hero && <span className="rd-hero-link">View recipe<ArrowRight size={18} /></span>}</div>

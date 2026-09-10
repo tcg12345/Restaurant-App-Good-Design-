@@ -1,3 +1,4 @@
+import { PageSkeleton } from '../components/PageSkeleton';
 import { usePageBack } from '../lib/usePageBack';
 /**
  * Admin cuisine review — /admin/cuisine.
@@ -99,11 +100,7 @@ export const AdminCuisineSuggestions: React.FC = () => {
   // Same posture as /admin/verification: spin while the allowlist probe is
   // out, then 404 rather than admit the page exists.
   if (authLoading || adminChecked === 'unknown') {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-surface">
-        <Loader2 size={22} className="animate-spin text-on-surface/30" />
-      </div>
-    );
+    return <PageSkeleton variant="list" />;
   }
   if (!isAdmin) {
     return (
@@ -161,7 +158,7 @@ export const AdminCuisineSuggestions: React.FC = () => {
         </div>
 
         {loading ? (
-          <div className="flex justify-center py-16"><Loader2 size={20} className="animate-spin text-on-surface/30" /></div>
+          <PageSkeleton compact />
         ) : groups.length === 0 ? (
           <div className="flex flex-col items-center gap-2 py-16 text-center">
             <p className="font-serif text-[14.5px] font-bold tracking-[-0.02em] text-on-surface">Nothing here</p>

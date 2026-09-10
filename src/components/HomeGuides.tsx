@@ -1,3 +1,4 @@
+import { PhotoImage } from './PhotoImage';
 import { guidePreferenceScore, type TastePreferences } from '../lib/taste-preferences';
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
@@ -51,7 +52,7 @@ export function HomeGuideRail({ guides, loading = false, onBrowse, browseRef }: 
     </div>
     <div className="home-guide-rail" aria-label="Guides">
       {guides.slice(0, 8).map(guide => <Link key={guide.id} className="home-guide-feature" to={`/guides/${encodeURIComponent(guide.id)}`} aria-label={`Open guide: ${guide.title}, by ${guide.author}`}>
-        <div className="home-guide-cover" aria-hidden="true"><BookOpen size={32} strokeWidth={1} /><span>{guide.type === 'recipes' ? 'In the kitchen' : 'Around the table'}</span>{guide.image && <img src={guide.image} alt="" loading="lazy" onError={e => { e.currentTarget.style.display = 'none'; }} />}</div>
+        <div className="home-guide-cover" aria-hidden="true"><BookOpen size={32} strokeWidth={1} /><span>{guide.type === 'recipes' ? 'In the kitchen' : 'Around the table'}</span>{guide.image && <PhotoImage src={guide.image} alt="" loading="lazy" onError={e => { e.currentTarget.style.display = 'none'; }} />}</div>
         <strong>{guide.title}</strong><small>{guide.count} {guide.type === 'recipes' ? 'recipes' : 'places'} · {guide.author}</small>
       </Link>)}
       {!guides.length && <button className="home-guide-empty" onClick={onBrowse}><BookOpen size={26} strokeWidth={1.4} /><span><strong>{loading ? 'Finding inspiration…' : 'Find your next favorite.'}</strong><small>Explore curated places and recipes</small></span><ChevronRight size={18} /></button>}

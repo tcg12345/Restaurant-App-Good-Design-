@@ -1,3 +1,4 @@
+import { PhotoImage } from './PhotoImage';
 import React, { useEffect, useRef, useState } from 'react';
 import { Check, ImagePlus, Lightbulb, MessageSquare, Send, Wrench, X } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
@@ -69,7 +70,7 @@ export const FeedbackComposer: React.FC<{ email?: string; context: Context; onSu
         <label className="feedback-field">Your message<textarea required minLength={10} maxLength={5000} rows={6} value={message} onChange={e => setMessage(e.target.value)} placeholder={category === 'problem' ? 'What were you trying to do? What happened, and what did you expect?' : 'Tell us what works, what could be better, or what you’d love to see.'} /></label>
         <div className="feedback-hint"><span>Only you and the GoodEats team can view your submission.</span><span>{message.length.toLocaleString()} / 5,000</span></div>
         <div className="feedback-attachment"><label className="feedback-upload"><ImagePlus size={20} /><span>{file ? 'Change screenshot' : 'Add a screenshot'}<small>Optional · PNG, JPEG, WebP · up to 5 MB</small></span><input type="file" accept="image/png,image/jpeg,image/webp" onChange={e => { const next = e.target.files?.[0]; if (!next) return; const invalid = validateScreenshot(next); setError(invalid || ''); if (!invalid) setFile(next); e.target.value = ''; }} /></label>
-          {file && <div className="feedback-preview"><img src={preview} alt="Your screenshot attachment" /><span>{file.name}</span><button type="button" aria-label="Remove screenshot" onClick={() => setFile(null)}><X size={18} /></button></div>}
+          {file && <div className="feedback-preview"><PhotoImage src={preview} alt="Your screenshot attachment" /><span>{file.name}</span><button type="button" aria-label="Remove screenshot" onClick={() => setFile(null)}><X size={18} /></button></div>}
         </div>
         <label className="feedback-contact"><input type="checkbox" checked={contact} onChange={e => setContact(e.target.checked)} /><span>You can contact me about this<small>We’ll use your email only to follow up on this feedback.</small></span></label>
         {contact && <label className="feedback-field">Contact email<input type="email" required maxLength={254} value={contactEmail} onChange={e => setContactEmail(e.target.value)} autoComplete="email" /></label>}

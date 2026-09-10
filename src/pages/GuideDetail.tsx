@@ -1,7 +1,8 @@
+import { PageSkeleton } from '../components/PageSkeleton';
 import { usePageBack } from '../lib/usePageBack';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { BookOpen, Loader2 } from 'lucide-react';
+import { BookOpen } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useLists } from '../contexts/ListsContext';
 import { useToast } from '../contexts/ToastContext';
@@ -175,11 +176,7 @@ export const GuideDetail: React.FC = () => {
   };
 
   if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-cream">
-        <Loader2 size={28} className="animate-spin text-primary/60" />
-      </div>
-    );
+    return <PageSkeleton variant="detail" />;
   }
 
   if (!guide) {

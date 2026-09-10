@@ -1,3 +1,4 @@
+import { fetchPhoto } from './photo-access';
 /**
  * Publishing a rating as a post — the bridge that makes one meal one card.
  *
@@ -46,7 +47,7 @@ export async function photoUrlToFile(url: string, index: number): Promise<File |
   try {
     const blob = trimmed.startsWith('data:')
       ? dataUrlToBlob(trimmed)
-      : await fetch(trimmed).then((r) => (r.ok ? r.blob() : null));
+      : await fetchPhoto(trimmed).then((r) => (r.ok ? r.blob() : null));
     if (!blob || blob.size === 0) return null;
     const type = blob.type || 'image/jpeg';
     if (!type.startsWith('image/')) return null;

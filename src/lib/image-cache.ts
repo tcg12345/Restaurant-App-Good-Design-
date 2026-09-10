@@ -1,3 +1,5 @@
+import { fetchPhoto } from './photo-access';
+import { mediaAccessVersion, onMediaAccessChange } from './media-access-scope';
 /**
  * In-memory image blob cache for the reels feed.
  *
@@ -49,17 +51,19 @@ export function getCachedImage(path: string): string | null {
  * can still render something. De-dupes concurrent requests for the same path.
  */
 export async function loadCachedImage(path: string, url: string): Promise<string> {
+  const generation = mediaAccessVersion();
   if (!path || !url) return url;
   const existing = cache.get(path);
   if (existing) { touch(path); return existing; }
   const pending = inflight.get(path);
-  if (pending) return (await pending) ?? url;
+  if (pending) { const result = await pending; return generation === mediaAccessVersion() ? result ?? url : ''; }
 
   const job = (async (): Promise<string | null> => {
     try {
-      const res = await fetch(url, { mode: 'cors', credentials: 'omit' });
+      const res = await fetchPhoto(url, { mode: 'cors', credentials: 'omit' });
       if (!res.ok) return null;
       const blob = await res.blob();
+      if (generation !== mediaAccessVersion()) return null;
       const obj = URL.createObjectURL(blob);
       cache.set(path, obj);
       touch(path);
@@ -67,9 +71,15 @@ export async function loadCachedImage(path: string, url: string): Promise<string
     } catch {
       return null; // CORS / network — caller falls back to the direct URL
     } finally {
-      inflight.delete(path);
+      if (generation === mediaAccessVersion()) inflight.delete(path);
     }
   })();
   inflight.set(path, job);
-  return (await job) ?? url;
+  const result = await job;
+  return generation === mediaAccessVersion() ? result ?? url : '';
 }
+
+onMediaAccessChange(() => {
+  for (const url of cache.values()) { try { URL.revokeObjectURL(url); } catch {} }
+  cache.clear(); order.length = 0; inflight.clear();
+});

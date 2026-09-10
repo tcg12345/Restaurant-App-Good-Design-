@@ -1,3 +1,4 @@
+import { PhotoImage } from '../PhotoImage';
 // Step 2 of the Advanced Recipe Builder — "Details".
 // Cuisine (underline trigger → search sheet on phone, styled select on
 // desktop), course chips, difficulty cards with colored dots, and the
@@ -148,7 +149,7 @@ export const StepDetails: React.FC<Props> = ({ state, dispatch }) => {
         </div>
         {state.coverPhoto ? (
           <div className="rcx-photo-preview">
-            <img src={state.coverPhoto} alt="Recipe cover" referrerPolicy="no-referrer" />
+            <PhotoImage src={state.coverPhoto} alt="Recipe cover" referrerPolicy="no-referrer" />
             <button
               type="button"
               className="rcx-photo-remove"

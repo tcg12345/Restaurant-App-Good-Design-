@@ -5,6 +5,8 @@ export interface EvidenceJournal {
   ownerId: string;
   events: RankingEvidenceEvent[];
   pendingIds: string[];
+  /** Persisted atomically with received events; absent on old journals. */
+  remoteCursor?: number;
 }
 export interface EvidenceStorage { getItem(key: string): string | null; setItem(key: string, value: string): void }
 export const evidenceStorageKey = (ownerId: string) => `goodeats-ranking-evidence:${ownerId}`;
@@ -15,7 +17,7 @@ export function readEvidence(storage: EvidenceStorage, ownerId: string): Evidenc
   if (!value) return empty;
   const raw = JSON.parse(value);
   // Never replace unreadable/foreign history with an empty journal.
-  if (raw.version !== 1 || raw.ownerId !== ownerId || !Array.isArray(raw.events) || !raw.events.every(isRankingEvidenceEvent) || !Array.isArray(raw.pendingIds) || !raw.pendingIds.every((id: unknown) => typeof id === 'string')) throw new Error('Invalid ranking evidence journal');
+  if (raw.version !== 1 || raw.ownerId !== ownerId || !Array.isArray(raw.events) || !raw.events.every(isRankingEvidenceEvent) || !Array.isArray(raw.pendingIds) || !raw.pendingIds.every((id: unknown) => typeof id === 'string') || (raw.remoteCursor !== undefined && (!Number.isSafeInteger(raw.remoteCursor) || raw.remoteCursor < 0))) throw new Error('Invalid ranking evidence journal');
   return raw;
 }
 
@@ -26,25 +28,42 @@ export function appendEvidence(storage: EvidenceStorage, ownerId: string, event:
   storage.setItem(evidenceStorageKey(ownerId), JSON.stringify(next));
 }
 
+export interface EvidencePage {
+  events: RankingEvidenceEvent[];
+  cursor: number;
+  hasMore: boolean;
+}
 export interface EvidenceRemote {
-  load(ownerId: string): Promise<RankingEvidenceEvent[]>;
+  load(ownerId: string, after: number): Promise<EvidencePage>;
   insert(ownerId: string, events: RankingEvidenceEvent[]): Promise<void>;
 }
 
-/** Load/merge first, then upload immutable records. Reread around every await so
- * same-device saves while the network is in flight cannot disappear. Failed
- * uploads remain pending; duplicate insert retries are safe at the database.
+/** Checkpoint each received page with its cursor in one local write. An empty
+ * incremental check does not rewrite the growing journal. Reread after every
+ * await so concurrent local saves cannot disappear. Immutable inserts can be
+ * retried if the network or local acknowledgement fails.
  */
 export async function syncEvidence(storage: EvidenceStorage, remote: EvidenceRemote, ownerId: string, isActive = () => true): Promise<void> {
-  if (!isActive()) return;
-  const cloud = await remote.load(ownerId);
-  if (!isActive()) return;
-  let local = readEvidence(storage, ownerId);
-  storage.setItem(evidenceStorageKey(ownerId), JSON.stringify({ ...local, events: mergeRankingEvents(local.events, cloud) }));
-  while (true) {
+  while (isActive()) {
+    const before = readEvidence(storage, ownerId).remoteCursor ?? 0;
+    const page = await remote.load(ownerId, before);
     if (!isActive()) return;
-    local = readEvidence(storage, ownerId);
-    const pending = local.events.filter(e => local.pendingIds.includes(e.id)).slice(0, 50);
+    if (!Number.isSafeInteger(page.cursor) || page.cursor < before
+      || ((page.events.length > 0 || page.hasMore) && page.cursor <= before)
+      || !page.events.every(isRankingEvidenceEvent)) throw new Error('Invalid ranking evidence page');
+    if (page.events.length || page.cursor !== before) {
+      const local = readEvidence(storage, ownerId);
+      storage.setItem(evidenceStorageKey(ownerId), JSON.stringify({
+        ...local, events: mergeRankingEvents(local.events, page.events), remoteCursor: page.cursor,
+      }));
+    }
+    if (!page.hasMore) break;
+  }
+  while (isActive()) {
+    let local = readEvidence(storage, ownerId);
+    if (!local.pendingIds.length) return;
+    const pendingIds = new Set(local.pendingIds);
+    const pending = local.events.filter(e => pendingIds.has(e.id)).slice(0, 50);
     if (!pending.length) return;
     await remote.insert(ownerId, pending);
     if (!isActive()) return;

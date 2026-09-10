@@ -1,3 +1,4 @@
+import { PhotoImage } from '../PhotoImage';
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { BookOpen, ChefHat, Star } from 'lucide-react';
@@ -18,7 +19,7 @@ export const ProfileGuideCard: React.FC<{ guide: Guide }> = ({ guide }) => {
     >
       <div className="relative aspect-[4/5] overflow-hidden">
         {guide.coverPhoto ? (
-          <img
+          <PhotoImage
             src={guide.coverPhoto}
             alt={guide.title}
             referrerPolicy="no-referrer"

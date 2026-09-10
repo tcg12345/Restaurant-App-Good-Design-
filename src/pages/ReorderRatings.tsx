@@ -1,3 +1,4 @@
+import { PhotoImage } from '../components/PhotoImage';
 import { usePageBack } from '../lib/usePageBack';
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -51,7 +52,7 @@ const ReorderItem: React.FC<{
 
       <div className="w-10 h-10 rounded-xl overflow-hidden flex-shrink-0 bg-on-surface/5">
         {item.image ? (
-          <img src={item.image} alt="" className="w-full h-full object-cover" />
+          <PhotoImage src={item.image} alt="" className="w-full h-full object-cover" />
         ) : (
           <div className="w-full h-full flex items-center justify-center text-on-surface/20 text-xs font-bold">
             ?

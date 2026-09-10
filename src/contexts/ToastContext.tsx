@@ -1,10 +1,10 @@
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
-import { Heart, HeartOff, Check, Star } from 'lucide-react';
+import { Heart, HeartOff, Check, Star, AlertCircle } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useSettings } from './SettingsContext';
 
-export type ToastVariant = 'wishlist-add' | 'wishlist-remove' | 'rated' | 'rating-updated' | 'success';
+export type ToastVariant = 'wishlist-add' | 'wishlist-remove' | 'rated' | 'rating-updated' | 'success' | 'error';
 
 interface ToastAction {
   label: string;
@@ -71,7 +71,8 @@ export const ToastProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     if (timerRef.current !== null) window.clearTimeout(timerRef.current);
   }, []);
 
-  const Icon = toast?.variant === 'wishlist-remove' ? HeartOff
+  const Icon = toast?.variant === 'error' ? AlertCircle
+    : toast?.variant === 'wishlist-remove' ? HeartOff
     : toast?.variant === 'wishlist-add' ? Heart
     : toast?.variant === 'rated' || toast?.variant === 'rating-updated' ? Star
     : Check;

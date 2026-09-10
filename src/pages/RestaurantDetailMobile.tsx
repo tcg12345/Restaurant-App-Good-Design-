@@ -1,3 +1,4 @@
+import { PhotoImage } from '../components/PhotoImage';
 import { useEntryState } from '../lib/useEntryState';
 import { usePageBack } from '../lib/usePageBack';
 import './RestaurantDetail.css';
@@ -685,7 +686,7 @@ export const RestaurantDetailMobile: React.FC = () => {
                       <div className="flex gap-2 overflow-x-auto no-scrollbar -mx-[22px] px-[22px] pb-3.5 snap-x">
                         {myPhotos.map((ph, i) => (
                           <button key={i} type="button" className="restaurant-visit-photo" aria-label={`View your photo ${i + 1}`} onClick={() => { homeHaptic(); setOwnPhotoIndex(i); }}>
-                            <img src={ph.url} alt={ph.caption || `Your visit to ${place.name}`} referrerPolicy="no-referrer" />
+                            <PhotoImage src={ph.url} alt={ph.caption || `Your visit to ${place.name}`} referrerPolicy="no-referrer" />
                           </button>
                         ))}
                         <button

@@ -1,3 +1,4 @@
+import { fetchPhoto } from './photo-access';
 // Helpers for the "Recreate a dish" flow — one photo of a plated dish in,
 // one AI-authored recipe out. Pure where possible (the provenance and
 // cover rules are unit-tested); the two image helpers wrap lib/images.
@@ -35,7 +36,7 @@ export async function dishPhotoUrlToFile(url: string): Promise<File | null> {
   try {
     const blob = trimmed.startsWith('data:')
       ? dataUrlToBlob(trimmed)
-      : await fetch(trimmed).then((r) => (r.ok ? r.blob() : null));
+      : await fetchPhoto(trimmed).then((r) => (r.ok ? r.blob() : null));
     if (!blob || blob.size === 0) return null;
     const type = blob.type || 'image/jpeg';
     if (!type.startsWith('image/')) return null;

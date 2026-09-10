@@ -1,3 +1,4 @@
+import { PhotoImage } from './PhotoImage';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'motion/react';
@@ -411,7 +412,7 @@ export const RecipeLinkPicker: React.FC<RecipeLinkPickerProps> = ({
               >
                 {it.coverPhoto && (
                   <div className="w-14 h-14 rounded-xl overflow-hidden flex-shrink-0 relative">
-                    <img
+                    <PhotoImage
                       src={it.coverPhoto}
                       alt=""
                       className="absolute inset-0 w-full h-full object-cover"

@@ -1,3 +1,4 @@
+import { mediaAccessVersion } from './media-access-scope';
 /**
  * Posts persistence layer — multi-item carousels with per-item attachments.
  *
@@ -184,6 +185,7 @@ export interface MediaTransform {
 export const PHOTO_DISPLAY_TRANSFORM: MediaTransform = { width: 1280, height: 1280, resize: 'contain', quality: 62 };
 
 async function signMediaPaths(paths: string[], transform?: MediaTransform): Promise<Record<string, string>> {
+  const generation = mediaAccessVersion();
   const out: Record<string, string> = {};
   if (!supabaseConfigured || paths.length === 0) return out;
   const unique = Array.from(new Set(paths.filter(Boolean)));
@@ -209,6 +211,7 @@ async function signMediaPaths(paths: string[], transform?: MediaTransform): Prom
           .createSignedUrl(p, SIGNED_URL_TTL_SECONDS, { transform });
         return error || !data?.signedUrl ? null : { path: p, url: data.signedUrl };
       }));
+      if (generation !== mediaAccessVersion()) return {};
       for (const s of signed) {
         if (!s) continue;
         out[s.path] = s.url;
@@ -220,6 +223,7 @@ async function signMediaPaths(paths: string[], transform?: MediaTransform): Prom
         console.warn('[Posts] createSignedUrls failed:', error.message);
         return out;
       }
+      if (generation !== mediaAccessVersion()) return {};
       for (const item of data || []) {
         const path = (item as { path?: string | null }).path;
         const url = (item as { signedUrl?: string }).signedUrl;

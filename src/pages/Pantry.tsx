@@ -1,3 +1,5 @@
+import { useTabActive } from '../components/RetainedTabLocation';
+import { PhotoImage } from '../components/PhotoImage';
 import { DeleteConfirmation as ConfirmDeleteDialog } from '../components/DeleteConfirmation';
 import { SwipeActionTray, useSwipeActions } from '../components/SwipeActions';
 import { CardActionMenu, useCardLongPress } from '../components/CardActionMenu';
@@ -526,7 +528,7 @@ const AddFromRatedSheet: React.FC<{
                   <button key={r.restaurantId} onClick={() => handleToggle(r)}
                     className={cn("w-full flex items-center gap-3 p-2.5 rounded-xl border transition-all text-left", isInList ? "bg-primary/5 border-primary/20" : "bg-white border-on-surface/8 hover:border-on-surface/15")}>
                     <div className="w-11 h-11 rounded-lg overflow-hidden flex-shrink-0 bg-on-surface/5">
-                      {r.image ? <img src={r.image} alt={r.name} className="w-full h-full object-cover" referrerPolicy="no-referrer" /> : <div className="w-full h-full flex items-center justify-center text-on-surface/20 font-serif font-bold text-sm">{r.name.charAt(0)}</div>}
+                      {r.image ? <PhotoImage src={r.image} alt={r.name} className="w-full h-full object-cover" referrerPolicy="no-referrer" /> : <div className="w-full h-full flex items-center justify-center text-on-surface/20 font-serif font-bold text-sm">{r.name.charAt(0)}</div>}
                     </div>
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-semibold truncate">{r.name}</p>
@@ -553,7 +555,7 @@ const AddFromRatedSheet: React.FC<{
                     className="bg-white rounded-2xl shadow-2xl border border-on-surface/8 mx-5 mb-8 sm:mb-0 w-full max-w-xs overflow-hidden">
                     <div className="p-5 text-center">
                       <div className="w-12 h-12 rounded-xl overflow-hidden mx-auto mb-3 bg-on-surface/5">
-                        {promptRating.image ? <img src={promptRating.image} className="w-full h-full object-cover" referrerPolicy="no-referrer" /> : <div className="w-full h-full flex items-center justify-center text-on-surface/20 font-serif font-bold">{promptRating.name.charAt(0)}</div>}
+                        {promptRating.image ? <PhotoImage src={promptRating.image} className="w-full h-full object-cover" referrerPolicy="no-referrer" /> : <div className="w-full h-full flex items-center justify-center text-on-surface/20 font-serif font-bold">{promptRating.name.charAt(0)}</div>}
                       </div>
                       <p className="font-serif font-bold text-sm mb-1">{promptRating.name}</p>
                       <p className="text-[11px] text-on-surface/40 mb-4">How would you like to add this?</p>
@@ -2813,7 +2815,7 @@ const AddToNightSheet: React.FC<{
                         return (
                           <div key={r.restaurantId} className="flex items-center gap-3 py-2.5">
                             {r.image ? (
-                              <img src={r.image} className="w-11 h-11 rounded-lg object-cover flex-shrink-0" referrerPolicy="no-referrer" />
+                              <PhotoImage src={r.image} className="w-11 h-11 rounded-lg object-cover flex-shrink-0" referrerPolicy="no-referrer" />
                             ) : (
                               <div className="w-11 h-11 rounded-lg bg-on-surface/[0.04] flex items-center justify-center flex-shrink-0 text-sm font-serif font-bold text-on-surface/20">{r.name.charAt(0)}</div>
                             )}
@@ -2888,7 +2890,7 @@ const AddToNightSheet: React.FC<{
                             className={cn("w-full flex items-center gap-3 py-2.5 text-left transition-all",
                               alreadyAdded ? "opacity-40" : "hover:bg-on-surface/[0.02]")}>
                             {place.photoUrl ? (
-                              <img src={place.photoUrl} className="w-11 h-11 rounded-lg object-cover flex-shrink-0" referrerPolicy="no-referrer" />
+                              <PhotoImage src={place.photoUrl} className="w-11 h-11 rounded-lg object-cover flex-shrink-0" referrerPolicy="no-referrer" />
                             ) : (
                               <div className="w-11 h-11 rounded-lg bg-on-surface/[0.04] flex items-center justify-center flex-shrink-0 text-sm font-serif font-bold text-on-surface/20">{place.name.charAt(0)}</div>
                             )}
@@ -2995,7 +2997,7 @@ const TripsTab: React.FC<{
           {selectedTrip.coverImage ? (
             <div className="relative -mx-3 mb-5">
               <div className="relative aspect-[2.5/1] rounded-2xl overflow-hidden mx-3">
-                <img src={selectedTrip.coverImage} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                <PhotoImage src={selectedTrip.coverImage} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
                 <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-black/10 to-transparent" />
                 <button onClick={() => setSelectedTripId(null)}
                   className="absolute top-3 left-3 p-2 bg-black/25 backdrop-blur-sm rounded-full text-white/90 hover:bg-black/40 transition-colors">
@@ -3251,7 +3253,7 @@ const TripsTab: React.FC<{
                 className="w-full text-left rounded-2xl overflow-hidden shadow-sm border border-on-surface/5 hover:shadow-md transition-all bg-white">
                 <div className="relative aspect-[16/9]">
                   {trip.coverImage ? (
-                    <img src={trip.coverImage} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                    <PhotoImage src={trip.coverImage} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
                   ) : (
                     <div className="w-full h-full bg-gradient-to-br from-primary/10 to-secondary/10 flex items-center justify-center">
                       <Plane size={32} className="text-primary/20" />
@@ -3540,7 +3542,7 @@ const CreateTripSheet: React.FC<{
               <div className="mb-4">
                 <label className="text-xs font-bold uppercase tracking-wider text-on-surface/50 mb-1.5 block">Cover Image</label>
                 <div className="relative rounded-xl overflow-hidden aspect-[16/9]">
-                  <img src={coverImage} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                  <PhotoImage src={coverImage} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
                   <button onClick={() => setCoverImage('')}
                     className="absolute top-2 right-2 p-1.5 bg-black/40 rounded-full text-white hover:bg-black/60">
                     <X size={12} />
@@ -4149,7 +4151,7 @@ const HomeCookingTab: React.FC<{
           {selectedMeal.dishes.map((dish) => (
             <div key={dish.id} className="bg-white rounded-2xl border border-on-surface/8 overflow-hidden">
               {dish.photo && (
-                <img src={dish.photo} alt={dish.name} className="w-full aspect-[3/2] object-cover" />
+                <PhotoImage src={dish.photo} alt={dish.name} className="w-full aspect-[3/2] object-cover" />
               )}
               <div className="p-4">
                 <p className="font-serif font-bold text-base text-on-surface">{dish.name}</p>
@@ -4182,7 +4184,7 @@ const HomeCookingTab: React.FC<{
                 onClick={() => setLightboxPhotoIdx(lightboxIdx)}
                 className="aspect-square rounded-lg overflow-hidden hover:opacity-90 transition-opacity"
               >
-                <img src={photo.url} alt={photo.caption || `Photo ${i + 1}`} className="w-full h-full object-cover" />
+                <PhotoImage src={photo.url} alt={photo.caption || `Photo ${i + 1}`} className="w-full h-full object-cover" />
               </button>
             );
           })}
@@ -4231,7 +4233,7 @@ const HomeCookingTab: React.FC<{
 
           {coverUrl ? (
             <button onClick={() => setLightboxPhotoIdx(coverLightboxIdx)} className="block w-full text-left mt-2 mb-5">
-              <img src={coverUrl} alt={selectedMeal.name} className="w-full aspect-[4/3] object-cover" />
+              <PhotoImage src={coverUrl} alt={selectedMeal.name} className="w-full aspect-[4/3] object-cover" />
             </button>
           ) : (
             <div className="mt-2" />
@@ -4270,7 +4272,7 @@ const HomeCookingTab: React.FC<{
               className="hidden md:block relative rounded-2xl overflow-hidden border border-on-surface/8 group"
               aria-label="Open photo gallery"
             >
-              <img src={coverUrl} alt={selectedMeal.name} className="w-full h-full object-cover" />
+              <PhotoImage src={coverUrl} alt={selectedMeal.name} className="w-full h-full object-cover" />
               <div className="absolute inset-0 bg-black/0 group-hover:bg-black/15 transition-colors" />
             </button>
           )}
@@ -4770,7 +4772,7 @@ const RecipeThumb: React.FC<{ coverPhoto?: string; name: string; size: number }>
     style={{ width: size, height: size, borderRadius: 20, boxShadow: 'inset 0 0 0 1px rgba(0,0,0,0.06)' }}
   >
     {coverPhoto ? (
-      <img src={coverPhoto} alt={name} className="h-full w-full object-cover" referrerPolicy="no-referrer" />
+      <PhotoImage src={coverPhoto} alt={name} className="h-full w-full object-cover" referrerPolicy="no-referrer" />
     ) : (
       /* Neutral, not the old mint tile — a missing photo shouldn't be the
          loudest thing in the row. */
@@ -4980,7 +4982,7 @@ const RecipeGridCard: React.FC<RecipeCardData & {
         {/* Cover image / placeholder */}
         <div className="relative aspect-[4/3] overflow-hidden bg-emerald-50">
           {coverPhoto ? (
-            <img src={coverPhoto} alt={name} className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-[1.04]" referrerPolicy="no-referrer" />
+            <PhotoImage src={coverPhoto} alt={name} className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-[1.04]" referrerPolicy="no-referrer" />
           ) : (
             <div className="flex h-full w-full items-center justify-center">
               <ChefHat size={46} className="text-emerald-500" strokeWidth={1.5} />
@@ -5420,6 +5422,7 @@ const SwitcherRow: React.FC<{
 );
 
 export const Pantry: React.FC = () => {
+  const tabActive = useTabActive();
   const navigate = useNavigate();
   const goBack = usePageBack('/pantry');
   const location = useLocation();
@@ -5620,10 +5623,11 @@ export const Pantry: React.FC = () => {
   // Hide bottom nav when filter/city/cuisine sheets are open, or when we're
   // viewing a home meal detail page (it has its own back button / actions).
   useEffect(() => {
+    if (!tabActive) return;
     const anyOpen = filtersOpen || cityDropdownOpen || cuisineDropdownOpen || priceDropdownOpen || sortDropdownOpen || homeCookingSelectedMealId !== null;
     setHideBottomNav(anyOpen);
     return () => setHideBottomNav(false);
-  }, [filtersOpen, cityDropdownOpen, cuisineDropdownOpen, priceDropdownOpen, sortDropdownOpen, homeCookingSelectedMealId, setHideBottomNav]);
+  }, [tabActive, filtersOpen, cityDropdownOpen, cuisineDropdownOpen, priceDropdownOpen, sortDropdownOpen, homeCookingSelectedMealId, setHideBottomNav]);
 
   const {
     lists, createList,

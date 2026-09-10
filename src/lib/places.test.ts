@@ -218,3 +218,123 @@ describe('fetchLocationDataForPlace — a seeded row costs no Places call', () =
     expect(out.hours).toEqual(['Monday: Closed']);
   });
 });
+
+describe('search failure recovery', () => {
+  it('does not widen or memoize an HTTP error; the same query can recover immediately', async () => {
+    fetchMock.mockResolvedValueOnce({ ok: false, status: 429, json: async () => ({ error: {} }) })
+      .mockResolvedValue({ ok: true, json: async () => placesResponse(1, 'recovered') });
+    expect(await searchPlacesByText('recovery HTTP', 40.7, -74)).toEqual([]);
+    expect(googleCalls()).toHaveLength(1);
+    expect(await searchPlacesByText('recovery HTTP', 40.7, -74)).toHaveLength(1);
+    expect(googleCalls()).toHaveLength(2);
+  });
+
+  it('surfaces network failures to retry-aware callers without launching a broad query', async () => {
+    fetchMock.mockRejectedValue(new TypeError('Failed to fetch'));
+    await expect(searchPlacesByText('retry-aware query', 40.7, -74, undefined, false, undefined, undefined,
+      { throwOnError: true })).rejects.toThrow('Failed to fetch');
+    expect(googleCalls()).toHaveLength(1);
+  });
+
+  it('does not memoize malformed responses', async () => {
+    fetchMock.mockResolvedValueOnce({ ok: true, json: async () => ({ places: {} }) })
+      .mockResolvedValue({ ok: true, json: async () => placesResponse(1, 'valid') });
+    expect(await searchPlacesByText('malformed recovery', 40.7, -74)).toEqual([]);
+    expect(await searchPlacesByText('malformed recovery', 40.7, -74)).toHaveLength(1);
+    expect(googleCalls()).toHaveLength(2);
+  });
+
+  it('does not reuse a shallow typeahead memo for a recommendation needing depth', async () => {
+    fetchMock.mockResolvedValue({ ok: true, json: async () => placesResponse(1, 'depth') });
+    await searchPlacesByText('different depth', 40.7, -74);
+    await searchPlacesByText('different depth', 40.7, -74, undefined, false, undefined, undefined,
+      { minExactResults: TEXT_EXACT_SUFFICIENT_POOL });
+    expect(googleCalls()).toHaveLength(3);
+  });
+
+  it('rejects complete nearby outages after the first wave instead of returning an empty pool', async () => {
+    fetchMock.mockRejectedValue(new TypeError('Failed to fetch'));
+    await expect(searchNearbyRestaurants(40.7, -74, 20000)).rejects.toThrow('Failed to fetch');
+    expect(googleCalls()).toHaveLength(3);
+  });
+
+  it('retains successful nearby sources during partial failure without expanding the search', async () => {
+    fetchMock.mockRejectedValueOnce(new TypeError('Failed to fetch'))
+      .mockResolvedValue({ ok: true, json: async () => placesResponse(4, 'partial') });
+    expect(await searchNearbyRestaurants(40.7, -74, 20000)).toHaveLength(4);
+    expect(googleCalls()).toHaveLength(3);
+  });
+
+  it('retains the first wave when all supplemental queries fail', async () => {
+    fetchMock.mockResolvedValueOnce({ ok: true, json: async () => placesResponse(4, 'first') })
+      .mockResolvedValueOnce({ ok: true, json: async () => placesResponse(4, 'first') })
+      .mockResolvedValueOnce({ ok: true, json: async () => placesResponse(4, 'first') })
+      .mockRejectedValue(new TypeError('Failed to fetch'));
+    expect(await searchNearbyRestaurants(40.7, -74, 20000)).toHaveLength(4);
+    expect(googleCalls()).toHaveLength(6);
+  });
+
+  it('does not let an unused nearby supplement mask a filtered-search failure', async () => {
+    fetchMock.mockRejectedValue(new TypeError('Failed to fetch'));
+    await expect(searchNearbyRestaurants(40.7, -74, 20000, ['italian_restaurant'])).rejects.toThrow();
+    expect(googleCalls()).toHaveLength(1);
+  });
+
+  it('does not start requests for an already cancelled search', async () => {
+    const controller = new AbortController();
+    controller.abort();
+    await expect(searchNearbyRestaurants(40.7, -74, 20000, [], 0, undefined, controller.signal)).rejects.toMatchObject({ name: 'AbortError' });
+    expect(await searchPlacesByText('already cancelled', 40.7, -74, undefined, false, undefined, controller.signal)).toEqual([]);
+    expect(googleCalls()).toHaveLength(0);
+  });
+
+  it('cancels the complete wave and never launches extra requests after supersession', async () => {
+    fetchMock.mockImplementation((_url, init) => new Promise((_resolve, reject) => {
+      init.signal.addEventListener('abort', () => reject(init.signal.reason), { once: true });
+    }));
+    const controller = new AbortController();
+    const result = searchNearbyRestaurants(40.7, -74, 20000, [], 0, undefined, controller.signal);
+    const assertion = expect(result).rejects.toMatchObject({ name: 'AbortError' });
+    controller.abort();
+    await assertion;
+    expect(googleCalls()).toHaveLength(3);
+  });
+
+  it('times out stalled response bodies and allows an immediate retry', async () => {
+    vi.useFakeTimers();
+    try {
+      fetchMock.mockImplementationOnce((_url, init) => Promise.resolve({ ok: true,
+        json: () => new Promise((_resolve, reject) => {
+          init.signal.addEventListener('abort', () => reject(init.signal.reason), { once: true });
+        }),
+      })).mockResolvedValue({ ok: true, json: async () => placesResponse(1, 'timeout-recovery') });
+      const result = searchPlacesByText('body timeout', 40.7, -74, undefined, false, undefined, undefined, { throwOnError: true });
+      const assertion = expect(result).rejects.toMatchObject({ name: 'TimeoutError' });
+      await vi.advanceTimersByTimeAsync(12000);
+      await assertion;
+      expect(await searchPlacesByText('body timeout', 40.7, -74)).toHaveLength(1);
+      expect(googleCalls()).toHaveLength(2);
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+it('does not treat a successful empty source plus failed sources as proof of no restaurants', async () => {
+  fetchMock.mockResolvedValueOnce({ ok: true, json: async () => ({ places: [] }) })
+    .mockRejectedValue(new TypeError('Failed to fetch'));
+  await expect(searchNearbyRestaurants(40.7, -74, 20000)).rejects.toThrow('Failed to fetch');
+  expect(googleCalls()).toHaveLength(3);
+});
+
+it('keeps exact results when only the depth supplement fails, and retries that incomplete pool', async () => {
+  const exact = { ok: true, json: async () => placesResponse(2, 'exact-survives') };
+  fetchMock.mockResolvedValueOnce(exact).mockRejectedValueOnce(new TypeError('Failed to fetch'))
+    .mockResolvedValueOnce(exact).mockResolvedValueOnce({ ok: true, json: async () => placesResponse(5, 'broad-recovers') });
+  const search = () => searchPlacesByText('depth partial failure', 40.7, -74, undefined, false, undefined, undefined,
+    { minExactResults: TEXT_EXACT_SUFFICIENT_POOL });
+  expect(await search()).toHaveLength(2);
+  expect(await search()).toHaveLength(7);
+  expect(googleCalls()).toHaveLength(4);
+});

@@ -73,6 +73,13 @@ verify_jwt = false
 [functions.group-place-summary]
 verify_jwt = false
 
+# Retired legacy provider endpoints; defense in depth in addition to 410 handlers.
+[functions.determine-cuisine]
+verify_jwt = true
+
+[functions.perplexity-restaurant-info]
+verify_jwt = true
+
 # A private scheduler secret is checked in the handler; no user JWT can send pushes.
 [functions.push-dispatch]
 verify_jwt = false

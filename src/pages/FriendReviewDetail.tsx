@@ -1,3 +1,6 @@
+import { PageSkeleton } from '../components/PageSkeleton';
+import { MotionPhotoImage } from '../components/MotionPhotoImage';
+import { PhotoImage } from '../components/PhotoImage';
 import { usePageBack } from '../lib/usePageBack';
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useNavigate, useLocation, Link } from 'react-router-dom';
@@ -208,11 +211,7 @@ export const FriendReviewDetail: React.FC = () => {
   };
 
   if (loading) {
-    return (
-      <div className="min-h-screen bg-surface flex items-center justify-center">
-        <Loader2 size={24} className="text-primary animate-spin" />
-      </div>
-    );
+    return <PageSkeleton variant="detail" />;
   }
 
   if (!rating) {
@@ -284,7 +283,7 @@ export const FriendReviewDetail: React.FC = () => {
                 aria-label={hasPhotos ? 'Open photo' : undefined}
                 className="relative block w-full h-[260px] sm:h-[320px] lg:h-[360px] bg-on-surface/[0.04] group"
               >
-                <img
+                <PhotoImage
                   src={heroSrc || ''}
                   alt={rating.restaurant_name}
                   className="absolute inset-0 w-full h-full object-cover"
@@ -317,7 +316,7 @@ export const FriendReviewDetail: React.FC = () => {
                               : 'opacity-60 hover:opacity-100',
                           )}
                         >
-                          <img src={p.url} alt="" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                          <PhotoImage src={p.url} alt="" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
                         </button>
                       ))}
                     </div>
@@ -591,7 +590,7 @@ export const FriendReviewDetail: React.FC = () => {
             )}
             {/* Swipe between photos on touch — same gesture as the
                 restaurant photo gallery. */}
-            <motion.img
+            <MotionPhotoImage
               key={lightbox}
               src={userPhotos[lightbox].url}
               alt={userPhotos[lightbox].caption || ''}

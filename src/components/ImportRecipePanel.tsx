@@ -1,3 +1,4 @@
+import { PhotoImage } from './PhotoImage';
 // "Import" flow of the Add Recipe modal — bring a recipe in from
 // somewhere else: a web link, photos (cookbook page / screenshot /
 // handwritten card), or pasted text. The import-recipe Edge Function
@@ -266,7 +267,7 @@ export const ImportRecipePanel: React.FC<ImportRecipePanelProps> = ({
                   <div className="rcx-import-thumbs">
                     {photos.map((p, i) => (
                       <div key={i} className="rcx-import-thumb">
-                        <img src={p} alt={`Recipe photo ${i + 1}`} />
+                        <PhotoImage src={p} alt={`Recipe photo ${i + 1}`} />
                         <button
                           type="button"
                           onClick={() => setPhotos((prev) => prev.filter((_, j) => j !== i))}

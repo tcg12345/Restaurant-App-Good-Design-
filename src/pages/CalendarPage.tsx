@@ -1,3 +1,4 @@
+import { PageSkeleton } from '../components/PageSkeleton';
 import React, { useEffect, useId, useMemo, useState } from 'react';
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
 import { useLocation, useNavigate } from 'react-router-dom';
@@ -129,7 +130,7 @@ export function CalendarPage() {
           <button className={cn('meal-icon-button', showCancelled && 'active')} aria-label="Plan options" aria-expanded={optionsOpen} onClick={() => setOptionsOpen(!optionsOpen)}><SlidersHorizontal size={16} /></button></div>
         {optionsOpen && <label className="meal-cancel-filter"><span>Show cancelled plans</span><input type="checkbox" checked={showCancelled} onChange={e => setShowCancelled(e.target.checked)} /></label>}
         <div className="meal-agenda-list" aria-live="polite">
-          {loading && !plans.length ? <div className="meal-loading" role="status"><span />Loading plans…</div> : <AnimatePresence mode="wait" initial={false}><motion.div key={view === 'agenda' ? `list-${monthPrefix}` : selected} initial={{ opacity: 0, y: reduced ? 0 : 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: reduced ? 0 : -5 }} transition={{ duration: reduced ? 0 : .16 }}>
+          {loading && !plans.length ? <PageSkeleton compact /> : <AnimatePresence mode="wait" initial={false}><motion.div key={view === 'agenda' ? `list-${monthPrefix}` : selected} initial={{ opacity: 0, y: reduced ? 0 : 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: reduced ? 0 : -5 }} transition={{ duration: reduced ? 0 : .16 }}>
             {view === 'agenda' ? (grouped.length ? grouped.map(key => <div className="meal-list-day" key={key}><button onClick={() => selectDay(key)}>{new Date(`${key}T12:00:00`).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })}<ChevronRight size={14} /></button>{(plansByDay.get(key) ?? []).map(planCard)}</div>) : emptyState(true)) : selectedPlans.length ? selectedPlans.map(planCard) : emptyState()}
           </motion.div></AnimatePresence>}
         </div>

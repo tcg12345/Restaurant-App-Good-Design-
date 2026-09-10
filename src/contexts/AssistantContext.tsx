@@ -155,12 +155,13 @@ export function useAssistantContext(): AssistantContextValue {
  *  unmount so the global assistant falls back to defaults when the
  *  user navigates away. Callers are expected to memoize `ctx` so the
  *  effect doesn't re-fire on every render. */
-export function useSetAssistantPageContext(ctx: AssistantPageContext | null): void {
+export function useSetAssistantPageContext(ctx: AssistantPageContext | null, active = true): void {
   const { setPageContext } = useAssistantContext();
   useEffect(() => {
+    if (!active) return;
     setPageContext(ctx);
     return () => setPageContext(null);
-  }, [setPageContext, ctx]);
+  }, [setPageContext, ctx, active]);
 }
 
 /** Publish helper for callers that want imperative control without

@@ -1,3 +1,4 @@
+import { PhotoImage } from './PhotoImage';
 /**
  * Cover card for one top list.
  *
@@ -54,7 +55,7 @@ export const TopListCard: React.FC<{
           where it reads as the row it is. */}
       <div className="relative h-[112px] rounded-[22px] overflow-hidden bg-on-surface/[0.06]">
         {cover ? (
-          <img src={cover} alt="" className="absolute inset-0 h-full w-full object-cover" referrerPolicy="no-referrer" />
+          <PhotoImage src={cover} alt="" className="absolute inset-0 h-full w-full object-cover" referrerPolicy="no-referrer" />
         ) : (
           <div className={cn('absolute inset-0 bg-gradient-to-br', tintFor(list.key))} />
         )}

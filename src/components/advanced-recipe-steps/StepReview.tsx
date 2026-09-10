@@ -1,3 +1,4 @@
+import { PhotoImage } from '../PhotoImage';
 // Step 5 — "Review & publish".
 //   - Dark preview card: cover photo (when set), kicker line
 //     (cuisine · difficulty · total time), serif name, meta counts.
@@ -84,7 +85,7 @@ export const StepReview: React.FC<Props> = ({ state, dispatch, draftKind }) => {
         <div className="rcx-kicker">Preview</div>
         <div className="rcx-preview">
           {state.coverPhoto && (
-            <img className="rcx-preview-img" src={state.coverPhoto} alt="" referrerPolicy="no-referrer" />
+            <PhotoImage className="rcx-preview-img" src={state.coverPhoto} alt="" referrerPolicy="no-referrer" />
           )}
           <div className="rcx-preview-body">
             <div className="rcx-preview-kicker">{kicker}</div>

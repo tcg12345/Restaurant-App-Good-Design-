@@ -1,3 +1,4 @@
+import { PhotoImage } from '../PhotoImage';
 /** Profile pins: a compact live preview above a searchable content picker. */
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { motion, AnimatePresence, Reorder, useReducedMotion } from 'motion/react';
@@ -32,7 +33,7 @@ const Thumb: React.FC<{ candidate: PinCandidate }> = ({ candidate }) => {
   useEffect(() => setFailed(false), [candidate.image]);
   const Icon = ICONS[candidate.pin.type];
   return <span className="pins-editor-thumb" aria-hidden="true">
-    {candidate.image && !failed ? <img src={candidate.image} alt="" loading="lazy" draggable={false} referrerPolicy="no-referrer" onError={() => setFailed(true)} /> : <Icon size={21} strokeWidth={1.6} />}
+    {candidate.image && !failed ? <PhotoImage src={candidate.image} alt="" loading="lazy" draggable={false} referrerPolicy="no-referrer" onError={() => setFailed(true)} /> : <Icon size={21} strokeWidth={1.6} />}
   </span>;
 };
 

@@ -318,11 +318,41 @@ function sortByQuality(places: PlaceResult[]): PlaceResult[] {
   return [...places].sort((a, b) => qualityRank(b) - qualityRank(a));
 }
 
-// True for the DOMException fetch throws when its AbortSignal fires.
-// Aborted requests are expected (a newer search superseded this one), so
-// callers return quietly instead of logging them as failures.
-function isAbortError(err: unknown): boolean {
-  return err instanceof DOMException && err.name === 'AbortError';
+// Search failures must stay distinct from a valid empty response. Keep the
+// deadline active while reading the body too (not just until headers arrive).
+async function searchResponse(endpoint: string, init: RequestInit): Promise<{ places?: GooglePlace[] }> {
+  const controller = new AbortController();
+  const cancel = () => controller.abort(init.signal?.reason);
+  if (init.signal?.aborted) cancel();
+  else init.signal?.addEventListener('abort', cancel, { once: true });
+  const timer = setTimeout(() => controller.abort(new DOMException('Places search timed out', 'TimeoutError')), 12000);
+  try {
+    controller.signal.throwIfAborted();
+    const response = await fetch(`${BASE_URL}/${endpoint}`, { ...init, signal: controller.signal });
+    if (!response.ok) throw new Error(`Places search unavailable (${response.status})`);
+    const data = await response.json();
+    controller.signal.throwIfAborted();
+    if (!data || typeof data !== 'object' || data.error ||
+        (data.places !== undefined && !Array.isArray(data.places))) {
+      throw new Error('Invalid Places search response');
+    }
+    return data;
+  } finally {
+    clearTimeout(timer);
+    init.signal?.removeEventListener('abort', cancel);
+  }
+}
+
+// Preserve successful sources during a partial outage, but never turn a
+// complete failure into an empty pool or launch additional billed searches.
+async function searchWave(requests: Promise<PlaceResult[]>[], signal?: AbortSignal) {
+  const results = await Promise.allSettled(requests);
+  signal?.throwIfAborted();
+  const successes = results.filter((r): r is PromiseFulfilledResult<PlaceResult[]> => r.status === 'fulfilled');
+  const places = successes.flatMap((r) => r.value);
+  const failure = results.find((r): r is PromiseRejectedResult => r.status === 'rejected');
+  if (failure && places.length === 0) throw failure.reason;
+  return { places, complete: !failure };
 }
 
 // Single nearby request — wraps the boilerplate Google v1 invocation.
@@ -334,37 +364,27 @@ async function nearbyRequest(
   includedTypes: string[] = ['restaurant'],
   signal?: AbortSignal,
 ): Promise<PlaceResult[]> {
-  try {
-    const res = await fetch(`${BASE_URL}/places:searchNearby`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Goog-Api-Key': GOOGLE_PLACES_KEY,
-        'X-Goog-FieldMask': FIELDS,
-      },
-      body: JSON.stringify({
-        includedTypes,
-        maxResultCount: 20,
-        rankPreference: rank,
-        locationRestriction: {
-          circle: {
-            center: { latitude: lat, longitude: lng },
-            radius,
-          },
+  const data = await searchResponse('places:searchNearby', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Goog-Api-Key': GOOGLE_PLACES_KEY,
+      'X-Goog-FieldMask': FIELDS,
+    },
+    body: JSON.stringify({
+      includedTypes,
+      maxResultCount: 20,
+      rankPreference: rank,
+      locationRestriction: {
+        circle: {
+          center: { latitude: lat, longitude: lng },
+          radius,
         },
-      }),
-      signal,
-    });
-    if (!res.ok) {
-      console.error('[Places] searchNearby error:', res.status, await res.text().catch(() => ''));
-      return [];
-    }
-    const data = await res.json();
-    return mapPlaces(data.places || []);
-  } catch (err) {
-    if (!isAbortError(err)) console.error('[Places] searchNearby exception:', err);
-    return [];
-  }
+      },
+    }),
+    signal,
+  });
+  return mapPlaces(data.places || []);
 }
 
 // Single text request — same idea but for places:searchText.
@@ -387,27 +407,17 @@ async function textRequest(
     ...locationParam,
   };
   if (priceLevels && priceLevels.length > 0) body.priceLevels = priceLevels;
-  try {
-    const res = await fetch(`${BASE_URL}/places:searchText`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Goog-Api-Key': GOOGLE_PLACES_KEY,
-        'X-Goog-FieldMask': FIELDS,
-      },
-      body: JSON.stringify(body),
-      signal,
-    });
-    if (!res.ok) {
-      console.error('[Places] searchText error:', res.status, await res.text().catch(() => ''));
-      return [];
-    }
-    const data = await res.json();
-    return mapPlaces(data.places || []);
-  } catch (err) {
-    if (!isAbortError(err)) console.error('[Places] searchText exception:', err);
-    return [];
-  }
+  const data = await searchResponse('places:searchText', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Goog-Api-Key': GOOGLE_PLACES_KEY,
+      'X-Goog-FieldMask': FIELDS,
+    },
+    body: JSON.stringify(body),
+    signal,
+  });
+  return mapPlaces(data.places || []);
 }
 
 export async function searchNearbyRestaurants(
@@ -419,6 +429,7 @@ export async function searchNearbyRestaurants(
   locationName?: string,
   signal?: AbortSignal,
 ): Promise<PlaceResult[]> {
+  signal?.throwIfAborted();
   const hasLocation = !!locationName && locationName !== 'Current Location';
   const hasFilters = priceLevel > 0 || cuisineTypes.length > 0;
   const isPrecise = radiusMeters <= PRECISE_RADIUS_M;
@@ -436,13 +447,13 @@ export async function searchNearbyRestaurants(
     // gaps from the type filter and catch food places that nearby's
     // includedTypes might miss (some restaurants only carry their cuisine
     // type, e.g. 'french_restaurant' without 'restaurant').
-    const [byDistance, byPopularity, byText] = await Promise.all([
+    const wave = await searchWave([
       nearbyRequest(lat, lng, radiusMeters, 'DISTANCE', undefined, signal),
       nearbyRequest(lat, lng, radiusMeters, 'POPULARITY', undefined, signal),
       textRequest('restaurants', lat, lng, radiusMeters, hasLocation, undefined, signal),
-    ]);
+    ], signal);
 
-    const all = [...byDistance, ...byPopularity, ...byText];
+    const all = wave.places;
     const deduped = deduplicatePlaces(all).filter((p) => isFoodPlace(p.types) && !isVenuePlace(p));
     return sortByDistance(lat, lng, deduped).slice(0, cap);
   }
@@ -458,23 +469,27 @@ export async function searchNearbyRestaurants(
   // extra angles genuinely find places the first pass missed. Result
   // quality is unchanged: whenever wave one couldn't fill the cap, wave two
   // runs and the pool is exactly what it was before.
-  const [byPopularity, byDistance, firstText] = await Promise.all([
+  const wave = await searchWave([
     nearbyRequest(lat, lng, radiusMeters, 'POPULARITY', undefined, signal),
     nearbyRequest(lat, lng, radiusMeters, 'DISTANCE', undefined, signal),
     textRequest('restaurants', lat, lng, radiusMeters, hasLocation, undefined, signal),
-  ]);
+  ], signal);
 
   const foodOnly = (list: PlaceResult[]) =>
     deduplicatePlaces(list).filter((p) => isFoodPlace(p.types) && !isVenuePlace(p));
 
-  let deduped = foodOnly([...byPopularity, ...byDistance, ...firstText]);
+  let deduped = foodOnly(wave.places);
 
-  if (deduped.length < cap) {
+  if (wave.complete && deduped.length < cap) {
     const extraQueries = ['best restaurants', 'top rated restaurants', 'popular restaurants'];
-    const extra = await Promise.all(
-      extraQueries.map((q) => textRequest(q, lat, lng, radiusMeters, hasLocation, undefined, signal)),
-    );
-    deduped = foodOnly([...byPopularity, ...byDistance, ...firstText, ...extra.flat()]);
+    const extra = await searchWave(
+      extraQueries.map((q) => textRequest(q, lat, lng, radiusMeters, hasLocation, undefined, signal)), signal,
+    ).catch((error) => {
+      signal?.throwIfAborted();
+      if (!deduped.length) throw error;
+      return { places: [] as PlaceResult[], complete: false };
+    });
+    deduped = foodOnly([...wave.places, ...extra.places]);
   }
 
   return sortByQuality(deduped).slice(0, cap);
@@ -517,16 +532,11 @@ async function searchWithFilters(
   // Distance-ranked nearby supplement so a precise search returns the
   // physically nearest matches even if Google's text relevance disagrees.
   // No-op for broad searches.
-  const distancePromise = isPrecise
-    ? nearbyRequest(lat, lng, radiusMeters, 'DISTANCE', undefined, signal)
-    : Promise.resolve([] as PlaceResult[]);
-
-  const [textResults, byDistance] = await Promise.all([
-    Promise.all(textPromises),
-    distancePromise,
-  ]);
-
-  const all = [...textResults.flat(), ...byDistance];
+  const requests = isPrecise
+    ? [...textPromises, nearbyRequest(lat, lng, radiusMeters, 'DISTANCE', undefined, signal)]
+    : textPromises;
+  const wave = await searchWave(requests, signal);
+  const all = wave.places;
   let deduped = deduplicatePlaces(all).filter((p) => isFoodPlace(p.types) && !isVenuePlace(p));
   // Distance-ranked nearby doesn't honour price/cuisine filters server-side,
   // so trim its contributions client-side. Price level on PlaceResult is
@@ -720,6 +730,8 @@ export async function searchPlacesByText(
      *  this many food places. Defaults to 1 — see
      *  TEXT_EXACT_SUFFICIENT_DEFAULT. */
     minExactResults?: number;
+    /** Surface failures to pages with an explicit retry state. */
+    throwOnError?: boolean;
   },
 ): Promise<PlaceResult[]> {
   // A one-character query is never a real lookup — it's a typeahead that
@@ -770,14 +782,19 @@ export async function searchPlacesByText(
 
   // Memo hit — a typeahead backspacing to a prefix it already searched, or
   // two surfaces asking the same question, must not be billed twice.
-  const memoKey = textMemoKey(query, lat, lng, radiusMeters, shouldRestrict);
+  const sufficient = opts?.minExactResults ?? TEXT_EXACT_SUFFICIENT_DEFAULT;
+  const memoKey = `${textMemoKey(query, lat, lng, radiusMeters, shouldRestrict)}|${sufficient}`;
+  if (signal?.aborted) {
+    if (opts?.throwOnError) signal.throwIfAborted();
+    return [];
+  }
   const memoed = readTextMemo(memoKey);
   if (memoed) return memoed;
 
   const runQuery = (b: Record<string, unknown>) =>
-    fetch(`${BASE_URL}/places:searchText`, {
+    searchResponse('places:searchText', {
       method: 'POST', headers, body: JSON.stringify(b), signal,
-    }).then((r) => r.json()).catch(() => ({ places: [] }));
+    });
 
   // The exact query runs first and alone.
   //
@@ -788,24 +805,37 @@ export async function searchPlacesByText(
   // the suffixed variant is a hedge for when the raw one comes back thin.
   // So it's now a fallback rather than a duplicate: one billed request in
   // the common case, two only when the first genuinely underdelivers.
-  const exactRes = await runQuery(exactBody);
-  const exactPlaces = mapPlaces(exactRes.places || []);
-  const foodExact = exactPlaces.filter((p) => isFoodPlace(p.types) && !isVenuePlace(p));
+  try {
+    const exactRes = await runQuery(exactBody);
+    const exactPlaces = mapPlaces(exactRes.places || []);
+    const foodExact = exactPlaces.filter((p) => isFoodPlace(p.types) && !isVenuePlace(p));
 
-  const sufficient = opts?.minExactResults ?? TEXT_EXACT_SUFFICIENT_DEFAULT;
-  if (foodExact.length >= sufficient) {
-    const merged = deduplicatePlaces(foodExact);
+    if (foodExact.length >= sufficient) {
+      const merged = deduplicatePlaces(foodExact);
+      writeTextMemo(memoKey, merged);
+      return merged;
+    }
+
+    const broadRes = await runQuery(body).catch((error) => {
+      signal?.throwIfAborted();
+      if (!foodExact.length) throw error;
+      return null;
+    });
+    // A successful exact lookup remains useful if only the supplement fails;
+    // do not memoize it as a complete response for this requested depth.
+    if (!broadRes) return deduplicatePlaces(foodExact);
+    const broadPlaces = mapPlaces(broadRes.places || []);
+
+    // Merge: exact name matches first (higher relevance), then broad results
+    const merged = deduplicatePlaces([...foodExact, ...broadPlaces]);
     writeTextMemo(memoKey, merged);
     return merged;
+  } catch (error) {
+    // Legacy pickers still expect an array, but failures are never memoized
+    // and do not fan out into the broad query. Retry may immediately recover.
+    if (opts?.throwOnError) throw error;
+    return [];
   }
-
-  const broadRes = await runQuery(body);
-  const broadPlaces = mapPlaces(broadRes.places || []);
-
-  // Merge: exact name matches first (higher relevance), then broad results
-  const merged = deduplicatePlaces([...foodExact, ...broadPlaces]);
-  writeTextMemo(memoKey, merged);
-  return merged;
 }
 
 /* ── Paginating text search (for /location's infinite scroll) ────────────── */

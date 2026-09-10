@@ -1,3 +1,4 @@
+import { PhotoImage } from '../PhotoImage';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { motion, useReducedMotion } from 'motion/react';
 import { ArrowUpRight, Check, ChevronRight, Coffee, Compass, MapPin, Sparkles, Star, Utensils } from 'lucide-react';
@@ -29,7 +30,7 @@ const COPY: Record<TasteQuestion, { title: string; sub: string; section: string 
 const WelcomeVisual = () => {
   const reduce = useReducedMotion();
   return <div className="ob-welcome-visual">
-  <motion.div className="ob-food-frame" initial={reduce ? false : { opacity: 0, scale: .97 }} animate={{ opacity: 1, scale: 1 }} transition={{ duration: .65, ease: OB.EASE }}><img src="/images/onboarding/contemporary-dining.jpg" alt="A bright contemporary restaurant with sushi, salad and pasta served at a shared table" />
+  <motion.div className="ob-food-frame" initial={reduce ? false : { opacity: 0, scale: .97 }} animate={{ opacity: 1, scale: 1 }} transition={{ duration: .65, ease: OB.EASE }}><PhotoImage src="/images/onboarding/contemporary-dining.jpg" alt="A bright contemporary restaurant with sushi, salad and pasta served at a shared table" />
   </motion.div>
   <motion.div className="ob-floating-note" initial={reduce ? false : { opacity: 0, y: 14, rotate: -5 }} animate={{ opacity: 1, y: 0, rotate: -3 }} transition={{ ...OB.SPRING_SOFT, delay: reduce ? 0 : .15 }}><span className="ob-note-icon"><Compass size={20} strokeWidth={1.5} /></span><span><strong>Find your next favorite table</strong><small>Discover, save, and dine out.</small></span><ArrowUpRight size={18} /></motion.div>
   <div className="ob-visual-caption"><span /><span>Discover. Save. Make it yours.</span></div>

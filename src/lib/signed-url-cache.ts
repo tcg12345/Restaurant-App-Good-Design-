@@ -1,3 +1,4 @@
+import { onMediaAccessChange, resetMediaAccess } from './media-access-scope';
 /**
  * Persistent cache for Supabase Storage signed URLs.
  *
@@ -79,11 +80,12 @@ export function putCachedSignedUrl(bucket: string, path: string, url: string, tt
  *  copy. Called on sign-out / account switch: these URLs point into PRIVATE
  *  reel/post buckets and stay valid for their full TTL, so they must not
  *  survive a change of identity on the device. */
-export function clearSignedUrlCache(): void {
+onMediaAccessChange(() => {
   MEM.clear();
   hydrated = false; // let a later session re-hydrate from a fresh write
   try { localStorage.removeItem(LS_KEY); } catch { /* storage unavailable */ }
-}
+});
+export function clearSignedUrlCache(): void { resetMediaAccess(); }
 
 /** The localStorage key backing this cache, so clearLocalAppData can list it
  *  among the keys it purges. */

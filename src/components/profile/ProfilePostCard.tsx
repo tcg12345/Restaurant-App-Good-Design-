@@ -1,3 +1,4 @@
+import { PhotoImage } from '../PhotoImage';
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Camera, Heart, MessageCircle, Layers } from 'lucide-react';
@@ -42,7 +43,7 @@ export const ProfilePostCard: React.FC<{ post: Post }> = ({ post }) => {
         {cover?.mediaType === 'video' && cover.mediaUrl ? (
           <video src={cover.mediaUrl} muted playsInline preload="metadata" className="absolute inset-0 w-full h-full object-cover" />
         ) : cover?.mediaUrl ? (
-          <img src={cover.mediaUrl} alt="" referrerPolicy="no-referrer" className="absolute inset-0 w-full h-full object-cover" />
+          <PhotoImage src={cover.mediaUrl} alt="" referrerPolicy="no-referrer" className="absolute inset-0 w-full h-full object-cover" />
         ) : (
           <div className={cn('absolute inset-0 bg-gradient-to-br', cover?.bgGradient || 'from-stone-700 to-stone-900')} />
         )}

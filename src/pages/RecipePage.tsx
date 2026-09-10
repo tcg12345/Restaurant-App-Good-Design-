@@ -1,3 +1,5 @@
+import { PageSkeleton } from '../components/PageSkeleton';
+import { PhotoImage } from '../components/PhotoImage';
 /**
  * RecipePage — editorial recipe detail.
  *
@@ -247,7 +249,7 @@ const LinkedRecipeCards: React.FC<{ refs: LinkedRecipeRef[] }> = ({ refs }) => {
             <Link key={r.id} to={`/recipe/${r.ownerId}/${r.id}`} className="rd-linked-card">
               {r.coverPhoto && (
                 <span className="rd-linked-thumb">
-                  <img
+                  <PhotoImage
                     src={r.coverPhoto}
                     alt=""
                     loading="lazy"
@@ -644,7 +646,7 @@ const CookPhotosModal: React.FC<{ open: boolean; recipeId: string; onClose: () =
           <div className="rd-cookphotos-grid">
             {photos.map((p, i) => (
               <div key={i} className="rd-cookphoto">
-                <img src={p.url} alt="" loading="lazy" />
+                <PhotoImage src={p.url} alt="" loading="lazy" />
                 <button type="button" className="rd-cookphoto-del" onClick={() => onRemove(i)} aria-label="Remove photo">
                   <Trash2 size={14} />
                 </button>
@@ -697,7 +699,7 @@ const HeroGallery: React.FC<{ photos: string[]; alt: string; onEditPhotos?: () =
   return (
     <>
       {photos.length > 0 ? (
-        <img src={photos[safe]} alt={alt} referrerPolicy="no-referrer" />
+        <PhotoImage src={photos[safe]} alt={alt} referrerPolicy="no-referrer" />
       ) : (
         <div className="ph-fallback"><ChefHat /></div>
       )}
@@ -1383,13 +1385,7 @@ export const RecipePage: React.FC = () => {
 
   // ── Render guards ──
   if (loading) {
-    return (
-      <div className="recipe-detail-page">
-        <div className="rd-state">
-          <Loader2 size={32} className="animate-spin icon" />
-        </div>
-      </div>
-    );
+    return <PageSkeleton variant="detail" />;
   }
   if (notFound || !data) {
     return (
@@ -2129,7 +2125,7 @@ export const RecipePage: React.FC = () => {
                 >
                   <div className="rd-related-img" style={{ background: `linear-gradient(135deg, hsl(${rHue} 50% 52%), hsl(${(rHue + 25) % 360} 50% 42%))` }}>
                     {rCover ? (
-                      <img src={rCover} alt={r.title} loading="lazy" referrerPolicy="no-referrer" />
+                      <PhotoImage src={rCover} alt={r.title} loading="lazy" referrerPolicy="no-referrer" />
                     ) : (
                       <div className="ph-fallback"><ChefHat /></div>
                     )}
@@ -3242,7 +3238,7 @@ const MobileRecipeView: React.FC<MobileViewProps> = ({
                 >
                   <div className="rdm-related-img" style={{ background: `linear-gradient(135deg, hsl(${rHue} 50% 52%), hsl(${(rHue + 25) % 360} 50% 42%))` }}>
                     {rCover ? (
-                      <img src={rCover} alt={r.title} loading="lazy" referrerPolicy="no-referrer" />
+                      <PhotoImage src={rCover} alt={r.title} loading="lazy" referrerPolicy="no-referrer" />
                     ) : (
                       <div className="ph-fallback"><ChefHat /></div>
                     )}

@@ -1,3 +1,4 @@
+import { PhotoImage } from './PhotoImage';
 // The photo picker for "Recreate a dish" — one sheet, four ways to a
 // photo of a plate:
 //
@@ -254,7 +255,7 @@ export const PhotoSourceSheet: React.FC<Props> = ({ open, onClose, onPick }) => 
   /* ── Tiles ── */
   const Tile: React.FC<{ src: string; caption?: string; tag?: string; onClick: () => void }> = ({ src, caption, tag, onClick }) => (
     <button type="button" onClick={onClick} disabled={busy} className="dish-photo-tile relative aspect-square rounded-2xl overflow-hidden bg-on-surface/[0.05] active:opacity-85 transition-opacity">
-      <img src={src} alt={caption || 'Dish photo'} className="w-full h-full object-cover" loading="lazy" referrerPolicy="no-referrer" />
+      <PhotoImage src={src} alt={caption || 'Dish photo'} className="w-full h-full object-cover" loading="lazy" referrerPolicy="no-referrer" />
       {caption && (
         <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-black/60 to-transparent px-2 pb-2 pt-6 text-left">
           <p className="text-[12px] text-white font-semibold truncate">{caption}</p>

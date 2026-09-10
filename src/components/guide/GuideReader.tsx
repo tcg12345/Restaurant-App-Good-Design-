@@ -1,3 +1,4 @@
+import { PhotoImage } from '../PhotoImage';
 import React, { useEffect, useRef, useState } from 'react';
 import { AnimatePresence } from 'motion/react';
 import { guidePhotoUrls } from '../../lib/guide-photos';
@@ -17,7 +18,7 @@ function GuideImage({ src, className }: { src: string; className: string }) {
   const [failed, setFailed] = useState(false);
   useEffect(() => setFailed(false), [src]);
   if (!src || failed) return null;
-  return <img className={className} src={src} alt="" loading="lazy" referrerPolicy="no-referrer" onError={() => setFailed(true)} />;
+  return <PhotoImage className={className} src={src} alt="" loading="lazy" referrerPolicy="no-referrer" onError={() => setFailed(true)} />;
 }
 
 export const GuideReaderEntry: React.FC<{

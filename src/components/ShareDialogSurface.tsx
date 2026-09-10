@@ -1,3 +1,4 @@
+import { PhotoImage } from './PhotoImage';
 import React, { useCallback, useLayoutEffect, useRef, useState } from 'react';
 import { motion, useReducedMotion } from 'motion/react';
 import { X, Search, Users, Check, Send, Loader2, Share2 } from 'lucide-react';
@@ -8,7 +9,7 @@ import './ShareDialog.css';
 
 const Thumbnail: React.FC<{ src?: string | null; fallback: React.ReactNode }> = ({ src, fallback }) => {
   const [failed, setFailed] = useState(false);
-  return <>{fallback}{src && !failed && <img src={src} alt="" referrerPolicy="no-referrer" onError={() => setFailed(true)} />}</>;
+  return <>{fallback}{src && !failed && <PhotoImage src={src} alt="" referrerPolicy="no-referrer" onError={() => setFailed(true)} />}</>;
 }
 
 /** The mounted surface owns focus, native chrome, and scroll until its exit finishes. */

@@ -680,6 +680,8 @@ export async function getGuidesForLocation(opts: {
 export async function getGuideSaveCounts(guideIds: string[]): Promise<Record<string, number>> {
   if (!supabaseConfigured || guideIds.length === 0) return {};
   try {
+    const { data: sessionData } = await supabase.auth.getSession();
+    if (!sessionData.session) return {};
     const { data, error } = await supabase.rpc('guide_save_counts', { guide_ids: guideIds });
     if (error) {
       console.warn('[Supabase] getGuideSaveCounts error:', error.message);

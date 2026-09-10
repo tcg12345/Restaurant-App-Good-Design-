@@ -1,3 +1,4 @@
+import { PhotoImage } from '../components/PhotoImage';
 import React, { useEffect, useState } from 'react';
 import { ArrowLeft, RefreshCw } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
@@ -80,5 +81,5 @@ const FeedbackImage: React.FC<{ path: string }> = ({ path }) => {
   useEffect(() => { let live = true; setFailed(false); setUrl(''); void feedbackScreenshot(path).then(value => { if (live) setUrl(value); }).catch(() => { if (live) setFailed(true); }); return () => { live = false; }; }, [path, retry]);
   if (failed) return <button className="feedback-error" onClick={() => setRetry(v => v + 1)}>Screenshot unavailable. Try loading it again.</button>;
   if (!url) return <p className="feedback-context">Loading screenshot…</p>;
-  return <a href={url} target="_blank" rel="noreferrer"><img src={url} alt="Screenshot attached to this feedback" onError={() => setFailed(true)} /></a>;
+  return <a href={url} target="_blank" rel="noreferrer"><PhotoImage src={url} alt="Screenshot attached to this feedback" onError={() => setFailed(true)} /></a>;
 }

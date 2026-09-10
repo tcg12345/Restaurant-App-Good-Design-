@@ -1,3 +1,6 @@
+import { PageSkeleton } from '../components/PageSkeleton';
+import { usePhotoUrl } from '../lib/usePhotoUrl';
+import { PhotoImage } from '../components/PhotoImage';
 import { usePageBack } from '../lib/usePageBack';
 /**
  * Activity — "your activity" hub: a tiny index page that fans out to four
@@ -99,7 +102,7 @@ const ReelTile: React.FC<{ reel: Reel; onClick: () => void }> = ({ reel, onClick
           mobile browsers too). Final fallback is the bgGradient already
           set on the parent, plus a subtle radial sheen for texture. */}
       {reel.posterUrl ? (
-        <img
+        <PhotoImage
           src={reel.posterUrl}
           alt=""
           className="absolute inset-0 w-full h-full object-cover"
@@ -178,7 +181,7 @@ const PostTile: React.FC<{ post: Post; onClick: () => void }> = ({ post, onClick
           className="absolute inset-0 w-full h-full object-cover"
         />
       ) : cover?.mediaUrl ? (
-        <img
+        <PhotoImage
           src={cover.mediaUrl}
           alt=""
           className="absolute inset-0 w-full h-full object-cover"
@@ -275,6 +278,7 @@ interface DraftRowProps {
 
 const DraftRow: React.FC<DraftRowProps & { first?: boolean }> = ({ draft, onOpen, onDelete, first }) => {
   const [confirmDel, setConfirmDel] = useState(false);
+  const cover = usePhotoUrl(draft.coverPhoto);
   return (
     <div className={cn('flex items-center gap-3.5 py-[15px]', !first && 'border-t border-on-surface/[0.08]')}>
       <button
@@ -284,7 +288,7 @@ const DraftRow: React.FC<DraftRowProps & { first?: boolean }> = ({ draft, onOpen
       >
         <span
           className="w-12 h-12 rounded-[13px] bg-on-surface/[0.055] flex items-center justify-center text-on-surface/40 flex-shrink-0 overflow-hidden"
-          style={draft.coverPhoto ? { backgroundImage: `url("${draft.coverPhoto}")`, backgroundSize: 'cover', backgroundPosition: 'center' } : undefined}
+          style={cover.url ? { backgroundImage: `url(${JSON.stringify(cover.url)})`, backgroundSize: 'cover', backgroundPosition: 'center' } : undefined}
         >
           {!draft.coverPhoto && <FileText size={19} strokeWidth={1.9} />}
         </span>
@@ -598,9 +602,7 @@ export const Activity: React.FC = () => {
       <ActivityHeader title={title} onBack={() => goBack()} />
       <main className="max-w-3xl mx-auto px-5 pt-5">
         {activeLoading && items.length === 0 ? (
-          <div className="flex items-center justify-center py-20 text-on-surface/45">
-            <Loader2 size={22} className="animate-spin" />
-          </div>
+          <PageSkeleton compact />
         ) : items.length === 0 ? (
           <EmptyState icon={emptyIcon} title={emptyTitle} body={emptyBody} />
         ) : (

@@ -1,3 +1,5 @@
+import { PhotoBackground } from './PhotoBackground';
+import { PhotoImage } from './PhotoImage';
 /**
  * GuideCreatorSheet — the guide creation / editing flow, redesigned as a
  * four-step editorial wizard (same warm, serif-forward language on phone
@@ -823,7 +825,7 @@ const StepAdd: React.FC<{
               >
                 <span className="gcx-row-thumb">
                   {r.photos?.[0]
-                    ? <img src={r.photos[0]} alt="" referrerPolicy="no-referrer" />
+                    ? <PhotoImage src={r.photos[0]} alt="" referrerPolicy="no-referrer" />
                     : <ChefHat size={16} />}
                 </span>
                 <span className="gcx-row-main">
@@ -902,7 +904,7 @@ const ArrangeCardPhone: React.FC<{
         <span className="gcx-card-num">{String(index + 1).padStart(2, '0')}</span>
         {entry.image && (
           <span className="gcx-card-thumb">
-            <img src={entry.image} alt="" referrerPolicy="no-referrer" />
+            <PhotoImage src={entry.image} alt="" referrerPolicy="no-referrer" />
           </span>
         )}
         <button type="button" className="gcx-row-main" onClick={onEdit} aria-label={`Edit ${entry.name}`}>
@@ -963,7 +965,7 @@ const EntryDetail: React.FC<{
       <div className="gcx-detail-body">
         {entry.image && (
           <div className="gcx-detail-hero">
-            <img src={entry.image} alt="" referrerPolicy="no-referrer" />
+            <PhotoImage src={entry.image} alt="" referrerPolicy="no-referrer" />
           </div>
         )}
         <div className="gcx-detail-title-wrap">
@@ -1104,7 +1106,7 @@ const StepArrange: React.FC<{
         <FieldKicker optional>Cover photo</FieldKicker>
         {coverPhoto ? (
           <div className="gcx-cover-preview">
-            <img src={coverPhoto} alt="Guide cover" referrerPolicy="no-referrer" />
+            <PhotoImage src={coverPhoto} alt="Guide cover" referrerPolicy="no-referrer" />
             <div className="gcx-cover-actions">
               <button type="button" onClick={onPickCoverFile}>Change</button>
               <button type="button" onClick={onClearCover} aria-label="Remove cover">
@@ -1125,7 +1127,7 @@ const StepArrange: React.FC<{
                 <div className="gcx-cover-strip-row">
                   {entryImages.map((img) => (
                     <button key={img.slice(0, 80)} type="button" className="gcx-cover-thumb" onClick={() => onPickCoverFromEntry(img)}>
-                      <img src={img} alt="" referrerPolicy="no-referrer" />
+                      <PhotoImage src={img} alt="" referrerPolicy="no-referrer" />
                     </button>
                   ))}
                 </div>
@@ -1197,7 +1199,7 @@ const StepArrange: React.FC<{
                   <span className="gcx-card-num">{String(i + 1).padStart(2, '0')}</span>
                   {e.image && (
                     <span className="gcx-card-thumb">
-                      <img src={e.image} alt="" referrerPolicy="no-referrer" />
+                      <PhotoImage src={e.image} alt="" referrerPolicy="no-referrer" />
                     </span>
                   )}
                   <span className="gcx-row-main">
@@ -1330,7 +1332,7 @@ const StepPublish: React.FC<{
           <FieldKicker>Preview</FieldKicker>
           <button type="button" className="gcx-sec-edit" onClick={onEditBasics}>Edit details</button>
         </div>
-        <div
+        <PhotoBackground
           className="gcx-preview"
           style={coverPhoto ? {
             backgroundImage: `linear-gradient(180deg, rgba(20, 17, 14, 0.28) 0%, rgba(20, 17, 14, 0.82) 100%), url(${JSON.stringify(coverPhoto)})`,
@@ -1345,7 +1347,7 @@ const StepPublish: React.FC<{
             {authorName && <span>by {authorName}</span>}
             {tags.slice(0, 3).map((t) => <span key={t} className="gcx-preview-tag">{t}</span>)}
           </div>
-        </div>
+        </PhotoBackground>
       </div>
 
       {/* Visibility */}

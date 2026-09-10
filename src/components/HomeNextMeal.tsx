@@ -1,3 +1,4 @@
+import { PhotoImage } from './PhotoImage';
 import React, { useEffect, useState } from 'react';
 import { ArrowUpRight, Bookmark, CalendarDays, Star, Utensils, ChefHat, Compass } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
@@ -35,7 +36,7 @@ export function NextMealCard({ meal, onOpen, viewerId = 'guest' }: { meal: NextM
     </span>
     <span className="home-next-meal-art" aria-hidden="true">
       {date && !image ? <span className="home-next-meal-date"><span>{date.toLocaleDateString([], { month: 'short' })}</span><strong>{date.getDate()}</strong><small>{date.toLocaleDateString([], { weekday: 'long' })}</small></span>
-        : <><ArtIcon className="home-next-meal-placeholder" size={29} strokeWidth={1.2} />{image && <img key={image} src={image} alt="" onLoad={() => setLoaded(image)} onError={() => setFailed(previous => [...previous, image])} />}</>}
+        : <><ArtIcon className="home-next-meal-placeholder" size={29} strokeWidth={1.2} />{image && <PhotoImage key={image} src={image} alt="" onLoad={() => setLoaded(image)} onError={() => setFailed(previous => [...previous, image])} />}</>}
     </span>
   </button>{credited && <div className="home-next-meal-credit"><span translate="no">Google Maps</span>{photo.google!.authors.map((author, index) => {
     const uri = author.uri?.startsWith('//') ? `https:${author.uri}` : author.uri;

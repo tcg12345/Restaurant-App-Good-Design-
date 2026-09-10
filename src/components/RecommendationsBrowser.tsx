@@ -1,3 +1,4 @@
+import { PhotoImage } from './PhotoImage';
 import { MobilePageSheet } from './MobilePageSheet';
 import { tasteRankingKey } from '../lib/taste-preferences';
 import { useTastePreferences } from '../hooks/useTastePreferences';
@@ -1039,7 +1040,7 @@ export const RecommendationsBrowser: React.FC<RecommendationsBrowserProps> = ({ 
       >
         {hasPhoto && (
           <div className="foryou-photo">
-            <img
+            <PhotoImage
               src={p.photoUrl!}
               alt={p.name}
               loading={isLead ? 'eager' : 'lazy'}

@@ -1,3 +1,4 @@
+import { PhotoImage } from './PhotoImage';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Image as ImageIcon, Play, Settings, RefreshCw, Check, Camera } from 'lucide-react';
 import { cn } from '../lib/utils';
@@ -249,7 +250,7 @@ export const PhotoLibraryGrid: React.FC<Props> = ({
               aria-pressed={isSelected}
             >
               {it.thumbnailDataUrl && (
-                <img
+                <PhotoImage
                   src={it.thumbnailDataUrl}
                   alt=""
                   className="absolute inset-0 w-full h-full object-cover"

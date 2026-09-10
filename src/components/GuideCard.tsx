@@ -1,3 +1,4 @@
+import { PhotoImage } from './PhotoImage';
 /**
  * GuideCard — thumbnail card for a guide. Used on Discover, profile,
  * and inside the GuideCreator's review screen. Matches the editorial
@@ -34,7 +35,7 @@ export const GuideCard: React.FC<{
       widthCls,
     )}>
       {guide.coverPhoto ? (
-        <img
+        <PhotoImage
           src={guide.coverPhoto}
           alt={guide.title}
           className="absolute inset-0 w-full h-full object-cover group-hover:scale-[1.04] transition-transform duration-500"

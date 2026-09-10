@@ -1,3 +1,4 @@
+import { PhotoImage } from '../PhotoImage';
 import { DeleteConfirmation } from '../DeleteConfirmation';
 /**
  * A shared list on screen — the Pantry renders this in place of the
@@ -112,7 +113,7 @@ const AddPlacesSheet: React.FC<{
               <li key={meta.id}>
                 <button type="button" onClick={() => { void toggle(meta); }} aria-pressed={on} className="w-full flex items-center gap-3 py-2.5 text-left active:opacity-70 transition-opacity">
                   {meta.image
-                    ? <img src={meta.image} alt="" className="w-11 h-11 rounded-xl object-cover flex-none bg-on-surface/[0.06]" referrerPolicy="no-referrer" />
+                    ? <PhotoImage src={meta.image} alt="" className="w-11 h-11 rounded-xl object-cover flex-none bg-on-surface/[0.06]" referrerPolicy="no-referrer" />
                     : <div className="w-11 h-11 rounded-xl flex-none bg-on-surface/[0.06] text-on-surface/40 flex items-center justify-center"><Utensils size={16} /></div>}
                   <div className="flex-1 min-w-0">
                     <p className="truncate text-on-surface" style={{ fontSize: '14px', fontWeight: 700 }}>{meta.name}</p>
@@ -261,7 +262,7 @@ export const SharedListView: React.FC<{
                 >
                   <span className="flex-none w-6 text-on-surface/35 tabular-nums text-center" style={{ fontSize: '12px', fontWeight: 700 }}>{idx + 1}</span>
                   {e.image
-                    ? <img src={e.image} alt="" className="w-14 h-14 rounded-2xl object-cover flex-none bg-on-surface/[0.06]" referrerPolicy="no-referrer" />
+                    ? <PhotoImage src={e.image} alt="" className="w-14 h-14 rounded-2xl object-cover flex-none bg-on-surface/[0.06]" referrerPolicy="no-referrer" />
                     : <div className="w-14 h-14 rounded-2xl flex-none bg-on-surface/[0.06] text-on-surface/40 flex items-center justify-center"><Utensils size={18} /></div>}
                   <div className="flex-1 min-w-0">
                     <p className="truncate text-on-surface" style={{ fontSize: '15px', fontWeight: 700, letterSpacing: '-0.01em' }}>{e.name}</p>

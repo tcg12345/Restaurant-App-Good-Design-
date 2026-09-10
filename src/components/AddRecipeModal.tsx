@@ -1,3 +1,4 @@
+import { PhotoImage } from './PhotoImage';
 import { DeleteConfirmation } from './DeleteConfirmation';
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
@@ -269,7 +270,7 @@ export const AddRecipeModal: React.FC = () => {
                       className="w-full h-36 rounded-2xl border-2 border-dashed border-on-surface/15 flex flex-col items-center justify-center gap-2 mb-5 overflow-hidden hover:border-primary/30 transition-colors relative">
                       {coverPhoto ? (
                         <>
-                          <img src={coverPhoto} alt="Cover" className="w-full h-full object-cover" />
+                          <PhotoImage src={coverPhoto} alt="Cover" className="w-full h-full object-cover" />
                           <div className="absolute inset-0 bg-black/20 flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity">
                             <Camera size={24} className="text-white" />
                           </div>
@@ -540,7 +541,7 @@ export const AddRecipeModal: React.FC = () => {
                                 onClick={() => setSelectedPhotoIdx(selected ? null : idx)}
                                 className="group relative aspect-square overflow-hidden rounded-md bg-on-surface/5"
                               >
-                                <img src={photo.url} alt="" className="w-full h-full object-cover" />
+                                <PhotoImage src={photo.url} alt="" className="w-full h-full object-cover" />
                                 {selected && (
                                   <div className="absolute inset-0 ring-2 ring-inset ring-primary rounded-md pointer-events-none" />
                                 )}

@@ -1,15 +1,12 @@
 import { isSocialConversation } from './lib/social-navigation';
 import { HOME_REELS_EXPERIMENT } from './lib/home-reels-experiment';
 import { WidgetSync } from './components/WidgetSync';
-import { CalendarPage } from './pages/CalendarPage';
 import { CalendarProvider } from './contexts/CalendarContext';
 import { VisitReviewPrompt } from './components/calendar/VisitReviewPrompt';
-import { AdminFeedback } from './pages/AdminFeedback';
 import { AnalyticsTracker } from './components/AnalyticsTracker';
 import { NotFoundPage } from './pages/NotFoundPage';
 import { InReviewProvider } from './contexts/InReviewContext';
 import { usePageBack } from './lib/usePageBack';
-import { GuidesPage } from './pages/GuidesPage';
 import { GroupRoomLinks } from './components/GroupRoomLinks';
 /**
  * @license
@@ -17,29 +14,51 @@ import { GroupRoomLinks } from './components/GroupRoomLinks';
  */
 
 import React from 'react';
+import { lazyPage } from './components/LazyPage';
+import { PageSkeleton } from './components/PageSkeleton';
+import { RetainedTabLocation } from './components/RetainedTabLocation';
+import { warmNavigation } from './lib/navigation-warmup';
+const CalendarPage = lazyPage(() => import('./pages/CalendarPage').then(m => ({ default: m.CalendarPage })), 'calendar');
+const AdminFeedback = lazyPage(() => import('./pages/AdminFeedback').then(m => ({ default: m.AdminFeedback })));
+const GuidesPage = lazyPage(() => import('./pages/GuidesPage').then(m => ({ default: m.GuidesPage })));
+const DecideTogether = lazyPage(() => import('./pages/DecideTogether').then(m => ({ default: m.DecideTogether })));
+const Experts = lazyPage(() => import('./pages/Experts').then(m => ({ default: m.Experts })));
+const VerificationApply = lazyPage(() => import('./pages/VerificationApply').then(m => ({ default: m.VerificationApply })));
+const AdminVerification = lazyPage(() => import('./pages/AdminVerification').then(m => ({ default: m.AdminVerification })));
+const Profile = lazyPage(() => import('./pages/Profile').then(m => ({ default: m.Profile })), 'profile');
+const SettingsPage = lazyPage(() => import('./pages/SettingsPage').then(m => ({ default: m.SettingsPage })));
+const TopListPage = lazyPage(() => import('./pages/TopListPage').then(m => ({ default: m.TopListPage })));
+const TasteProfilePage = lazyPage(() => import('./pages/TasteProfilePage').then(m => ({ default: m.TasteProfilePage })));
+const UserTasteProfilePage = lazyPage(() => import('./pages/UserTasteProfilePage').then(m => ({ default: m.UserTasteProfilePage })));
+const AdminCuisineSuggestions = lazyPage(() => import('./pages/AdminCuisineSuggestions').then(m => ({ default: m.AdminCuisineSuggestions })));
+const Pantry = lazyPage(() => import('./pages/Pantry').then(m => ({ default: m.Pantry })));
+const RecommendedForYou = lazyPage(() => import('./pages/RecommendedForYou').then(m => ({ default: m.RecommendedForYou })));
+const Circle = lazyPage(() => import('./pages/Circle').then(m => ({ default: m.Circle })));
+const Search = lazyPage(() => import('./pages/Search').then(m => ({ default: m.Search })));
+const SearchMain = lazyPage(() => import('./pages/SearchMain').then(m => ({ default: m.SearchMain })));
+const Reels = lazyPage(() => import('./pages/Reels').then(m => ({ default: m.Reels })));
+const Activity = lazyPage(() => import('./pages/Activity').then(m => ({ default: m.Activity })));
+const RestaurantDetail = lazyPage(() => import('./pages/RestaurantDetail').then(m => ({ default: m.RestaurantDetail })), 'detail');
+const Create = lazyPage(() => import('./pages/Create').then(m => ({ default: m.Create })));
+const RecipePage = lazyPage(() => import('./pages/RecipePage').then(m => ({ default: m.RecipePage })), 'detail');
+const RecipesForYou = lazyPage(() => import('./pages/RecipesForYou').then(m => ({ default: m.RecipesForYou })));
+const GuideDetail = lazyPage(() => import('./pages/GuideDetail').then(m => ({ default: m.GuideDetail })), 'detail');
+const GuideEdit = lazyPage(() => import('./pages/GuideEdit').then(m => ({ default: m.GuideEdit })));
+const ImportRestaurants = lazyPage(() => import('./pages/ImportRestaurants').then(m => ({ default: m.ImportRestaurants })));
+const UserProfile = lazyPage(() => import('./pages/UserProfile').then(m => ({ default: m.UserProfile })), 'profile');
+const FollowList = lazyPage(() => import('./pages/FollowList').then(m => ({ default: m.FollowList })));
+const SocialHub = lazyPage(() => import('./pages/SocialHub').then(m => ({ default: m.SocialHub })));
+const FriendReviewDetail = lazyPage(() => import('./pages/FriendReviewDetail').then(m => ({ default: m.FriendReviewDetail })), 'detail');
+const LocationPage = lazyPage(() => import('./pages/LocationPage').then(m => ({ default: m.LocationPage })));
+const LocationMap = lazyPage(() => import('./pages/LocationMap').then(m => ({ default: m.LocationMap })));
+const RestaurantCircleReviews = lazyPage(() => import('./pages/RestaurantCircleReviews').then(m => ({ default: m.RestaurantCircleReviews })));
+const ReorderRatings = lazyPage(() => import('./pages/ReorderRatings').then(m => ({ default: m.ReorderRatings })));
+const ProPage = lazyPage(() => import('./pages/ProPage').then(m => ({ default: m.ProPage })));
+
 const AdminAnalytics = React.lazy(() => import('./pages/AdminAnalytics').then(m => ({ default: m.AdminAnalytics })));
 import { BrowserRouter as Router, Routes, Route, useLocation, useNavigate, useNavigationType, Navigate } from 'react-router-dom';
 import { Discover } from './pages/Discover';
-import { DecideTogether } from './pages/DecideTogether';
 import { Home } from './pages/Home';
-import { Experts } from './pages/Experts';
-import { VerificationApply } from './pages/VerificationApply';
-import { AdminVerification } from './pages/AdminVerification';
-import { Profile } from './pages/Profile';
-import { SettingsPage } from './pages/SettingsPage';
-import { TopListPage } from './pages/TopListPage';
-import { TasteProfilePage } from './pages/TasteProfilePage';
-import { UserTasteProfilePage } from './pages/UserTasteProfilePage';
-import { AdminCuisineSuggestions } from './pages/AdminCuisineSuggestions';
-import { Pantry } from './pages/Pantry';
-import { RecommendedForYou } from './pages/RecommendedForYou';
-import { Circle } from './pages/Circle';
-import { Search } from './pages/Search';
-import { SearchMain } from './pages/SearchMain';
-import { Reels } from './pages/Reels';
-import { Activity } from './pages/Activity';
-import { RestaurantDetail } from './pages/RestaurantDetail';
-import { Create } from './pages/Create';
 import { BottomNav } from './components/BottomNav';
 import { PullToRefresh } from './components/PullToRefresh';
 import { RouteMotionLayer } from './components/RouteMotionLayer';
@@ -69,23 +88,10 @@ import { AddHomeMealModal } from './components/AddHomeMealModal';
 import { AddReelModal } from './components/AddReelModal';
 import { AddPostModal } from './components/AddPostModal';
 import { RecipeModal } from './components/RecipeModal';
-import { RecipePage } from './pages/RecipePage';
-import { RecipesForYou } from './pages/RecipesForYou';
-import { GuideDetail } from './pages/GuideDetail';
-import { GuideEdit } from './pages/GuideEdit';
 import { Auth } from './pages/Auth';
 import { PreAuthFlow } from './components/onboarding/PreAuthFlow';
 import { isPreauthDone, getPreauthOutcome, shouldAskGuestToSave, noteGuestAsked } from './lib/preauth';
-import { ImportRestaurants } from './pages/ImportRestaurants';
 import { ProfileSetup } from './pages/ProfileSetup';
-import { UserProfile } from './pages/UserProfile';
-import { FollowList } from './pages/FollowList';
-import { SocialHub } from './pages/SocialHub';
-import { FriendReviewDetail } from './pages/FriendReviewDetail';
-import { LocationPage } from './pages/LocationPage';
-import { LocationMap } from './pages/LocationMap';
-import { RestaurantCircleReviews } from './pages/RestaurantCircleReviews';
-import { ReorderRatings } from './pages/ReorderRatings';
 import { ChatProvider } from './contexts/ChatContext';
 import { PushNotificationsProvider } from './contexts/PushNotificationsContext';
 import { NotificationsProvider } from './contexts/NotificationsContext';
@@ -105,7 +111,6 @@ import { AppErrorBoundary } from './components/AppErrorBoundary';
 import { SignInModalProvider } from './contexts/SignInModalContext';
 import { PlanProvider } from './contexts/PlanContext';
 import { PaywallProvider } from './contexts/PaywallContext';
-import { ProPage } from './pages/ProPage';
 import { ProIntroStep } from './components/onboarding/ProIntroStep';
 
 /** /pro/intro — the onboarding Pro intro as a page; every exit goes back. */
@@ -320,6 +325,16 @@ const AppContent: React.FC = () => {
   // Keep-alive: once a tab-root page is visited it stays mounted. Mounted
   // lazily (on first visit) so we don't eagerly mount every tab at startup.
   const [keptAlive, setKeptAlive] = React.useState<string[]>([]);
+  React.useEffect(() => {
+    if (loading || (!isGuest && !isSignedIn) || (isSignedIn && !profileComplete)) return;
+    const pages = [Search, Pantry, Profile, SocialHub, CalendarPage, SearchMain];
+    const paths = ['/search', '/pantry', '/profile'];
+    return warmNavigation(pages.map(Page => Page.preload), index => {
+      const path = paths[index];
+      if (!path || (path !== '/search' && !isSignedIn)) return;
+      React.startTransition(() => setKeptAlive(previous => previous.includes(path) ? previous : [...previous, path]));
+    });
+  }, [loading, isGuest, isSignedIn, profileComplete, user?.id]);
   // Any bottom sheet open → the page zooms back (see the presenter below).
   // Only when sheets can be lifted to the top layer; otherwise a transform
   // here would shrink the sheets too.
@@ -349,9 +364,7 @@ const AppContent: React.FC = () => {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-surface flex items-center justify-center">
-        <Logo size={48} className="text-primary animate-pulse" />
-      </div>
+      <PageSkeleton />
     );
   }
 
@@ -418,9 +431,7 @@ const AppContent: React.FC = () => {
   }
   if (isSignedIn && !setupActive && !profileComplete && profileLoading) {
     return (
-      <div className="min-h-screen bg-surface flex items-center justify-center">
-        <Logo size={48} className="text-primary animate-pulse" />
-      </div>
+      <PageSkeleton />
     );
   }
   if (isSignedIn && (!profileComplete || setupActive)) {
@@ -543,7 +554,7 @@ const AppContent: React.FC = () => {
           Each layer is keyed by ITS OWN refresh nonce so a pull-to-refresh
           remounts only the tab being refreshed, never its siblings. */}
       <React.Fragment>
-        {keptAlive.map((path) => {
+        {Array.from(new Set([...keptAlive, ...(isKeepAlivePath ? [location.pathname] : [])])).map((path) => {
           const active = path === location.pathname;
           return (
             <div
@@ -572,7 +583,7 @@ const AppContent: React.FC = () => {
               inert={!active}
               data-kept-page={path}
             >
-              {keepAliveElement(path, active, phoneMode)}
+              <RetainedTabLocation path={path} active={active}>{keepAliveElement(path, active, phoneMode)}</RetainedTabLocation>
             </div>
           );
         })}
@@ -642,7 +653,7 @@ const AppContent: React.FC = () => {
           <Route path="/experts" element={<Experts />} />
           <Route path="/verify/apply" element={<RequireAuthRoute reason="Sign in to request verification"><VerificationApply /></RequireAuthRoute>} />
           <Route path="/admin/verification" element={<RequireAuthRoute reason="Sign in to continue"><AdminVerification /></RequireAuthRoute>} />
-          <Route path="/admin/analytics" element={<RequireAuthRoute reason="Sign in to continue"><React.Suspense fallback={<div className="p-8">Loading analytics…</div>}><AdminAnalytics /></React.Suspense></RequireAuthRoute>} />
+          <Route path="/admin/analytics" element={<RequireAuthRoute reason="Sign in to continue"><React.Suspense fallback={<PageSkeleton />}><AdminAnalytics /></React.Suspense></RequireAuthRoute>} />
           <Route path="/admin/feedback" element={<RequireAuthRoute reason="Sign in to continue"><AdminFeedback /></RequireAuthRoute>} />
           <Route path="/admin/cuisine" element={<RequireAuthRoute reason="Sign in to continue"><AdminCuisineSuggestions /></RequireAuthRoute>} />
           <Route path="/profile" element={<RequireAuthRoute reason="Sign in to view your profile"><Profile /></RequireAuthRoute>} />

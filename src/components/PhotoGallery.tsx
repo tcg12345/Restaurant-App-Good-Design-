@@ -1,3 +1,5 @@
+import { MotionPhotoImage } from './MotionPhotoImage';
+import { PhotoImage } from './PhotoImage';
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { X, Search, ChevronLeft, ChevronRight, Sparkles } from 'lucide-react';
@@ -192,7 +194,7 @@ export const PhotoGallery: React.FC<{
                     className="flex-shrink-0 w-36 text-left snap-start"
                   >
                     <div className="rounded-xl overflow-hidden aspect-[4/3] mb-2">
-                      <img
+                      <PhotoImage
                         src={group.photos[0].url}
                         alt={group.dish}
                         className="w-full h-full object-cover"
@@ -233,7 +235,7 @@ export const PhotoGallery: React.FC<{
                     onClick={() => setExpanded({ index: i, dir: 0 })}
                     className="relative aspect-square rounded-2xl overflow-hidden"
                   >
-                    <img
+                    <PhotoImage
                       src={photo.url}
                       alt={photo.caption || `${name} photo ${i + 1}`}
                       className="w-full h-full object-cover"
@@ -275,7 +277,7 @@ export const PhotoGallery: React.FC<{
                   one can slide out while the next slides in. */}
               <div className="relative flex-1 min-h-0 overflow-hidden">
                 <AnimatePresence initial={false} custom={expanded.dir}>
-                  <motion.img
+                  <MotionPhotoImage
                     key={expanded.index}
                     src={expandedPhoto.url}
                     alt={expandedPhoto.caption || name}

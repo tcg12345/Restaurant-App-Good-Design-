@@ -1,5 +1,7 @@
 import { useRestaurantAnalytics } from '../lib/useRestaurantAnalytics';
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import { useSettings } from '../contexts/SettingsContext';
+import { mapStyle } from '../lib/map-theme';
 import { primaryHex } from '../lib/brand';
 import { useParams, useNavigate } from 'react-router-dom';
 import mapboxgl from 'mapbox-gl';
@@ -70,6 +72,7 @@ const detailMemory = new Map<string, PlaceDetails>();
 const detailHeroMemory = new Map<string, CommunityPhoto[]>();
 
 export function useRestaurantDetail() {
+  const { darkMode } = useSettings();
   const { id } = useParams();
   const navigate = useNavigate();
   const { user } = useAuth();
@@ -141,7 +144,7 @@ export function useRestaurantDetail() {
     mapboxgl.accessToken = MAPBOX_TOKEN;
     const map = new mapboxgl.Map({
       container: el,
-      style: 'mapbox://styles/mapbox/light-v11',
+      style: mapStyle(darkMode),
       center: [p.lng, p.lat],
       zoom: 15,
       // Decorative locator only (matches RestaurantPanel): both page
@@ -169,7 +172,7 @@ export function useRestaurantDetail() {
       map.remove();
       mapRef.current = null;
     };
-  }, []); // empty deps — all live data is accessed via refs
+  }, [darkMode]); // Theme changes remount this decorative locator.
 
   useEffect(() => {
     if (!id) return;

@@ -1,4 +1,6 @@
 import { rememberRestaurantSource, type RestaurantProvenance } from '../lib/restaurant-provenance';
+import { compactMetadata } from '../lib/metadata-persistence';
+import { loadNativeMetadata, readNativeMetadata, saveNativeMetadata, clearNativeMetadata } from '../lib/native-metadata';
 import { track, trackRestaurant } from '../lib/analytics';
 import { mergeReviewArchives, REVIEW_META_KEY } from '../lib/in-review';
 import { mergeTastePreferences, TASTE_PREFERENCES_KEY } from '../lib/taste-preferences';
@@ -767,8 +769,24 @@ function clearLocalVisitHistory(restaurantId: string) {
 }
 
 function loadFromStorage<T>(key: string, fallback: T): T {
+  if (key === STORAGE_KEY_META) {
+    const native = readNativeMetadata();
+    if (native) return native as T;
+  }
   try {
     const raw = localStorage.getItem(key);
+    if (key === STORAGE_KEY_HOME_MEALS) {
+      const native = readNativeMetadata();
+      if (Array.isArray(native?.__home_meals__)) {
+        const local = raw ? JSON.parse(raw) : [];
+        const deleted = new Set([
+          ...loadFromStorage<string[]>(STORAGE_KEY_DELETED_MEALS, []),
+          ...(Array.isArray(native.__deleted_meals__) ? native.__deleted_meals__ : []),
+        ]);
+        return mergeHomeMeals(Array.isArray(local) ? local : [], native.__home_meals__ as HomeMeal[])
+          .filter(meal => !deleted.has(meal.id)) as T;
+      }
+    }
     return raw ? JSON.parse(raw) : fallback;
   } catch {
     return fallback;
@@ -776,6 +794,14 @@ function loadFromStorage<T>(key: string, fallback: T): T {
 }
 
 function saveToStorage(key: string, value: unknown) {
+  if (key === STORAGE_KEY_META) {
+    if (readNativeMetadata() !== null) {
+      saveNativeMetadata(value as Record<string, unknown>);
+      return;
+    }
+    // Limit only recomputable restaurant rows; reserved slots are durable.
+    value = compactMetadata(value as Record<string, unknown>);
+  }
   // Swallow QuotaExceededError (and any other localStorage failures) so they
   // don't propagate out of setState updaters and crash the page render. The
   // cloud sync layer is the source of truth — local persistence is best-effort.
@@ -788,9 +814,10 @@ function saveToStorage(key: string, value: unknown) {
     // for instant first paint, and the images rehydrate from the cloud on the
     // next load. We only strip on failure, so images stay cached when they fit.
     try {
+      if (key === STORAGE_KEY_META) throw new Error('Metadata quota exceeded');
       localStorage.setItem(key, JSON.stringify(stripDataUrls(value)));
     } catch (err2) {
-      console.warn(`[ListsContext] saveToStorage(${key}) failed even after stripping images:`, err2);
+      console.warn(`[ListsContext] saveToStorage(${key}) failed; previous stored copy retained:`, err2);
     }
   }
 }
@@ -1132,6 +1159,16 @@ const ListsContext = createContext<ListsContextValue | null>(null);
 export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const { user, profile: authProfile } = useAuth();
   const { showToast } = useToast();
+  useEffect(() => {
+    let shown = false;
+    const failed = () => {
+      if (shown) return;
+      shown = true;
+      showToast('Could not save an offline copy', { variant: 'error', subtitle: 'Keep the app open and connect to sync your changes.', durationMs: 7000 });
+    };
+    window.addEventListener('goodeats-metadata-save-failed', failed);
+    return () => window.removeEventListener('goodeats-metadata-save-failed', failed);
+  }, [showToast]);
   const { requireSignIn } = useSignInModal();
   const userId = user?.id ?? null;
 
@@ -1317,6 +1354,7 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     // Check if localStorage belongs to a different user — if so, clear it
     const storedUserId = localStorage.getItem('goodeats-user-id');
     if (storedUserId && storedUserId !== userId) {
+      void clearNativeMetadata();
       localStorage.removeItem(STORAGE_KEY_RATINGS);
       localStorage.removeItem(STORAGE_KEY_LISTS);
       localStorage.removeItem(STORAGE_KEY_WISHLIST);
@@ -1345,6 +1383,24 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     let cancelled = false;
 
     (async () => {
+      // Native snapshots are outside WKWebView localStorage's small quota.
+      // Hydrate before cloud merging so an offline relaunch retains stashes.
+      const nativeMeta = await loadNativeMetadata(userId);
+      if (cancelled) return;
+      if (nativeMeta) {
+        const restored = migrateMeta(nativeMeta as Record<string, RestaurantMeta>);
+        restaurantMetaRef.current = restored;
+        setRestaurantMeta(restored);
+        mergeTombstones(tombstonesRef.current, tombstonesFromJSON(nativeMeta.__tombstones__));
+        if (Array.isArray(nativeMeta.__deleted_meals__)) {
+          for (const id of nativeMeta.__deleted_meals__) if (typeof id === 'string') deletedMealIdsRef.current.add(id);
+        }
+        // The metadata stash is also a durable fallback for meal records.
+        if (Array.isArray(nativeMeta.__home_meals__)) {
+          setHomeMeals(prev => migrateHomeMeals(mergeHomeMeals(prev, nativeMeta.__home_meals__ as HomeMeal[])).filter(meal => !deletedMealIdsRef.current.has(meal.id)));
+        }
+        saveNativeMetadata(restored);
+      }
       let cloud: UserAppData | null;
       try {
         cloud = await loadUserData(userId);
@@ -2541,7 +2597,10 @@ export const ListsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
             addressComponents: cleaned.addressComponents,
             neighborhood: cleaned.neighborhood,
           } as RestaurantMeta);
-      return { ...prev, [cleaned.id]: merged };
+      const next = { ...prev };
+      delete next[cleaned.id]; // Most recently refreshed cache rows survive eviction.
+      next[cleaned.id] = merged;
+      return next;
     });
   }, [commitMeta]);
 
