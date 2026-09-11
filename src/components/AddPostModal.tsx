@@ -881,7 +881,9 @@ export const AddPostModal: React.FC = () => {
         }, itemUpdates);
         if (!ok) throw new Error("Couldn't save changes — try again.");
         if (editingPost.isPublic !== isPublic) {
-          await setPostVisibility(editingPost.id, isPublic);
+          if (!await setPostVisibility(editingPost.id, isPublic)) {
+            throw new Error('Your text changes were saved, but visibility could not be changed. Please retry.');
+          }
         }
         showToast('Post updated');
         closeAddPostModal();

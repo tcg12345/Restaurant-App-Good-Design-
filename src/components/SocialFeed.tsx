@@ -11,7 +11,7 @@ import { Heart, MessageSquare, Send, ChefHat, Plus, Star, ChevronDown, ChevronRi
 import { VerifiedBadge } from './VerifiedBadge';
 
 import { ShareDialog } from './ShareDialog';
-import { CommentsBody } from '../pages/Reels';
+import { CommentsBody } from './CommentsBody';
 import type { SharedRecipe, SharePayload } from '../contexts/ChatContext';
 import { usePosts } from '../contexts/PostsContext';
 import { motion, AnimatePresence } from 'motion/react';

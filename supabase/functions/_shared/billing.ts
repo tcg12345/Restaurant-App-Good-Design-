@@ -1,3 +1,4 @@
+import { instrumentedFetch as fetch } from './api-telemetry.ts';
 // Shared pieces of the billing functions: the service-role client, the
 // plan write, and the RevenueCat subscriber → plan mapping.
 //
@@ -24,18 +25,30 @@ export interface PlanState {
   proWillRenew: boolean | null;
 }
 
-export async function writePlan(db: SupabaseClient, userId: string, state: PlanState): Promise<void> {
-  const { error } = await db
-    .from('user_profiles')
-    .update({
-      plan: state.plan,
-      pro_until: state.proUntil,
-      pro_source: state.proSource,
-      pro_will_renew: state.proWillRenew,
-      updated_at: new Date().toISOString(),
-    })
-    .eq('user_id', userId);
-  if (error) throw new Error(`plan write failed: ${error.message}`);
+export async function writePlan(db: SupabaseClient, userId: string, state: PlanState, observedAtMs: number): Promise<PlanState> {
+  const { data, error } = await db.rpc('apply_billing_snapshot', {
+    p_user: userId, p_observed_at_ms: observedAtMs,
+    p_state: { plan: state.plan, pro_until: state.proUntil, pro_source: state.proSource, pro_will_renew: state.proWillRenew },
+  });
+  if (error || !data) throw new Error('Plan write failed');
+  return data as PlanState;
+}
+
+/** Reconcile from the current subscriber, never infer a transfer or expiry from
+ * a delayed event. Provider failures leave the last verified plan untouched. */
+export async function subscriberSnapshot(userId: string): Promise<{ state: PlanState; observedAtMs: number }> {
+  const secret = Deno.env.get('REVENUECAT_SECRET_KEY');
+  if (!secret) throw new Error('Billing is not configured');
+  const response = await fetch(`https://api.revenuecat.com/v1/subscribers/${encodeURIComponent(userId)}`, {
+    headers: { Authorization: `Bearer ${secret}`, Accept: 'application/json' },
+    signal: AbortSignal.timeout(10000),
+  });
+  if (!response.ok) throw new Error(`Subscriber lookup failed: ${response.status}`);
+  const sub = await response.json() as RcSubscriber;
+  if (!sub?.subscriber || !sub.subscriber.entitlements || !Number.isSafeInteger(sub.request_date_ms) || sub.request_date_ms! <= 0) {
+    throw new Error('Invalid subscriber response');
+  }
+  return { state: planFromSubscriber(sub), observedAtMs: sub.request_date_ms! };
 }
 
 /** Lower-cased store name with a sandbox marker, e.g. "app_store",
@@ -51,8 +64,9 @@ export function sourceLabel(store: string | undefined, environment: string | und
  * Only the fields we read.
  */
 export interface RcSubscriber {
+  request_date_ms?: number;
   subscriber?: {
-    entitlements?: Record<string, { expires_date: string | null; product_identifier?: string; purchase_date?: string }>;
+    entitlements?: Record<string, { expires_date: string | null; grace_period_expires_date?: string | null; product_identifier?: string; purchase_date?: string }>;
     subscriptions?: Record<string, {
       expires_date?: string | null;
       store?: string;
@@ -71,7 +85,10 @@ export const ENTITLEMENT_ID = Deno.env.get('REVENUECAT_ENTITLEMENT') ?? 'pro';
 export function planFromSubscriber(sub: RcSubscriber): PlanState {
   const ent = sub.subscriber?.entitlements?.[ENTITLEMENT_ID];
   if (!ent) return { plan: 'free', proUntil: null, proSource: null, proWillRenew: null };
-  const expires = ent.expires_date ? new Date(ent.expires_date) : null;
+  if (ent.expires_date !== null && (typeof ent.expires_date !== 'string' || !ent.expires_date)) throw new Error('Missing entitlement expiry');
+  const dates = [ent.expires_date, ent.grace_period_expires_date].filter((v): v is string => !!v).map(v => new Date(v));
+  if (dates.some(d => !Number.isFinite(d.getTime()))) throw new Error('Invalid entitlement expiry');
+  const expires = ent.expires_date === null ? null : dates.length ? new Date(Math.max(...dates.map(d => d.getTime()))) : null;
   const active = !expires || expires.getTime() > Date.now();
   if (!active) return { plan: 'free', proUntil: expires ? expires.toISOString() : null, proSource: null, proWillRenew: false };
   const product = ent.product_identifier ?? '';

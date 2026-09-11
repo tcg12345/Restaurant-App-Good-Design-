@@ -81,7 +81,7 @@ it('the actual webhook retries a failed database transaction and only then ackno
     },
   };
   const deno = { env: { get: (key: string) => key === 'REVENUECAT_WEBHOOK_SECRET' ? 'test-secret' : undefined }, serve: (fn: typeof handler) => { handler = fn; } };
-  new Function('Deno','serviceClient','sourceLabel','UUID_RE','withRequestTelemetry','console',code)(deno,()=>client,()=>'test',/^[0-9a-f-]{36}$/,(_name: string, fn: unknown)=>fn,{error() {}});
+  new Function('Deno','serviceClient','subscriberSnapshot','UUID_RE','withRequestTelemetry','console',code)(deno,()=>client,async()=>({state:{plan:'pro',proUntil:null,proSource:'test',proWillRenew:true},observedAtMs:1000}),/^[0-9a-f-]{36}$/,(_name: string, fn: unknown)=>fn,{error() {}});
   const request = () => new Request('https://example.invalid', { method:'POST', headers:{ Authorization:'Bearer test-secret' }, body:JSON.stringify({event:{id:'webhook',type:'INITIAL_PURCHASE',app_user_id:a,entitlement_ids:['pro']}}) });
   expect((await handler(request())).status).toBe(500);
   const retried = await handler(request());

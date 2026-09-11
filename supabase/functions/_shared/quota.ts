@@ -53,13 +53,8 @@ export function resetPhrase(resetsAt: string | null): string {
  * Returns { response } to send straight back (402 for a Pro-only feature,
  * 429 when the allowance is used up), or { plan, remaining, resetsAt }.
  *
- * Failure policy: if the RPC itself is missing (migration 087 not applied
- * yet) the request is allowed as Pro, so a deploy that precedes the
- * migration doesn't take AI down. Any other infrastructure error also
- * allows — for free-tier allowances that is the right call (the caller
- * already passed auth), and the gates are what protect paid features:
- * while they're off nothing is gated, and once they're on an outage of
- * this RPC is an outage for everyone, not a way in.
+ * If quota storage is unavailable, stop before any paid provider call and
+ * return a retryable 503. Authentication alone does not authorize unlimited AI.
  */
 export async function enforceQuota(
   req: Request,
@@ -75,18 +70,26 @@ export async function enforceQuota(
       global: { headers: { Authorization: req.headers.get('Authorization') ?? '' } },
     },
   );
-  const { data, error } = await supabase.rpc('consume_ai_quota', { p_endpoint: endpoint });
-  if (error) {
-    console.error(`[${endpoint}] quota check failed (allowing request):`, error.message);
-    return { plan: 'pro', remaining: null, resetsAt: null };
+  const unavailable = () => ({ response: new Response(JSON.stringify({
+    error: "We couldn't check your allowance. Please try again shortly.", code: 'quota_unavailable',
+  }), { status: 503, headers: { 'Content-Type': 'application/json', 'Retry-After': '5', ...CORS_HEADERS } }) });
+  let result;
+  try { result = await supabase.rpc('consume_ai_quota', { p_endpoint: endpoint }); }
+  catch { return unavailable(); }
+  const { data, error } = result;
+  if (error || !data || typeof data.allowed !== 'boolean' || !['free', 'pro'].includes(data.plan)) {
+    console.error(`[${endpoint}] quota check unavailable`);
+    return unavailable();
   }
-  const row = (data ?? {}) as Partial<QuotaRow>;
+  const row = data as { allowed: boolean; plan: string; pro_only?: boolean; remaining?: number | null; resets_at?: string | null };
+  const json = (status: number, payload: Record<string, unknown>) =>
+    new Response(JSON.stringify(payload), { status, headers: { 'Content-Type': 'application/json', ...CORS_HEADERS } });
   if (row.allowed === false) {
     if (row.pro_only) {
-      return { response: jsonResponse(402, { error: 'This is a GoodEats Pro feature.', code: 'pro_required', plan: row.plan ?? 'free' }) };
+      return { response: json(402, { error: 'This is a GoodEats Pro feature.', code: 'pro_required', plan: row.plan ?? 'free' }) };
     }
     return {
-      response: jsonResponse(429, {
+      response: json(429, {
         error: message.replace('%reset%', resetPhrase(row.resets_at ?? null)).trim(),
         code: 'quota',
         plan: row.plan ?? 'free',

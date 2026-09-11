@@ -1,9 +1,10 @@
 import React, { useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'motion/react';
-import { Check, Plus } from 'lucide-react';
+import { Check, Plus, X } from 'lucide-react';
 import { cn } from '../lib/utils';
-import { useBottomSheet } from '../lib/useBottomSheet';
+import { useBottomSheet, mergeRefs } from '../lib/useBottomSheet';
+import { useSocialDialog } from './social/useSocialDialog';
 import { scoreTintStyle } from '../lib/score';
 
 /**
@@ -48,6 +49,7 @@ interface Props {
 export const PantryListSwitcherDrawer: React.FC<Props> = ({
   open, onClose, activeId, sections, onNewList, newListLabel,
 }) => {
+  const dialogRef = useSocialDialog(open, onClose);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const { dragProps, sheetRef } = useBottomSheet(open, onClose, scrollRef);
 
@@ -63,7 +65,8 @@ export const PantryListSwitcherDrawer: React.FC<Props> = ({
           className="library-drawer fixed inset-0 z-[120] bg-black/40 backdrop-blur-[3px]"
         >
           <motion.div
-            ref={sheetRef as React.RefObject<HTMLDivElement>}
+            ref={mergeRefs(sheetRef, dialogRef)}
+            role="dialog" aria-modal="true" aria-label="Your lists"
             initial={{ y: '100%' }}
             animate={{ y: 0 }}
             exit={{ y: '100%' }}
@@ -88,6 +91,7 @@ export const PantryListSwitcherDrawer: React.FC<Props> = ({
                 <Plus size={12} strokeWidth={2.6} />
                 New
               </button>
+              <button type="button" aria-label="Close list picker" onClick={onClose} className="min-h-11 min-w-11 flex items-center justify-center text-on-surface/65"><X size={20} /></button>
             </div>
 
             <div

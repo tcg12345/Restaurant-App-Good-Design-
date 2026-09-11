@@ -94,8 +94,8 @@ Deno.serve(withRequestTelemetry('mux-upload-init', async (req) => {
   try { body = await req.json(); } catch { /* handled by validation below */ }
   // passthrough rides along on the Mux asset and comes back on every webhook,
   // letting us tie the asset to this exact reel row race-free.
-  const rowId = String(body.passthrough || '').trim();
-  const corsOrigin = String(body.corsOrigin || '*').slice(0, 255);
+  const rowId = String(body?.passthrough || '').trim();
+  const corsOrigin = String(body?.corsOrigin || '*').slice(0, 255);
   if (!UUID_RE.test(rowId)) {
     return json({ error: 'passthrough must be the video row id (a UUID).' }, 400);
   }
@@ -103,17 +103,12 @@ Deno.serve(withRequestTelemetry('mux-upload-init', async (req) => {
   const rejected = await rejectForeignRow(rowId, auth.userId);
   if (rejected) return rejected;
 
-  // Followers-only content gets Mux's SIGNED playback policy — its stream and
-  // thumbnail URLs then require short-lived tokens (mux-playback-token), so
-  // the media itself is private, not just the DB row. Requires the signing-key
-  // secrets; without them we fall back to public playback (with a loud log)
-  // rather than mint assets nobody can play.
+  // Never silently publish a followers-only upload.
   const wantsPrivate = body.isPublic === false;
-  const signingReady = muxSigningConfig() !== null;
-  if (wantsPrivate && !signingReady) {
-    console.warn('[mux-upload-init] followers-only upload but MUX_SIGNING_KEY_ID / MUX_SIGNING_PRIVATE_KEY are not set — falling back to PUBLIC playback');
+  if (wantsPrivate && !muxSigningConfig()) {
+    return json({ error: 'Private video uploads are temporarily unavailable.', code: 'private_video_unavailable' }, 503);
   }
-  const playbackPolicy: 'public' | 'signed' = wantsPrivate && signingReady ? 'signed' : 'public';
+  const playbackPolicy: 'public' | 'signed' = wantsPrivate ? 'signed' : 'public';
 
   try {
     const basic = btoa(`${MUX_TOKEN_ID}:${MUX_TOKEN_SECRET}`);

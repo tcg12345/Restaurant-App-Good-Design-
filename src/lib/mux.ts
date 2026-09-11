@@ -17,6 +17,7 @@
  * key stay in Edge Function secrets and never reach this bundle.
  */
 import { supabase } from './supabase';
+import { mediaAccessVersion, onMediaAccessChange } from './media-access-scope';
 
 const MUX_STREAM_HOST = 'https://stream.mux.com';
 const MUX_IMAGE_HOST = 'https://image.mux.com';
@@ -53,8 +54,7 @@ export interface MuxUploadTicket {
  * Ask the Edge Function for a fresh Mux direct-upload URL. `passthrough` is
  * echoed back on every Mux webhook for this asset, so we pass the reel's id to
  * tie the asset to its row race-free. `isPublic: false` requests the signed
- * playback policy (the server may fall back to public if signing keys aren't
- * provisioned — the returned playbackPolicy says what actually happened).
+ * playback policy; missing signing configuration rejects the upload.
  */
 export async function requestMuxUpload(opts: { passthrough: string; isPublic?: boolean }): Promise<MuxUploadTicket> {
   const { data, error } = await supabase.functions.invoke('mux-upload-init', {
@@ -65,6 +65,7 @@ export async function requestMuxUpload(opts: { passthrough: string; isPublic?: b
     },
   });
   if (error) throw new Error(error.message || 'Could not start the upload.');
+  if (opts.isPublic === false && data?.playbackPolicy !== 'signed') throw new Error('Private video uploads are unavailable.');
   if (!data?.uploadUrl || !data?.uploadId) throw new Error('Upload service returned no URL.');
   return {
     uploadUrl: data.uploadUrl as string,
@@ -84,10 +85,23 @@ export interface MuxPlaybackTokens {
 }
 
 // Session-scoped token cache, keyed by `${kind}:${rowId}`. Tokens are minted
-// per-viewer with a multi-hour TTL, so a feed refresh doesn't re-hit the
+// per-viewer with a short TTL, so a feed refresh doesn't re-hit the
 // function for reels it already holds fresh tokens for.
 const tokenCache = new Map<string, MuxPlaybackTokens>();
-const TOKEN_REFRESH_MARGIN_S = 10 * 60;
+const TOKEN_REFRESH_MARGIN_S = 2 * 60;
+let sessionVersion = 0;
+let observing = false;
+let viewer: string | null | undefined;
+onMediaAccessChange(() => { tokenCache.clear(); sessionVersion++; });
+function observeSession() {
+  if (observing) return;
+  observing = true;
+  supabase.auth.onAuthStateChange((_event, session) => {
+    const next = session?.user?.id ?? null;
+    if (next !== viewer) { tokenCache.clear(); sessionVersion++; }
+    viewer = next;
+  });
+}
 const TOKEN_BATCH_MAX = 60; // mirror of the Edge Function's per-call cap
 
 /**
@@ -98,6 +112,10 @@ const TOKEN_BATCH_MAX = 60; // mirror of the Edge Function's per-call cap
 export async function fetchMuxTokens(
   items: Array<{ kind: 'reel' | 'post_item'; id: string }>,
 ): Promise<Map<string, MuxPlaybackTokens>> {
+  observeSession();
+  const version = sessionVersion;
+  const mediaVersion = mediaAccessVersion();
+  const stillCurrent = () => version === sessionVersion && mediaVersion === mediaAccessVersion();
   const out = new Map<string, MuxPlaybackTokens>();
   const now = Date.now() / 1000;
   const missing: Array<{ kind: 'reel' | 'post_item'; id: string }> = [];
@@ -108,11 +126,13 @@ export async function fetchMuxTokens(
   }
 
   for (let i = 0; i < missing.length; i += TOKEN_BATCH_MAX) {
+    if (!stillCurrent()) return new Map();
     const batch = missing.slice(i, i + TOKEN_BATCH_MAX);
     try {
       const { data, error } = await supabase.functions.invoke('mux-playback-token', {
         body: { items: batch },
       });
+      if (!stillCurrent()) return new Map();
       if (error || !data?.tokens) {
         if (error) console.warn('[Mux] token fetch failed:', error.message);
         continue;
@@ -121,6 +141,7 @@ export async function fetchMuxTokens(
         const t = (data.tokens as Record<string, MuxPlaybackTokens>)[it.id];
         if (t?.playback) {
           tokenCache.set(`${it.kind}:${it.id}`, t);
+          while (tokenCache.size > 512) tokenCache.delete(tokenCache.keys().next().value!);
           out.set(it.id, t);
         }
       }
@@ -128,7 +149,7 @@ export async function fetchMuxTokens(
       console.warn('[Mux] token fetch failed:', err);
     }
   }
-  return out;
+  return stillCurrent() ? out : new Map();
 }
 
 /**

@@ -15,7 +15,7 @@ import { withRequestTelemetry } from '../_shared/api-telemetry.ts';
 // Secret:  supabase secrets set REVENUECAT_WEBHOOK_SECRET=...
 //          (RevenueCat → Integrations → Webhooks → Authorization header)
 
-import { serviceClient, sourceLabel, UUID_RE, type PlanState } from '../_shared/billing.ts';
+import { serviceClient, subscriberSnapshot, UUID_RE } from '../_shared/billing.ts';
 
 const WEBHOOK_SECRET = Deno.env.get('REVENUECAT_WEBHOOK_SECRET');
 const MAX_BODY_BYTES = 256 * 1024;
@@ -52,36 +52,6 @@ function userIdFor(ev: RcEvent): string | null {
   return null;
 }
 
-function stateFor(ev: RcEvent, prev: PlanState | null): PlanState | null {
-  const expires = typeof ev.expiration_at_ms === 'number' ? new Date(ev.expiration_at_ms).toISOString() : null;
-  const source = sourceLabel(ev.store, ev.environment);
-  switch (ev.type) {
-    case 'INITIAL_PURCHASE':
-    case 'RENEWAL':
-    case 'UNCANCELLATION':
-    case 'PRODUCT_CHANGE':
-    case 'SUBSCRIPTION_EXTENDED':
-      return { plan: 'pro', proUntil: expires, proSource: source, proWillRenew: true };
-    case 'NON_RENEWING_PURCHASE':
-      // A lifetime buy has no expiry; a consumable pass has one.
-      return { plan: 'pro', proUntil: expires, proSource: source, proWillRenew: false };
-    case 'CANCELLATION':
-      // Auto-renew turned off (or a refund). Pro until the paid period ends;
-      // a refund carries an expiration in the past and reads as free.
-      return { plan: expires && new Date(expires).getTime() <= Date.now() ? 'free' : 'pro', proUntil: expires, proSource: source, proWillRenew: false };
-    case 'BILLING_ISSUE':
-      // Grace period: RevenueCat keeps expiration in the future while the
-      // store retries the charge.
-      return { plan: 'pro', proUntil: expires, proSource: source, proWillRenew: prev?.proWillRenew ?? true };
-    case 'EXPIRATION':
-      return { plan: 'free', proUntil: expires ?? new Date().toISOString(), proSource: source, proWillRenew: false };
-    case 'SUBSCRIPTION_PAUSED':
-      return { plan: 'free', proUntil: new Date().toISOString(), proSource: source, proWillRenew: false };
-    default:
-      return null; // TEST, TRANSFER (handled separately), unknown
-  }
-}
-
 Deno.serve(withRequestTelemetry('billing-webhook', async (req) => {
   if (req.method !== 'POST') return new Response('Method not allowed', { status: 405 });
   if (!WEBHOOK_SECRET) {
@@ -101,35 +71,30 @@ Deno.serve(withRequestTelemetry('billing-webhook', async (req) => {
   } catch {
     return new Response('Invalid JSON', { status: 400 });
   }
-  const ev = body.event;
-  if (!ev || !ev.id || !ev.type) return new Response('Missing event', { status: 400 });
+  const ev = body?.event;
+  if (!ev || typeof ev.id !== 'string' || !ev.id || typeof ev.type !== 'string' || !ev.type) return new Response('Missing event', { status: 400 });
 
   const db = serviceClient();
+  if ([ev.aliases,ev.transferred_from,ev.transferred_to].some(v => v !== undefined && (!Array.isArray(v) || v.some(id => typeof id !== 'string')))) return new Response('Invalid identities', { status:400 });
   const userId = userIdFor(ev);
-  const updates: Array<{ user_id: string; plan: string; pro_until: string | null; pro_source: string | null; pro_will_renew: boolean | null }> = [];
-  const addPlan = (id: string, state: PlanState) => updates.push({ user_id: id, plan: state.plan, pro_until: state.proUntil, pro_source: state.proSource, pro_will_renew: state.proWillRenew });
+  const updates: Array<{ user_id: string; plan: string; pro_until: string | null; pro_source: string | null; pro_will_renew: boolean | null; observed_at_ms: number }> = [];
   let outcome: Record<string, unknown> = {};
   try {
-    if (ev.type === 'TRANSFER') {
-      for (const from of ev.transferred_from ?? []) {
-        if (UUID_RE.test(from)) addPlan(from, { plan: 'free', proUntil: new Date().toISOString(), proSource: sourceLabel(ev.store, ev.environment), proWillRenew: false });
+    const ids = ev.type === 'TRANSFER'
+      ? [...new Set([...(ev.transferred_from ?? []), ...(ev.transferred_to ?? [])].filter(id => typeof id === 'string' && UUID_RE.test(id)))].sort()
+      : userId ? [userId] : [];
+    if (ev.type === 'TEST') outcome = { ignored: 'test' };
+    else if (!ids.length) outcome = { unmatched: true };
+    else {
+      if (ids.length > 20) throw new Error('Too many transfer accounts');
+      // Fetch all snapshots before the one atomic transaction. A failed lookup
+      // changes neither a receipt nor any account, so the delivery can retry.
+      for (const id of ids) {
+        const { state, observedAtMs } = await subscriberSnapshot(id);
+        updates.push({ user_id:id, plan:state.plan, pro_until:state.proUntil,
+          pro_source:state.proSource, pro_will_renew:state.proWillRenew, observed_at_ms:observedAtMs });
       }
-      for (const to of ev.transferred_to ?? []) {
-        if (UUID_RE.test(to)) addPlan(to, { plan: 'pro', proUntil: typeof ev.expiration_at_ms === 'number' ? new Date(ev.expiration_at_ms).toISOString() : null, proSource: sourceLabel(ev.store, ev.environment), proWillRenew: true });
-      }
-    } else if (!userId) {
-      outcome = { unmatched: true };
-    } else if (ev.entitlement_ids?.length && !ev.entitlement_ids.includes(Deno.env.get('REVENUECAT_ENTITLEMENT') ?? 'pro')) {
-      outcome = { ignored: 'entitlement' };
-    } else {
-      const { data: prevRow, error: prevError } = await db.from('user_profiles').select('plan, pro_until, pro_source, pro_will_renew').eq('user_id', userId).maybeSingle();
-      if (prevError) throw new Error(`Previous plan read failed: ${prevError.message}`);
-      const prev: PlanState | null = prevRow
-        ? { plan: prevRow.plan === 'pro' ? 'pro' : 'free', proUntil: prevRow.pro_until ?? null, proSource: prevRow.pro_source ?? null, proWillRenew: prevRow.pro_will_renew ?? null }
-        : null;
-      const next = stateFor(ev, prev);
-      if (next) addPlan(userId, next);
-      outcome = { applied: !!next };
+      outcome = { applied: true };
     }
     const { data: applied, error } = await db.rpc('apply_billing_event', {
       event_record: {

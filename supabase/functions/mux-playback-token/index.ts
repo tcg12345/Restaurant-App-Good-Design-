@@ -29,7 +29,7 @@ const SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
 
 const MAX_ITEMS = 60;          // a feed page worth of videos, with headroom
 const MAX_BODY_BYTES = 64 * 1024;
-const TOKEN_TTL_SECONDS = 4 * 60 * 60; // client refreshes from its cache well before this
+const TOKEN_TTL_SECONDS = 15 * 60; // client refreshes from its cache well before this
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -47,14 +47,14 @@ Deno.serve(withRequestTelemetry('mux-playback-token', async (req) => {
   if (req.method !== 'POST') return json({ error: 'Method not allowed' }, 405);
 
   const auth = await requireUser(req);
-  if ('response' in auth) return auth.response;
-  const viewerId = auth.userId;
+  // Guests may play public posts that retain signed playback IDs. A failed
+  // authentication check never grants owner/follower access.
+  const viewerId = 'response' in auth ? null : auth.userId;
 
   const cfg = muxSigningConfig();
   if (!cfg) {
-    // Signed playback isn't provisioned, so no signed assets exist to token.
     console.warn('[mux-playback-token] MUX_SIGNING_KEY_ID / MUX_SIGNING_PRIVATE_KEY not set');
-    return json({ tokens: {} });
+    return json({ error: 'Private video playback is temporarily unavailable.' }, 503);
   }
   if (!SUPABASE_URL || !SERVICE_ROLE_KEY) {
     console.error('[mux-playback-token] missing SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY');
@@ -63,7 +63,7 @@ Deno.serve(withRequestTelemetry('mux-playback-token', async (req) => {
 
   const parsed = await readJsonBody<{ items?: TokenItem[] }>(req, MAX_BODY_BYTES);
   if ('response' in parsed) return parsed.response;
-  const rawItems = Array.isArray(parsed.body.items) ? parsed.body.items : [];
+  const rawItems = Array.isArray(parsed.body?.items) ? parsed.body.items : [];
   const items = rawItems
     .filter((it): it is TokenItem =>
       !!it && (it.kind === 'reel' || it.kind === 'post_item') && UUID_RE.test(String(it.id || '')))
@@ -121,7 +121,7 @@ Deno.serve(withRequestTelemetry('mux-playback-token', async (req) => {
     [...rows.values()].filter((r) => !r.isPublic && r.authorId !== viewerId).map((r) => r.authorId),
   )];
   const followedAuthors = new Set<string>();
-  if (privateAuthors.length) {
+  if (viewerId && privateAuthors.length) {
     const { data, error } = await sb.from('user_friends')
       .select('friend_id')
       .eq('user_id', viewerId)

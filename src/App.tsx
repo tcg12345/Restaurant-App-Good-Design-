@@ -58,7 +58,7 @@ const ProPage = lazyPage(() => import('./pages/ProPage').then(m => ({ default: m
 
 const AdminAnalytics = React.lazy(() => import('./pages/AdminAnalytics').then(m => ({ default: m.AdminAnalytics })));
 import { BrowserRouter as Router, Routes, Route, useLocation, useNavigate, useNavigationType, Navigate } from 'react-router-dom';
-import { Discover } from './pages/Discover';
+const Discover = lazyPage(() => import('./pages/Discover').then(m => ({ default: m.Discover })));
 import { Home } from './pages/Home';
 import { BottomNav } from './components/BottomNav';
 import { PullToRefresh } from './components/PullToRefresh';

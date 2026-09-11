@@ -1367,9 +1367,7 @@ function resetPhrase(resetsAt: string | null): string {
  *  (the consume_ai_quota RPC — migration 087_billing.sql; inlined from
  *  _shared/quota.ts, keep the two in sync). Returns { response } to send
  *  straight back (402 for a Pro-only feature, 429 when the allowance is
- *  used up), else the caller's plan and headroom. Allows on infrastructure
- *  errors: the caller already passed auth, and while the billing gates are
- *  off nothing is gated anyway. */
+ *  used up), else the caller's plan and headroom. Returns a retryable 503 if the allowance cannot be verified. */
 async function enforceQuota(
   req: Request,
   endpoint: string,
@@ -1383,12 +1381,18 @@ async function enforceQuota(
       global: { headers: { Authorization: req.headers.get('Authorization') ?? '' } },
     },
   );
-  const { data, error } = await supabase.rpc('consume_ai_quota', { p_endpoint: endpoint });
-  if (error) {
-    console.error(`[${endpoint}] quota check failed (allowing request):`, error.message);
-    return { plan: 'pro', remaining: null, resetsAt: null };
+  const unavailable = () => ({ response: new Response(JSON.stringify({
+    error: "We couldn't check your allowance. Please try again shortly.", code: 'quota_unavailable',
+  }), { status: 503, headers: { 'Content-Type': 'application/json', 'Retry-After': '5', ...CORS_HEADERS } }) });
+  let result;
+  try { result = await supabase.rpc('consume_ai_quota', { p_endpoint: endpoint }); }
+  catch { return unavailable(); }
+  const { data, error } = result;
+  if (error || !data || typeof data.allowed !== 'boolean' || !['free', 'pro'].includes(data.plan)) {
+    console.error(`[${endpoint}] quota check unavailable`);
+    return unavailable();
   }
-  const row = (data ?? {}) as { allowed?: boolean; plan?: string; pro_only?: boolean; remaining?: number | null; resets_at?: string | null };
+  const row = data as { allowed: boolean; plan: string; pro_only?: boolean; remaining?: number | null; resets_at?: string | null };
   const json = (status: number, payload: Record<string, unknown>) =>
     new Response(JSON.stringify(payload), { status, headers: { 'Content-Type': 'application/json', ...CORS_HEADERS } });
   if (row.allowed === false) {

@@ -3031,7 +3031,7 @@ const MobileRecipeView: React.FC<MobileViewProps> = ({
             <>
               <h2 className="rdm-section-title">
                 Ingredients
-                <span className="count">{checked.size ? `${checked.size} / ${totalItems} ready` : `${totalItems} items`}</span>
+                <span className="count">{checked.size ? `${checked.size} / ${totalItems} ready` : `${totalItems} ${totalItems === 1 ? 'item' : 'items'}`}</span>
               </h2>
               {totalItems === 0 ? (
                 <p style={{ fontFamily: 'var(--serif)', fontStyle: 'italic', fontSize: 14, color: 'var(--muted)' }}>
@@ -3091,7 +3091,7 @@ const MobileRecipeView: React.FC<MobileViewProps> = ({
       <section className="rdm-section" data-recipe-section="method">
         <h2 className="rdm-section-title">
           Method
-          <span className="count">{doneSteps.size ? `${doneSteps.size} / ${steps.length} done` : `${steps.length} steps`}</span>
+          <span className="count">{doneSteps.size ? `${doneSteps.size} / ${steps.length} done` : `${steps.length} ${steps.length === 1 ? 'step' : 'steps'}`}</span>
         </h2>
         {/* Equipment card — sits between the Directions title and the
             first step on phone too, but stacked vertically to fit. */}

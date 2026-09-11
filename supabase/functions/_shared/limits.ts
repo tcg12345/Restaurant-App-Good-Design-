@@ -21,9 +21,7 @@ function jsonResponse(status: number, message: string): Response {
  * while under it. The RPC runs as the caller (their bearer token is
  * forwarded), so SECURITY DEFINER + auth.uid() scopes the counter to them.
  *
- * Fails open on infrastructure errors (RPC missing, DB hiccup): the caller
- * has already passed auth by the time this runs, and a function deploy that
- * briefly precedes migration 047 shouldn't take every AI feature down.
+ * Returns a retryable 503 when the limit cannot be verified.
  */
 export async function enforceRateLimit(
   req: Request,
@@ -42,13 +40,15 @@ export async function enforceRateLimit(
     },
   );
 
-  const { data, error } = await supabase.rpc('consume_ai_rate_limit', {
+  let result;
+  try { result = await supabase.rpc('consume_ai_rate_limit', {
     p_endpoint: endpoint,
     p_max_per_hour: maxPerHour,
-  });
-  if (error) {
-    console.error(`[${endpoint}] rate-limit check failed (allowing request):`, error.message);
-    return null;
+  }); } catch { return jsonResponse(503, 'Unable to check your allowance. Please try again shortly.'); }
+  const { data, error } = result;
+  if (error || typeof data !== 'boolean') {
+    console.error(`[${endpoint}] rate-limit check unavailable`);
+    return jsonResponse(503, 'Unable to check your allowance. Please try again shortly.');
   }
   if (data === false) {
     return jsonResponse(429, message);

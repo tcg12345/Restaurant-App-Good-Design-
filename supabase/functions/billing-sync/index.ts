@@ -1,4 +1,4 @@
-import { instrumentedFetch as fetch, withRequestTelemetry } from '../_shared/api-telemetry.ts';
+import { withRequestTelemetry } from '../_shared/api-telemetry.ts';
 // billing-sync — pull the caller's subscription from RevenueCat and write
 // the plan now, instead of waiting for the webhook.
 //
@@ -14,7 +14,7 @@ import { instrumentedFetch as fetch, withRequestTelemetry } from '../_shared/api
 //          (a RevenueCat *secret* API v1 key; never the public SDK key)
 
 import { requireUser, CORS_HEADERS } from '../_shared/auth.ts';
-import { serviceClient, writePlan, planFromSubscriber, type RcSubscriber } from '../_shared/billing.ts';
+import { serviceClient, writePlan, subscriberSnapshot } from '../_shared/billing.ts';
 
 const RC_SECRET = Deno.env.get('REVENUECAT_SECRET_KEY');
 
@@ -29,20 +29,13 @@ Deno.serve(withRequestTelemetry('billing-sync', async (req) => {
   if ('response' in auth) return auth.response;
   if (!RC_SECRET) return json(503, { error: 'Billing is not configured yet.' });
 
-  const res = await fetch(`https://api.revenuecat.com/v1/subscribers/${encodeURIComponent(auth.userId)}`, {
-    headers: { Authorization: `Bearer ${RC_SECRET}`, 'Content-Type': 'application/json' },
-  });
-  if (!res.ok) {
-    console.error('[billing-sync] RevenueCat lookup failed:', res.status);
-    return json(502, { error: "Couldn't reach the store right now." });
-  }
-  const sub = (await res.json()) as RcSubscriber;
-  const state = planFromSubscriber(sub);
+  let state;
   try {
-    await writePlan(serviceClient(), auth.userId, state);
-  } catch (err) {
-    console.error('[billing-sync] write failed:', err);
-    return json(500, { error: "Couldn't save your plan." });
+    const snapshot = await subscriberSnapshot(auth.userId);
+    state = await writePlan(serviceClient(), auth.userId, snapshot.state, snapshot.observedAtMs);
+  } catch {
+    console.error('[billing-sync] reconciliation unavailable');
+    return json(502, { error: "Couldn't verify your plan. Please try again shortly." });
   }
   return json(200, { plan: state.plan, proUntil: state.proUntil, proSource: state.proSource, proWillRenew: state.proWillRenew });
 }));

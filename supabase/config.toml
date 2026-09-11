@@ -83,3 +83,144 @@ verify_jwt = true
 # A private scheduler secret is checked in the handler; no user JWT can send pushes.
 [functions.push-dispatch]
 verify_jwt = false
+
+[functions.geocode]
+verify_jwt = true
+
+[functions.set-mapbox-token]
+verify_jwt = true
+
+[functions.get-mapbox-token]
+verify_jwt = true
+
+[functions.restaurant-lookup]
+verify_jwt = true
+
+[functions.generate-restaurant-photos]
+verify_jwt = true
+
+[functions.generate-restaurant-rating]
+verify_jwt = true
+
+[functions.ai-chatbot]
+verify_jwt = true
+
+[functions.restaurant-discovery]
+verify_jwt = true
+
+[functions.ai-review-assistant]
+verify_jwt = true
+
+[functions.chatgpt-restaurant-info]
+verify_jwt = true
+
+[functions.ai-restaurant-assistant]
+verify_jwt = true
+
+[functions.ai-review-summarizer]
+verify_jwt = true
+
+[functions.ai-search-enhancer]
+verify_jwt = true
+
+[functions.realtime-chat]
+verify_jwt = true
+
+[functions.location-suggestions]
+verify_jwt = true
+
+[functions.restaurant-search]
+verify_jwt = true
+
+[functions.ai-search-completion]
+verify_jwt = true
+
+[functions.google-places-search]
+verify_jwt = true
+
+[functions.ai-restaurant-analysis]
+verify_jwt = true
+
+[functions.yelp-reviews]
+verify_jwt = true
+
+[functions.ai-personalized-recommendations]
+verify_jwt = true
+
+[functions.ai-cuisine-detector]
+verify_jwt = true
+
+[functions.ai-michelin-detector]
+verify_jwt = true
+
+[functions.delete-user-account]
+verify_jwt = true
+
+[functions.friend-activity-cache]
+verify_jwt = true
+
+[functions.cache-warmer]
+verify_jwt = true
+
+[functions.friend-profile-cache]
+verify_jwt = true
+
+[functions.ai-restaurant-enhancer]
+verify_jwt = true
+
+[functions.ai-reservation-finder]
+verify_jwt = true
+
+[functions.yelp-restaurant-data]
+verify_jwt = true
+
+[functions.amadeus-api]
+verify_jwt = true
+
+[functions.tripadvisor-api]
+verify_jwt = true
+
+[functions.analyze-nutrition]
+verify_jwt = true
+
+[functions.update-place-websites]
+verify_jwt = true
+
+[functions.ai-place-categorizer]
+verify_jwt = true
+
+[functions.enrich-place-data]
+verify_jwt = true
+
+[functions.community-reviews]
+verify_jwt = true
+
+[functions.get-google-calendar-credentials]
+verify_jwt = true
+
+[functions.ai-hotel-overview]
+verify_jwt = true
+
+[functions.google-photo-proxy]
+verify_jwt = true
+
+[functions.send-hotel-email]
+verify_jwt = true
+
+[functions.amadeus-enhanced-flight-api]
+verify_jwt = true
+
+[functions.comprehensive-airport-search]
+verify_jwt = true
+
+[functions.hotel-booking-test]
+verify_jwt = true
+
+[functions.amadeus-hotel-booking]
+verify_jwt = true
+
+[functions.hotel-booking]
+verify_jwt = true
+
+[functions.amadeus-hotel-search]
+verify_jwt = true

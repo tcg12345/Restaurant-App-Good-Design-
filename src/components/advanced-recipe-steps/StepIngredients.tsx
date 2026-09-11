@@ -85,20 +85,20 @@ const Row: React.FC<RowProps> = ({ ingredient, onChange, onRemove }) => {
 
   const handleUnitFocus = () => {
     setUnitOpen(true);
-    setUnitSearch('');
+    setUnitSearch(ingredient.unit);
   };
 
   const handleUnitTyping = (raw: string) => {
     setUnitOpen(true);
     setUnitSearch(raw);
+    // Persist typed units too; moving to another field must not discard them.
+    onChange({ ...ingredient, unit: normalizeUnit(raw) || raw.trim() });
   };
 
   const pickUnit = (label: string) => {
     onChange({ ...ingredient, unit: label });
     setUnitOpen(false);
     setUnitSearch('');
-    // Defer blur so the next field gets focus instead of the unit input.
-    unitInputRef.current?.blur();
   };
 
   // When the dropdown closes via backdrop-click or escape, snap the
@@ -150,6 +150,7 @@ const Row: React.FC<RowProps> = ({ ingredient, onChange, onRemove }) => {
           className="rcx-ing-input rcx-ing-unit"
           value={unitOpen ? unitSearch : ingredient.unit}
           onFocus={handleUnitFocus}
+          onBlur={closeUnitDropdown}
           onChange={(e) => handleUnitTyping(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === 'Escape') { e.preventDefault(); closeUnitDropdown(); }

@@ -591,7 +591,9 @@ export const AddReelModal: React.FC = () => {
         });
         if (!ok) throw new Error("Couldn't update the reel — try again.");
         if (editingReel.isPublic !== isPublic) {
-          await setReelVisibility(editingReel.id, isPublic);
+          if (!await setReelVisibility(editingReel.id, isPublic)) {
+            throw new Error('Your text changes were saved, but visibility could not be changed. Please retry.');
+          }
         }
         showToast('Reel updated');
         closeAddReelModal();

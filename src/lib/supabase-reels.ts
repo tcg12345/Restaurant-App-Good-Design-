@@ -653,28 +653,14 @@ export async function setSave(reelId: string, userId: string, saved: boolean): P
 /** Toggle a reel's visibility. Owner-only via the existing UPDATE RLS. */
 export async function setReelVisibility(reelId: string, isPublic: boolean): Promise<boolean> {
   if (!supabaseConfigured) return false;
-  const { error } = await supabase.from('reels')
-    .update({ is_public: isPublic })
-    .eq('id', reelId);
-  if (error) {
-    if (error.code === 'PGRST204' && /is_public/i.test(error.message || '')) {
-      console.warn('[Reels] setVisibility no-op — run migration 020 to enable per-reel privacy.');
-    } else {
-      console.warn('[Reels] setVisibility failed:', error.message);
-    }
+  try {
+    const { data, error } = await supabase.functions.invoke('mux-set-visibility', {
+      body: { kind: 'reel', id: reelId, isPublic },
+    });
+    return !error && data?.isPublic === isPublic;
+  } catch {
     return false;
   }
-  // Align the Mux playback policy with the new visibility. RLS only hides the
-  // DB row — without this the old public stream/thumbnail URLs keep working
-  // for anyone after going followers-only (and a signed asset would stay
-  // token-gated after going public). Swapping policies changes the playback
-  // id, so callers should refetch the reel after this resolves.
-  try {
-    await supabase.functions.invoke('mux-set-visibility', { body: { kind: 'reel', id: reelId } });
-  } catch (err) {
-    console.warn('[Reels] mux playback-policy sync failed:', err);
-  }
-  return true;
 }
 
 /* ── Update (caption / audio / featured attachment) ──────────────────

@@ -764,27 +764,14 @@ export async function setPostSave(postId: string, userId: string, saved: boolean
 
 export async function setPostVisibility(postId: string, isPublic: boolean): Promise<boolean> {
   if (!supabaseConfigured) return false;
-  const { error } = await supabase.from('posts')
-    .update({ is_public: isPublic })
-    .eq('id', postId);
-  if (error) {
-    if (error.code === 'PGRST204' && /is_public/i.test(error.message || '')) {
-      console.warn('[Posts] setVisibility no-op — schema cache missing is_public.');
-    } else {
-      console.warn('[Posts] setVisibility failed:', error.message);
-    }
+  try {
+    const { data, error } = await supabase.functions.invoke('mux-set-visibility', {
+      body: { kind: 'post', id: postId, isPublic },
+    });
+    return !error && data?.isPublic === isPublic;
+  } catch {
     return false;
   }
-  // Align every video item's Mux playback policy with the new visibility —
-  // RLS only hides the DB rows; the old public stream URLs would keep working
-  // otherwise. Playback ids change in the swap, so callers should refetch the
-  // post's items after this resolves.
-  try {
-    await supabase.functions.invoke('mux-set-visibility', { body: { kind: 'post', id: postId } });
-  } catch (err) {
-    console.warn('[Posts] mux playback-policy sync failed:', err);
-  }
-  return true;
 }
 
 /* ── Update (post-level + per-item, no media swaps) ──────────────────

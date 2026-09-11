@@ -1,26 +1,7 @@
 import { instrumentedFetch as fetch, withRequestTelemetry } from '../_shared/api-telemetry.ts';
-// mux-set-visibility — align a Mux asset's playback policy with its row's
-// is_public flag after the owner flips a reel / post between public and
-// followers-only.
-//
-// RLS hides the DB row, but a Mux PUBLIC playback id keeps streaming to
-// anyone who has (or guesses) the URL. So on every visibility flip the client
-// calls this after updating is_public: we re-read the row (the DB value is
-// authoritative — the client's intent is never trusted), verify the caller
-// OWNS it, then reconcile the asset via the Mux API: create a playback id
-// with the desired policy, delete the ones with the wrong policy, and write
-// the new playback id + policy back onto the row. The playback id CHANGES in
-// this process — the response carries the new one so the client can refresh.
-//
-// Request:  { kind: 'reel' | 'post', id: '<uuid>' }
-// Response: { updated: [{ rowId, playbackId, policy }], skipped?: string }
-//
-// Flipping to followers-only requires the signing-key secrets (else the new
-// signed asset would be unplayable for everyone); without them we leave the
-// asset public and report it in `skipped`.
-//
-// Deploy:  supabase functions deploy mux-set-visibility
-// `verify_jwt = false` (config.toml): preflight, same as the other functions.
+// Owner-authorized privacy changes reconcile hosted media before publishing the
+// database visibility change. Missing configuration and partial failures are errors.
+// Older clients may omit isPublic; their already-written row remains authoritative.
 
 import { createClient } from 'jsr:@supabase/supabase-js@2';
 import { CORS_HEADERS, requireUser } from '../_shared/auth.ts';
@@ -46,7 +27,7 @@ async function reconcileAsset(
   authHeader: string,
   assetId: string,
   policy: 'public' | 'signed',
-): Promise<string | null> {
+): Promise<{ playbackId: string; policy: 'public' | 'signed' } | null> {
   const assetRes = await fetch(`${MUX_API}/assets/${assetId}`, {
     headers: { Authorization: authHeader },
   });
@@ -57,6 +38,11 @@ async function reconcileAsset(
   const asset = await assetRes.json();
   const playbackIds = (asset?.data?.playback_ids ?? []) as Array<{ id: string; policy: string }>;
 
+  // Never recreate public URLs during a visibility change. Once secured, an
+  // asset stays signed even when its post becomes public; public viewers can
+  // receive tokens through the same authorization endpoint. This also keeps
+  // an overlapping request from restoring a URL another request just revoked.
+  if (policy === 'public' && !playbackIds.some(p => p.policy === 'public')) policy = 'signed';
   let keep = playbackIds.find((p) => p.policy === policy)?.id ?? null;
   if (!keep) {
     const createRes = await fetch(`${MUX_API}/assets/${assetId}/playback-ids`, {
@@ -75,14 +61,17 @@ async function reconcileAsset(
   // Only after the replacement exists do we retire the old-policy ids, so a
   // failure above never leaves the asset with no playback id at all.
   for (const p of playbackIds) {
-    if (p.policy === policy) continue;
+    if (policy === 'public' || p.policy === policy) continue;
     const delRes = await fetch(`${MUX_API}/assets/${assetId}/playback-ids/${p.id}`, {
       method: 'DELETE',
       headers: { Authorization: authHeader },
     });
-    if (!delRes.ok) console.error('[mux-set-visibility] playback-id delete failed', assetId, p.id, delRes.status);
+    if (!delRes.ok && delRes.status !== 404) {
+      console.error('[mux-set-visibility] playback-id delete failed', delRes.status);
+      return null;
+    }
   }
-  return keep;
+  return { playbackId: keep, policy };
 }
 
 Deno.serve(withRequestTelemetry('mux-set-visibility', async (req) => {
@@ -93,15 +82,15 @@ Deno.serve(withRequestTelemetry('mux-set-visibility', async (req) => {
   if ('response' in auth) return auth.response;
 
   const authHeader = muxApiAuth();
-  if (!authHeader || !SUPABASE_URL || !SERVICE_ROLE_KEY) {
+  if (!SUPABASE_URL || !SERVICE_ROLE_KEY) {
     console.error('[mux-set-visibility] missing Mux/Supabase configuration');
     return json({ error: 'Video hosting is not configured.' }, 500);
   }
 
-  const parsed = await readJsonBody<{ kind?: string; id?: string }>(req, 4 * 1024);
+  const parsed = await readJsonBody<{ kind?: string; id?: string; isPublic?: boolean }>(req, 4 * 1024);
   if ('response' in parsed) return parsed.response;
-  const kind = parsed.body.kind;
-  const id = String(parsed.body.id || '');
+  const kind = parsed.body?.kind;
+  const id = String(parsed.body?.id || '');
   if ((kind !== 'reel' && kind !== 'post') || !UUID_RE.test(id)) {
     return json({ error: 'Expected { kind: "reel" | "post", id: uuid }.' }, 400);
   }
@@ -140,30 +129,31 @@ Deno.serve(withRequestTelemetry('mux-set-visibility', async (req) => {
       .map((it) => ({ table: 'post_items' as const, rowId: String(it.id), assetId: String(it.mux_asset_id) }));
   }
 
+  if (parsed.body.isPublic !== undefined && typeof parsed.body.isPublic !== 'boolean') return json({ error: 'Invalid visibility.' }, 400);
+  isPublic = parsed.body.isPublic ?? isPublic;
   const policy: 'public' | 'signed' = isPublic ? 'public' : 'signed';
-  if (policy === 'signed' && !muxSigningConfig()) {
-    console.warn('[mux-set-visibility] signing keys not set — leaving asset(s) on public playback');
-    return json({ updated: [], skipped: 'signing-not-configured' });
+  if (targets.length && !authHeader) return json({ error: 'Video hosting is unavailable.' }, 503);
+  if (targets.length && policy === 'signed' && !muxSigningConfig()) {
+    return json({ error: 'Private video playback is temporarily unavailable.', code: 'private_video_unavailable' }, 503);
   }
 
   const updated: Array<{ rowId: string; playbackId: string; policy: string }> = [];
   for (const t of targets) {
-    const playbackId = await reconcileAsset(authHeader, t.assetId, policy);
-    if (!playbackId) continue;
+    const reconciled = await reconcileAsset(authHeader!, t.assetId, policy);
+    if (!reconciled) return json({ error: 'Could not secure every video. Please retry.' }, 502);
+    const { playbackId, policy: actualPolicy } = reconciled;
     const { error } = await sb.from(t.table)
-      .update({ mux_playback_id: playbackId, mux_playback_policy: policy })
+      .update({ mux_playback_id: playbackId, mux_playback_policy: actualPolicy })
       .eq('id', t.rowId);
     if (error) {
-      // Column missing (migration 048 not applied) — still record the id.
-      if (error.code === 'PGRST204' && /mux_playback_policy/i.test(error.message || '')) {
-        await sb.from(t.table).update({ mux_playback_id: playbackId }).eq('id', t.rowId);
-      } else {
-        console.error(`[mux-set-visibility] ${t.table} update failed`, error.message);
-        continue;
-      }
+      console.error('[mux-set-visibility] playback metadata update failed', error.message);
+      return json({ error: 'Could not save video privacy. Please retry.' }, 500);
     }
-    updated.push({ rowId: t.rowId, playbackId, policy });
+    updated.push({ rowId: t.rowId, playbackId, policy: actualPolicy });
   }
 
-  return json({ updated });
+  const { data: saved, error: saveError } = await sb.from(kind === 'reel' ? 'reels' : 'posts')
+    .update({ is_public: isPublic }).eq('id', id).eq('user_id', auth.userId).select('id').maybeSingle();
+  if (saveError || !saved) return json({ error: 'Could not save visibility. Please retry.' }, 500);
+  return json({ updated, isPublic });
 }));

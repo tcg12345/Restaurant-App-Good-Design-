@@ -54,7 +54,8 @@ import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../contexts/ToastContext';
 import { ALL_TAGS, PRICE_RANGES, priceIndexFromAmount, Calendar } from '../components/RatingShared';
 import { RecommendationsBrowser } from '../components/RecommendationsBrowser';
-import { useBottomSheet } from '../lib/useBottomSheet';
+import { useBottomSheet, mergeRefs } from '../lib/useBottomSheet';
+import { useSocialDialog } from '../components/social/useSocialDialog';
 import { SheetGrabArea } from '../components/SheetGrabArea';
 import { Collapse } from '../components/Collapse';
 import { GlassButton } from '../lib/glass-buttons';
@@ -313,13 +314,16 @@ const CreateListSheet: React.FC<{
   };
   const handleClose = () => { setSearch(''); setMode('browse'); setCustomName(''); setCustomEmoji('📋'); setSelectedCategory(null); onClose(); };
 
+  const dialogRef = useSocialDialog(open, handleClose);
+
   return (
     <AnimatePresence>
       {open && (
         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
           className={cn("fixed inset-0 bg-black/50 backdrop-blur-sm z-[100] flex justify-center", phoneMode ? "items-end" : "items-end sm:items-center")} onClick={handleClose}>
           <motion.div
-            ref={sheetRef as React.RefObject<HTMLDivElement>}
+            ref={mergeRefs(sheetRef, dialogRef)}
+            role="dialog" aria-modal="true" aria-label={mode === 'custom' ? 'Create custom list' : 'New list'}
             initial={{ y: '100%' }}
             animate={{ y: 0 }}
             exit={{ y: '100%' }}
@@ -334,7 +338,7 @@ const CreateListSheet: React.FC<{
                   ? kind === 'recipes' ? 'New Recipe List' : 'New List'
                   : kind === 'recipes' ? 'Create Custom Recipe List' : 'Create Custom List'}
               </h2>
-              <button onClick={handleClose} className="p-2 -mr-2 text-on-surface/40 hover:text-on-surface transition-colors"><X size={20} /></button>
+              <button aria-label="Close new list" onClick={handleClose} className="min-w-11 min-h-11 p-2 -mr-2 text-on-surface/65 hover:text-on-surface transition-colors"><X size={20} /></button>
             </div>
 
             {mode === 'browse' ? (
@@ -342,7 +346,7 @@ const CreateListSheet: React.FC<{
                 <div className="px-5 pb-3">
                   <div className="relative">
                     <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-on-surface/30" />
-                    <input data-search-input="standalone" type="text" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search lists..."
+                    <input aria-label="Search list templates" data-search-input="standalone" type="text" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search lists..."
                       className="w-full bg-on-surface/5 rounded-xl py-2.5 pl-9 pr-4 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all" />
                   </div>
                 </div>
@@ -418,17 +422,17 @@ const CreateListSheet: React.FC<{
             ) : (
               <div className="px-5 pb-5 space-y-4">
                 <div>
-                  <p className="text-[11px] font-bold uppercase tracking-widest text-on-surface/40 mb-2">Choose an emoji</p>
+                  <p className="text-[11px] font-bold uppercase tracking-widest text-on-surface/65 mb-2">Choose an emoji</p>
                   <div className="flex flex-wrap gap-1.5">
                     {CUSTOM_EMOJI_OPTIONS.map((e) => (
-                      <button key={e} onClick={() => setCustomEmoji(e)}
+                      <button key={e} aria-label={`Use ${e} emoji`} aria-pressed={customEmoji === e} onClick={() => setCustomEmoji(e)}
                         className={cn("w-10 h-10 rounded-lg flex items-center justify-center text-lg transition-all", customEmoji === e ? "bg-primary/10 ring-2 ring-primary/30 scale-110" : "hover:bg-on-surface/5")}>{e}</button>
                     ))}
                   </div>
                 </div>
                 <div>
-                  <p className="text-[11px] font-bold uppercase tracking-widest text-on-surface/40 mb-2">List name</p>
-                  <input type="text" value={customName} onChange={(e) => setCustomName(e.target.value)} placeholder="Enter list name..." autoFocus
+                  <p className="text-[11px] font-bold uppercase tracking-widest text-on-surface/65 mb-2">List name</p>
+                  <input aria-label="List name" maxLength={120} type="text" value={customName} onChange={(e) => setCustomName(e.target.value)} placeholder="Enter list name..." autoFocus
                     className="w-full bg-white border border-on-surface/10 rounded-xl px-4 py-3 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20"
                     onKeyDown={(e) => e.key === 'Enter' && handleCreateCustom()} />
                 </div>
@@ -463,6 +467,9 @@ const AddFromRatedSheet: React.FC<{
   const { phoneMode } = useSettings();
   const [search, setSearch] = useState('');
   const [promptRating, setPromptRating] = useState<RestaurantRating | null>(null);
+  const { dragProps, sheetRef } = useBottomSheet(open, onClose);
+  const dialogRef = useSocialDialog(open && !promptRating, onClose);
+  const promptRef = useSocialDialog(!!promptRating, () => setPromptRating(null));
 
   const filtered = useMemo(() => {
     if (!search.trim()) return ratings;
@@ -497,7 +504,8 @@ const AddFromRatedSheet: React.FC<{
       {open && (
         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
           className={cn("fixed inset-0 bg-black/50 backdrop-blur-sm z-[100] flex justify-center", phoneMode ? "items-end" : "items-end sm:items-center")} onClick={onClose}>
-          <motion.div
+          <motion.div ref={mergeRefs(sheetRef, dialogRef)} {...dragProps}
+            role={promptRating ? undefined : 'dialog'} aria-modal={promptRating ? undefined : true} aria-label="Add rated restaurants"
             initial={{ y: '100%' }}
             animate={{ y: 0 }}
             exit={{ y: '100%' }}
@@ -507,12 +515,12 @@ const AddFromRatedSheet: React.FC<{
           >
             <div className="flex items-center justify-between px-5 pt-safe-4 sm:pt-5 pb-3 flex-shrink-0">
               <h2 className="font-serif font-bold text-lg">Add Rated Restaurants</h2>
-              <button onClick={onClose} className="p-2 -mr-2 text-on-surface/40 hover:text-on-surface transition-colors"><X size={20} /></button>
+              <button aria-label="Close restaurant selection" onClick={onClose} className="min-h-11 min-w-11 p-2 -mr-2 text-on-surface/65 hover:text-on-surface transition-colors"><X size={20} /></button>
             </div>
             <div className="px-5 pb-3">
               <div className="relative">
                 <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-on-surface/30" />
-                <input data-search-input="standalone" type="text" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search by name, cuisine, or location..."
+                <input aria-label="Search rated restaurants" data-search-input="standalone" type="text" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search by name, cuisine, or location..."
                   className="w-full bg-on-surface/5 rounded-xl py-2.5 pl-9 pr-4 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all" />
               </div>
             </div>
@@ -525,7 +533,7 @@ const AddFromRatedSheet: React.FC<{
               ) : filtered.map((r) => {
                 const isInList = listRestaurantIds.includes(r.restaurantId);
                 return (
-                  <button key={r.restaurantId} onClick={() => handleToggle(r)}
+                  <button key={r.restaurantId} aria-pressed={isInList} onClick={() => handleToggle(r)}
                     className={cn("w-full flex items-center gap-3 p-2.5 rounded-xl border transition-all text-left", isInList ? "bg-primary/5 border-primary/20" : "bg-white border-on-surface/8 hover:border-on-surface/15")}>
                     <div className="w-11 h-11 rounded-lg overflow-hidden flex-shrink-0 bg-on-surface/5">
                       {r.image ? <PhotoImage src={r.image} alt={r.name} className="w-full h-full object-cover" referrerPolicy="no-referrer" /> : <div className="w-full h-full flex items-center justify-center text-on-surface/20 font-serif font-bold text-sm">{r.name.charAt(0)}</div>}
@@ -549,7 +557,7 @@ const AddFromRatedSheet: React.FC<{
                 <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
                   className="absolute inset-0 bg-black/40 z-10 flex items-end sm:items-center justify-center"
                   onClick={() => setPromptRating(null)}>
-                  <motion.div initial={{ y: 20, opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: 20, opacity: 0 }}
+                  <motion.div ref={promptRef} role="dialog" aria-modal="true" aria-label="Choose rating for list" initial={{ y: 20, opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: 20, opacity: 0 }}
                     transition={{ type: 'spring', damping: 25, stiffness: 350 }}
                     onClick={(e) => e.stopPropagation()}
                     className="bg-white rounded-2xl shadow-2xl border border-on-surface/8 mx-5 mb-8 sm:mb-0 w-full max-w-xs overflow-hidden">
@@ -562,12 +570,13 @@ const AddFromRatedSheet: React.FC<{
                       <div className="space-y-2">
                         <button onClick={handleUseSame}
                           className="w-full py-3 bg-primary text-on-primary rounded-xl text-sm font-semibold active:scale-[0.98] transition-transform">
-                          Use Existing Rating ({promptRating.score.toFixed(1)})
+                          Use Existing Rating{scoresUnlocked ? ` (${promptRating.score.toFixed(1)})` : ''}
                         </button>
                         <button onClick={handleCreateNew}
                           className="w-full py-3 bg-on-surface/[0.04] border border-on-surface/10 rounded-xl text-sm font-semibold text-on-surface/70 hover:bg-on-surface/[0.08] transition-colors">
                           Create New Rating
                         </button>
+                        <button onClick={() => setPromptRating(null)} className="w-full min-h-11 text-sm text-on-surface/70">Cancel</button>
                       </div>
                     </div>
                   </motion.div>
@@ -6199,7 +6208,7 @@ export const Pantry: React.FC = () => {
         { label: 'By cuisine', items: restaurantCuisineStats.map((c) => ({
           id: cuisineViewId(c.name), name: c.name,
           meta: `${c.count} ${c.count === 1 ? 'place' : 'places'} rated`,
-          score: c.avg,
+          ...(scoresUnlocked ? { score: c.avg } : { icon: <UtensilsCrossed size={17} /> }),
           onSelect: () => switchToRestaurantCuisine(c.name),
         })) },
       ];

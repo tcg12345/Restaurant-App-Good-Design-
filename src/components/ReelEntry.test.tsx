@@ -26,6 +26,9 @@ async function render({ instant = false, near = true, poster = '/poster.jpg', en
   await act(async () => root.render(<RouteMotionLayer key={entry} initial="enter" animate="center" custom={{ instant }}>
     <MuxReelMedia playbackId="sample" poster={poster} active near={near} muted phoneMode />
   </RouteMotionLayer>));
+  // The player engine is now a separate chunk; wait for delivery before
+  // asserting its route-settling behavior. Loading it never mounts a decoder.
+  await act(async () => { await import('./MuxReelPlayer'); });
 }
 it('opens on the poster, defers the decoder until landing, then fades only on playing', async () => {
   await render();

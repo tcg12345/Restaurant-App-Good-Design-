@@ -9,9 +9,7 @@
 // MUX_SIGNING_PRIVATE_KEY accepts the PEM either raw or base64-encoded (the
 // Mux API returns it base64-encoded).
 //
-// When these secrets are absent, signed playback is OFF: uploads fall back to
-// the public policy (see mux-upload-init) so nothing breaks — provision the
-// keys, then new followers-only uploads become signed.
+// Without signing secrets, private uploads and video privacy changes fail closed.
 
 /** Basic auth header value for the Mux REST API, or null if unconfigured. */
 export function muxApiAuth(): string | null {

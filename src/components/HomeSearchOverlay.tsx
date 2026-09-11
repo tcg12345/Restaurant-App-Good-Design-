@@ -1,7 +1,8 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { motion, useReducedMotion } from 'motion/react';
 import { Navigation, X } from 'lucide-react';
-import { SearchMain } from '../pages/SearchMain';
+import { lazyPage } from './LazyPage';
+const SearchMain = lazyPage(() => import('../pages/SearchMain').then(m => ({ default: m.SearchMain })));
 import { SearchField } from './SearchField';
 import { HomeLocationBar, isExactAddress } from './HomeLocationBar';
 import { useHomeLocation } from '../contexts/HomeLocationContext';
