@@ -47,8 +47,6 @@ import { getProfilesByIds, type UserProfile } from '../lib/supabase-community';
 import { SheetGrabArea } from './SheetGrabArea';
 import { CreatorProgress } from './CreatorProgress';
 import './GuideCreatorSheet.css';
-import './guide/GuideRender.css';
-import './guide/GuideLiveEditor.css';
 import './CreatorStudio.css';
 
 type Step = 'basics' | 'add' | 'arrange' | 'publish';

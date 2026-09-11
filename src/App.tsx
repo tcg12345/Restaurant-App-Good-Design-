@@ -15,6 +15,7 @@ import { GroupRoomLinks } from './components/GroupRoomLinks';
 
 import React from 'react';
 import { lazyPage } from './components/LazyPage';
+import { DeferredEditors } from './components/DeferredEditors';
 import { PageSkeleton } from './components/PageSkeleton';
 import { RetainedTabLocation } from './components/RetainedTabLocation';
 import { warmNavigation } from './lib/navigation-warmup';
@@ -82,12 +83,6 @@ import { RecipesProvider } from './contexts/RecipesContext';
 import { configureNativeKeyboard } from './lib/native-keyboard';
 import { VerificationOutcomeModal } from './components/VerificationOutcomeModal';
 import { AddToListModal } from './components/AddToListModal';
-import { RatingFlow } from './components/RatingFlow';
-import { AddRecipeModal } from './components/AddRecipeModal';
-import { AddHomeMealModal } from './components/AddHomeMealModal';
-import { AddReelModal } from './components/AddReelModal';
-import { AddPostModal } from './components/AddPostModal';
-import { RecipeModal } from './components/RecipeModal';
 import { Auth } from './pages/Auth';
 import { PreAuthFlow } from './components/onboarding/PreAuthFlow';
 import { isPreauthDone, getPreauthOutcome, shouldAskGuestToSave, noteGuestAsked } from './lib/preauth';
@@ -98,12 +93,11 @@ import { NotificationsProvider } from './contexts/NotificationsContext';
 import { ReelsProvider } from './contexts/ReelsContext';
 import { PostsProvider } from './contexts/PostsContext';
 import { PageAddActionProvider } from './contexts/PageAddActionContext';
-import { GuideCreatorProvider, useGuideCreator } from './contexts/GuideCreatorContext';
+import { GuideCreatorProvider } from './contexts/GuideCreatorContext';
 import { HomeLocationProvider } from './contexts/HomeLocationContext';
 import { FindAPlaceHost } from './components/FindAPlaceHost';
 import { AssistantProvider } from './contexts/AssistantContext';
 import { AiChatHistoryProvider } from './contexts/AiChatHistoryContext';
-import { GuideCreatorSheet } from './components/GuideCreatorSheet';
 import { AppAssistant } from './components/AppAssistant';
 import { FeatureTour } from './components/FeatureTour';
 import { Logo } from './components/Logo';
@@ -122,16 +116,6 @@ const ProIntroRoute: React.FC = () => {
 import { RequireAuthRoute } from './components/RequireAuthRoute';
 import { wakeGlassButtons } from './lib/glass-buttons';
 import { routeInstanceKey } from './lib/route-instance-key';
-
-/**
- * Mounts the guide-creation sheet once at the app root. Triggered by
- * useGuideCreator() from anywhere — sidebar / profile / Discover tile /
- * Create page.
- */
-const GuideCreatorMount: React.FC = () => {
-  const { isOpen, initialGuide, seed, closeGuideCreator } = useGuideCreator();
-  return <GuideCreatorSheet open={isOpen} onClose={closeGuideCreator} initialGuide={initialGuide} seed={seed} />;
-};
 
 function useIsDesktop(): boolean {
   const [isDesktop, setIsDesktop] = React.useState(() =>
@@ -701,13 +685,7 @@ const AppContent: React.FC = () => {
       <VisitReviewPrompt />
       <VerificationOutcomeModal />
       <AddToListModal />
-      <RatingFlow />
-      <AddRecipeModal />
-      <AddHomeMealModal />
-      <AddReelModal />
-      <AddPostModal />
-      <RecipeModal />
-      <GuideCreatorMount />
+      <DeferredEditors />
       {/* Global AI assistant — FAB + island, available on every
           signed-in page that hasn't opted out (see AppAssistant for
           the route exclusion list). Mounted alongside modals so its

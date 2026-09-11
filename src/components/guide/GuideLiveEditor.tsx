@@ -1,3 +1,4 @@
+import './GuideLiveEditor.css';
 /**
  * GuideLiveEditor — full-screen authoring surface for a guide.
  *

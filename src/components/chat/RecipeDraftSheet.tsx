@@ -1,3 +1,4 @@
+import '../DishRecreation.css';
 import { PhotoImage } from '../PhotoImage';
 import React, { useEffect, useRef, useState } from 'react';
 import { liftOverlayToTopLayer } from '../../lib/useBottomSheet';

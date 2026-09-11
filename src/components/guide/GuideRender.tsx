@@ -1,3 +1,4 @@
+import './GuideRender.css';
 import { PhotoImage } from '../PhotoImage';
 /**
  * GuideRender — shared visual primitives used by both the public
