@@ -3,6 +3,7 @@
 // evaluate, and ESM runs imports in order, so anything above this line
 // would read the old world. See lib/storage-migration.ts.
 import './lib/storage-migration';
+import { observeSecurityPolicy } from './lib/security-policy';
 import { installApiTelemetry } from './lib/api-telemetry';
 import {StrictMode} from 'react';
 import {createRoot} from 'react-dom/client';
@@ -11,6 +12,7 @@ import {installGlobalErrorHandlers} from './components/AppErrorBoundary';
 import './index.css';
 import './components/filterSheet.css';
 
+observeSecurityPolicy(document, window.location.origin);
 installApiTelemetry();
 installGlobalErrorHandlers();
 

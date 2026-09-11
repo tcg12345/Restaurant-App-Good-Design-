@@ -3,10 +3,14 @@ import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
 import {defineConfig} from 'vite';
+import hosting from './vercel.json';
 
 export default defineConfig(({mode}) => {
   return {
     plugins: [react(), tailwindcss()],
+    // Exercise the deployed browser restrictions in production previews too.
+    // Development keeps its own HMR scripts and websocket unrestricted.
+    preview: { headers: Object.fromEntries(hosting.headers[0].headers.map(({ key, value }) => [key, value])) },
     // Strip noisy console.log/debug and debugger statements from production
     // builds only — console.error/warn SURVIVE so field crashes leave
     // diagnostics (dropping 'console' wholesale compiled out even

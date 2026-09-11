@@ -1,0 +1,62 @@
+[
+  {
+    "signature": "ai_window_end(text,timestamp with time zone)",
+    "definition": "CREATE OR REPLACE FUNCTION public.ai_window_end(p_kind text, p_start timestamp with time zone)\n RETURNS timestamp with time zone\n LANGUAGE sql\n IMMUTABLE\nAS $function$\n  SELECT CASE p_kind\n    WHEN 'hour'  THEN p_start + INTERVAL '1 hour'\n    WHEN 'day'   THEN p_start + INTERVAL '1 day'\n    WHEN 'week'  THEN p_start + INTERVAL '1 week'\n    WHEN 'month' THEN p_start + INTERVAL '1 month'\n  END;\n$function$\n"
+  },
+  {
+    "signature": "ai_window_start(text,timestamp with time zone)",
+    "definition": "CREATE OR REPLACE FUNCTION public.ai_window_start(p_kind text, p_at timestamp with time zone)\n RETURNS timestamp with time zone\n LANGUAGE sql\n IMMUTABLE\nAS $function$\n  SELECT CASE p_kind\n    WHEN 'hour'  THEN date_trunc('hour',  p_at AT TIME ZONE 'UTC') AT TIME ZONE 'UTC'\n    WHEN 'day'   THEN date_trunc('day',   p_at AT TIME ZONE 'UTC') AT TIME ZONE 'UTC'\n    WHEN 'week'  THEN date_trunc('week',  p_at AT TIME ZONE 'UTC') AT TIME ZONE 'UTC'\n    WHEN 'month' THEN date_trunc('month', p_at AT TIME ZONE 'UTC') AT TIME ZONE 'UTC'\n  END;\n$function$\n"
+  },
+  {
+    "signature": "check_rate_limit(uuid,text,integer,integer)",
+    "definition": "CREATE OR REPLACE FUNCTION public.check_rate_limit(target_user_id uuid, endpoint_name text, max_requests integer DEFAULT 10, window_minutes integer DEFAULT 60)\n RETURNS boolean\n LANGUAGE plpgsql\n SECURITY DEFINER\n SET search_path TO 'public'\nAS $function$\nDECLARE\n  current_count integer;\n  window_start_time timestamp with time zone;\nBEGIN\n  window_start_time := now() - (window_minutes || ' minutes')::interval;\n  \n  -- Get current request count in window\n  SELECT COALESCE(SUM(request_count), 0)\n  INTO current_count\n  FROM public.rate_limits\n  WHERE user_id = target_user_id\n    AND endpoint = endpoint_name\n    AND window_start > window_start_time;\n  \n  -- Clean old entries\n  DELETE FROM public.rate_limits\n  WHERE window_start < window_start_time;\n  \n  -- Check if under limit\n  IF current_count >= max_requests THEN\n    RETURN false;\n  END IF;\n  \n  -- Record this request\n  INSERT INTO public.rate_limits (user_id, endpoint, request_count, window_start)\n  VALUES (target_user_id, endpoint_name, 1, now())\n  ON CONFLICT DO NOTHING;\n  \n  RETURN true;\nEND;\n$function$\n"
+  },
+  {
+    "signature": "cuisine_auto_apply_votes()",
+    "definition": "CREATE OR REPLACE FUNCTION public.cuisine_auto_apply_votes()\n RETURNS integer\n LANGUAGE sql\n IMMUTABLE\nAS $function$ SELECT 5 $function$\n"
+  },
+  {
+    "signature": "cuisine_lookup_ttl_days()",
+    "definition": "CREATE OR REPLACE FUNCTION public.cuisine_lookup_ttl_days()\n RETURNS integer\n LANGUAGE sql\n IMMUTABLE\nAS $function$ SELECT 45 $function$\n"
+  },
+  {
+    "signature": "cuisine_max_count()",
+    "definition": "CREATE OR REPLACE FUNCTION public.cuisine_max_count()\n RETURNS integer\n LANGUAGE sql\n IMMUTABLE\nAS $function$ SELECT 3 $function$\n"
+  },
+  {
+    "signature": "cuisine_source_confidence(text)",
+    "definition": "CREATE OR REPLACE FUNCTION public.cuisine_source_confidence(src text)\n RETURNS smallint\n LANGUAGE sql\n IMMUTABLE\nAS $function$\n  SELECT (CASE src\n    WHEN 'approved'         THEN 100\n    WHEN 'consensus'        THEN 95\n    WHEN 'michelin'         THEN 90\n    WHEN 'community'        THEN 80\n    WHEN 'community_single' THEN 65\n    WHEN 'google'           THEN 60\n    WHEN 'osm'              THEN 55\n    WHEN 'google_display'   THEN 50\n    WHEN 'name'             THEN 30\n    ELSE 0\n  END)::smallint;\n$function$\n"
+  },
+  {
+    "signature": "cuisine_source_is_removable(text)",
+    "definition": "CREATE OR REPLACE FUNCTION public.cuisine_source_is_removable(src text)\n RETURNS boolean\n LANGUAGE sql\n IMMUTABLE\nAS $function$\n  SELECT coalesce(src, '') IN ('approved', 'consensus', 'community', 'community_single');\n$function$\n"
+  },
+  {
+    "signature": "get_friends_with_scores(uuid)",
+    "definition": "CREATE OR REPLACE FUNCTION public.get_friends_with_scores(requesting_user_id uuid DEFAULT auth.uid())\n RETURNS TABLE(friend_id uuid, username text, name text, avatar_url text, is_public boolean, score integer)\n LANGUAGE sql\n STABLE SECURITY DEFINER\nAS $function$\n  SELECT \n    p.id as friend_id,\n    p.username,\n    p.name,\n    p.avatar_url,\n    p.is_public,\n    COALESCE(\n      (SELECT COUNT(*)::INTEGER \n       FROM public.restaurants r \n       WHERE r.user_id = p.id AND r.rating IS NOT NULL AND r.is_wishlist = false), \n      0\n    ) as score\n  FROM public.profiles p\n  JOIN public.friends f ON (\n    (f.user1_id = requesting_user_id AND f.user2_id = p.id) OR\n    (f.user2_id = requesting_user_id AND f.user1_id = p.id)\n  )\n  WHERE p.id != requesting_user_id\n  ORDER BY score DESC, p.username ASC;\n$function$\n"
+  },
+  {
+    "signature": "guard_profile_verification()",
+    "definition": "CREATE OR REPLACE FUNCTION public.guard_profile_verification()\n RETURNS trigger\n LANGUAGE plpgsql\nAS $function$\nDECLARE\n  privileged BOOLEAN := current_user NOT IN ('authenticated', 'anon');\nBEGIN\n  IF TG_OP = 'INSERT' THEN\n    IF NOT privileged THEN\n      NEW.is_verified := false;\n      NEW.is_expert := false;\n      NEW.verified_status := NULL;\n      NEW.plan := 'free';\n      NEW.pro_until := NULL;\n      NEW.pro_source := NULL;\n      NEW.pro_will_renew := NULL;\n      NEW.stripe_customer_id := NULL;\n    END IF;\n  ELSE\n    IF NOT privileged THEN\n      NEW.is_verified := OLD.is_verified;\n      NEW.is_expert := OLD.is_expert;\n      IF NOT OLD.is_verified THEN\n        NEW.verified_status := OLD.verified_status;\n      END IF;\n      NEW.plan := OLD.plan;\n      NEW.pro_until := OLD.pro_until;\n      NEW.pro_source := OLD.pro_source;\n      NEW.pro_will_renew := OLD.pro_will_renew;\n      NEW.stripe_customer_id := OLD.stripe_customer_id;\n    END IF;\n  END IF;\n  IF NOT NEW.is_verified THEN\n    NEW.verified_status := NULL;\n  END IF;\n  IF NEW.is_verified THEN\n    NEW.is_public := true;\n  END IF;\n  RETURN NEW;\nEND;\n$function$\n"
+  },
+  {
+    "signature": "guard_restaurant_cuisine()",
+    "definition": "CREATE OR REPLACE FUNCTION public.guard_restaurant_cuisine()\n RETURNS trigger\n LANGUAGE plpgsql\nAS $function$\nDECLARE\n  privileged boolean := current_user NOT IN ('authenticated', 'anon');\nBEGIN\n  NEW.cuisine := btrim(coalesce(NEW.cuisine, ''));\n  -- \"Restaurant\" is the non-answer this whole effort exists to remove;\n  -- never let it be stored as if it were a cuisine.\n  IF NEW.cuisine = '' OR lower(NEW.cuisine) = 'restaurant' THEN\n    RETURN NULL;\n  END IF;\n  IF char_length(NEW.cuisine) > 60 THEN\n    RETURN NULL;\n  END IF;\n\n  -- Tiers that mean \"a human decided this\" — or \"a server went and\n  -- looked\" — are not things a client gets to assert.\n  IF NOT privileged AND NEW.source IN ('approved', 'consensus', 'community', 'osm') THEN\n    RETURN NULL;\n  END IF;\n\n  NEW.confidence := public.cuisine_source_confidence(NEW.source);\n  IF NEW.confidence = 0 THEN\n    RETURN NULL;\n  END IF;\n  NEW.updated_at := now();\n\n  IF TG_OP = 'UPDATE' THEN\n    -- Strictly weaker source: keep what's there.\n    IF NEW.confidence < OLD.confidence THEN\n      RETURN NULL;\n    END IF;\n    -- Same strength, same answer: nothing to write.\n    IF NEW.confidence = OLD.confidence AND NEW.cuisine = OLD.cuisine THEN\n      RETURN NULL;\n    END IF;\n  END IF;\n\n  RETURN NEW;\nEND;\n$function$\n"
+  },
+  {
+    "signature": "guard_restaurant_cuisine_tags()",
+    "definition": "CREATE OR REPLACE FUNCTION public.guard_restaurant_cuisine_tags()\n RETURNS trigger\n LANGUAGE plpgsql\nAS $function$\nDECLARE\n  privileged boolean := current_user NOT IN ('authenticated', 'anon');\n  v_count integer;\nBEGIN\n  IF NOT privileged THEN\n    RETURN NULL;\n  END IF;\n\n  NEW.cuisine := btrim(coalesce(NEW.cuisine, ''));\n  IF NEW.cuisine = '' OR lower(NEW.cuisine) = 'restaurant' THEN\n    RETURN NULL;\n  END IF;\n  IF char_length(NEW.cuisine) > 60 THEN\n    RETURN NULL;\n  END IF;\n  IF NEW.source NOT IN ('approved', 'consensus') THEN\n    RETURN NULL;\n  END IF;\n\n  -- Never duplicate the primary as a tag.\n  IF EXISTS (\n    SELECT 1 FROM public.restaurant_cuisine\n     WHERE restaurant_id = NEW.restaurant_id\n       AND lower(cuisine) = lower(NEW.cuisine)\n  ) THEN\n    RETURN NULL;\n  END IF;\n\n  -- The cap, enforced here rather than only in the caller, so no future\n  -- path can add a fourth by forgetting to check.\n  IF TG_OP = 'INSERT' THEN\n    SELECT count(*) INTO v_count FROM public.restaurant_cuisine_tags\n     WHERE restaurant_id = NEW.restaurant_id;\n    -- +1 for the primary, which always occupies the first slot.\n    IF v_count + 1 >= public.cuisine_max_count() THEN\n      RETURN NULL;\n    END IF;\n  END IF;\n\n  RETURN NEW;\nEND;\n$function$\n"
+  },
+  {
+    "signature": "normalize_text(text)",
+    "definition": "CREATE OR REPLACE FUNCTION public.normalize_text(input text)\n RETURNS text\n LANGUAGE sql\n IMMUTABLE\nAS $function$\n  SELECT LOWER(TRIM(regexp_replace($1, '\\\\s+', ' ', 'g')));\n$function$\n"
+  },
+  {
+    "signature": "reset_cuisine_suggestion_verdict()",
+    "definition": "CREATE OR REPLACE FUNCTION public.reset_cuisine_suggestion_verdict()\n RETURNS trigger\n LANGUAGE plpgsql\nAS $function$\nBEGIN\n  IF NEW.status = 'pending' AND OLD.status <> 'pending' THEN\n    NEW.reviewed_by := NULL;\n    NEW.reviewed_at := NULL;\n    NEW.deny_reason := NULL;\n    NEW.created_at  := now();   -- it is a new proposal, and the queue sorts by age\n  END IF;\n  RETURN NEW;\nEND;\n$function$\n"
+  },
+  {
+    "signature": "update_updated_at_column()",
+    "definition": "CREATE OR REPLACE FUNCTION public.update_updated_at_column()\n RETURNS trigger\n LANGUAGE plpgsql\nAS $function$\nBEGIN\n  NEW.updated_at = now();\n  RETURN NEW;\nEND;\n$function$\n"
+  }
+]

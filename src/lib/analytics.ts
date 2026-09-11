@@ -26,7 +26,7 @@ const immediateEvents = new Set(['notification_permission_result', 'notification
 // Detailed operational/impression rows belong in the first-party collector.
 // Mirroring entire result pools to PostHog exhausted its burst budget before
 // a person could open or save a restaurant. Keep the SDK limiter enabled.
-const collectorOnlyEvents = new Set(['api_request', 'restaurant_returned', 'restaurant_seen', 'feature_seen']);
+const collectorOnlyEvents = new Set(['security_policy_violation', 'api_request', 'restaurant_returned', 'restaurant_seen', 'feature_seen']);
 let mirrorTokens = 10;
 let mirrorRefillAt = Date.now();
 function flushPosthog() {

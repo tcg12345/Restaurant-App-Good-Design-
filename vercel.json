@@ -3,14 +3,33 @@
     {
       "source": "/(.*)",
       "headers": [
-        { "key": "X-Content-Type-Options", "value": "nosniff" },
-        { "key": "Referrer-Policy", "value": "strict-origin-when-cross-origin" },
-        { "key": "X-Frame-Options", "value": "DENY" },
-        { "key": "Content-Security-Policy", "value": "frame-ancestors 'none'; base-uri 'self'; object-src 'none'" }
+        {
+          "key": "X-Content-Type-Options",
+          "value": "nosniff"
+        },
+        {
+          "key": "Referrer-Policy",
+          "value": "strict-origin-when-cross-origin"
+        },
+        {
+          "key": "X-Frame-Options",
+          "value": "DENY"
+        },
+        {
+          "key": "Content-Security-Policy",
+          "value": "default-src 'self'; base-uri 'none'; object-src 'none'; frame-ancestors 'none'; form-action 'self'; script-src 'self' 'sha256-Z/FBlsoQungRLVO68loZKI9ox5IdE62mViHgUzocX8w=' 'wasm-unsafe-eval' https://*.posthog.com https://www.gstatic.com/cv/js/sender/ https://www.gstatic.com/cast/ https://www.gstatic.com/eureka/; script-src-attr 'none'; style-src 'self' 'unsafe-inline'; img-src 'self' https: data: blob:; font-src 'self'; media-src 'self' https: blob: data:; connect-src 'self' https: wss://ocpmhsquwsdaauflbygf.supabase.co blob: data:; worker-src 'self' blob:; frame-src 'self' https://www.gstatic.com; manifest-src 'self'"
+        },
+        {
+          "key": "Content-Security-Policy-Report-Only",
+          "value": "connect-src 'self' https://ocpmhsquwsdaauflbygf.supabase.co wss://ocpmhsquwsdaauflbygf.supabase.co https://places.googleapis.com https://*.googleusercontent.com https://api.mapbox.com https://events.mapbox.com https://*.tiles.mapbox.com https://*.mux.com https://*.litix.io https://storage.googleapis.com https://*.posthog.com https://www.gstatic.com blob: data:"
+        }
       ]
     }
   ],
   "rewrites": [
-    { "source": "/((?!api/).*)", "destination": "/" }
+    {
+      "source": "/((?!api/).*)",
+      "destination": "/"
+    }
   ]
 }
