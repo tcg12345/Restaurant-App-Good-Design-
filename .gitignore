@@ -39,3 +39,7 @@ supabase/.temp/
 # Local restaurant research artifacts and Python runtime caches.
 data/restaurant-pilot/
 __pycache__/
+
+# Keep raw audit diagnostics, screenshots and temporary test-account fixtures local.
+docs/audit-2026-09-10/*
+!docs/audit-2026-09-10/*.md
