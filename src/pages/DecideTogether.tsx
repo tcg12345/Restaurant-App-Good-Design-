@@ -1,3 +1,4 @@
+import { SUBSCRIPTIONS_ENABLED } from '../lib/subscription-release';
 import { PhotoImage } from '../components/PhotoImage';
 import { useLocalBack } from '../lib/back-navigation';
 import { usePageBack } from '../lib/usePageBack';
@@ -393,7 +394,7 @@ export const DecideTogether: React.FC = () => {
                       Join with a code
                     </button>
                   </div>
-                  <small>One free room a week. Unlimited with Pro.</small>
+                  {SUBSCRIPTIONS_ENABLED && <small>One free room a week. Unlimited with Pro.</small>}
                   {rooms.length > 0 && (
                     <div className="gs-recent">
                       <h2>Your rooms</h2>
@@ -1028,7 +1029,7 @@ export const DecideTogether: React.FC = () => {
       {(error || syncError) && (
         <div className="gs-error" role="alert">
           <span>{error || syncError}</span>
-          {upgrade && (
+          {SUBSCRIPTIONS_ENABLED && upgrade && (
             <button onClick={() => navigate("/pro")}>
               Explore Pro <ArrowRight size={15} />
             </button>

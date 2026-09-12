@@ -1,3 +1,4 @@
+import { SUBSCRIPTIONS_ENABLED } from '../lib/subscription-release';
 /**
  * "Who's eating?" — the member picker behind group recommendations.
  *
@@ -121,7 +122,7 @@ export const GroupPicker: React.FC<{
             <h3 className="font-serif text-[19px] font-bold tracking-[-0.02em] text-on-surface">{title}</h3>
             <p className="mt-0.5 text-[12.5px] text-on-surface/50">
               {count > 0 ? `You + ${count}` : subtitle}
-              {full && (onFull ? ` · up to ${MAX_MEMBERS} with Pro` : ' · that’s the max')}
+              {full && (SUBSCRIPTIONS_ENABLED && onFull ? ` · up to ${MAX_MEMBERS} with Pro` : ' · that’s the max')}
             </p>
           </div>
           <button

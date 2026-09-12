@@ -15,6 +15,7 @@
  * requirePro always returns true — the sheet only opens from explicit
  * places (Settings, the Pro page).
  */
+import { SUBSCRIPTIONS_ENABLED } from '../lib/subscription-release';
 import React, { createContext, useCallback, useContext, useMemo, useRef, useState } from 'react';
 import { usePlan } from './PlanContext';
 import { useAuth } from './AuthContext';
@@ -50,6 +51,7 @@ export const PaywallProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const pendingRef = useRef<(() => void) | null>(null);
 
   const openPaywall = useCallback<PaywallValue['openPaywall']>((source, feature = null, opts) => {
+    if (!SUBSCRIPTIONS_ENABLED) return;
     pendingRef.current = opts?.onUnlocked ?? null;
     setSheet({ open: true, source, feature, reason: opts?.reason ?? null });
     logBillingEvent('paywall_shown', user?.id ?? null, { source, feature: feature ?? null, plan: plan.subscribed ? 'pro' : 'free' });
@@ -64,6 +66,7 @@ export const PaywallProvider: React.FC<{ children: React.ReactNode }> = ({ child
   }, [user?.id]);
 
   const requirePro = useCallback<PaywallValue['requirePro']>((feature, opts) => {
+    if (!SUBSCRIPTIONS_ENABLED) return true;
     if (!plan.checked) return false; // never gate on an unknown answer
     if (plan.isPro) return true;
     openPaywall(`gate:${feature}`, feature, opts);
@@ -78,6 +81,7 @@ export const PaywallProvider: React.FC<{ children: React.ReactNode }> = ({ child
   }, []);
 
   const handleAiError = useCallback<PaywallValue['handleAiError']>((feature, err) => {
+    if (!SUBSCRIPTIONS_ENABLED) return false;
     if (err.code === 'pro_required') { openPaywall(`gate:${feature}`, feature); return true; }
     if (err.code === 'quota') { openPaywall(`cap:${feature}`, feature, { reason: err.error ?? err.message ?? undefined }); return true; }
     return false;
@@ -88,7 +92,7 @@ export const PaywallProvider: React.FC<{ children: React.ReactNode }> = ({ child
   return (
     <Ctx.Provider value={value}>
       {children}
-      <ProSheet open={sheet.open} source={sheet.source} feature={sheet.feature} reason={sheet.reason} onClose={closePaywall} onUnlocked={onUnlocked} />
+      {SUBSCRIPTIONS_ENABLED && <ProSheet open={sheet.open} source={sheet.source} feature={sheet.feature} reason={sheet.reason} onClose={closePaywall} onUnlocked={onUnlocked} />}
     </Ctx.Provider>
   );
 };

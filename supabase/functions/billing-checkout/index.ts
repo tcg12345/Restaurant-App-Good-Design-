@@ -1,3 +1,4 @@
+import { SUBSCRIPTIONS_ENABLED } from '../_shared/subscription-release.ts';
 import { instrumentedFetch as fetch, withRequestTelemetry } from '../_shared/api-telemetry.ts';
 // billing-checkout — start a Stripe Checkout for the web app.
 //
@@ -74,6 +75,7 @@ Deno.serve(withRequestTelemetry('billing-checkout', async (req) => {
   if (req.method !== 'POST') return json(405, { error: 'Method not allowed' });
   const auth = await requireUser(req);
   if ('response' in auth) return auth.response;
+  if (!SUBSCRIPTIONS_ENABLED) return json(409, { error: 'GoodEats is free. No purchase is needed.', code: 'subscriptions_disabled' });
   if (!STRIPE_KEY || !WEB_ORIGIN) return json(503, { error: 'Web checkout is not configured yet.' });
 
   const declared = Number(req.headers.get('content-length'));

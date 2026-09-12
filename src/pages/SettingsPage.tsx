@@ -1,3 +1,4 @@
+import { SUBSCRIPTIONS_ENABLED } from '../lib/subscription-release';
 import { WidgetSettings } from '../components/settings/WidgetSettings';
 import { LayoutGrid } from 'lucide-react';
 import { NotificationSettings } from '../components/notifications/NotificationSettings';
@@ -133,7 +134,7 @@ export const SettingsPage: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const routePage = location.pathname.split('/')[2];
-  const page: SubPage | null = routePage && routePage in PAGE_TITLES ? routePage as SubPage : null;
+  const page: SubPage | null = routePage && (SUBSCRIPTIONS_ENABLED || routePage !== 'subscription') && routePage in PAGE_TITLES ? routePage as SubPage : null;
   const back = usePageBack(page === 'taste' ? '/settings/home' : page ? '/settings' : '/profile');
   const [haptics, setHaptics] = useDevicePreference('haptics');
   const [homeAutoplay, setHomeAutoplay] = useDevicePreference('homeAutoplay');
@@ -442,7 +443,7 @@ export const SettingsPage: React.FC = () => {
 
 
   type SettingLink = { page: SubPage; title: string; sub: string; icon: React.ReactNode; group: string; keywords?: string };
-  const links: SettingLink[] = [
+  const allLinks: SettingLink[] = [
     { page: 'account', title: 'Account & security', sub: 'Email, phone and password', icon: <Lock size={19} />, group: 'Your account' },
     { page: 'privacy', title: 'Privacy & permissions', sub: profile?.is_public ? 'Public profile' : 'Private profile', icon: <Shield size={19} />, group: 'Your account', keywords: 'private public visibility contacts location photos' },
     { page: 'widgets', title: 'iPhone widgets', sub: 'Meals, taste and your circle at a glance', icon: <LayoutGrid size={19} />, group: 'Your experience', keywords: 'iphone home screen lock calendar leaderboard ranking widget' },
@@ -456,6 +457,7 @@ export const SettingsPage: React.FC = () => {
     { page: 'feedback', title: 'Feedback & suggestions', sub: 'Share an idea or report a problem', icon: <SquarePen size={19} />, group: 'More from GoodEats', keywords: 'bug feature request suggestion issue' },
     { page: 'support', title: 'Help & about', sub: 'Support and app information', icon: <LifeBuoy size={19} />, group: 'More from GoodEats', keywords: 'terms policy version legal' },
   ];
+  const links = allLinks.filter(link => SUBSCRIPTIONS_ENABLED || link.page !== 'subscription');
   const searchable = [...links,
     { page: 'taste' as const, title: 'Taste profile settings', sub: 'Cuisines, budget, recipes and AI personalization', icon: <Sparkles size={19} />, group: 'Your experience' },
     { page: 'edit' as const, title: 'Edit profile', sub: 'Name, username, bio and city', icon: <User size={19} />, group: 'Your account' },
@@ -842,7 +844,7 @@ export const SettingsPage: React.FC = () => {
       {page === 'support' && <>
         {group('Share your thoughts', <Row icon={<SquarePen size={19} />} title="Feedback & suggestions" sub="Help shape what comes next" onPress={() => go('feedback')} />)}
         {group('Here to help', <Row icon={<LifeBuoy size={19} />} title="Contact support" sub="Get help or share feedback" onPress={() => void openExternalUrl(SUPPORT_URL)} />)}
-        <section className="settings-section"><h2>Quick answers</h2><div className="settings-group settings-faq"><details><summary>Where are my scores?</summary><p>Numeric scores unlock after 10 rated restaurants. Before then, you’ll see your ranking.</p></details><details><summary>How do I manage permissions?</summary><p>On iPhone, open Settings and find GoodEats. In a browser, open this site’s permission settings.</p></details><details><summary>How do I restore Pro?</summary><p>Open GoodEats Pro in Settings on your iPhone, then choose Restore purchases using the Apple account that purchased it.</p></details></div></section>
+        <section className="settings-section"><h2>Quick answers</h2><div className="settings-group settings-faq"><details><summary>Where are my scores?</summary><p>Numeric scores unlock after 10 rated restaurants. Before then, you’ll see your ranking.</p></details><details><summary>How do I manage permissions?</summary><p>On iPhone, open Settings and find GoodEats. In a browser, open this site’s permission settings.</p></details>{SUBSCRIPTIONS_ENABLED && <details><summary>How do I restore Pro?</summary><p>Open GoodEats Pro in Settings on your iPhone, then choose Restore purchases using the Apple account that purchased it.</p></details>}</div></section>
         {group('About GoodEats', <><Row icon={<Shield size={19} />} title="Privacy policy" onPress={() => void openExternalUrl(PRIVACY_URL)} /><Row icon={<FileText size={19} />} title="Terms of service" onPress={() => void openExternalUrl(TERMS_URL)} /><div className="settings-version-row"><span>Version</span><span>{pkg.version}</span></div></>)}
         {isAdmin && group('Administration', <><Row icon={<SquarePen size={19} />} title="Feedback inbox" onPress={() => navigate('/admin/feedback')} /><Row icon={<BadgeCheck size={19} />} title="Analytics" onPress={() => navigate('/admin/analytics')} /><Row icon={<BadgeCheck size={19} />} title="Verification requests" onPress={() => navigate('/admin/verification')} /><Row icon={<Utensils size={19} />} title="Cuisine suggestions" onPress={() => navigate('/admin/cuisine')} /></>)}
       </>}

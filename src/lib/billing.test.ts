@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-const mocks = vi.hoisted(() => ({ native: true, configure: vi.fn(), eligibility: vi.fn(), offerings: vi.fn(), purchase: vi.fn(), login: vi.fn() }));
+const mocks = vi.hoisted(() => ({ enabled: true, native: true, configure: vi.fn(), eligibility: vi.fn(), offerings: vi.fn(), purchase: vi.fn(), login: vi.fn() }));
+vi.mock('./subscription-release', () => ({ get SUBSCRIPTIONS_ENABLED() { return mocks.enabled; } }));
 vi.mock('./native-oauth', () => ({ isNativeRuntime: () => mocks.native }));
 vi.mock('./api-base', () => ({ apiUrl: (s: string) => '/'+s, apiHeaders: async () => ({}) }));
 vi.mock('./external-links', () => ({ openExternalUrl: vi.fn() }));
@@ -8,7 +9,7 @@ vi.mock('@revenuecat/purchases-capacitor', () => ({
   Purchases: { setLogLevel: vi.fn(), configure: mocks.configure, logIn: mocks.login, getOfferings: mocks.offerings, checkTrialOrIntroductoryPriceEligibility: mocks.eligibility, purchasePackage: mocks.purchase },
 }));
 beforeEach(() => {
-  vi.resetModules(); vi.clearAllMocks(); vi.stubEnv('VITE_REVENUECAT_IOS_KEY', 'test-key'); mocks.native = true;
+  vi.resetModules(); vi.clearAllMocks(); vi.stubEnv('VITE_REVENUECAT_IOS_KEY', 'test-key'); mocks.native = true; mocks.enabled = true;
   mocks.configure.mockResolvedValue(undefined); mocks.login.mockResolvedValue(undefined);
   mocks.offerings.mockResolvedValue({ current: { annual: { product: { identifier:'annual', price:29.99, priceString:'$29.99', currencyCode:'USD', introPrice:{price:0, periodNumberOfUnits:7, periodUnit:'DAY'} } } } });
 });
@@ -57,5 +58,27 @@ describe('billing reliability', () => {
     vi.stubGlobal('window',{open,location:{origin:'https://example.test'}});
     vi.stubGlobal('fetch',vi.fn(async () => {expect(open).toHaveBeenCalledTimes(1);return {ok:false,json:async()=>({error:'Unavailable'})};}));
     const billing = await import('./billing');expect((await billing.startWebCheckout('annual')).ok).toBe(false);expect(close).toHaveBeenCalledTimes(1);vi.unstubAllGlobals();
+  });
+});
+
+describe('fully free release', () => {
+  it.each([true, false])('never initializes billing or opens a purchase rail (native=%s)', async native => {
+    mocks.enabled = false; mocks.native = native;
+    const open = vi.fn(), fetch = vi.fn();
+    vi.stubGlobal('window', {open}); vi.stubGlobal('fetch', fetch);
+    try {
+      const billing = await import('./billing');
+      await billing.configureBilling('user');
+      expect(billing.billingAvailable()).toBe(false);
+      expect(await billing.getNativeOffers()).toEqual([]);
+      expect(billing.webOffers()).toEqual([]);
+      expect(await billing.purchaseNative({} as never)).toMatchObject({ok:false});
+      expect(await billing.restoreNative()).toMatchObject({ok:false});
+      expect(await billing.startWebCheckout('annual')).toMatchObject({ok:false});
+      expect(await billing.syncPlanWithServer()).toBeNull();
+      await billing.openManage(null);
+      expect(mocks.configure).not.toHaveBeenCalled(); expect(mocks.purchase).not.toHaveBeenCalled();
+      expect(open).not.toHaveBeenCalled(); expect(fetch).not.toHaveBeenCalled();
+    } finally { vi.unstubAllGlobals(); }
   });
 });

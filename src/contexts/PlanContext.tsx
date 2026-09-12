@@ -13,6 +13,7 @@
  * customer-info update (a renewal, a purchase on another device) triggers
  * a server sync so the row catches up without waiting for the webhook.
  */
+import { SUBSCRIPTIONS_ENABLED } from '../lib/subscription-release';
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { useAuth } from './AuthContext';
 import { useSettings } from './SettingsContext';
@@ -66,7 +67,7 @@ const FREE: Omit<PlanValue, 'refresh' | 'refreshQuota' | 'checked' | 'earlyAcces
   subscribed: false, isPro: true, gatesEnabled: false, proUntil: null, willRenew: null, source: null, grantUntil: null, quota: null,
 };
 
-export const PlanProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+const PaidPlanProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user, profile } = useAuth();
   const userId = user?.id ?? null;
   const [state, setState] = useState<Omit<PlanValue, 'refresh' | 'refreshQuota' | 'earlyAccess'>>({ ...FREE, checked: false });
@@ -177,3 +178,8 @@ export function usePlan(): PlanValue {
   if (!v) throw new Error('usePlan must be used within PlanProvider');
   return v;
 }
+
+const freeAccess: PlanValue = { ...FREE, checked: true, earlyAccess: true, refresh: async () => {}, refreshQuota: async () => {} };
+/** Free releases never initialize billing, fetch plans, or briefly lock features. */
+export const PlanProvider: React.FC<{ children: React.ReactNode }> = ({ children }) =>
+  SUBSCRIPTIONS_ENABLED ? <PaidPlanProvider>{children}</PaidPlanProvider> : <Ctx.Provider value={freeAccess}>{children}</Ctx.Provider>;

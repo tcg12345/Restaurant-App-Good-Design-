@@ -6,11 +6,12 @@
  *   <ProTag />            the word, on a control that's Pro-only
  *   <ProTag locked />     the same with a lock glyph (the Opus row)
  */
+import { SUBSCRIPTIONS_ENABLED } from '../../lib/subscription-release';
 import React from 'react';
 import { Lock } from 'lucide-react';
 import { cn } from '../../lib/utils';
 
-export const ProTag: React.FC<{ locked?: boolean; className?: string; size?: 'sm' | 'md' }> = ({ locked = false, className, size = 'sm' }) => (
+export const ProTag: React.FC<{ locked?: boolean; className?: string; size?: 'sm' | 'md' }> = ({ locked = false, className, size = 'sm' }) => !SUBSCRIPTIONS_ENABLED ? null : (
   <span
     className={cn('inline-flex items-center gap-1 rounded-[5px] align-middle', size === 'sm' ? 'px-1.5 py-[2px]' : 'px-2 py-[3px]', className)}
     style={{

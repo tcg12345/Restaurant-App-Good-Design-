@@ -1,3 +1,4 @@
+import { SUBSCRIPTIONS_ENABLED } from './lib/subscription-release';
 import { isSocialConversation } from './lib/social-navigation';
 import { HOME_REELS_EXPERIMENT } from './lib/home-reels-experiment';
 import { WidgetSync } from './components/WidgetSync';
@@ -618,12 +619,12 @@ const AppContent: React.FC = () => {
           <Route path="/auth" element={<Navigate to="/" replace />} />
           {/* Public on purpose: guests can read what Pro is; buying asks
               for sign-in. /pro/welcome is where Stripe sends people back. */}
-          <Route path="/pro" element={<ProPage />} />
-          <Route path="/pro/welcome" element={<ProPage />} />
+          <Route path="/pro" element={SUBSCRIPTIONS_ENABLED ? <ProPage /> : <Navigate to="/" replace />} />
+          <Route path="/pro/welcome" element={SUBSCRIPTIONS_ENABLED ? <ProPage /> : <Navigate to="/" replace />} />
           {/* The onboarding intro, on its own: for anyone who wants the tour
               again, and the way to see it without a fresh account. */}
           <Route path="/decide" element={<DecideTogether />} />
-          <Route path="/pro/intro" element={<ProIntroRoute />} />
+          <Route path="/pro/intro" element={SUBSCRIPTIONS_ENABLED ? <ProIntroRoute /> : <Navigate to="/" replace />} />
           <Route path="/circle" element={<RequireAuthRoute reason="Sign in to see your circle"><Circle /></RequireAuthRoute>} />
           <Route path="/create" element={<RequireAuthRoute reason="Sign in to create"><Create /></RequireAuthRoute>} />
           <Route path="/search" element={<Search />} />

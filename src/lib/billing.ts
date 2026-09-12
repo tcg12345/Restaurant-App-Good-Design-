@@ -1,3 +1,4 @@
+import { SUBSCRIPTIONS_ENABLED } from './subscription-release';
 /**
  * Billing — the two purchase rails behind one entitlement.
  *
@@ -26,7 +27,7 @@ export const ENTITLEMENT_ID = 'pro';
 export const APPLE_SUBSCRIPTIONS_URL = 'https://apps.apple.com/account/subscriptions';
 
 /** Purchases can happen in this build at all. */
-export const billingAvailable = (): boolean => isNativeRuntime() ? !!REVENUECAT_IOS_KEY : true;
+export const billingAvailable = (): boolean => SUBSCRIPTIONS_ENABLED && (isNativeRuntime() ? !!REVENUECAT_IOS_KEY : true);
 
 /* ── SDK lifecycle ────────────────────────────────────────────────── */
 let configured = false;
@@ -36,12 +37,13 @@ let configuration: Promise<void> = Promise.resolve();
 /** Configure once, then keep the SDK's user in step with ours. Safe to call
  *  on every auth change; a no-op on the web or without a key. */
 export function configureBilling(userId: string | null): Promise<void> {
+  if (!SUBSCRIPTIONS_ENABLED) return Promise.resolve();
   configuration = configuration.then(() => configureForUser(userId));
   return configuration;
 }
 
 async function configureForUser(userId: string | null): Promise<void> {
-  if (!isNativeRuntime() || !REVENUECAT_IOS_KEY) return;
+  if (!SUBSCRIPTIONS_ENABLED || !isNativeRuntime() || !REVENUECAT_IOS_KEY) return;
   try {
     if (!configured) {
       await Purchases.setLogLevel({ level: import.meta.env.DEV ? LOG_LEVEL.DEBUG : LOG_LEVEL.WARN });
@@ -65,7 +67,7 @@ async function configureForUser(userId: string | null): Promise<void> {
 /** Fires whenever RevenueCat learns something new about the customer
  *  (a renewal, a purchase on another device). Returns an unsubscribe. */
 export function onCustomerInfo(cb: (info: CustomerInfo) => void): () => void {
-  if (!isNativeRuntime() || !REVENUECAT_IOS_KEY) return () => {};
+  if (!SUBSCRIPTIONS_ENABLED || !isNativeRuntime() || !REVENUECAT_IOS_KEY) return () => {};
   let id: string | null = null;
   let disposed = false;
   void Purchases.addCustomerInfoUpdateListener((info) => { if (!disposed) cb(info); }).then((handle) => {
@@ -111,7 +113,7 @@ function trialDaysOf(p: PurchasesStoreProduct): number {
 /** The store's own prices for the plans the RevenueCat offering carries. */
 export async function getNativeOffers(): Promise<NativeOffer[]> {
   await configuration;
-  if (!isNativeRuntime() || !REVENUECAT_IOS_KEY || !configured) return [];
+  if (!SUBSCRIPTIONS_ENABLED || !isNativeRuntime() || !REVENUECAT_IOS_KEY || !configured) return [];
   try {
     const offerings = await Purchases.getOfferings();
     const cur = offerings.current;
@@ -141,7 +143,7 @@ export async function getNativeOffers(): Promise<NativeOffer[]> {
 }
 
 // Web checkout confirms trial eligibility; never promise one from static defaults.
-export const webOffers = (): PlanOffer[] => DEFAULT_OFFERS.map(offer => ({ ...offer, trialDays: 0 }));
+export const webOffers = (): PlanOffer[] => !SUBSCRIPTIONS_ENABLED ? [] : DEFAULT_OFFERS.map(offer => ({ ...offer, trialDays: 0 }));
 
 /* ── Purchase / restore ───────────────────────────────────────────── */
 /** One flat shape for both rails, so callers never have to narrow. */
@@ -163,6 +165,7 @@ function failed(err: unknown): PurchaseOutcome {
 }
 
 export async function purchaseNative(pkg: PurchasesPackage): Promise<PurchaseOutcome> {
+  if (!SUBSCRIPTIONS_ENABLED) return failed(new Error('GoodEats is free. No purchase is needed.'));
   try {
     const { customerInfo } = await Purchases.purchasePackage({ aPackage: pkg });
     return { ok: true, cancelled: false, message: '', entitlement: entitlementOf(customerInfo) };
@@ -172,6 +175,7 @@ export async function purchaseNative(pkg: PurchasesPackage): Promise<PurchaseOut
 }
 
 export async function restoreNative(): Promise<PurchaseOutcome> {
+  if (!SUBSCRIPTIONS_ENABLED) return failed(new Error('GoodEats is free. No purchase is needed.'));
   try {
     const { customerInfo } = await Purchases.restorePurchases();
     return { ok: true, cancelled: false, message: '', entitlement: entitlementOf(customerInfo) };
@@ -183,6 +187,7 @@ export async function restoreNative(): Promise<PurchaseOutcome> {
 /** Ask the server to pull the subscriber from RevenueCat and write the plan
  *  now. Returns what it wrote, or null when billing isn't configured yet. */
 export async function syncPlanWithServer(): Promise<{ plan: 'free' | 'pro'; proUntil: string | null } | null> {
+  if (!SUBSCRIPTIONS_ENABLED) return null;
   try {
     const res = await fetch(apiUrl('billing-sync'), { method: 'POST', headers: await apiHeaders() });
     if (!res.ok) return null;
@@ -195,6 +200,7 @@ export async function syncPlanWithServer(): Promise<{ plan: 'free' | 'pro'; proU
 
 /* ── Web ──────────────────────────────────────────────────────────── */
 export async function startWebCheckout(plan: PlanKey): Promise<{ ok: boolean; message: string }> {
+  if (!SUBSCRIPTIONS_ENABLED) return {ok: false, message: 'GoodEats is free. No purchase is needed.'};
   // Reserve the tab during the click, before awaiting the checkout URL.
   const checkout = window.open('about:blank', '_blank');
   if (!checkout) return { ok: false, message: 'Allow pop-ups to open secure checkout, then try again.' };
@@ -219,6 +225,7 @@ export async function startWebCheckout(plan: PlanKey): Promise<{ ok: boolean; me
 }
 
 export async function openWebPortal(): Promise<{ ok: boolean; message: string; code?: string }> {
+  if (!SUBSCRIPTIONS_ENABLED) return {ok: false, message: 'GoodEats is free. No purchase is needed.'};
   try {
     const res = await fetch(apiUrl('billing-portal'), { method: 'POST', headers: await apiHeaders() });
     const data = (await res.json().catch(() => ({}))) as { url?: string; error?: string; code?: string };
@@ -233,6 +240,7 @@ export async function openWebPortal(): Promise<{ ok: boolean; message: string; c
 /** Where "Manage subscription" goes: the App Store on iOS, Stripe's portal
  *  on the web. */
 export async function openManage(source: string | null): Promise<void> {
+  if (!SUBSCRIPTIONS_ENABLED) return;
   if (isNativeRuntime() || (source && source.startsWith('app_store'))) {
     await openExternalUrl(APPLE_SUBSCRIPTIONS_URL);
     return;
