@@ -41,6 +41,9 @@ verify_jwt = false
 [functions.mux-playback-token]
 verify_jwt = false
 
+[functions.delete-media]
+verify_jwt = false
+
 [functions.mux-set-visibility]
 verify_jwt = false
 

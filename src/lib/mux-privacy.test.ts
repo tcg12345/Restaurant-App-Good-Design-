@@ -3,7 +3,7 @@ import ts from 'typescript';
 import { expect, it, vi } from 'vitest';
 const owner='00000000-0000-0000-0000-000000000001';
 const id='00000000-0000-0000-0000-000000000002';
-function edge(name:string, opts:{signing?:boolean; foreign?:boolean; noVideo?:boolean; deleteFails?:boolean; saveFails?:boolean; unauthorized?:boolean; follower?:boolean; publicVideo?:boolean}={}) {
+function edge(name:string, opts:{signing?:boolean; foreign?:boolean; noVideo?:boolean; deleteFails?:boolean; saveFails?:boolean; unauthorized?:boolean; follower?:boolean; assetForeign?:boolean; publicVideo?:boolean}={}) {
   const writes:any[]=[];const calls:any[]=[];
   const sb={from:(table:string)=>{
     let update:any;const query:any={
@@ -16,7 +16,7 @@ function edge(name:string, opts:{signing?:boolean; foreign?:boolean; noVideo?:bo
       },
       then:(resolve:any)=>{
         if(update){writes.push({table,...update});return Promise.resolve({error:opts.saveFails?{message:'offline'}:null}).then(resolve);}
-        const data=table==='user_friends'?(opts.follower?[{friend_id:'author'}]:[]):table==='reels'?[{id,user_id:'author',is_public:!!opts.publicVideo,mux_playback_id:'private'}]:[];
+        const data=table==='user_friends'?(opts.follower?[{friend_id:'author'}]:[]):table==='reels'?[{id,user_id:'author',is_public:!!opts.publicVideo,mux_playback_id:'private',mux_asset_id:'asset'}]:[];
         return Promise.resolve({data,error:null}).then(resolve);
       },
     };return query;
@@ -26,16 +26,19 @@ function edge(name:string, opts:{signing?:boolean; foreign?:boolean; noVideo?:bo
     if(init.method==='DELETE')return new Response(null,{status:opts.deleteFails?500:204});
     if(url.endsWith('/uploads'))return Response.json({data:{url:'https://upload.example',id:'upload'}});
     if(init.method==='POST')return Response.json({data:{id:'signed'}});
-    return Response.json({data:{playback_ids:[{id:'public',policy:'public'}]}});
+    return Response.json({data:{passthrough:opts.assetForeign?'victim':`${name==='mux-playback-token'?'author':owner}:${id}`,playback_ids:[{id:'public',policy:'public'},{id:'private',policy:'signed'}]}});
   });
+  const helperSource=readFileSync(new URL('../../supabase/functions/_shared/mux-ownership.ts',import.meta.url),'utf8').replace(/^import .*;\n/gm,'').replace(/^export /gm,'');
+  const helperCode=ts.transpileModule(helperSource,{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.None}}).outputText;
+  const getOwnedMuxAsset=new Function('fetch',helperCode+'; return getOwnedMuxAsset;')(provider);
   let handler!:(req:Request)=>Promise<Response>;
   const source=readFileSync(new URL(`../../supabase/functions/${name}/index.ts`,import.meta.url),'utf8').replace(/^import .*;\n/gm,'');
   const code=ts.transpileModule(source,{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.None}}).outputText;
-  new Function('Deno','createClient','CORS_HEADERS','requireUser','readJsonBody','muxApiAuth','muxSigningConfig','signPlaybackToken','withRequestTelemetry','fetch','console',code)(
+  new Function('Deno','createClient','CORS_HEADERS','requireUser','readJsonBody','muxApiAuth','muxSigningConfig','signPlaybackToken','withRequestTelemetry','fetch','console','getOwnedMuxAsset',code)(
     {env:{get:()=> 'test-config'},serve:(fn:any)=>handler=fn},()=>sb,{},
     async()=>opts.unauthorized?{response:new Response(null,{status:401})}:{userId:owner},
     async(req:Request)=>({body:await req.json()}),()=> 'Basic test',()=>opts.signing?{}:null,
-    async()=> 'scoped-token',(_name:string,fn:any)=>fn,provider,{error(){},warn(){}},
+    async()=> 'scoped-token',(_name:string,fn:any)=>fn,provider,{error(){},warn(){}},getOwnedMuxAsset,
   );
   return {writes,calls,provider,request:(body:any)=>handler(new Request('https://example.invalid',{method:'POST',body:JSON.stringify(body)}))};
 }
@@ -50,7 +53,7 @@ it('a failed public playback revocation cannot report success or change row visi
  const h=edge('mux-set-visibility',{signing:true,deleteFails:true});expect((await h.request({kind:'reel',id,isPublic:false})).status).toBe(502);expect(h.writes).toHaveLength(0);expect(h.calls.at(-1).method).toBe('DELETE');
 });
 it('reconciles playback before committing visibility and reports metadata failures',async()=>{
- const h=edge('mux-set-visibility',{signing:true});const r=await h.request({kind:'reel',id,isPublic:false});expect(r.status).toBe(200);expect(await r.json()).toMatchObject({isPublic:false});expect(h.writes).toEqual([{table:'reels',mux_playback_id:'signed',mux_playback_policy:'signed'},{table:'reels',is_public:false}]);
+ const h=edge('mux-set-visibility',{signing:true});const r=await h.request({kind:'reel',id,isPublic:false});expect(r.status).toBe(200);expect(await r.json()).toMatchObject({isPublic:false});expect(h.writes).toEqual([{table:'reels',mux_playback_id:'private',mux_playback_policy:'signed'},{table:'reels',is_public:false}]);
  const failed=edge('mux-set-visibility',{signing:true,saveFails:true});expect((await failed.request({kind:'reel',id,isPublic:false})).status).toBe(500);expect(failed.writes).toHaveLength(1);
 });
 it('photo-only visibility changes do not require Mux signing',async()=>{
@@ -71,4 +74,12 @@ it('guests can receive tokens for public signed videos but never private ones',a
   const body=await (await h.request({items:[{kind:'reel',id}]})).json();
   expect(!!body.tokens[id]).toBe(isPublic);expect(h.writes).toHaveLength(0);
  }
+});
+
+it('forged asset references cannot revoke another video or mint its playback tokens',async()=>{
+ const privacy=edge('mux-set-visibility',{signing:true,assetForeign:true});
+ expect((await privacy.request({kind:'reel',id,isPublic:false})).status).toBe(502);
+ expect(privacy.writes).toHaveLength(0);expect(privacy.calls.every(c=>c.method==='GET')).toBe(true);
+ const token=edge('mux-playback-token',{signing:true,publicVideo:true,assetForeign:true});
+ expect(await (await token.request({items:[{kind:'reel',id}]})).json()).toEqual({tokens:{}});
 });

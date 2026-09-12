@@ -22,7 +22,8 @@ import { withRequestTelemetry } from '../_shared/api-telemetry.ts';
 import { createClient } from 'jsr:@supabase/supabase-js@2';
 import { CORS_HEADERS, requireUser } from '../_shared/auth.ts';
 import { readJsonBody } from '../_shared/limits.ts';
-import { muxSigningConfig, signPlaybackToken } from '../_shared/mux.ts';
+import { muxSigningConfig, signPlaybackToken, muxApiAuth } from '../_shared/mux.ts';
+import { getOwnedMuxAsset } from '../_shared/mux-ownership.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL');
 const SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
@@ -75,26 +76,26 @@ Deno.serve(withRequestTelemetry('mux-playback-token', async (req) => {
   // Resolve each id to { playbackId, authorId, isPublic }.
   const reelIds = items.filter((it) => it.kind === 'reel').map((it) => it.id);
   const itemIds = items.filter((it) => it.kind === 'post_item').map((it) => it.id);
-  const rows = new Map<string, { playbackId: string; authorId: string; isPublic: boolean }>();
+  const rows = new Map<string, { playbackId: string; assetId: string; legacyReel: boolean; authorId: string; isPublic: boolean }>();
 
-  type ReelRow = { id: string; user_id: string; is_public: boolean; mux_playback_id: string | null };
-  type ItemRow = { id: string; post_id: string; mux_playback_id: string | null };
+  type ReelRow = { id: string; user_id: string; is_public: boolean; mux_playback_id: string | null; mux_asset_id: string | null };
+  type ItemRow = { id: string; post_id: string; mux_playback_id: string | null; mux_asset_id: string | null };
   type PostRow = { id: string; user_id: string; is_public: boolean };
 
   if (reelIds.length) {
     const { data, error } = await sb.from('reels')
-      .select('id, user_id, is_public, mux_playback_id')
+      .select('id, user_id, is_public, mux_playback_id, mux_asset_id')
       .in('id', reelIds);
     if (error) { console.error('[mux-playback-token] reels lookup failed', error.message); return json({ error: 'Lookup failed' }, 500); }
     for (const r of (data ?? []) as ReelRow[]) {
       if (r.mux_playback_id) {
-        rows.set(String(r.id), { playbackId: String(r.mux_playback_id), authorId: String(r.user_id), isPublic: !!r.is_public });
+        rows.set(String(r.id), { playbackId: String(r.mux_playback_id), assetId: String(r.mux_asset_id || ''), legacyReel: true, authorId: String(r.user_id), isPublic: !!r.is_public });
       }
     }
   }
   if (itemIds.length) {
     const { data, error } = await sb.from('post_items')
-      .select('id, post_id, mux_playback_id')
+      .select('id, post_id, mux_playback_id, mux_asset_id')
       .in('id', itemIds);
     if (error) { console.error('[mux-playback-token] post_items lookup failed', error.message); return json({ error: 'Lookup failed' }, 500); }
     const withPlayback = ((data ?? []) as ItemRow[]).filter((r) => r.mux_playback_id);
@@ -108,7 +109,7 @@ Deno.serve(withRequestTelemetry('mux-playback-token', async (req) => {
       for (const r of withPlayback) {
         const post = postById.get(String(r.post_id));
         if (post) {
-          rows.set(String(r.id), { playbackId: String(r.mux_playback_id), authorId: String(post.user_id), isPublic: !!post.is_public });
+          rows.set(String(r.id), { playbackId: String(r.mux_playback_id), assetId: String(r.mux_asset_id || ''), legacyReel: false, authorId: String(post.user_id), isPublic: !!post.is_public });
         }
       }
     }
@@ -131,19 +132,28 @@ Deno.serve(withRequestTelemetry('mux-playback-token', async (req) => {
     for (const f of data ?? []) followedAuthors.add(String(f.friend_id));
   }
 
+  const providerAuth = muxApiAuth();
+  if (rows.size && !providerAuth) return json({ error: 'Video verification is unavailable.' }, 503);
   const expiresAt = Math.floor(Date.now() / 1000) + TOKEN_TTL_SECONDS;
   const tokens: Record<string, { playback: string; thumbnail: string; storyboard: string; expiresAt: number }> = {};
-  for (const [id, row] of rows) {
-    const allowed = row.isPublic || row.authorId === viewerId || followedAuthors.has(row.authorId);
-    if (!allowed) continue;
-    const [playback, thumbnail, storyboard] = await Promise.all([
-      signPlaybackToken(cfg, row.playbackId, 'v', expiresAt),
-      // Image query params must ride as claims on a signed URL; 1080 matches
-      // the width the client's muxPosterUrl always requested.
-      signPlaybackToken(cfg, row.playbackId, 't', expiresAt, { width: 1080 }),
-      signPlaybackToken(cfg, row.playbackId, 's', expiresAt),
-    ]);
-    tokens[id] = { playback, thumbnail, storyboard, expiresAt };
+  const entries = [...rows.entries()];
+  for (let offset = 0; offset < entries.length; offset += 8) {
+    await Promise.all(entries.slice(offset, offset + 8).map(async ([id, row]) => {
+      const allowed = row.isPublic || row.authorId === viewerId || followedAuthors.has(row.authorId);
+      if (!allowed) return;
+      // Client-writable playback IDs are not proof of ownership. Verify the
+      // provider's upload binding before signing, even for public rows.
+      const asset = await getOwnedMuxAsset(providerAuth!, row.assetId, row.authorId, id, row.legacyReel);
+      if (!asset?.playback_ids?.some(p => p.id === row.playbackId && p.policy === 'signed')) return;
+      const [playback, thumbnail, storyboard] = await Promise.all([
+        signPlaybackToken(cfg, row.playbackId, 'v', expiresAt),
+        // Image query params must ride as claims on a signed URL; 1080 matches
+        // the width the client's muxPosterUrl always requested.
+        signPlaybackToken(cfg, row.playbackId, 't', expiresAt, { width: 1080 }),
+        signPlaybackToken(cfg, row.playbackId, 's', expiresAt),
+      ]);
+      tokens[id] = { playback, thumbnail, storyboard, expiresAt };
+    }));
   }
 
   return json({ tokens });

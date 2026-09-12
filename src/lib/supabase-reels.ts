@@ -353,7 +353,9 @@ export async function createReel(input: UploadReelInput): Promise<ReelRow | null
   } catch (err) {
     // Roll the row back so a failed/cancelled upload doesn't leave a ghost
     // processing reel.
-    try { await supabase.from('reels').delete().eq('id', reelId); } catch { /* best-effort */ }
+    try {
+      if (!await deleteReel(reelId)) await supabase.from('reels').update({ mux_status: 'errored' }).eq('id', reelId);
+    } catch { /* The retained row lets the owner retry deletion. */ }
     if (localPosterUrl) URL.revokeObjectURL(localPosterUrl);
     if ((err as { name?: string })?.name !== 'AbortError') console.error('[Reels] mux upload failed:', err);
     throw err instanceof Error ? err : new Error('Upload failed');
@@ -710,24 +712,11 @@ export async function updateReel(reelId: string, updates: ReelUpdate): Promise<b
 
 export async function deleteReel(reelId: string): Promise<boolean> {
   if (!supabaseConfigured) return false;
-  // Read the video_path so we can clean up storage even if RLS prevents
-  // joining storage.objects. Failing the storage delete still lets the
-  // row removal succeed.
-  const { data: row } = await supabase.from('reels')
-    .select('video_path')
-    .eq('id', reelId)
-    .maybeSingle();
-  const path = (row as { video_path?: string } | null)?.video_path;
-
-  const { error } = await supabase.from('reels').delete().eq('id', reelId);
-  if (error) {
-    console.warn('[Reels] delete failed:', error.message);
-    return false;
-  }
-  if (path) {
-    await supabase.storage.from(BUCKET).remove([path]).catch(() => {});
-  }
-  return true;
+  try {
+    const { data, error } = await supabase.functions.invoke('delete-media', { body: { kind: 'reel', id: reelId } });
+    if (error || data?.deleted !== true) { console.warn('[Media] deletion failed'); return false; }
+    return true;
+  } catch { return false; }
 }
 
 /* ── Comments ───────────────────────────────────────────────────────── */

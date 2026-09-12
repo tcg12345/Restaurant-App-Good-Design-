@@ -499,7 +499,7 @@ export async function createPost(input: CreatePostInput): Promise<PostRow | null
     // Cancelled mid-upload: tear the whole post down (items cascade off the
     // posts row) so no ghost "processing" items outlive the cancel.
     if ((err as { name?: string })?.name === 'AbortError') {
-      try { await supabase.from('posts').delete().eq('id', postId); } catch { /* best-effort */ }
+      try { await deletePost(postId); } catch { /* Keep the row for a deletion retry. */ }
       await removePhotos();
       cleanupLocal();
     }
@@ -845,21 +845,11 @@ export async function updatePostItems(updates: PostItemUpdate[]): Promise<boolea
 
 export async function deletePost(postId: string): Promise<boolean> {
   if (!supabaseConfigured) return false;
-  // Pull paths to clean up storage after the row delete (CASCADE removes
-  // post_items rows but storage objects are orphaned otherwise).
-  const { data: items } = await supabase.from('post_items')
-    .select('media_path')
-    .eq('post_id', postId);
-  const paths = ((items || []) as { media_path?: string }[])
-    .map((it) => it.media_path)
-    .filter((p): p is string => !!p);
-
-  const { error } = await supabase.from('posts').delete().eq('id', postId);
-  if (error) { console.warn('[Posts] delete failed:', error.message); return false; }
-  if (paths.length > 0) {
-    await supabase.storage.from(BUCKET).remove(paths).catch(() => {});
-  }
-  return true;
+  try {
+    const { data, error } = await supabase.functions.invoke('delete-media', { body: { kind: 'post', id: postId } });
+    if (error || data?.deleted !== true) { console.warn('[Media] deletion failed'); return false; }
+    return true;
+  } catch { return false; }
 }
 
 /* ── Comments ───────────────────────────────────────────────────────── */

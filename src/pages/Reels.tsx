@@ -61,7 +61,7 @@ function formatCount(n: number): string {
 function formatRecipeMeta(prepTime: number, cookTime: number, servings: number, difficulty: 'Easy' | 'Medium' | 'Hard'): string {
   const total = (prepTime || 0) + (cookTime || 0);
   const time = total > 0 ? `${total} min` : '';
-  const serv = servings > 0 ? `${servings} servings` : '';
+  const serv = servings > 0 ? `${servings} ${servings === 1 ? 'serving' : 'servings'}` : '';
   return [time, serv, difficulty].filter(Boolean).join(' · ');
 }
 
@@ -2008,7 +2008,7 @@ export const Reels: React.FC = () => {
     const attachedSubtitle = reel.kind === 'restaurant'
       ? [reel.restaurant?.cuisine, reel.restaurant?.price].filter(Boolean).join(' · ') || undefined
       : reel.recipe
-        ? `${(reel.recipe.prepTime + reel.recipe.cookTime) || 0} min · ${reel.recipe.servings || 0} servings · ${reel.recipe.difficulty}`
+        ? `${(reel.recipe.prepTime + reel.recipe.cookTime) || 0} min · ${reel.recipe.servings || 0} ${reel.recipe.servings === 1 ? 'serving' : 'servings'} · ${reel.recipe.difficulty}`
         : undefined;
     const attachedRoute = reel.kind === 'restaurant' && reel.restaurant
       ? `/restaurant/${reel.restaurant.id}`

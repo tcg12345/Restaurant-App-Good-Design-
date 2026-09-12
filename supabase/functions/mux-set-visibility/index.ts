@@ -7,6 +7,7 @@ import { createClient } from 'jsr:@supabase/supabase-js@2';
 import { CORS_HEADERS, requireUser } from '../_shared/auth.ts';
 import { readJsonBody } from '../_shared/limits.ts';
 import { muxApiAuth, muxSigningConfig } from '../_shared/mux.ts';
+import { getOwnedMuxAsset } from '../_shared/mux-ownership.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL');
 const SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
@@ -26,17 +27,14 @@ function json(body: unknown, status = 200): Response {
 async function reconcileAsset(
   authHeader: string,
   assetId: string,
+  ownerId: string,
+  rowId: string,
+  allowLegacyReel: boolean,
   policy: 'public' | 'signed',
 ): Promise<{ playbackId: string; policy: 'public' | 'signed' } | null> {
-  const assetRes = await fetch(`${MUX_API}/assets/${assetId}`, {
-    headers: { Authorization: authHeader },
-  });
-  if (!assetRes.ok) {
-    console.error('[mux-set-visibility] asset fetch failed', assetId, assetRes.status);
-    return null;
-  }
-  const asset = await assetRes.json();
-  const playbackIds = (asset?.data?.playback_ids ?? []) as Array<{ id: string; policy: string }>;
+  const asset = await getOwnedMuxAsset(authHeader, assetId, ownerId, rowId, allowLegacyReel);
+  if (!asset) return null;
+  const playbackIds = asset.playback_ids ?? [];
 
   // Never recreate public URLs during a visibility change. Once secured, an
   // asset stays signed even when its post becomes public; public viewers can
@@ -139,7 +137,7 @@ Deno.serve(withRequestTelemetry('mux-set-visibility', async (req) => {
 
   const updated: Array<{ rowId: string; playbackId: string; policy: string }> = [];
   for (const t of targets) {
-    const reconciled = await reconcileAsset(authHeader!, t.assetId, policy);
+    const reconciled = await reconcileAsset(authHeader!, t.assetId, auth.userId, t.rowId, t.table === 'reels', policy);
     if (!reconciled) return json({ error: 'Could not secure every video. Please retry.' }, 502);
     const { playbackId, policy: actualPolicy } = reconciled;
     const { error } = await sb.from(t.table)
