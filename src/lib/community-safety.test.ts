@@ -27,6 +27,14 @@ beforeAll(async()=>{
  }
  await db.exec(`INSERT INTO user_profiles(user_id,is_public,display_name) VALUES('${alice}',true,'Alice'),('${bob}',true,'Bob'); INSERT INTO community_ratings(id,user_id,notes) VALUES('${alice}','${alice}','An existing review');`);
  await db.exec(migration);
+ await db.exec(`CREATE SCHEMA vault; CREATE TABLE vault.secrets(id uuid DEFAULT gen_random_uuid(),name text,decrypted_secret text); CREATE VIEW vault.decrypted_secrets AS SELECT * FROM vault.secrets;
+ CREATE FUNCTION vault.create_secret(secret text, secret_name text) RETURNS uuid LANGUAGE plpgsql AS $$DECLARE id uuid:=gen_random_uuid();BEGIN INSERT INTO vault.secrets VALUES(id,secret_name,secret);RETURN id;END$$;
+ CREATE SCHEMA extensions; CREATE FUNCTION extensions.gen_random_bytes(n integer) RETURNS bytea LANGUAGE sql AS $$SELECT repeat('a',n)::bytea$$;
+ CREATE SCHEMA net; CREATE FUNCTION net.http_post(url text,headers jsonb,body jsonb,timeout_milliseconds integer) RETURNS bigint LANGUAGE sql AS $$SELECT 1::bigint$$;
+ CREATE SCHEMA cron; CREATE FUNCTION cron.schedule(text,text,text) RETURNS bigint LANGUAGE sql AS $$SELECT 1::bigint$$;
+ `);
+ await db.exec(readFileSync(new URL('../../supabase/migrations/20260912184452_automatic_content_screening.sql',import.meta.url),'utf8'));
+
 },30000);
 afterAll(async()=>{await db?.close();});
 it('preserves existing publications, holds new shared content and cannot be self-approved',async()=>{
@@ -87,4 +95,58 @@ it('cannot use reports to read a private post or forge report snapshots',async()
 });
 it('keeps moderation helpers and operational functions unavailable to ordinary callers',async()=>{
  await as(bob);for(const fn of ['safety_private.enqueue(text,text,uuid,jsonb)','safety_private.capture_content()','public.safety_push_allowed(uuid)','public.group_room_action(uuid,text,jsonb)']) expect((await db.query("SELECT has_function_privilege('authenticated',$1,'EXECUTE') allowed",[fn])).rows[0]).toEqual({allowed:false});
+});
+
+it('requires explicit owner consent for the exact revision before a worker can see content',async()=>{
+ const id='00000000-0000-0000-0000-000000000021';await as(alice);await db.query('INSERT INTO posts(id,user_id,caption) VALUES($1,$2,$3)',[id,alice,'A wonderful meal']);
+ const row:any=(await db.query("SELECT revision FROM content_moderation WHERE kind='posts' AND content_id=$1",[id])).rows[0];
+ await as(bob);await expect(db.query("SELECT request_content_screening('posts',$1,$2,'2026-09-12-screening')",[id,row.revision])).rejects.toThrow('unavailable');
+ await as(alice);await expect(db.query("SELECT request_content_screening('posts',$1,$2,NULL)",[id,row.revision])).rejects.toThrow('permission');
+ await expect(db.query("SELECT claim_content_screening('forged',2)")).rejects.toThrow('permission denied');
+ await db.query("SELECT request_content_screening('posts',$1,$2,'2026-09-12-screening')",[id,row.revision]);
+ await db.exec('reset role; set role service_role;');
+ await expect(db.query("SELECT * FROM claim_content_screening('forged',2)")).rejects.toThrow('Unauthorized');
+ const job:any=(await db.query("SELECT * FROM claim_content_screening(repeat('61',32),2)")).rows[0];expect(job.content_id).toBe(id);
+ expect((await db.query("SELECT * FROM claim_content_screening(repeat('61',32),2)")).rows).toHaveLength(0);
+ await db.query("SELECT finish_content_screening('posts',$1,$2,$3,'passed','test')",[id,row.revision,job.lease_id]);
+ await as(bob);expect((await db.query('SELECT * FROM posts WHERE id=$1',[id])).rows).toHaveLength(1);
+});
+it('cannot apply an old automated decision to an edited or manually removed publication',async()=>{
+ const id='00000000-0000-0000-0000-000000000022';await as(alice);await db.query('INSERT INTO posts(id,user_id,caption) VALUES($1,$2,$3)',[id,alice,'Before edit']);
+ const row:any=(await db.query("SELECT revision FROM content_moderation WHERE content_id=$1",[id])).rows[0];await db.query("SELECT request_content_screening('posts',$1,$2,'2026-09-12-screening')",[id,row.revision]);
+ await db.exec('reset role; set role service_role;');const job:any=(await db.query("SELECT * FROM claim_content_screening(repeat('61',32),2)")).rows[0];
+ await as(alice);await db.query("UPDATE posts SET caption='After edit' WHERE id=$1",[id]);
+ await db.exec('reset role; set role service_role;');expect((await db.query("SELECT finish_content_screening('posts',$1,$2,$3,'passed','test') ok",[id,row.revision,job.lease_id])).rows[0]).toEqual({ok:false});
+ await as(bob);expect((await db.query('SELECT * FROM posts WHERE id=$1',[id])).rows).toHaveLength(0);
+ await as(alice);const edited:any=(await db.query("SELECT revision,screening_state FROM content_moderation WHERE content_id=$1",[id])).rows[0];expect(edited.screening_state).toBe('awaiting_consent');
+ await db.query("SELECT request_content_screening('posts',$1,$2,'2026-09-12-screening')",[id,edited.revision]);await db.exec('reset role; set role service_role;');const next:any=(await db.query("SELECT * FROM claim_content_screening(repeat('61',32),2)")).rows[0];
+ await as(admin);await db.query("SELECT review_content('posts',$1,$2,false)",[id,edited.revision]);await db.exec('reset role; set role service_role;');expect((await db.query("SELECT finish_content_screening('posts',$1,$2,$3,'passed','test') ok",[id,edited.revision,next.lease_id])).rows[0]).toEqual({ok:false});
+});
+it('keeps flagged content private and prevents callers from repeatedly resubmitting it',async()=>{
+ const id='00000000-0000-0000-0000-000000000023';await as(alice);await db.query('INSERT INTO posts(id,user_id,caption) VALUES($1,$2,$3)',[id,alice,'Flag fixture']);
+ const row:any=(await db.query("SELECT revision FROM content_moderation WHERE content_id=$1",[id])).rows[0];await db.query("SELECT request_content_screening('posts',$1,$2,'2026-09-12-screening')",[id,row.revision]);await db.exec('reset role; set role service_role;');const job:any=(await db.query("SELECT * FROM claim_content_screening(repeat('61',32),2)")).rows[0];await db.query("SELECT finish_content_screening('posts',$1,$2,$3,'flagged','provider_flagged')",[id,row.revision,job.lease_id]);
+ await as(alice);await db.query("SELECT request_content_screening('posts',$1,$2,'2026-09-12-screening')",[id,row.revision]);
+ await as(bob);expect((await db.query('SELECT * FROM posts WHERE id=$1',[id])).rows).toHaveLength(0);
+ await db.exec('reset role; set role service_role;');expect((await db.query("SELECT * FROM claim_content_screening(repeat('61',32),2)")).rows).toHaveLength(0);
+});
+it('withholds a carousel while any media is unapproved',async()=>{
+ const id='00000000-0000-0000-0000-000000000024',media='00000000-0000-0000-0000-000000000025';await as(alice);await db.query('INSERT INTO posts(id,user_id,caption) VALUES($1,$2,$3)',[id,alice,'Photo carousel']);await db.query('INSERT INTO post_items(id,post_id) VALUES($1,$2)',[media,id]);
+ await as(admin);const rows:any[]=(await db.query("SELECT * FROM content_moderation WHERE content_id IN ($1,$2)",[id,media])).rows;const parent=rows.find(r=>r.kind==='posts'),child=rows.find(r=>r.kind==='post_items');await db.query("SELECT review_content('posts',$1,$2,true)",[id,parent.revision]);
+ await as(bob);expect((await db.query('SELECT * FROM posts WHERE id=$1',[id])).rows).toHaveLength(0);
+ await as(admin);await db.query("SELECT review_content('post_items',$1,$2,true)",[media,child.revision]);await as(bob);expect((await db.query('SELECT * FROM posts WHERE id=$1',[id])).rows).toHaveLength(1);
+});
+
+it('honors manual review without queueing provider work and eventually holds repeated outages',async()=>{
+ const id='00000000-0000-0000-0000-000000000026';await as(alice);await db.query('INSERT INTO posts(id,user_id,caption) VALUES($1,$2,$3)',[id,alice,'Manual choice']);
+ let row:any=(await db.query("SELECT revision FROM content_moderation WHERE content_id=$1",[id])).rows[0];await db.query("SELECT request_manual_content_review('posts',$1,$2)",[id,row.revision]);
+ expect((await db.query("SELECT screening_state FROM content_moderation WHERE content_id=$1",[id])).rows[0]).toEqual({screening_state:'manual'});
+ await db.query("UPDATE posts SET caption='Try automatic checks' WHERE id=$1",[id]);row=(await db.query("SELECT revision FROM content_moderation WHERE content_id=$1",[id])).rows[0];await db.query("SELECT request_content_screening('posts',$1,$2,'2026-09-12-screening')",[id,row.revision]);
+ await db.exec('reset role;set role service_role;');for(let i=0;i<3;i++){await db.exec("UPDATE safety_private.screening_jobs SET available_at=now()-interval '1 minute'");const j:any=(await db.query("SELECT * FROM claim_content_screening(repeat('61',32),2)")).rows[0];expect(j).toBeTruthy();await db.query("SELECT finish_content_screening('posts',$1,$2,$3,'retry','outage')",[id,row.revision,j.lease_id]);}
+ await as(alice);expect((await db.query("SELECT status,screening_state FROM content_moderation WHERE content_id=$1",[id])).rows[0]).toEqual({status:'pending',screening_state:'manual'});
+});
+it('invalidates approval when an uploaded object is recreated at the same path',async()=>{
+ const id='00000000-0000-0000-0000-000000000027',path=alice+'/replacement.png';await as(alice);await db.query('INSERT INTO community_photos(id,user_id,photo_url) VALUES($1,$2,$3)',[id,alice,'photos/'+path]);
+ await as(admin);const row:any=(await db.query("SELECT revision FROM content_moderation WHERE content_id=$1",[id])).rows[0];await db.query("SELECT review_content('community_photos',$1,$2,true)",[id,row.revision]);
+ await db.exec('reset role');await db.query("INSERT INTO storage.objects(bucket_id,name) VALUES('photos',$1)",[path]);
+ await as(alice);const changed:any=(await db.query("SELECT revision,status,screening_state FROM content_moderation WHERE content_id=$1",[id])).rows[0];expect(changed.status).toBe('pending');expect(changed.revision).not.toBe(row.revision);expect(changed.screening_state).toBe('awaiting_consent');
 });

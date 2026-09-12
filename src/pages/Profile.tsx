@@ -1,3 +1,4 @@
+import { ModerationStatus } from '../components/ModerationStatus';
 import { PhotoImage } from '../components/PhotoImage';
 import { DeleteConfirmation } from '../components/DeleteConfirmation';
 import React, { useState, useEffect, useMemo, useRef } from 'react';
@@ -953,6 +954,7 @@ export const Profile: React.FC = () => {
           </div>
           <div className="profile-name">
             <h1>{displayName}</h1>
+            {user && <ModerationStatus target={{kind:'user_profiles',id:user.id,authorId:user.id}} />}
             <Link to={publicProfilePath} aria-label="View public profile">@{username} <ChevronRight size={12} /></Link>
             <span className="profile-visibility">{profile?.is_public ? <Globe size={11} /> : <EyeOff size={11} />}{profile?.is_public ? 'Public profile' : 'Private profile'}{memberSince && ` · Joined ${memberSince}`}</span>
           </div>

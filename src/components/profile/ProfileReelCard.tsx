@@ -1,3 +1,4 @@
+import { ModerationStatus } from '../ModerationStatus';
 import { PhotoImage } from '../PhotoImage';
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -70,6 +71,7 @@ export const ProfileReelCard: React.FC<{ reel: Reel }> = ({ reel }) => {
           </div>
         </div>
       </div>
+      <ModerationStatus target={{kind:'reels',id:reel.id,authorId:reel.authorId}} />
     </article>
   );
 };

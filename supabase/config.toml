@@ -227,3 +227,6 @@ verify_jwt = true
 
 [functions.amadeus-hotel-search]
 verify_jwt = true
+
+[functions.screen-content]
+verify_jwt = false # Vault worker secret, verified before claiming any content.

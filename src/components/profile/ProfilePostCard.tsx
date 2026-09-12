@@ -1,3 +1,4 @@
+import { ModerationStatus } from '../ModerationStatus';
 import { PhotoImage } from '../PhotoImage';
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -88,6 +89,7 @@ export const ProfilePostCard: React.FC<{ post: Post }> = ({ post }) => {
           </span>
         </div>
       </div>
+      <ModerationStatus target={{kind:'posts',id:post.id,authorId:post.userId}} />
     </article>
   );
 };

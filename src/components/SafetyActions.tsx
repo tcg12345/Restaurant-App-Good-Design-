@@ -1,3 +1,4 @@
+import { ModerationStatus } from './ModerationStatus';
 import React, { useEffect, useRef, useState } from 'react';
 import { MoreHorizontal } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
@@ -15,7 +16,8 @@ export function SafetyActions({target}: {target:SafetyTarget}) {
  if(mode==='block') {await setUserBlock(target.authorId,true);window.location.replace('/');return;}
  await reportContent(target,reason,details);setMode(null);setDetails('');showToast('Report sent. Thank you for helping keep GoodEats safe.');
  }catch(e){setError(safetyError(e));}finally{setBusy(false);}};
- if(!user || user.id===target.authorId)return null;
+ if(!user)return null;
+ if(user.id===target.authorId)return <ModerationStatus target={target}/>;
  return <><button type="button" className="safety-menu-button" aria-label="Report or block" onClick={e=>{e.stopPropagation();setMode('menu');}}><MoreHorizontal size={20}/></button>
  {mode&&<dialog ref={node=>{ref.current=node;occluder(node);}} className="safety-dialog" aria-label={mode==='menu'?'Content options':mode==='report'?'Report content':'Block account'} onClick={e=>e.stopPropagation()} onCancel={e=>{e.preventDefault();close();}} data-analytics-private>
  <h2>{mode==='menu'?'Content options':mode==='report'?'Report content':'Block this account?'}</h2>

@@ -1,3 +1,4 @@
+import { ModerationStatusProvider } from './components/ModerationStatus';
 import { AiConsentDialog } from './components/AiConsentDialog';
 import { SUBSCRIPTIONS_ENABLED } from './lib/subscription-release';
 import { isSocialConversation } from './lib/social-navigation';
@@ -653,7 +654,7 @@ const AppContent: React.FC = () => {
           <Route path="/admin/verification" element={<RequireAuthRoute reason="Sign in to continue"><AdminVerification /></RequireAuthRoute>} />
           <Route path="/admin/analytics" element={<RequireAuthRoute reason="Sign in to continue"><React.Suspense fallback={<PageSkeleton />}><AdminAnalytics /></React.Suspense></RequireAuthRoute>} />
           <Route path="/admin/moderation" element={<RequireAuthRoute reason="Sign in to continue"><ContentSafety admin /></RequireAuthRoute>} />
-          <Route path="/settings/publications" element={<RequireAuthRoute reason="Sign in to continue"><ContentSafety /></RequireAuthRoute>} />
+          <Route path="/settings/publications" element={<Navigate to="/settings/privacy" replace />} />
           <Route path="/admin/feedback" element={<RequireAuthRoute reason="Sign in to continue"><AdminFeedback /></RequireAuthRoute>} />
           <Route path="/admin/cuisine" element={<RequireAuthRoute reason="Sign in to continue"><AdminCuisineSuggestions /></RequireAuthRoute>} />
           <Route path="/profile" element={<RequireAuthRoute reason="Sign in to view your profile"><Profile /></RequireAuthRoute>} />
@@ -818,6 +819,7 @@ export default function App() {
             <PlanProvider>
             <PaywallProvider>
             <AiConsentDialog />
+            <ModerationStatusProvider>
             <ListsProvider>
               <SharedListsProvider>
               <RecipesProvider>
@@ -843,6 +845,7 @@ export default function App() {
               </RecipesProvider>
               </SharedListsProvider>
             </ListsProvider>
+            </ModerationStatusProvider>
             </PaywallProvider>
             </PlanProvider>
             </SignInModalProvider>

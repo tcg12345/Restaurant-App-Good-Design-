@@ -1,4 +1,39 @@
-# GoodEats 1.3 (3): App Review safety fixes
+# GoodEats 1.3 (4): Automatic screening and inline status
+
+Build 4 supersedes build 3 below. App Store Connect has not been accessed or changed; the owner uploads the archive.
+
+## Current behavior
+
+- Removed the separate Your publications entry. Its old URL redirects to Privacy & permissions. Review status appears on affected content instead.
+- A publishing disclosure identifies OpenAI and the shared text, photos and sampled video frames being checked. Explicit approval queues only the authorized content revision. Remembering permission is optional and scoped to the account on this device; Privacy & permissions can clear it.
+- Supported content that passes screening is approved automatically. Flags, unsupported media and videos with audio stay private pending moderator review. Declining automatic screening chooses manual review. OpenAI image moderation does not classify audio.
+- Existing publications are not bulk submitted to the provider. Private messages and full account histories are excluded. Retries are bounded and failures never approve content.
+- Screening jobs require a private worker secret, service authorization and recorded owner consent. Revision checks prevent stale approvals; replaced uploaded files require a fresh review. Posts stay private until their associated media passes.
+- Reports, blocking and the administrative moderation inbox remain available. Subscriptions remain disabled.
+
+## Build 4 verification
+
+- Full suite: 1,756 tests passed in 201 files. Final expanded safety tests: 18 passed in 2 files. Production TypeScript/security checks and Vite build passed.
+- Real production screening: a safe text post and a photo passed; harmful fixture text stayed pending/manual. No job existed before consent, and a missing consent version was rejected. All fixtures were deleted.
+- Browser: publishing disclosure appeared with focus inside the dialog. Manual review produced inline Under review status. Explicit Allow and share completed real screening. The test profile was restored and remembered permission cleared.
+- Applied migration `20260912184452_automatic_content_screening.sql` and deployed `screen-content`. No historical migration records were rewritten. Security advisors had no ERROR findings; existing and intentional service-only/function notices remain.
+- App and widget both identify as 1.3 (4). Archive and strict signature verification passed. All 229 bundled web files match the final production build; see `build-4-manifest.json`.
+- Video frame planning and ownership checks are covered by code/tests; a real video upload through this new worker and physical-device publishing remain owner verification items.
+
+Archive: `artifacts/GoodEats-1.3-build-4.xcarchive`.
+
+## Owner steps for this release
+
+1. Briefly check the publishing disclosure and inline status on an iPhone, including a video upload.
+2. Upload/select **1.3 (4)** in App Store Connect. Leave draft subscriptions unsubmitted and unattached.
+3. Use `APP-REVIEW-NOTES.txt`, supply a working review account, and review App Privacy answers against the updated published policy, including content sent for automatic screening.
+4. Assign someone to monitor reports and the moderation inbox. Flagged/unsupported content and videos with audio still need review. Comment approvals currently do not replay withheld notifications.
+
+The following section is historical evidence for build 3 and is superseded by the build 4 behavior and owner steps above.
+
+---
+
+# Historical build 3 safety rollout
 
 Status: the owner approved deployment on September 12, 2026. The safety migration and all ten matching Edge Functions are live, live safety checks passed, and the support pages are published. The matching website release is published and verified. App Store Connect has not been accessed or changed.
 
