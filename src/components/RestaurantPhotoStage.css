@@ -63,8 +63,10 @@
 .rps-photo-failed { display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 12px; color: #ffffffa8; background: #26362d; font-size: 12px; width: 100%; height: 100%; min-height: 30px; border-radius: inherit; }
 .rps-filmstrip .rps-photo-failed span, .rps-grid .rps-photo-failed span { display: none; }
 .restaurant-photo-stage button { -webkit-tap-highlight-color: transparent; }
-.restaurant-photo-stage button:focus-visible { outline: 2px solid var(--brand-mint); outline-offset: 3px; }
-.restaurant-photo-stage .rps-handle:focus-visible { outline-color: var(--color-primary); outline-offset: -3px; }
+.restaurant-photo-stage button:focus { outline: none; }
+.restaurant-photo-stage[data-keyboard-focus] button:focus-visible { outline: 2px solid var(--brand-mint); outline-offset: 3px; }
+.restaurant-photo-stage[data-keyboard-focus] .rps-handle:focus-visible { outline-color: var(--color-primary); outline-offset: -3px; }
+.rps-gallery-header, .rps-handle, .rps-dock { user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent; }
 .restaurant-detail-mobile:has(.restaurant-photo-stage.is-presented) > .sticky { opacity: 0; pointer-events: none; visibility: hidden; }
 @media (max-height: 650px) { .rps-gallery-header { padding-top: calc(env(safe-area-inset-top, 0px) + 10px); padding-bottom: 10px; }.rps-photo-meta { padding-block: 10px; min-height: 54px; }.rps-filmstrip button { height: 44px; width: 40px; flex-basis: 40px; } }
 @media (prefers-reduced-motion: reduce) { .restaurant-photo-stage * { transition: none !important; animation: none !important; } }
@@ -116,6 +118,9 @@ body:has([data-no-pull-refresh]:not([inert] [data-no-pull-refresh])) { overscrol
 .rps-photo-meta { padding: 10px 18px; min-height: 54px; }
 .rps-filmstrip { padding: 4px 18px; gap: 7px; }
 .rps-filmstrip button { height: 48px; width: 42px; flex-basis: 42px; border-radius: 10px; }
+/* Reserve the rail before its images mount so the full photo does not resize
+   under the finger. Start thumbnail work only after the reveal settles. */
+.rps-filmstrip-slot { height: 56px; flex: 0 0 56px; }
 .rps-dock { min-height: calc(44px + env(safe-area-inset-bottom, 0px)); padding: 13px 20px calc(7px + env(safe-area-inset-bottom, 0px)); border-radius: 22px 22px 0 0; }
 .rps-dock strong { font-size: 13px; font-weight: 550; }
 .rps-dock-grabber { top: 5px; width: 28px; height: 3px; left: calc(50% - 14px); }

@@ -38,6 +38,44 @@ beforeEach(() => {
 });
 afterEach(async () => { await act(async () => root.unmount()); container.remove(); expect(isOverlayOpen()).toBe(false); expect(document.body.style.position).toBe(''); });
 describe('restaurant photo reveal', () => {
+  it('finishes the first pull when more photos arrive while the finger is down', async () => {
+    await mount(['one.jpg']);
+    await touch('touchstart', 150, 350, 0);
+    await touch('touchmove', 150, 450, 100);
+    expect(container.querySelector('.rps-filmstrip')).toBeNull();
+    expect(container.querySelector('.rps-filmstrip-slot')).not.toBeNull();
+    await mount(Array.from({length: 41}, (_, i) => i ? `photo-${i}.jpg` : 'one.jpg'));
+    await touch('touchmove', 150, 590, 200);
+    await touch('touchend', 150, 590, 220);
+    expect(container.querySelector('[role=dialog]')).not.toBeNull();
+    await act(async () => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })));
+    expect(isOverlayOpen()).toBe(false);
+  });
+  it('retains a pull across viewport measurement updates', async () => {
+    await mount();
+    const oldHeight = window.innerHeight;
+    try {
+      await touch('touchstart', 150, 350, 0);
+      await touch('touchmove', 150, 450, 100);
+      Object.defineProperty(window, 'innerHeight', {value: oldHeight - 80, configurable: true});
+      await act(async () => window.dispatchEvent(new Event('resize')));
+      await touch('touchmove', 150, 590, 200);
+      await touch('touchend', 150, 590, 220);
+      expect(container.querySelector('[role=dialog]')).not.toBeNull();
+    } finally { Object.defineProperty(window, 'innerHeight', {value: oldHeight, configurable: true}); }
+  });
+  it('keeps modal focus accessible without giving touch gestures keyboard highlighting', async () => {
+    await mount();
+    await act(async () => window.dispatchEvent(new KeyboardEvent('keydown', {key: 'Tab'})));
+    expect(container.querySelector('[data-keyboard-focus]')).not.toBeNull();
+    await touch('touchstart', 150, 350, 0);
+    await touch('touchmove', 150, 590, 200);
+    await touch('touchend', 150, 590, 220);
+    expect(document.activeElement).toBe(container.querySelector('[aria-label="Return to restaurant details"]'));
+    expect(container.querySelector('[data-keyboard-focus]')).toBeNull();
+    await act(async () => window.dispatchEvent(new KeyboardEvent('keydown', {key: 'Tab'})));
+    expect(container.querySelector('[data-keyboard-focus]')).not.toBeNull();
+  });
   it('prepares the selected image before a pull and keeps it mounted across reveals', async () => {
     await mount();
     const image = container.querySelector('.rps-photo-full img');

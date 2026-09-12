@@ -43,6 +43,7 @@ export const RestaurantPhotoStage: React.FC<Props> = ({ name, photos, loading = 
   const coverDrag = useDragControls();
   const reduced = useReducedMotion();
   const [presented, setPresented] = useState(open);
+  const [galleryReady, setGalleryReady] = useState(open);
   const [grid, setGrid] = useState(false);
   const [query, setQuery] = useState('');
   const search = query.trim().toLocaleLowerCase();
@@ -55,6 +56,8 @@ export const RestaurantPhotoStage: React.FC<Props> = ({ name, photos, loading = 
   useNightStatusBar(presented && !interactionBlocked);
   const presentedRef = useRef(presented); presentedRef.current = presented;
   const [geometry, setGeometry] = useState({ height: 852, hero: 307, travel: 485, left: 0, width: 393 });
+  const travel = useRef(geometry.travel); travel.current = geometry.travel;
+  const hasPhotos = photos.length > 0;
   const animation = useRef<ReturnType<typeof animate> | null>(null);
   const releaseVelocity = useRef(0);
   const dragging = useRef(false);
@@ -93,6 +96,7 @@ export const RestaurantPhotoStage: React.FC<Props> = ({ name, photos, loading = 
         velocity: Math.max(-4, Math.min(4, velocity)), restDelta: .001, restSpeed: .01,
       }),
       onComplete: () => {
+        setGalleryReady(expanded);
         if (!expanded) { setPresented(false); setGrid(false); setQuery(''); }
       },
     });
@@ -108,6 +112,22 @@ export const RestaurantPhotoStage: React.FC<Props> = ({ name, photos, loading = 
     return () => { window.removeEventListener('resize', measure); window.visualViewport?.removeEventListener('resize', measure); };
   }, [measure]);
   useEffect(() => () => animation.current?.stop(), []);
+  // Programmatic modal focus can match :focus-visible on WebKit after a
+  // touch. Keep focus for accessibility, but show its ring only for keys.
+  useEffect(() => {
+    const keyboard = (event: KeyboardEvent) => {
+      if (['Tab', 'Enter', ' ', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Escape'].includes(event.key)) root.current?.setAttribute('data-keyboard-focus', '');
+    };
+    const pointer = () => root.current?.removeAttribute('data-keyboard-focus');
+    window.addEventListener('keydown', keyboard, true);
+    window.addEventListener('pointerdown', pointer, true);
+    window.addEventListener('touchstart', pointer, {capture: true, passive: true});
+    return () => {
+      window.removeEventListener('keydown', keyboard, true);
+      window.removeEventListener('pointerdown', pointer, true);
+      window.removeEventListener('touchstart', pointer, true);
+    };
+  }, []);
   useEffect(() => {
     if (!presented) return;
     const releaseLock = acquireHardScrollLock();
@@ -141,8 +161,8 @@ export const RestaurantPhotoStage: React.FC<Props> = ({ name, photos, loading = 
   // taking ownership only for a downward pull begun at the top of the card.
   useEffect(() => {
     const element = root.current;
-    if (!element || !photos.length) return;
-    let gesture: { x: number; y: number; lastY: number; time: number; velocity: number; base: number; atTop: boolean; intent: string } | null = null;
+    if (!element || !hasPhotos) return;
+    let gesture: { x: number; y: number; lastY: number; time: number; velocity: number; base: number; travel: number; atTop: boolean; intent: string } | null = null;
     const start = (event: TouchEvent) => {
       if (event.touches.length !== 1) { end(true); return; }
       if (latest.current.interactionBlocked) return;
@@ -151,7 +171,7 @@ export const RestaurantPhotoStage: React.FC<Props> = ({ name, photos, loading = 
       const t = event.touches[0];
       if (t.clientX < 28 || target.closest('[data-horizontal-gesture],input,textarea,select,a') || (target.closest('button') && !target.closest('.rps-handle,.rps-dock'))) return;
       if (latest.current.grid && !target.closest(".rps-dock")) return;
-      gesture = { x: t.clientX, y: t.clientY, lastY: t.clientY, time: event.timeStamp, velocity: 0, base: progress.get(), atTop: element.getBoundingClientRect().top >= -2, intent: 'wait' };
+      gesture = { x: t.clientX, y: t.clientY, lastY: t.clientY, time: event.timeStamp, velocity: 0, base: progress.get(), travel: travel.current, atTop: element.getBoundingClientRect().top >= -2, intent: 'wait' };
     };
     const move = (event: TouchEvent) => {
       if (!gesture) return;
@@ -164,7 +184,7 @@ export const RestaurantPhotoStage: React.FC<Props> = ({ name, photos, loading = 
       const dt = event.timeStamp - gesture.time;
       if (dt > 0) gesture.velocity = (t.clientY - gesture.lastY) / dt;
       gesture.lastY = t.clientY; gesture.time = event.timeStamp;
-      progress.set(Math.max(0, Math.min(1, gesture.base + (t.clientY - gesture.y) / geometry.travel)));
+      progress.set(Math.max(0, Math.min(1, gesture.base + (t.clientY - gesture.y) / gesture.travel)));
     };
     const end = (cancelled = false, time = 0) => {
       if (dragging.current && gesture) {
@@ -173,7 +193,7 @@ export const RestaurantPhotoStage: React.FC<Props> = ({ name, photos, loading = 
         const velocity = cancelled || time - gesture.time > 100 ? 0 : gesture.velocity;
         const next = cancelled ? latest.current.open : photoPullDestination(latest.current.open, progress.get(), velocity);
         // Motion uses progress/second; touch samples use pixels/millisecond.
-        const normalizedVelocity = velocity * 1000 / geometry.travel;
+        const normalizedVelocity = velocity * 1000 / gesture.travel;
         if (next !== latest.current.open) { releaseVelocity.current = normalizedVelocity; latest.current.onOpenChange(next); homeHaptic(); }
         else settle(next, normalizedVelocity);
       }
@@ -185,7 +205,9 @@ export const RestaurantPhotoStage: React.FC<Props> = ({ name, photos, loading = 
     element.addEventListener('touchend', finish);
     element.addEventListener('touchcancel', cancel);
     return () => { element.removeEventListener('touchstart', start); element.removeEventListener('touchmove', move); element.removeEventListener('touchend', finish); element.removeEventListener('touchcancel', cancel); };
-  }, [photos.length, geometry.travel, prepare, settle, progress]);
+    // Photo pages and viewport measurements may arrive mid-pull. Neither
+    // may replace these listeners (and discard their in-flight gesture).
+  }, [hasPhotos, prepare, settle, progress]);
   const step = (direction: number) => {
     if (photos.length < 2) return;
     onIndexChange((current + direction + photos.length) % photos.length);
@@ -212,7 +234,7 @@ export const RestaurantPhotoStage: React.FC<Props> = ({ name, photos, loading = 
     const rail = root.current?.querySelector('.rps-filmstrip');
     const thumb = rail?.querySelector<HTMLElement>('[aria-current=true]');
     if (rail && thumb) rail.scrollTo({ left: thumb.offsetLeft - rail.clientWidth / 2 + thumb.offsetWidth / 2, behavior: reduced ? 'auto' : 'smooth' });
-  }, [open, current, showGrid, reduced]);
+  }, [open, current, showGrid, reduced, galleryReady]);
 
   const hasHero = photos.length > 0 || loading;
   return <div ref={root} data-no-pull-refresh="" className={`restaurant-photo-stage${hasHero ? '' : ' is-empty'}${presented ? ' is-presented' : ''}${open ? ' is-gallery' : ''}`}
@@ -261,7 +283,7 @@ export const RestaurantPhotoStage: React.FC<Props> = ({ name, photos, loading = 
               {photo?.id && <PhotoLikeButton photoId={photo.id} onSignInNeeded={() => onOpenChange(false)} />}
               {photo && onRecreate && <button aria-label="Recreate this dish" onClick={() => { opener.current = null; onRecreate({ url: photo.url, rawUrl: photo.rawUrl || photo.url, caption: photo.caption || '', ownerUserId: photo.user_id }); }}><Sparkles size={17} /></button>}
             </div>
-            {presented && <div className="rps-filmstrip" data-horizontal-gesture="" aria-label="Choose a photo">{photos.map((url, i) => <button key={`${url}-${i}`} aria-label={`Photo ${i + 1}`} aria-current={i === current} onClick={() => onIndexChange(i)}><Photo lazy url={url} alt="" /></button>)}</div>}
+            <div className="rps-filmstrip-slot">{galleryReady && <div className="rps-filmstrip" data-horizontal-gesture="" aria-label="Choose a photo">{photos.map((url, i) => <button key={`${url}-${i}`} aria-label={`Photo ${i + 1}`} aria-current={i === current} onClick={() => onIndexChange(i)}><Photo lazy url={url} alt="" /></button>)}</div>}</div>
           </>}
         </>}
       </motion.div>
