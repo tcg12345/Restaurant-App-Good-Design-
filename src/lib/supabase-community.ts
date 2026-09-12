@@ -2,6 +2,7 @@
  * Community ratings & photos — shared data across all users.
  */
 import { supabase, supabaseConfigured } from './supabase';
+import { notifyFollowAccessChange } from './follow-access';
 import type { PinnedItem } from './pins';
 import { rankSuggestedProfiles, diversifySuggestions, tasteMatchScore, tasteMatchReason, type TasteSignal } from './suggestions';
 import { reportClientError } from './error-reporting';
@@ -1058,7 +1059,11 @@ async function saveFollowEdge(userId: string, targetId: string, status: 'pending
 /** Follow public/verified accounts instantly; RLS enforces target eligibility. */
 export async function followPublicAccount(userId: string, targetId: string): Promise<boolean> {
   if (!supabaseConfigured || !userId || !targetId || userId === targetId) return false;
-  try { return await saveFollowEdge(userId, targetId, 'accepted'); }
+  try {
+    const ok = await saveFollowEdge(userId, targetId, 'accepted');
+    if (ok) notifyFollowAccessChange(targetId, true);
+    return ok;
+  }
   catch (err) { console.error('[Friends] followPublic exception:', err); return false; }
 }
 
@@ -1624,6 +1629,7 @@ export async function removeFriend(userId: string, friendId: string): Promise<bo
     const { error } = await supabase.from('user_friends')
       .delete().eq('user_id', userId).eq('friend_id', friendId);
     if (error) { console.error('[Friends] removeFriend error:', error); return false; }
+    notifyFollowAccessChange(friendId, false);
     return true;
   } catch (err) { console.error('[Friends] removeFriend exception:', err); return false; }
 }

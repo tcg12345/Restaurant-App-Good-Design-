@@ -1,3 +1,5 @@
+import { mediaAccessVersion } from '../lib/media-access-scope';
+import { onFollowAccessChange } from '../lib/follow-access';
 import React, { createContext, useContext, useState, useCallback, useEffect, useRef, useMemo, type ReactNode } from 'react';
 import { useAuth } from './AuthContext';
 import { useSignInModal } from './SignInModalContext';
@@ -178,7 +180,9 @@ export const PostsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     if (!supabaseConfigured) return;
     setLoading(true);
     try {
+      const accessVersion = mediaAccessVersion();
       const rows = await listPosts({ viewerId: userIdRef.current, limit: PAGE_SIZE });
+      if (accessVersion !== mediaAccessVersion()) return;
       if (rows) {
         setPosts(rows.map(decoratePost));
         const last = rows[rows.length - 1];
@@ -204,13 +208,21 @@ export const PostsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     }
   }, []);
 
+  useEffect(() => onFollowAccessChange(({ authorId, following }) => {
+    // Remove revoked private items synchronously, even if the refresh fails.
+    if (!following) setPosts((items) => items.filter((item) => item.authorId !== authorId || item.isPublic));
+    void refreshPosts();
+  }), [refreshPosts]);
+
   const loadMorePosts = useCallback(async () => {
     if (!supabaseConfigured || loadingMoreRef.current) return;
     const before = postsCursorRef.current;
     if (!before) return;
     loadingMoreRef.current = true;
     try {
+      const accessVersion = mediaAccessVersion();
       const rows = await listPosts({ viewerId: userIdRef.current, limit: PAGE_SIZE, before });
+      if (accessVersion !== mediaAccessVersion()) return;
       if (!rows) return;
       const last = rows[rows.length - 1];
       if (last) postsCursorRef.current = { createdAt: last.createdAt, id: last.id };

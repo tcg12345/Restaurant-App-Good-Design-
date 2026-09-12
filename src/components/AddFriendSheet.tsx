@@ -119,7 +119,7 @@ export const AddFriendSheet: React.FC<Props> = ({ open, onClose }) => {
     const rel = relationships[target.user_id];
     if (rel === 'following' || rel === 'requested') return;
     setPending((prev) => new Set(prev).add(target.user_id));
-    const immediate = !!(target.is_public || target.is_verified);
+    const immediate = !!(target.is_public);
     const ok = immediate
       ? await followPublicAccount(userId, target.user_id)
       : await sendFriendRequest(userId, target.user_id);

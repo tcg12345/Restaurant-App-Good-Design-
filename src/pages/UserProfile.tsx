@@ -628,7 +628,7 @@ export const UserProfile: React.FC = () => {
   const handleFollow = async () => {
     if (!userId) { requireSignIn('Sign in to follow'); return; }
     if (!profile) return;
-    const immediate = !!(profile.is_public || profile.is_verified);
+    const immediate = !!(profile.is_public);
     if (immediate) {
       const ok = await followPublicAccount(userId, profile.user_id);
       if (ok) {

@@ -242,7 +242,7 @@ export const FollowList: React.FC = () => {
   const handleFollow = (p: UserProfileType) => {
     if (!userId) { requireSignIn('Sign in to follow'); return; }
     void withBusy(p.user_id, async () => {
-      if (p.is_public || p.is_verified) {
+      if (p.is_public) {
         const ok = await followPublicAccount(userId, p.user_id);
         if (!ok) { showToast("Couldn't follow. Try again."); return; }
         setMyFollowing((prev) => new Set(prev).add(p.user_id));

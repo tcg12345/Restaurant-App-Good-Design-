@@ -276,7 +276,7 @@ const CirclePanelContent: React.FC<CirclePanelProps> = ({ variant, onClose }) =>
   const handleFollowBackRequest = useCallback(async (req: FriendRequest) => {
     if (!userId || requestBusy.has(req.id)) return;
     const prof = requestProfiles[req.user_id];
-    const immediate = !!(prof?.is_public || prof?.is_verified);
+    const immediate = !!(prof?.is_public);
     setRequestBusy((prev) => new Set(prev).add(req.id));
     const ok = immediate
       ? await followPublicAccount(userId, req.user_id)
@@ -343,7 +343,7 @@ const CirclePanelContent: React.FC<CirclePanelProps> = ({ variant, onClose }) =>
     if (!userId || peopleBusy.has(p.user_id)) return;
     if (followedIds.has(p.user_id) || sentRequestIds.has(p.user_id)) return;
     setPeopleBusy((prev) => new Set(prev).add(p.user_id));
-    const immediate = !!(p.is_public || p.is_verified);
+    const immediate = !!(p.is_public);
     const ok = immediate
       ? await followPublicAccount(userId, p.user_id)
       : await sendFriendRequest(userId, p.user_id);

@@ -418,7 +418,7 @@ export const ProfileSetup: React.FC<{ onComplete?: () => void }> = ({ onComplete
                       type="button"
                       role="switch"
                       aria-checked={isPublic}
-                      aria-label={isPublic ? 'Make account private' : 'Make account public'}
+                      aria-label="Public account"
                       onClick={() => { setIsPublic(!isPublic); setVisibilityTouched(true); }}
                       className="flex-none relative rounded-full border-none cursor-pointer transition-colors"
                       style={{ width: 46, height: 28, background: isPublic ? OB.TERRA : 'var(--ob-radio-ring)' }}

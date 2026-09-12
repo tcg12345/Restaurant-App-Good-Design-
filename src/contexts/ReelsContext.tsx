@@ -1,3 +1,5 @@
+import { mediaAccessVersion } from '../lib/media-access-scope';
+import { onFollowAccessChange } from '../lib/follow-access';
 import React, { createContext, useContext, useState, useCallback, useMemo, useEffect, useRef, type ReactNode } from 'react';
 import { useAuth } from './AuthContext';
 import { useSignInModal } from './SignInModalContext';
@@ -262,7 +264,9 @@ export const ReelsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     if (!supabaseConfigured) return;
     setLoading(true);
     try {
+      const accessVersion = mediaAccessVersion();
       const rows = await listReels({ viewerId: userIdRef.current, limit: PAGE_SIZE });
+      if (accessVersion !== mediaAccessVersion()) return;
       if (rows) {
         setReels(rows.map(rowToUi));
         const last = rows[rows.length - 1];
@@ -285,13 +289,22 @@ export const ReelsProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     }
   }, []);
 
+  useEffect(() => onFollowAccessChange(({ authorId, following }) => {
+    // Remove revoked private items synchronously, even if the refresh fails.
+    if (!following) setReels((items) => items.filter((item) => item.authorId !== authorId || item.isPublic));
+    setFollowState(authorId, following);
+    void refreshReels();
+  }), [refreshReels, setFollowState]);
+
   const loadMoreReels = useCallback(async () => {
     if (!supabaseConfigured || loadingMoreRef.current) return;
     const before = reelsCursorRef.current;
     if (!before) return;
     loadingMoreRef.current = true;
     try {
+      const accessVersion = mediaAccessVersion();
       const rows = await listReels({ viewerId: userIdRef.current, limit: PAGE_SIZE, before });
+      if (accessVersion !== mediaAccessVersion()) return;
       if (!rows) return;
       const last = rows[rows.length - 1];
       if (last) reelsCursorRef.current = { createdAt: last.createdAt, id: last.id };
