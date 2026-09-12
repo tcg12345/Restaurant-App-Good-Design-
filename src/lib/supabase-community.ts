@@ -1035,15 +1035,31 @@ export async function getMutualFriendIds(userId: string): Promise<string[]> {
   return following.filter((f) => followerSet.has(f.friend_id)).map((f) => f.friend_id);
 }
 
-/** Follow a public account instantly (no request needed) */
+/** Insert a directional follow without asking PostgREST to rewrite identities.
+ * Declined requests (or pending requests to a now-public account) can be
+ * removed by their sender and reinserted under the current consent policy. */
+async function saveFollowEdge(userId: string, targetId: string, status: 'pending' | 'accepted'): Promise<boolean> {
+  const { data: existing, error: readError } = await supabase.from('user_friends')
+    .select('status').eq('user_id', userId).eq('friend_id', targetId).maybeSingle();
+  if (readError) return false;
+  if (existing?.status === 'accepted' || existing?.status === status) return true;
+  if (existing) {
+    // Status filter protects an acceptance racing this retry from deletion.
+    const { error } = await supabase.from('user_friends').delete()
+      .eq('user_id', userId).eq('friend_id', targetId).eq('status', existing.status);
+    if (error) return false;
+  }
+  const { error } = await supabase.from('user_friends')
+    .upsert({ user_id: userId, friend_id: targetId, status }, { onConflict: 'user_id,friend_id', ignoreDuplicates: true });
+  if (error) { console.error('[Friends] follow save failed:', error); return false; }
+  return true;
+}
+
+/** Follow public/verified accounts instantly; RLS enforces target eligibility. */
 export async function followPublicAccount(userId: string, targetId: string): Promise<boolean> {
   if (!supabaseConfigured || !userId || !targetId || userId === targetId) return false;
-  try {
-    const { error } = await supabase.from('user_friends')
-      .upsert({ user_id: userId, friend_id: targetId, status: 'accepted' }, { onConflict: 'user_id,friend_id' });
-    if (error) { console.error('[Friends] followPublic error:', error); return false; }
-    return true;
-  } catch (err) { console.error('[Friends] followPublic exception:', err); return false; }
+  try { return await saveFollowEdge(userId, targetId, 'accepted'); }
+  catch (err) { console.error('[Friends] followPublic exception:', err); return false; }
 }
 
 /** Get follower and following counts.
@@ -1544,26 +1560,11 @@ export async function getSentRequestIds(userId: string): Promise<string[]> {
   } catch (err) { console.error('[Friends] getSentRequestIds exception:', err); return []; }
 }
 
-/** Send a friend request (status = 'pending').
- *
- *  UPSERT, not INSERT: a declined request leaves its row in place under
- *  UNIQUE(user_id, friend_id), so a plain insert hit 23505 forever once
- *  the target had declined — every retry showed "Couldn't send that
- *  request." The upsert flips the surviving row back to 'pending'
- *  (requester-side UPDATE policy from migration 053). An existing
- *  'accepted' edge is left alone so an errant call can't downgrade an
- *  established follow back to pending. */
+/** Request access without downgrading an existing accepted follow. */
 export async function sendFriendRequest(userId: string, friendId: string): Promise<boolean> {
   if (!supabaseConfigured || !userId || !friendId || userId === friendId) return false;
-  try {
-    const { data: existing } = await supabase.from('user_friends')
-      .select('status').eq('user_id', userId).eq('friend_id', friendId).maybeSingle();
-    if ((existing as { status?: string } | null)?.status === 'accepted') return true; // already following
-    const { error } = await supabase.from('user_friends')
-      .upsert({ user_id: userId, friend_id: friendId, status: 'pending' }, { onConflict: 'user_id,friend_id' });
-    if (error) { console.error('[Friends] sendRequest error:', error); return false; }
-    return true;
-  } catch (err) { console.error('[Friends] sendRequest exception:', err); return false; }
+  try { return await saveFollowEdge(userId, friendId, 'pending'); }
+  catch (err) { console.error('[Friends] sendRequest exception:', err); return false; }
 }
 
 /**

@@ -2,15 +2,27 @@ import React from 'react';
 
 import { PageSkeleton, type PageSkeletonVariant } from './PageSkeleton';
 
+function isMissingPageModule(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error ?? '');
+  return /Failed to fetch dynamically imported module|Importing a module script failed|Loading (?:CSS )?chunk .* failed|error loading dynamically imported module/i.test(message);
+}
+
+export function retryPageLoad(error: unknown, retry: () => void, reload: () => void = () => window.location.reload()) {
+  // Browsers cache failed module imports. Recreating React.lazy with the same
+  // old hashed URL cannot recover a tab kept open across a deployment.
+  if (isMissingPageModule(error)) reload();
+  else retry();
+}
+
 class PageLoadBoundary extends React.Component {
   declare props: { children?: unknown; retry: () => void };
-  state = { failed: false };
-  static getDerivedStateFromError() { return { failed: true }; }
+  state: { failed: boolean; error: unknown } = { failed: false, error: null };
+  static getDerivedStateFromError(error: unknown) { return { failed: true, error }; }
   render() {
     if (this.state.failed) return <div role="alert" className="min-h-[60dvh] flex flex-col items-center justify-center gap-4 px-6 text-center text-on-surface">
       <p>Couldn't open this page.</p>
-      <p className="text-sm text-on-surface/70">Check your connection and try again.</p>
-      <button className="rounded-full bg-primary text-on-primary px-6 py-3 text-sm font-medium" onClick={this.props.retry}>Try again</button>
+      <p className="text-sm text-on-surface/70">{isMissingPageModule(this.state.error) ? 'Reload the app to get the current page files.' : 'Check your connection and try again.'}</p>
+      <button className="rounded-full bg-primary text-on-primary px-6 py-3 text-sm font-medium" onClick={() => retryPageLoad(this.state.error, this.props.retry)}>{isMissingPageModule(this.state.error) ? 'Reload app' : 'Try again'}</button>
     </div>;
     return this.props.children;
   }

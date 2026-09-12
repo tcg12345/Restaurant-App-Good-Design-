@@ -2,7 +2,7 @@
 import React, { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import { lazyPage } from './LazyPage';
+import { lazyPage, retryPageLoad } from './LazyPage';
 let host: HTMLDivElement, root: ReturnType<typeof createRoot>;
 beforeEach(() => { vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true); host = document.createElement('div'); document.body.append(host); root = createRoot(host); });
 afterEach(async () => { await act(async () => root.unmount()); host.remove(); vi.restoreAllMocks(); });
@@ -50,4 +50,21 @@ it('uses content placeholders with reduced-motion-safe animation while loading',
   expect(host.querySelector('[data-page-skeleton=calendar]')).not.toBeNull();
   expect(host.querySelector('[class*=animate-spin]')).toBeNull();
   expect(host.querySelectorAll('[class*=motion-safe\\:animate-pulse]').length).toBeGreaterThan(30);
+});
+
+it('offers a full reload when deployment replaced a cached module URL', async () => {
+  vi.spyOn(console, 'error').mockImplementation(() => {});
+  const error = new TypeError('Failed to fetch dynamically imported module: https://example.com/assets/Settings-old.js');
+  const Page = lazyPage(() => Promise.reject(error));
+  await act(async () => root.render(<><nav>Navigation</nav><Page /></>));
+  expect(host.querySelector('button')?.textContent).toBe('Reload app');
+  expect(host.querySelector('nav')?.textContent).toBe('Navigation');
+  const retry = vi.fn(), reload = vi.fn();
+  retryPageLoad(error, retry, reload);
+  expect(reload).toHaveBeenCalledOnce(); expect(retry).not.toHaveBeenCalled();
+});
+it('keeps ordinary render errors on the local retry path', () => {
+  const retry = vi.fn(), reload = vi.fn();
+  retryPageLoad(new Error('Temporary component error'), retry, reload);
+  expect(retry).toHaveBeenCalledOnce(); expect(reload).not.toHaveBeenCalled();
 });
