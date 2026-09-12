@@ -1,3 +1,4 @@
+import { SafetyActions } from '../components/SafetyActions';
 import { PageSkeleton } from '../components/PageSkeleton';
 import { usePageBack } from '../lib/usePageBack';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -246,6 +247,7 @@ export const GuideDetail: React.FC = () => {
 
   return (
     <div className="min-h-screen">
+      <div className="flex justify-end px-5"><SafetyActions target={{kind:'guides',id:guide.id,authorId:guide.userId}} /></div>
       <ShareDialog
         open={shareOpen}
         onClose={() => setShareOpen(false)}

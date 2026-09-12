@@ -129,7 +129,7 @@ Deno.serve(withRequestTelemetry('mux-set-visibility', async (req) => {
 
   if (parsed.body.isPublic !== undefined && typeof parsed.body.isPublic !== 'boolean') return json({ error: 'Invalid visibility.' }, 400);
   isPublic = parsed.body.isPublic ?? isPublic;
-  const policy: 'public' | 'signed' = isPublic ? 'public' : 'signed';
+  const policy: 'public' | 'signed' = 'signed';
   if (targets.length && !authHeader) return json({ error: 'Video hosting is unavailable.' }, 503);
   if (targets.length && policy === 'signed' && !muxSigningConfig()) {
     return json({ error: 'Private video playback is temporarily unavailable.', code: 'private_video_unavailable' }, 503);

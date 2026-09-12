@@ -1,3 +1,4 @@
+import { AiConsentDialog } from './components/AiConsentDialog';
 import { SUBSCRIPTIONS_ENABLED } from './lib/subscription-release';
 import { isSocialConversation } from './lib/social-navigation';
 import { HOME_REELS_EXPERIMENT } from './lib/home-reels-experiment';
@@ -22,6 +23,7 @@ import { LaunchScreen } from './components/LaunchScreen';
 import { RetainedTabLocation } from './components/RetainedTabLocation';
 import { warmNavigation } from './lib/navigation-warmup';
 const CalendarPage = lazyPage(() => import('./pages/CalendarPage').then(m => ({ default: m.CalendarPage })), 'calendar');
+const ContentSafety = lazyPage(() => import('./pages/ContentSafety').then(m => ({default:m.ContentSafety})));
 const AdminFeedback = lazyPage(() => import('./pages/AdminFeedback').then(m => ({ default: m.AdminFeedback })));
 const GuidesPage = lazyPage(() => import('./pages/GuidesPage').then(m => ({ default: m.GuidesPage })));
 const DecideTogether = lazyPage(() => import('./pages/DecideTogether').then(m => ({ default: m.DecideTogether })));
@@ -650,6 +652,8 @@ const AppContent: React.FC = () => {
           <Route path="/verify/apply" element={<RequireAuthRoute reason="Sign in to request verification"><VerificationApply /></RequireAuthRoute>} />
           <Route path="/admin/verification" element={<RequireAuthRoute reason="Sign in to continue"><AdminVerification /></RequireAuthRoute>} />
           <Route path="/admin/analytics" element={<RequireAuthRoute reason="Sign in to continue"><React.Suspense fallback={<PageSkeleton />}><AdminAnalytics /></React.Suspense></RequireAuthRoute>} />
+          <Route path="/admin/moderation" element={<RequireAuthRoute reason="Sign in to continue"><ContentSafety admin /></RequireAuthRoute>} />
+          <Route path="/settings/publications" element={<RequireAuthRoute reason="Sign in to continue"><ContentSafety /></RequireAuthRoute>} />
           <Route path="/admin/feedback" element={<RequireAuthRoute reason="Sign in to continue"><AdminFeedback /></RequireAuthRoute>} />
           <Route path="/admin/cuisine" element={<RequireAuthRoute reason="Sign in to continue"><AdminCuisineSuggestions /></RequireAuthRoute>} />
           <Route path="/profile" element={<RequireAuthRoute reason="Sign in to view your profile"><Profile /></RequireAuthRoute>} />
@@ -813,6 +817,7 @@ export default function App() {
                 they ask requireSignIn(). */}
             <PlanProvider>
             <PaywallProvider>
+            <AiConsentDialog />
             <ListsProvider>
               <SharedListsProvider>
               <RecipesProvider>

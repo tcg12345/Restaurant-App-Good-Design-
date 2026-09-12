@@ -11,6 +11,7 @@
 // access token.
 
 import { supabase } from './supabase';
+import { AI_CONSENT_VERSION, requestAiConsent } from './ai-consent';
 
 const FUNCTIONS_BASE = `${(import.meta.env.VITE_SUPABASE_URL ?? '').replace(/\/+$/, '')}/functions/v1`;
 const ANON_KEY = (import.meta.env.VITE_SUPABASE_ANON_KEY ?? '') as string;
@@ -54,10 +55,18 @@ export async function readApiError(res: Response, fallback = `Something went wro
   return { status: res.status, message, code, plan, resetsAt };
 }
 
-export async function apiHeaders(): Promise<Record<string, string>> {
+export async function apiHeaders(requireAI = false): Promise<Record<string, string>> {
   const { data } = await supabase.auth.getSession();
+  if (requireAI) {
+    const id = data.session?.user.id;
+    if (!id || !await requestAiConsent(id)) throw new Error('AI sharing was not enabled. You can keep using GoodEats without AI.');
+    const latest = await supabase.auth.getSession();
+    if (latest.data.session?.user.id !== id) throw new Error('Your account changed. Please try again.');
+    data.session = latest.data.session;
+  }
   const token = data.session?.access_token || ANON_KEY;
   return {
+    ...(requireAI ? { 'x-ai-consent': AI_CONSENT_VERSION } : {}),
     'Content-Type': 'application/json',
     'Authorization': `Bearer ${token}`,
     'apikey': ANON_KEY,

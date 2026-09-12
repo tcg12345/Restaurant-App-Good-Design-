@@ -1,3 +1,4 @@
+import { SafetyActions } from '../components/SafetyActions';
 import { CommentsBody, type UnifiedComment } from '../components/CommentsBody';
 import { PhotoImage } from '../components/PhotoImage';
 import { useRouteSettled } from '../components/RouteMotionLayer';
@@ -564,6 +565,7 @@ const ReelSlideInner: React.FC<ReelSlideProps> = ({ reel, active, near, preloadF
         <ActionRail reel={reel} onLike={onLike} onSave={onSave} onComment={onComment} onShare={onShare} />
       )}
 
+      <div className="absolute right-3 top-20 z-20"><SafetyActions target={{kind:'reels',id:reel.id,authorId:reel.authorId}} /></div>
       {/* Bottom info: author row, then a collapsible block with the
           caption + attached card. The overlay itself is pointer-events-none
           so taps in the lower third of the slide reach the VIDEO

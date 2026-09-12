@@ -1449,6 +1449,7 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
             return (
               <li key={`post-${p.id}`} id={`feed-entry-post-${p.id}`} className="feed-entry-anchor">
                 <FeedPost
+                  safetyTarget={{kind:'posts',id:p.id,authorId:p.userId}}
                   authorName={displayName}
                   authorInitial={author?.initials || 'U'}
                   authorHref={`/user/${authorUsername}`}
@@ -1498,6 +1499,7 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
             return (
               <li key={`meal-${m.id}`} id={`feed-entry-meal-${m.id}`} className="feed-entry-anchor">
                 <FeedPost
+                  safetyTarget={{kind:'home_meals',id:`${m.userId}:${m.id}`,authorId:m.userId}}
                   authorName={cookName}
                   authorInitial={initialOf(cookName)}
                   authorHref={`/user/${getUsername(m.userId)}`}
@@ -1538,6 +1540,7 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
           return (
           <li key={r.id} id={`feed-entry-rating-${r.id}`} className="feed-entry-anchor">
             <FeedPost
+              safetyTarget={{kind:'community_ratings',id:r.id,authorId:r.user_id}}
               authorName={getName(r.user_id)}
               authorInitial={initial}
               authorHref={`/user/${getUsername(r.user_id)}`}

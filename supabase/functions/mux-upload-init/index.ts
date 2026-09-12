@@ -103,12 +103,12 @@ Deno.serve(withRequestTelemetry('mux-upload-init', async (req) => {
   const rejected = await rejectForeignRow(rowId, auth.userId);
   if (rejected) return rejected;
 
-  // Never silently publish a followers-only upload.
-  const wantsPrivate = body.isPublic === false;
-  if (wantsPrivate && !muxSigningConfig()) {
+  // Review and visibility changes must be enforceable for every new upload.
+  if (!muxSigningConfig()) {
     return json({ error: 'Private video uploads are temporarily unavailable.', code: 'private_video_unavailable' }, 503);
   }
-  const playbackPolicy: 'public' | 'signed' = wantsPrivate ? 'signed' : 'public';
+  // Newly uploaded videos remain access-controlled throughout moderation.
+  const playbackPolicy: 'public' | 'signed' = 'signed';
 
   try {
     const basic = btoa(`${MUX_TOKEN_ID}:${MUX_TOKEN_SECRET}`);

@@ -1,3 +1,4 @@
+import { SafetyActions } from '../components/SafetyActions';
 import { PageSkeleton } from '../components/PageSkeleton';
 import { PhotoImage } from '../components/PhotoImage';
 /**
@@ -1580,6 +1581,7 @@ export const RecipePage: React.FC = () => {
             <button type="button" className={cn('icon-btn', saved && 'saved')} title={saved ? 'Saved' : 'Save'} onClick={handleSave} aria-label="Save">
               <Bookmark fill={saved ? 'currentColor' : 'none'} />
             </button>
+            <SafetyActions target={{kind:data.source==='recipe'?'recipes':'home_meals',id:data.source==='recipe'?data.id:`${data.ownerId}:${data.id}`,authorId:data.ownerId}} />
             <button type="button" className="icon-btn" title="Share" onClick={handleShare} aria-label="Share"><ShareIcon /></button>
             {isOwner && (
               <button type="button" className="icon-btn" title="Edit" onClick={handleEdit} aria-label="Edit"><Edit3 /></button>

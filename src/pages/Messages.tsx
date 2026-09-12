@@ -1,3 +1,4 @@
+import { SafetyActions } from '../components/SafetyActions';
 import { PageSkeleton } from '../components/PageSkeleton';
 import { PhotoImage } from '../components/PhotoImage';
 import { usePageBack } from '../lib/usePageBack';
@@ -884,6 +885,7 @@ const ChatView: React.FC<{
                       <RoomInviteMessage text={msg.text} />
                     </div>
                   )}
+                  {!isMe && <SafetyActions target={{kind:'messages',id:msg.id,authorId:msg.senderId}} />}
                   {/* Receipt under the last sent message; failed/sending
                       messages always show theirs (a buried failure with no
                       affordance would look delivered). */}

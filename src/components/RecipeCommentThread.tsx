@@ -1,3 +1,4 @@
+import { SafetyActions } from './SafetyActions';
 import { useCallback, useEffect, useMemo, useRef, useState, type FC, type RefObject } from 'react';
 import { Heart, ArrowUp, Loader2, MessageSquare } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
@@ -147,7 +148,7 @@ export const RecipeCommentThread: FC<Props> = ({ targetId, className, variant = 
       <div className="min-w-0 flex-1">
         <div className="rounded-2xl bg-on-surface/[0.05] px-3.5 py-2">
           <div className="flex items-center gap-1.5">
-            <span className="text-[13px] font-semibold text-on-surface truncate">{nameOf(c.user_id)}</span>
+            <span className="text-[13px] font-semibold text-on-surface truncate">{nameOf(c.user_id)}</span><SafetyActions target={{kind:'recipe_comments',id:c.id,authorId:c.user_id}} />
             <span className="text-[11.5px] text-on-surface/40 flex-shrink-0">· {timeAgo(c.created_at)}</span>
           </div>
           <p className="mt-0.5 text-[14px] leading-[1.45] text-on-surface/85 whitespace-pre-wrap break-words">{c.text}</p>

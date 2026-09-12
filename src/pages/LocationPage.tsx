@@ -1832,21 +1832,8 @@ export const LocationPage: React.FC = () => {
       }
       if (recipes.length > 0) ctx.recipes = recipes;
     }
-    // Friends + followed experts come from areaFriendCandidates +
-    // areaExperts, both already loaded for the "Around <city>" rail.
-    if (areaFriendCandidates.length > 0) {
-      ctx.friends = areaFriendCandidates.slice(0, 10).map((f) => ({
-        displayName: f.display_name || f.username,
-        username: f.username,
-      }));
-    }
-    if (areaExperts.length > 0) {
-      ctx.followedExperts = areaExperts.slice(0, 8).map((e) => ({
-        displayName: e.display_name || e.username,
-        username: e.username,
-        bio: e.bio || undefined,
-      }));
-    }
+    // Personal AI permission does not authorize sharing other users' identities.
+    // Keep the aggregate restaurant signals below without names or biographies.
     // Circle ratings on the visible pool. Only include places that
     // have at least one friend or expert hit so the array stays tight.
     if (visible.length > 0 && (friendCounts.size > 0 || expertCounts.size > 0)) {

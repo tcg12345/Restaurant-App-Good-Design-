@@ -1,3 +1,4 @@
+import { SafetyActions } from './SafetyActions';
 import { PhotoImage } from './PhotoImage';
 import React, { useEffect, useRef, useState } from 'react';
 import { motion } from 'motion/react';
@@ -126,6 +127,7 @@ export const FriendReviewSheet: React.FC<FriendReviewSheetProps> = ({
         style={{ boxShadow: '0 -14px 44px rgba(18,15,14,0.26)', paddingLeft: 22, paddingRight: 22 }}
       >
         <div className="pt-3 pb-4 -mx-[22px] px-[22px]">
+        <SafetyActions target={{kind:'community_ratings',id:rating.id,authorId:rating.user_id}} />
           <div className="w-[42px] h-[5px] rounded-full bg-on-surface/15 mx-auto" />
         </div>
 

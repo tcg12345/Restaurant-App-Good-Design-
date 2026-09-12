@@ -1,3 +1,4 @@
+import { SafetyActions } from '../components/SafetyActions';
 import { PageSkeleton } from '../components/PageSkeleton';
 import { resolvePhotoUrl } from '../lib/photo-access';
 import { mediaAccessVersion, onMediaAccessChange } from '../lib/media-access-scope';
@@ -916,7 +917,7 @@ export const UserProfile: React.FC = () => {
               </h1>
 
               <div className="flex items-center gap-2 mt-2 text-[14px] font-semibold text-ink-3 flex-wrap">
-                <span>@{profile.username}</span>
+                <span>@{profile.username}</span><SafetyActions target={{kind:'user_profiles',id:profile.user_id,authorId:profile.user_id}} />
                 {profile.is_verified && (
                   <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-primary/[0.07] border border-primary/20 text-[10.5px] font-bold uppercase tracking-wider text-primary">
                     <VerifiedBadge size={12} /> Verified
@@ -1380,7 +1381,7 @@ export const UserProfile: React.FC = () => {
         </div>
         <div className="public-profile-name">
           <div><h1>{profile.display_name}</h1>{profile.is_verified && <VerifiedBadge size={18} />}{!profile.is_public && <Lock size={14} />}</div>
-          <p>@{profile.username}</p>
+          <p>@{profile.username}</p><SafetyActions target={{kind:'user_profiles',id:profile.user_id,authorId:profile.user_id}} />
           {profile.home_city && <p className="public-profile-city"><MapPin size={12} />{profile.home_city}</p>}
         </div>
       </section>

@@ -162,7 +162,7 @@ export async function* streamLocationChat(
   try {
     res = await fetch(FUNCTION_URL, {
       method: 'POST',
-      headers: await apiHeaders(),
+      headers: await apiHeaders(true),
       body: JSON.stringify(request),
       signal,
     });

@@ -237,7 +237,7 @@ async function postRecipe(
   try {
     res = await fetch(FUNCTION_URL, {
       method: 'POST',
-      headers: await apiHeaders(),
+      headers: await apiHeaders(true),
       body: JSON.stringify(payload),
       signal,
     });
@@ -487,7 +487,7 @@ async function postIdeas(
   try {
     res = await fetch(FUNCTION_URL, {
       method: 'POST',
-      headers: await apiHeaders(),
+      headers: await apiHeaders(true),
       body: JSON.stringify(payload),
       signal,
     });

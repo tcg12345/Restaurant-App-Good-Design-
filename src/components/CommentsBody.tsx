@@ -1,3 +1,4 @@
+import { SafetyActions } from './SafetyActions';
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { MessageCircle, Trash2, Loader2, X, ArrowUp, RefreshCw } from 'lucide-react';
 import { cn } from '../lib/utils';
@@ -220,7 +221,7 @@ export const CommentsBody: React.FC<CommentsBodyProps> = ({ targetId, onClose, v
           {/* Name and time share the line; the body starts under them. */}
           <div className="flex items-center gap-1.5 min-w-0">
             <span className={cn('truncate text-[13px] font-bold leading-tight', usernameCls)}>{handle}</span>
-            {c.author?.isExpert && <VerifiedBadge size={12} className="flex-none" />}
+            {c.author?.isExpert && <VerifiedBadge size={12} className="flex-none" />}<SafetyActions target={{kind:'comments',id:c.id,authorId:c.userId}} />
             <span className={cn('flex-none text-[11.5px] leading-tight', muteCls)}>{formatRelativeTime(c.createdAt)}</span>
           </div>
           <p className={cn('selectable mt-[3px] text-[13.5px] leading-[1.45] whitespace-pre-wrap break-words', bodyTextCls)}>

@@ -1,3 +1,4 @@
+import { requireAiConsent } from '../_shared/ai-consent.ts';
 import { instrumentedFetch as fetch, withRequestTelemetry } from '../_shared/api-telemetry.ts';
 // AI Recipe Hero Image Generator — Supabase Edge Function (Deno).
 //
@@ -63,7 +64,7 @@ interface RecipeImageInput {
 const CORS_HEADERS: Record<string, string> = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-ai-consent',
 };
 
 function jsonError(status: number, message: string): Response {
@@ -115,6 +116,8 @@ async function handler(req: Request): Promise<Response> {
   if (req.method === 'POST') {
     const auth = await requireUser(req);
     if ('response' in auth) return auth.response;
+    const consentError = requireAiConsent(req);
+    if (consentError) return consentError;
     const quota = await enforceQuota(req, 'generate-recipe-image', "You've used your recipe images for now. %reset%");
     if ('response' in quota) return quota.response;
   }

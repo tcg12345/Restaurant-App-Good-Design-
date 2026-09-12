@@ -42,7 +42,9 @@ Deno.serve(async req => {
         let result: string, retryAt: string | null = null;
         try {
           retryAt = quietRetry(job.preferences);
-          if (coalesced.has(job.id)) result = 'discarded';
+          const safety = await db.rpc('safety_push_allowed', { p_notification: job.notification.id });
+          if (safety.error) throw safety.error;
+          if (safety.data !== true || coalesced.has(job.id)) result = 'discarded';
           else if (retryAt) result = 'deferred';
           else {
             const host = job.environment === 'development' ? 'api.sandbox.push.apple.com' : 'api.push.apple.com';

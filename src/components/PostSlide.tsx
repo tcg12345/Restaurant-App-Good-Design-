@@ -1,3 +1,4 @@
+import { SafetyActions } from './SafetyActions';
 import { PhotoImage } from './PhotoImage';
 /**
  * PostSlide — full-screen vertical slot for a multi-item post.
@@ -449,6 +450,7 @@ const PostSlideInner: React.FC<PostSlideProps> = ({
       // the post sits inside a centred column with side panels.
       phoneMode ? 'bg-surface' : 'bg-black',
     )}>
+      <div className="absolute right-3 top-20 z-20"><SafetyActions target={{kind:'posts',id:post.id,authorId:post.userId}} /></div>
       {/* Horizontal carousel of items.
           Default `touch-action: auto` lets the browser scroll the
           right axis: horizontal pans scroll this carousel (which has

@@ -1,3 +1,5 @@
+import { SafetyActions } from '../SafetyActions';
+import { type SafetyTarget } from '../../lib/community-safety';
 import './FeedDiscovery.css';
 import { PhotoGallery } from '../PhotoGallery';
 import { FeedPhotoCarousel } from './FeedPhotoCarousel';
@@ -21,6 +23,7 @@ export interface FeedPostMedia {
 }
 
 export interface FeedPostProps {
+  safetyTarget?: SafetyTarget;
   authorName: string;
   authorInitial: string;
   authorHref?: string;
@@ -85,7 +88,7 @@ const CountPill: React.FC<{
 );
 
 export const FeedPost: React.FC<FeedPostProps> = ({
-  authorName, authorInitial, authorHref, avatarClass, badge, kind, when, onOverflow,
+  authorName, authorInitial, authorHref, avatarClass, badge, kind, when, onOverflow, safetyTarget,
   media,
   like, comment, onShare, save, extraAction,
   title, titleHref, onTitleClick, body, tags,
@@ -123,6 +126,7 @@ export const FeedPost: React.FC<FeedPostProps> = ({
           </div>
           <p className="mt-[5px] truncate text-on-surface/45" style={{ fontSize: '12px', lineHeight: 1.2 }}>{when}</p>
         </div>
+        {safetyTarget && <SafetyActions target={safetyTarget} />}
         {onOverflow && (
           <button
             type="button" onClick={onOverflow} aria-label="More"

@@ -1,3 +1,4 @@
+import { requireAiConsent } from '../_shared/ai-consent.ts';
 import { instrumentedFetch as fetch, withRequestTelemetry } from '../_shared/api-telemetry.ts';
 // AI Recipe Generator — Supabase Edge Function (Deno).
 //
@@ -262,7 +263,7 @@ const TOOL_DECLINE_PHOTO = {
 const CORS_HEADERS: Record<string, string> = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-ai-consent',
 };
 
 /**
@@ -351,6 +352,8 @@ async function handler(req: Request): Promise<Response> {
   }
   const auth = await requireUser(req);
   if ('response' in auth) return auth.response;
+    const consentError = requireAiConsent(req);
+    if (consentError) return consentError;
   if (!ANTHROPIC_API_KEY) {
     return jsonError(500, 'ANTHROPIC_API_KEY is not configured on the function');
   }

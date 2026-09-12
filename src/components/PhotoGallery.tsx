@@ -1,3 +1,4 @@
+import { SafetyActions } from './SafetyActions';
 import { MotionPhotoImage } from './MotionPhotoImage';
 import { PhotoImage } from './PhotoImage';
 import React, { useState, useEffect, useCallback, useRef } from 'react';
@@ -350,6 +351,7 @@ export const PhotoGallery: React.FC<{
               </div>
 
               <div className="flex-shrink-0 pb-[max(1.5rem,env(safe-area-inset-bottom))] pt-1 min-h-[3.25rem]">
+                {expandedPhoto.id && expandedPhoto.ownerUserId && <div className="text-white"><SafetyActions target={{kind:'community_photos',id:expandedPhoto.id,authorId:expandedPhoto.ownerUserId}} /></div>}
                 {expandedPhoto.caption && (
                   <p className="text-white/80 text-sm font-medium px-8 text-center">{expandedPhoto.caption}</p>
                 )}

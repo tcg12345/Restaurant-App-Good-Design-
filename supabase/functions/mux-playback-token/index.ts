@@ -71,8 +71,12 @@ Deno.serve(withRequestTelemetry('mux-playback-token', async (req) => {
     .slice(0, MAX_ITEMS);
   if (items.length === 0) return json({ tokens: {} });
 
-  const sb = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, { auth: { persistSession: false } });
-
+  // Read publications as the actual viewer so RLS enforces moderation and
+  // blocks even though provider ownership verification uses service credentials.
+  const viewerDb = createClient(SUPABASE_URL, Deno.env.get('SUPABASE_ANON_KEY')!, {
+    global: { headers: { Authorization: req.headers.get('Authorization') || `Bearer ${Deno.env.get('SUPABASE_ANON_KEY')!}` } },
+    auth: { persistSession: false },
+  });
   // Resolve each id to { playbackId, authorId, isPublic }.
   const reelIds = items.filter((it) => it.kind === 'reel').map((it) => it.id);
   const itemIds = items.filter((it) => it.kind === 'post_item').map((it) => it.id);
@@ -83,7 +87,7 @@ Deno.serve(withRequestTelemetry('mux-playback-token', async (req) => {
   type PostRow = { id: string; user_id: string; is_public: boolean };
 
   if (reelIds.length) {
-    const { data, error } = await sb.from('reels')
+    const { data, error } = await viewerDb.from('reels')
       .select('id, user_id, is_public, mux_playback_id, mux_asset_id')
       .in('id', reelIds);
     if (error) { console.error('[mux-playback-token] reels lookup failed', error.message); return json({ error: 'Lookup failed' }, 500); }
@@ -94,14 +98,14 @@ Deno.serve(withRequestTelemetry('mux-playback-token', async (req) => {
     }
   }
   if (itemIds.length) {
-    const { data, error } = await sb.from('post_items')
+    const { data, error } = await viewerDb.from('post_items')
       .select('id, post_id, mux_playback_id, mux_asset_id')
       .in('id', itemIds);
     if (error) { console.error('[mux-playback-token] post_items lookup failed', error.message); return json({ error: 'Lookup failed' }, 500); }
     const withPlayback = ((data ?? []) as ItemRow[]).filter((r) => r.mux_playback_id);
     const postIds = [...new Set(withPlayback.map((r) => String(r.post_id)))];
     if (postIds.length) {
-      const { data: posts, error: postsErr } = await sb.from('posts')
+      const { data: posts, error: postsErr } = await viewerDb.from('posts')
         .select('id, user_id, is_public')
         .in('id', postIds);
       if (postsErr) { console.error('[mux-playback-token] posts lookup failed', postsErr.message); return json({ error: 'Lookup failed' }, 500); }
@@ -115,23 +119,6 @@ Deno.serve(withRequestTelemetry('mux-playback-token', async (req) => {
     }
   }
 
-  // Which authors' followers-only content may this viewer see? Same predicate
-  // as the RLS policies: user_friends(user_id = viewer, friend_id = author,
-  // status = 'accepted').
-  const privateAuthors = [...new Set(
-    [...rows.values()].filter((r) => !r.isPublic && r.authorId !== viewerId).map((r) => r.authorId),
-  )];
-  const followedAuthors = new Set<string>();
-  if (viewerId && privateAuthors.length) {
-    const { data, error } = await sb.from('user_friends')
-      .select('friend_id')
-      .eq('user_id', viewerId)
-      .eq('status', 'accepted')
-      .in('friend_id', privateAuthors);
-    if (error) { console.error('[mux-playback-token] follower lookup failed', error.message); return json({ error: 'Lookup failed' }, 500); }
-    for (const f of data ?? []) followedAuthors.add(String(f.friend_id));
-  }
-
   const providerAuth = muxApiAuth();
   if (rows.size && !providerAuth) return json({ error: 'Video verification is unavailable.' }, 503);
   const expiresAt = Math.floor(Date.now() / 1000) + TOKEN_TTL_SECONDS;
@@ -139,8 +126,6 @@ Deno.serve(withRequestTelemetry('mux-playback-token', async (req) => {
   const entries = [...rows.entries()];
   for (let offset = 0; offset < entries.length; offset += 8) {
     await Promise.all(entries.slice(offset, offset + 8).map(async ([id, row]) => {
-      const allowed = row.isPublic || row.authorId === viewerId || followedAuthors.has(row.authorId);
-      if (!allowed) return;
       // Client-writable playback IDs are not proof of ownership. Verify the
       // provider's upload binding before signing, even for public rows.
       const asset = await getOwnedMuxAsset(providerAuth!, row.assetId, row.authorId, id, row.legacyReel);

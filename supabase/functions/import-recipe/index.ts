@@ -1,3 +1,4 @@
+import { requireAiConsent } from '../_shared/ai-consent.ts';
 import { fetchPublicPage, publicPageUrl } from '../_shared/public-page.ts';
 import { instrumentedFetch as fetch, withRequestTelemetry, setTelemetryUser } from '../_shared/api-telemetry.ts';
 // AI Recipe Importer — Supabase Edge Function (Deno).
@@ -333,7 +334,7 @@ const TOOL_NO_RECIPE = {
 const CORS_HEADERS: Record<string, string> = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-ai-consent',
 };
 
 function jsonError(status: number, message: string): Response {
@@ -408,6 +409,8 @@ async function handler(req: Request): Promise<Response> {
   }
   const auth = await requireUser(req);
   if ('response' in auth) return auth.response;
+    const consentError = requireAiConsent(req);
+    if (consentError) return consentError;
   if (!ANTHROPIC_API_KEY) {
     return jsonError(500, 'ANTHROPIC_API_KEY is not configured on the function');
   }

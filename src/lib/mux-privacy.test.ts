@@ -3,9 +3,9 @@ import ts from 'typescript';
 import { expect, it, vi } from 'vitest';
 const owner='00000000-0000-0000-0000-000000000001';
 const id='00000000-0000-0000-0000-000000000002';
-function edge(name:string, opts:{signing?:boolean; foreign?:boolean; noVideo?:boolean; deleteFails?:boolean; saveFails?:boolean; unauthorized?:boolean; follower?:boolean; assetForeign?:boolean; publicVideo?:boolean}={}) {
+function edge(name:string, opts:{signing?:boolean; foreign?:boolean; noVideo?:boolean; deleteFails?:boolean; saveFails?:boolean; unauthorized?:boolean; follower?:boolean; assetForeign?:boolean; publicVideo?:boolean; safetyDenied?:boolean}={}) {
   const writes:any[]=[];const calls:any[]=[];
-  const sb={from:(table:string)=>{
+  const makeDb=(viewer=false)=>({from:(table:string)=>{
     let update:any;const query:any={
       select:()=>query,eq:()=>query,in:()=>query,
       update:(value:any)=>{update=value;return query;},
@@ -16,11 +16,12 @@ function edge(name:string, opts:{signing?:boolean; foreign?:boolean; noVideo?:bo
       },
       then:(resolve:any)=>{
         if(update){writes.push({table,...update});return Promise.resolve({error:opts.saveFails?{message:'offline'}:null}).then(resolve);}
-        const data=table==='user_friends'?(opts.follower?[{friend_id:'author'}]:[]):table==='reels'?[{id,user_id:'author',is_public:!!opts.publicVideo,mux_playback_id:'private',mux_asset_id:'asset'}]:[];
+        const hidden=viewer && (opts.safetyDenied || (!opts.publicVideo && !opts.follower));
+        const data=hidden?[]:table==='user_friends'?(opts.follower?[{friend_id:'author'}]:[]):table==='reels'?[{id,user_id:'author',is_public:!!opts.publicVideo,mux_playback_id:'private',mux_asset_id:'asset'}]:[];
         return Promise.resolve({data,error:null}).then(resolve);
       },
     };return query;
-  }};
+  }});
   const provider=vi.fn(async(url:string,init:any={})=>{
     calls.push({url,method:init.method??'GET'});
     if(init.method==='DELETE')return new Response(null,{status:opts.deleteFails?500:204});
@@ -35,16 +36,23 @@ function edge(name:string, opts:{signing?:boolean; foreign?:boolean; noVideo?:bo
   const source=readFileSync(new URL(`../../supabase/functions/${name}/index.ts`,import.meta.url),'utf8').replace(/^import .*;\n/gm,'');
   const code=ts.transpileModule(source,{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.None}}).outputText;
   new Function('Deno','createClient','CORS_HEADERS','requireUser','readJsonBody','muxApiAuth','muxSigningConfig','signPlaybackToken','withRequestTelemetry','fetch','console','getOwnedMuxAsset',code)(
-    {env:{get:()=> 'test-config'},serve:(fn:any)=>handler=fn},()=>sb,{},
+    {env:{get:()=> 'test-config'},serve:(fn:any)=>handler=fn},(_url:any,_key:any,options:any)=>{
+      const viewer=!!options?.global;
+      if(name==='mux-playback-token')expect(options.global.headers.Authorization).toBe(opts.unauthorized?'Bearer test-config':'Bearer member-token');
+      return makeDb(viewer);
+    },{},
     async()=>opts.unauthorized?{response:new Response(null,{status:401})}:{userId:owner},
     async(req:Request)=>({body:await req.json()}),()=> 'Basic test',()=>opts.signing?{}:null,
     async()=> 'scoped-token',(_name:string,fn:any)=>fn,provider,{error(){},warn(){}},getOwnedMuxAsset,
   );
-  return {writes,calls,provider,request:(body:any)=>handler(new Request('https://example.invalid',{method:'POST',body:JSON.stringify(body)}))};
+  return {writes,calls,provider,request:(body:any)=>handler(new Request('https://example.invalid',{method:'POST',headers:opts.unauthorized?{}:{Authorization:'Bearer member-token'},body:JSON.stringify(body)}))};
 }
-it('private uploads fail before any provider request when signing is unavailable',async()=>{
+it('all uploads fail before any provider request when signing is unavailable',async()=>{
  const h=edge('mux-upload-init');expect((await h.request({passthrough:id,isPublic:false})).status).toBe(503);expect(h.calls).toHaveLength(0);
- expect((await h.request({passthrough:id,isPublic:true})).status).toBe(200);
+ expect((await h.request({passthrough:id,isPublic:true})).status).toBe(503);
+ expect(h.calls).toHaveLength(0);
+ const ready=edge('mux-upload-init',{signing:true});
+ expect(await (await ready.request({passthrough:id,isPublic:true})).json()).toMatchObject({playbackPolicy:'signed'});
 });
 it('visibility does not change the row when signing is missing or the requester is not the owner',async()=>{
  for(const opts of [{},{signing:true,foreign:true}]){const h=edge('mux-set-visibility',opts);expect((await h.request({kind:'reel',id,isPublic:false})).status).toBe(opts.foreign?403:503);expect(h.writes).toHaveLength(0);expect(h.calls).toHaveLength(0);}
@@ -82,4 +90,9 @@ it('forged asset references cannot revoke another video or mint its playback tok
  expect(privacy.writes).toHaveLength(0);expect(privacy.calls.every(c=>c.method==='GET')).toBe(true);
  const token=edge('mux-playback-token',{signing:true,publicVideo:true,assetForeign:true});
  expect(await (await token.request({items:[{kind:'reel',id}]})).json()).toEqual({tokens:{}});
+});
+
+it('does not issue provider requests or tokens when viewer RLS hides moderated or blocked media',async()=>{
+ const h=edge('mux-playback-token',{signing:true,publicVideo:true,safetyDenied:true});
+ expect(await (await h.request({items:[{kind:'reel',id}]})).json()).toEqual({tokens:{}}); expect(h.calls).toHaveLength(0);
 });
