@@ -1,6 +1,6 @@
 import { clearWidgets } from '../lib/native-widgets';
 import { disconnectNotifications } from '../lib/native-notifications';
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { supabase, supabaseConfigured, SESSION_STORAGE_KEY } from '../lib/supabase';
 import { isNativeRuntime, signInWithOAuthNative, completeOAuthFromLaunchUrl } from '../lib/native-oauth';
 import { flushAnalyticsBeforeSignOut } from '../lib/analytics';
@@ -207,6 +207,8 @@ export const useAuth = () => useContext(AuthContext);
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
+  const identity = useRef<string | null>(null);
+  const profileJob = useRef<{ userId: string; promise: Promise<void> } | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [profileError, setProfileError] = useState(false);
   const [profileLoading, setProfileLoading] = useState(false);
@@ -264,39 +266,33 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setIsGuest(false);
   }, []);
 
-  const loadProfile = useCallback(async (userId: string) => {
+  const loadProfile = useCallback((userId: string): Promise<void> => {
+    if (profileJob.current?.userId === userId) return profileJob.current.promise;
+    const current = () => identity.current === userId && profileJob.current === job;
     setProfileLoading(true);
-    try {
-      // fetchProfile resolves null ONLY when no profile row exists, and
-      // throws on network/timeout failure. The distinction is load-bearing:
-      // profile=null with no error routes the user into ProfileSetup, whose
-      // save overwrites the real row — so a transient failure must NEVER
-      // read as "no profile". On failure we keep whatever profile state we
-      // already had and raise profileError; App.tsx shows a retry screen.
-      const p = await withTimeout(fetchProfile(userId), 8000, 'fetchProfile');
-      setProfile(p);
-      setProfileError(false);
-    } catch {
-      setProfileError(true);
-    } finally {
-      setProfileLoading(false);
-    }
-    try {
-      const reqs = await withTimeout(getPendingRequests(userId), 8000, 'getPendingRequests');
-      setPendingRequestCount(reqs.length);
-    } catch {
-      setPendingRequestCount(0);
-    }
-    try {
-      const admin = await withTimeout(isAppAdmin(), 8000, 'isAppAdmin');
-      setIsAdmin(admin);
-      setAdminChecked(admin);
-    } catch {
-      // The probe itself failed (timeout) — resolve to false so gated pages
-      // don't spin forever, but only after the full timeout, never a flash.
-      setIsAdmin(false);
-      setAdminChecked(false);
-    }
+    const job = { userId, promise: Promise.resolve() };
+    profileJob.current = job;
+    // Badges and admin status are independent of the profile gate. A slow
+    // auxiliary request must not hold the entire app on its launch skeleton.
+    void withTimeout(getPendingRequests(userId), 8000, 'getPendingRequests')
+      .then(reqs => { if (current()) setPendingRequestCount(reqs.length); })
+      .catch(() => { if (current()) setPendingRequestCount(0); });
+    void withTimeout(isAppAdmin(), 8000, 'isAppAdmin')
+      .then(admin => { if (current()) { setIsAdmin(admin); setAdminChecked(admin); } })
+      .catch(() => { if (current()) { setIsAdmin(false); setAdminChecked(false); } });
+    job.promise = (async () => {
+      try {
+        const p = await withTimeout(fetchProfile(userId), 8000, 'fetchProfile');
+        if (current()) { setProfile(p); setProfileError(false); }
+      } catch {
+        // A failed fetch is never evidence of a missing profile. Preserve
+        // the retry gate instead of sending an existing user to setup.
+        if (current()) setProfileError(true);
+      } finally {
+        if (current()) setProfileLoading(false);
+      }
+    })();
+    return job.promise;
   }, []);
 
   useEffect(() => {
@@ -307,8 +303,25 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
 
     let mounted = true;
+    let revision = 0;
+    const adopt = (u: User | null, update = false) => {
+      const changed = identity.current !== (u?.id ?? null);
+      identity.current = u?.id ?? null;
+      if (changed || update) setUser(u);
+      if (changed) {
+        profileJob.current = null;
+        setProfile(null); setProfileError(false);
+        setPendingRequestCount(0); setIsAdmin(false); setAdminChecked('unknown');
+      }
+      if (u) {
+        clearGuest();
+        if (update) profileJob.current = null;
+        if (changed || !profileJob.current || update) void loadProfile(u.id);
+      }
+    };
 
     (async () => {
+      const bootRevision = revision;
       let u: User | null = null;
       try {
         // Native cold start caused BY the OAuth redirect (iOS killed the app
@@ -347,7 +360,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const stored = await readStoredSession(SESSION_STORAGE_KEY);
         u = stored?.user ?? null;
       }
-      if (!mounted) return;
+      if (!mounted || revision !== bootRevision) return;
       // Account switched on this device — purge stale caches + reload
       // before any provider sees the new identity.
       if (u && guardDeviceAccount(u.id)) return;
@@ -360,9 +373,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         if (u) markNeedsPassword(true, 'recovery');
         try { window.history.replaceState({}, '', '/'); } catch { /* noop */ }
       }
-      setUser(u);
-      if (u) { clearGuest(); await loadProfile(u.id); }
-      if (mounted) setLoading(false);
+      adopt(u);
+      setLoading(false);
     })();
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
@@ -372,11 +384,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         // Belt-and-braces for the /reset-password path check above: implicit
         // (#access_token) recovery links surface as this event instead.
         if (event === 'PASSWORD_RECOVERY' && u) markNeedsPassword(true, 'recovery');
+        if (!mounted) return;
         if (u) {
-          setUser(u);
-          clearGuest();
-          loadProfile(u.id);
+          revision += 1;
+          // Refreshing a token is not a new login. Keep the same identity
+          // and loaded profile so providers and pages do not restart.
+          adopt(u, event === 'USER_UPDATED');
+          setLoading(false);
         } else if (event === 'SIGNED_OUT') {
+          revision += 1;
+          identity.current = null;
+          profileJob.current = null;
+          setProfileLoading(false);
+          setLoading(false);
           // Only an explicit sign-out (user action, or supabase clearing a
           // definitively revoked session) drops the identity.
           setUser(null);
@@ -389,7 +409,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
     );
 
-    return () => { mounted = false; subscription.unsubscribe(); };
+    return () => { mounted = false; identity.current = null; profileJob.current = null; subscription.unsubscribe(); };
   }, [loadProfile, clearGuest, markNeedsPassword]);
 
   const signIn = useCallback(async (email: string, password: string) => {
@@ -694,7 +714,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (!supabaseConfigured) return;
     await disconnectNotifications().catch(() => {});
     await flushAnalyticsBeforeSignOut();
-    await supabase.auth.signOut();
+    await supabase.auth.signOut({ scope: 'local' });
     markNeedsPassword(false);
     clearGuest();
     // End the session's data footprint on this device: React state alone isn't
@@ -718,7 +738,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, [clearGuest, markNeedsPassword]);
 
   const refreshProfile = useCallback(async () => {
-    if (user?.id) await loadProfile(user.id);
+    if (user?.id) { profileJob.current = null; await loadProfile(user.id); }
   }, [user, loadProfile]);
 
   const refreshPendingRequests = useCallback(async () => {

@@ -39,3 +39,34 @@ it('does not request Google imagery for recipe cards',async()=>{
   await mount(<NextMealCard meal={{kind:'recipe',title:'Pasta',detail:'20 min',action:'Cook',href:'/recipe/one'}} onOpen={()=>{}}/>);
   expect(getHomeRestaurantPhoto).not.toHaveBeenCalled();
 });
+
+import { MemoryRouter } from 'react-router-dom';
+import { HomeNextMeal } from './HomeNextMeal';
+import { useAuth } from '../contexts/AuthContext';
+import { useLists } from '../contexts/ListsContext';
+import { useCalendar } from '../contexts/CalendarContext';
+import { useRecipes } from '../contexts/RecipesContext';
+function homeData(id:string, extra:Record<string,unknown>={}) {
+ vi.mocked(useAuth).mockReturnValue({user:{id}} as any);
+ vi.mocked(useLists).mockReturnValue({wishlist:[],ratings:[],homeMeals:[],lists:[],cloudSyncReady:false,cloudLoaded:false,...extra} as any);
+ vi.mocked(useRecipes).mockReturnValue({myRecipes:[],cloudSyncReady:false,loading:true} as any);
+ vi.mocked(useCalendar).mockReturnValue({plans:[],loading:true,error:false} as any);
+ vi.mocked(getHomeRestaurantPhoto).mockResolvedValue(null);
+}
+it('paints a cached restaurant card before cloud sync completes and keeps it stable afterward',async()=>{
+ homeData('cached-user',{wishlist:[{restaurantId:'one',name:'Cached place',address:'New York'}]});
+ await mount(<MemoryRouter><HomeNextMeal city="New York" now={new Date()}/></MemoryRouter>);
+ expect(host.textContent).toContain('Cached place');expect(host.querySelector('[role="status"]')).toBeNull();
+ homeData('cached-user',{wishlist:[{restaurantId:'two',name:'Cloud place',address:'New York'}],cloudSyncReady:true,cloudLoaded:true});
+ vi.mocked(useRecipes).mockReturnValue({myRecipes:[],cloudSyncReady:true,loading:false} as any);
+ vi.mocked(useCalendar).mockReturnValue({plans:[],loading:false,error:false} as any);
+ await act(async()=>root.render(<MemoryRouter><HomeNextMeal city="New York" now={new Date()}/></MemoryRouter>));
+ expect(host.textContent).toContain('Cached place');
+});
+it('does not leave an empty cache on an endless skeleton after failed syncs',async()=>{
+ homeData('failed-user',{cloudLoaded:true});
+ vi.mocked(useRecipes).mockReturnValue({myRecipes:[],cloudSyncReady:false,loading:false} as any);
+ vi.mocked(useCalendar).mockReturnValue({plans:[],loading:false,error:true} as any);
+ await mount(<MemoryRouter><HomeNextMeal city="New York" now={new Date()}/></MemoryRouter>);
+ expect(host.querySelector('[role="status"]')).toBeNull();expect(host.textContent).toContain('Something new for dinner');expect(host.textContent).not.toContain('Rate your first place');
+});

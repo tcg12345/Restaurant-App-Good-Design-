@@ -6,7 +6,7 @@ export const PhotoImage = forwardRef<HTMLImageElement, React.ImgHTMLAttributes<H
   const photo = usePhotoUrl(src);
   const retried = useRef(false);
   useEffect(() => { retried.current = false; }, [src]);
-  return <img {...props} ref={ref} src={photo.url || (photo.managed ? (photo.pending ? PHOTO_PLACEHOLDER : 'data:,') : undefined)}
+  return <img decoding="async" {...props} ref={ref} src={photo.url || (photo.managed ? (photo.pending ? PHOTO_PLACEHOLDER : 'data:,') : undefined)}
     onLoad={event => { if (!photo.pending && photo.url) onLoad?.(event); }}
     onError={event => {
       if (photo.managed && !retried.current) { retried.current = true; photo.retry(); return; }

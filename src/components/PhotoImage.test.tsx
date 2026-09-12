@@ -40,3 +40,16 @@ it('retains background gradients while replacing only the photo reference',async
  const style=(host.firstElementChild as HTMLElement).style.backgroundImage;
  expect(style).toContain('linear-gradient');expect(style).toContain('signed.example/bg');expect(style).not.toContain('/public/');
 });
+it('recovers from a temporary signing failure without asking its parent to remove the image',async()=>{
+ vi.useFakeTimers();
+ sign.mockResolvedValueOnce({data:null,error:{message:'temporary network error'}})
+   .mockResolvedValue({data:[{path:'owner/private.jpg',signedUrl:'https://signed.example/recovered'}],error:null});
+ const error=vi.fn();
+ try {
+  await act(async()=>root.render(<PhotoImage src={source} onError={error}/>));
+  expect(host.querySelector('img')!.getAttribute('src')).toBe(PHOTO_PLACEHOLDER);
+  await act(async()=>vi.advanceTimersByTimeAsync(750));
+  expect(host.querySelector('img')!.src).toBe('https://signed.example/recovered');
+  expect(error).not.toHaveBeenCalled();
+ } finally { vi.useRealTimers(); }
+});

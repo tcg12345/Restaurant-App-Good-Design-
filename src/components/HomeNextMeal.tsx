@@ -47,18 +47,25 @@ export function NextMealCard({ meal, onOpen, viewerId = 'guest' }: { meal: NextM
 export function HomeNextMeal({ city, now }: { city: string; now: Date }) {
   const { plans, loading: plansLoading, error: plansError } = useCalendar();
   const { user } = useAuth();
-  const { wishlist, ratings, homeMeals, lists, cloudSyncReady } = useLists();
-  const { myRecipes, cloudSyncReady: recipesReady } = useRecipes();
+  const { wishlist, ratings, homeMeals, lists, cloudSyncReady, cloudLoaded } = useLists();
+  const { myRecipes, cloudSyncReady: recipesReady, loading: recipesLoading } = useRecipes();
   // Wait for the account's data before treating an empty cache as a new user.
   const showGettingStarted = !!user && cloudSyncReady && recipesReady && !plansLoading && !plansError &&
     !homeMeals.length && !myRecipes.length && !lists.some((list) =>
       list.restaurantIds.length || list.wishlistIds.length || list.recipes?.length);
   const navigate = useNavigate();
   const ready = !user || (cloudSyncReady && recipesReady && !plansLoading);
-  // Do not freeze a loading fallback into the entire launch's selection.
-  if (!ready) return <div className="home-next-meal-loading" aria-label="Loading your home card" role="status" />;
   const recipes = myRecipes.map(recipe => ({ title: recipe.title, href: `/recipe/${recipe.userId}/${recipe.id}`, image: recipe.photos[0], detail: [recipe.cuisine, (recipe.prepTimeMinutes || 0) + (recipe.cookTimeMinutes || 0) ? `${(recipe.prepTimeMinutes || 0) + (recipe.cookTimeMinutes || 0)} min` : ''].filter(Boolean).join(' · ') }));
   for (const list of lists) for (const recipe of list.recipes || []) recipes.push({ title: recipe.title, href: `/recipe/${recipe.sourceAuthorId || user?.id}/${recipe.sourceMealId || recipe.id}`, image: recipe.coverPhoto, detail: recipe.cuisine });
-  const meal = homeCardForSession(user?.id || 'guest', user ? homeCardChoices(plans, wishlist, ratings, recipes, city, now, showGettingStarted) : homeCardChoices([], [], [], [], city, now, false));
+  const choices = user ? homeCardChoices(plans, wishlist, ratings, recipes, city, now, showGettingStarted) : homeCardChoices([], [], [], [], city, now, false);
+  const cachedChoices = choices.filter(card => !['empty', 'starter', 'discover'].includes(card.kind));
+  // Useful cached data can paint immediately. Only declaring an account
+  // empty needs a successful cloud read; a failed sync cannot spin forever.
+  if (!ready && !cachedChoices.length && !(cloudLoaded && !recipesLoading && !plansLoading)) {
+    return <div className="home-next-meal-loading" aria-label="Loading your home card" role="status" />;
+  }
+  const meal = ready || cachedChoices.length
+    ? homeCardForSession(user?.id || 'guest', ready ? choices : cachedChoices)
+    : choices.find(card => card.kind === 'discover')!;
   return <NextMealCard meal={meal} viewerId={user?.id || 'guest'} onOpen={(href) => navigate(href, meal.kind === 'starter' ? { state: { mode: 'rate' } } : undefined)} />;
 }

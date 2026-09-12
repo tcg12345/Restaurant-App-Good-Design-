@@ -94,3 +94,14 @@ it('opens the feed at the bottom with a wheel gesture and does not chain momentu
   expect(host.querySelector('.home-experience')?.getAttribute('data-page')).toBe('feed');
   expect(homeHaptic).toHaveBeenCalledTimes(1);
 });
+it('prepares the feed before opening it while leaving the Home panel active', async () => {
+  await act(async()=>root.unmount());
+  vi.useFakeTimers(); root=createRoot(host);
+  try {
+    await act(async()=>root.render(<HomeExperience active city="New York" highlights={[]} header={null} feed={<p>Prepared feed</p>} onHighlightLink={()=>{}} onLocation={()=>{}} onSearch={()=>{}} onAction={()=>{}}/>));
+    expect(host.textContent).not.toContain('Prepared feed');
+    await act(async()=>vi.advanceTimersByTimeAsync(700));
+    expect(host.textContent).toContain('Prepared feed');
+    expect(host.querySelector('.home-experience')?.getAttribute('data-page')).toBe('home');
+  } finally {vi.useRealTimers();}
+});

@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useRef, useState, startTransition } from 'react';
 import { motion, useReducedMotion } from 'motion/react';
 import { ArrowDown, ArrowUp, ChevronDown, MapPin, Search, Star, Sparkles, ChefHat, Users } from 'lucide-react';
 import { homeSwipeDestination, type HomeDestination } from '../lib/home-gesture';
@@ -46,6 +46,13 @@ export const HomeExperience: React.FC<Props> = ({ active, name, city, highlights
   pageChangeRef.current = onPageChange;
   useLayoutEffect(() => { pageChangeRef.current?.(page); }, [page]);
   const [feedVisited, setFeedVisited] = useState(false);
+  // Start the feed after Home's first paint, before its first swipe. Keep
+  // it mounted afterward so returning does not restart the request chain.
+  useEffect(() => {
+    if (!active || feedVisited) return;
+    const timer = setTimeout(() => startTransition(() => setFeedVisited(true)), 700);
+    return () => clearTimeout(timer);
+  }, [active, feedVisited]);
   const root = useRef<HTMLDivElement>(null);
   const feedScroll = useRef<HTMLDivElement>(null);
   const homeScroll = useRef<HTMLDivElement>(null);

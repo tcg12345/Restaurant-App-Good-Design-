@@ -689,88 +689,80 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
   // load, and any still-in-flight older load must not overwrite the newer
   // state with its stale response.
   const loadSeqRef = useRef(0);
+  const loadedFeedOwner = useRef<string | null>(null);
+  const [feedSettled, setFeedSettled] = useState(false);
 
   const loadFeed = useCallback(async () => {
     const seq = ++loadSeqRef.current;
     const fresh = () => loadSeqRef.current === seq;
     if (!userId) { setLoading(false); return; }
-    setLoading(true);
-    const friends = await getFriends(userId);
-    if (!fresh()) return;
-    if (friends.length === 0) {
-      // CLEAR rather than early-return with stale state — after unfollowing
-      // everyone (or on a fresh account) the feed must show empty, not the
-      // previous session's items.
-      setFriendIds(new Set());
-      setActivity([]);
-      setHomeMeals([]);
-      setPosts([]);
-      setLoading(false);
-      return;
-    }
-
-    const friendIdsArr = friends.map((f) => f.friend_id);
-    const friendIdSet = new Set(friendIdsArr);
-    setFriendIds(friendIdSet);
-    const [act, meals, friendPosts] = await Promise.all([
-      getFriendActivity(friendIdsArr, 500),
-      getFriendsPublicHomeMeals(friendIdsArr),
-      // Filter to friends SERVER-SIDE. The old global fetch (limit 100)
-      // + client filter silently dropped friends' posts once the platform
-      // had more than 100 recent public posts — the limit now applies to
-      // the friend set itself.
-      listPosts({ viewerId: userId, limit: 100, userIds: friendIdsArr }),
-    ]);
-    if (!fresh()) return;
-    setActivity(act);
-    setHomeMeals(meals);
-    // Real likes + comment counts for the cooking-feed recipe cards.
-    if (meals.length > 0) {
-      const mealIds = meals.map((m) => m.id);
-      void Promise.all([getRecipeLikes(userId, mealIds), getRecipeCommentCounts(mealIds)])
-        .then(([likeData, commentCounts]) => {
-          if (!fresh()) return;
-          setMealLikeCounts(likeData.likes);
-          setMealLikedByMe(likeData.userLiked);
-          setMealCommentCounts(commentCounts);
-        });
-    }
-    // listPosts resolves null when the fetch failed; keep whatever the
-    // feed already showed rather than wiping it to a false empty state.
-    if (friendPosts) setPosts(friendPosts);
-
-    // Collect all user IDs from both sources
-    const allUserIds = new Set<string>();
-    act.forEach((a) => allUserIds.add(a.user_id));
-    meals.forEach((m) => allUserIds.add(m.userId));
-
-    if (allUserIds.size > 0) {
-      const ratingIds = act.map((a) => a.id).filter(Boolean);
-      const [profs, likesData, ccounts] = await Promise.all([
-        getProfilesByIds([...allUserIds]),
-        ratingIds.length > 0 ? getLikesForRatings(userId, ratingIds) : Promise.resolve({ likes: {} as Record<string, number>, userLiked: new Set<string>() }),
-        ratingIds.length > 0 ? getCommentCounts(ratingIds) : Promise.resolve({} as Record<string, number>),
-      ]);
+    setLoading(loadedFeedOwner.current !== userId);
+    setFeedSettled(false);
+    try {
+      const friends = await getFriends(userId);
       if (!fresh()) return;
-      setProfiles(profs);
-      setLikes(likesData.likes);
-      setUserLiked(likesData.userLiked);
-      setCommentCounts(ccounts);
+      const ids = friends.map(f => f.friend_id);
+      setFriendIds(new Set(ids));
+      if (!ids.length) {
+        setActivity([]); setHomeMeals([]); setPosts([]);
+        return;
+      }
+      // Author lookup starts with the content queries. Each content source
+      // can paint when ready; slow post signing cannot hold back ratings.
+      const authors = getProfilesByIds(ids).then(profs => {
+        if (fresh()) setProfiles(profs);
+      }).catch(() => {});
+      await Promise.allSettled([
+        (async () => {
+          const act = await getFriendActivity(ids, 500);
+          await authors;
+          if (!fresh()) return;
+          setActivity(act);
+          if (act.length) setLoading(false);
+          const ratingIds = act.map(a => a.id).filter(Boolean);
+          if (ratingIds.length) void Promise.all([
+            getLikesForRatings(userId, ratingIds), getCommentCounts(ratingIds),
+          ]).then(([likesData, counts]) => {
+            if (!fresh()) return;
+            setLikes(likesData.likes); setUserLiked(likesData.userLiked); setCommentCounts(counts);
+          }).catch(() => {});
+        })(),
+        (async () => {
+          const meals = await getFriendsPublicHomeMeals(ids);
+          await authors;
+          if (!fresh()) return;
+          setHomeMeals(meals);
+          if (!meals.length) return;
+          setLoading(false);
+          const mealIds = meals.map(m => m.id);
+          void Promise.all([getRecipeLikes(userId, mealIds), getRecipeCommentCounts(mealIds)])
+            .then(([likeData, counts]) => {
+              if (!fresh()) return;
+              setMealLikeCounts(likeData.likes); setMealLikedByMe(likeData.userLiked); setMealCommentCounts(counts);
+            }).catch(() => {});
+          void getReviewSummariesBatch(mealIds, [userId, ...ids])
+            .then(summaries => { if (fresh()) setMealRatingSummaries(summaries); }).catch(() => {});
+        })(),
+        (async () => {
+          const friendPosts = await listPosts({viewerId: userId, limit: 100, userIds: ids});
+          if (!fresh() || !friendPosts) return;
+          setPosts(friendPosts);
+          if (friendPosts.length) setLoading(false);
+        })(),
+      ]);
+    } finally {
+      if (fresh()) {
+        loadedFeedOwner.current = userId;
+        setFeedSettled(true);
+        setLoading(false);
+      }
     }
-    // Batch-fetch community rating summaries for all home meals so cards
-    // can show the 5-star average instead of the author's self-rating.
-    // Scan the viewer's friends' meta (plus self) so reviews persisted via
-    // the ListsContext fallback are included in the averages.
-    if (meals.length > 0) {
-      const scanIds = [userId, ...friendIdsArr];
-      getReviewSummariesBatch(meals.map((m) => m.id), scanIds)
-        .then((s) => { if (fresh()) setMealRatingSummaries(s); })
-        .catch(() => {});
-    }
-    setLoading(false);
   }, [userId]);
 
-  useEffect(() => { loadFeed(); }, [loadFeed]);
+  useEffect(() => {
+    void loadFeed().catch(() => {});
+    return () => { loadSeqRef.current += 1; };
+  }, [loadFeed]);
 
   // Lazy-load expert ratings the first time the user opens the Expert
   // Picks tab. Pulls every rating authored by an expert the viewer
@@ -846,7 +838,7 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
    * suggestions arrived, and the fallback would tear itself down.
    */
   const circleReels = includeReels ? selectHomeFeedReels(homeReels, { audience: 'friends', lens: 'latest', friendIds, userId: userId ?? undefined, community: false }) : [];
-  const showSuggestions = activityFilter === 'friends' && !loading && circleEntries.length === 0 && circleReels.length === 0;
+  const showSuggestions = activityFilter === 'friends' && (!userId || feedSettled) && !loading && circleEntries.length === 0 && circleReels.length === 0;
   const availableEntries = showSuggestions && suggestedPosts.length > 0
     ? mergeFeed({ posts: suggestedPosts })
     : circleEntries;
@@ -1126,27 +1118,21 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
     if (!showSuggestions) return;
     const seq = ++suggestReqRef.current;
     setSuggestLoading(true);
-    (async () => {
-      const [people, publicPosts] = await Promise.all([
-        getSuggestedProfiles({ viewerId: userId, limit: 12 }),
-        // No `userIds` — the global window, which RLS already scopes to
-        // public posts (plus the viewer's own and their followed accounts').
-        listPosts({ viewerId: userId, limit: 12 }),
-      ]);
-      if (seq !== suggestReqRef.current) return;
-      setSuggestedPeople(people);
-      // Your own posts aren't a suggestion, and seeing them here would read
-      // as the app mistaking you for the community.
-      setSuggestedPosts((publicPosts || []).filter((p) => p.userId !== userId));
-      setSuggestLoading(false);
-    })();
+    void getSuggestedProfiles({ viewerId: userId, limit: 12 })
+      .then(people => { if (seq === suggestReqRef.current) setSuggestedPeople(people); })
+      .catch(() => {})
+      .finally(() => { if (seq === suggestReqRef.current) setSuggestLoading(false); });
+    void listPosts({ viewerId: userId, limit: 12 }).then(publicPosts => {
+      if (seq === suggestReqRef.current && publicPosts) setSuggestedPosts(publicPosts.filter(p => p.userId !== userId));
+    }).catch(() => {});
+    return () => { suggestReqRef.current += 1; };
   }, [showSuggestions, userId]);
 
   // Header for the single stream. The only control is WHO you're looking
   // at — your circle or the verified people you follow. Desktop keeps it to
   // one compact row (title + live dot left, filter right); phone shows the
   // filter alone, since the page chrome already carries the title.
-  const CircleFilter: React.FC<{ full?: boolean }> = ({ full }) => (
+  const renderCircleFilter = (full = false) => (
     <div className={cn('flex items-center gap-0.5 rounded-full bg-on-surface/[0.045] p-0.5', full ? 'w-full' : 'flex-shrink-0')}>
       {([['friends', 'Your circle'], ['experts', 'Verified']] as const).map(([key, label]) => (
         <button
@@ -1178,7 +1164,7 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
    * guarantees one run per heading, so this always carries the label.
    * Geometry lives in RatingStripCard.
    */
-  const RatingStrip: React.FC<{ entries: FeedEntry[] }> = ({ entries }) => {
+  const renderRatingStrip = (entries: FeedEntry[]) => {
     const scores = entries.map((e) => Number(e.source.rating?.score)).filter((n) => Number.isFinite(n) && n > 0);
     const avg = scores.length ? scores.reduce((a, b) => a + b, 0) / scores.length : 0;
     return (
@@ -1237,7 +1223,7 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
     );
   };
 
-  const SectionHeader: React.FC = () => (filter !== undefined ? null : (
+  const renderSectionHeader = () => (filter !== undefined ? null : (
     <div className="mb-3">
       {!phoneMode ? (
         <div className="flex items-center justify-between gap-4 border-b border-on-surface/[0.07] pb-3">
@@ -1249,10 +1235,10 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
             </span>
             <span className="text-[11.5px] font-semibold text-emerald-600 flex-shrink-0">Live</span>
           </div>
-          <CircleFilter />
+          {renderCircleFilter()}
         </div>
       ) : (
-        <CircleFilter full />
+        renderCircleFilter(true)
       )}
     </div>
   ));
@@ -1264,7 +1250,7 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
           !phoneMode && !feedOnly && 'xl:grid xl:grid-cols-[minmax(0,1fr)_320px] xl:gap-14 xl:items-start',
         )}>
           <div className="xl:min-w-0">
-            {compactControls ? <FeedNavigation audience={activityFilter} lens={lens} onAudienceChange={setActivityFilter} onLensChange={setLens} /> : <SectionHeader />}
+            {compactControls ? <FeedNavigation audience={activityFilter} lens={lens} onAudienceChange={setActivityFilter} onLensChange={setLens} /> : renderSectionHeader()}
       {!loading && (availableEntries.length > 0 || feedReels.length > 0) && <>
         {!compactControls && <div className="feed-discovery-controls" role="group" aria-label="Browse feed">
           {([{id:'latest',label:'Latest'},{id:'highlights',label:'Highly rated'},{id:'saved',label:'Saved'}] as const).filter(option => activityFilter !== 'recipes' || option.id !== 'highlights').map(option => <button key={option.id} aria-pressed={lens === option.id} onClick={() => { homeHaptic(); setLens(option.id); }}>{option.label}</button>)}
@@ -1326,7 +1312,7 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
         !phoneMode && !feedOnly && 'xl:grid xl:grid-cols-[minmax(0,1fr)_320px] xl:gap-14 xl:items-start',
       )}>
         <div className="xl:min-w-0">
-      {compactControls ? <FeedNavigation audience={activityFilter} lens={lens} onAudienceChange={setActivityFilter} onLensChange={setLens} /> : <SectionHeader />}
+      {compactControls ? <FeedNavigation audience={activityFilter} lens={lens} onAudienceChange={setActivityFilter} onLensChange={setLens} /> : renderSectionHeader()}
       {!loading && (availableEntries.length > 0 || feedReels.length > 0) && <>
         {!compactControls && <div className="feed-discovery-controls" role="group" aria-label="Browse feed">
           {([{id:'latest',label:'Latest'},{id:'highlights',label:'Highly rated'},{id:'saved',label:'Saved'}] as const).filter(option => activityFilter !== 'recipes' || option.id !== 'highlights').map(option => <button key={option.id} aria-pressed={lens === option.id} onClick={() => { homeHaptic(); setLens(option.id); }}>{option.label}</button>)}
@@ -1430,7 +1416,7 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ centerLat = null, center
             // never renders two bordered "Also rated" blocks in a stack.
             return (
               <li key={`strip-${row.entries[0]?.key ?? 'empty'}`} className="pt-6">
-                <RatingStrip entries={row.entries} />
+                {renderRatingStrip(row.entries)}
                 <div className="mx-5 mt-[26px] border-t border-on-surface/[0.14]" aria-hidden />
               </li>
             );

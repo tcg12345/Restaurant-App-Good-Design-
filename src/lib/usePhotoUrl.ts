@@ -16,11 +16,21 @@ export function usePhotoUrl(source?: string | null) {
     if (!managed || !source) return;
     let alive = true;
     let timer: ReturnType<typeof setTimeout>;
-    void resolvePhotoUrl(source).then(url => {
+    let failures = 0;
+    const resolve = async () => {
+      const url = await resolvePhotoUrl(source);
       if (!alive || generation !== mediaAccessVersion()) return;
+      if (!url && failures < 2) {
+        // Do not turn a temporary signing failure into an img error that
+        // makes its parent permanently remove the photo. Stay a placeholder
+        // during bounded retries; reconnect also restarts this effect.
+        if (navigator.onLine !== false) timer = setTimeout(() => { void resolve(); }, ++failures * 750);
+        return;
+      }
       setResult({source, generation, url, attempt});
       if (url) timer = setTimeout(retry, (PHOTO_URL_TTL_SECONDS - 90) * 1000);
-    });
+    };
+    void resolve();
     const reconnect = () => { retry(); };
     window.addEventListener('online', reconnect);
     return () => { alive = false; clearTimeout(timer); window.removeEventListener('online', reconnect); };

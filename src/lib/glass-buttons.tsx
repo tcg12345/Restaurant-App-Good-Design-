@@ -241,14 +241,14 @@ export function setGlassSuspended(next: boolean): void {
  *  button wins as before, but a hit that has faded to nothing doesn't count
  *  as covering anything, and the sampler picks the real state back up on its
  *  own the next time it looks, however many frames that took. */
-function occluded(el: HTMLElement, rect: DOMRect): boolean {
+function occluded(el: HTMLElement, rect: DOMRect, opacityOf = effectiveOpacity): boolean {
   const cx = rect.left + rect.width / 2;
   const cy = rect.top + rect.height / 2;
   if (cx < 0 || cy < 0 || cx > window.innerWidth || cy > window.innerHeight) return true;
   for (const layer of occluders) {
     // A control ON the layer is not under it.
     if (layer === el || layer.contains(el)) continue;
-    if (effectiveOpacity(layer) < 0.05) continue;
+    if (opacityOf(layer) < 0.05) continue;
     const r = layer.getBoundingClientRect();
     if (r.width < 1 || r.height < 1) continue;
     if (cx >= r.left && cx <= r.right && cy >= r.top && cy <= r.bottom) return true;
@@ -274,18 +274,19 @@ function occluded(el: HTMLElement, rect: DOMRect): boolean {
   // principle land on an SVG node); effectiveOpacity only reads
   // style/parentElement, both of which every Element has, so the narrower
   // HTMLElement parameter type is stricter than the check needs.
-  if (effectiveOpacity(found as HTMLElement) < 0.05) return false;
+  if (opacityOf(found as HTMLElement) < 0.05) return false;
   return true;
 }
 
 /** Effective opacity, including every ancestor's — the mobile headers fade by
  *  animating a wrapper, so the button's own computed opacity is 1 the whole
  *  way down. */
-function effectiveOpacity(el: HTMLElement, preview = false): number {
+function effectiveOpacity(el: HTMLElement, preview = false, styles?: Map<Element, CSSStyleDeclaration>): number {
   let opacity = 1;
   let node: HTMLElement | null = el;
   while (node && node !== document.body) {
-    const style = window.getComputedStyle(node);
+    const style = styles?.get(node) ?? window.getComputedStyle(node);
+    styles?.set(node, style);
     if (style.display === 'none' || style.visibility === 'hidden' || (!preview && node.hasAttribute('inert'))) return 0;
     const own = parseFloat(style.opacity);
     if (!Number.isNaN(own)) opacity *= own;
@@ -307,9 +308,13 @@ function tapById(id: string): void {
 }
 
 function sample(): void {
+  // Shared ancestors were recomputed for every control on every animation
+  // frame. Cache only within this sample: fades stay live on the next frame.
+  const styles = new Map<Element, CSSStyleDeclaration>();
+  const opacityOf = (el: HTMLElement, preview = false) => effectiveOpacity(el, preview, styles);
   const buttons: Array<Record<string, unknown>> = [];
   const front = document.querySelector<HTMLElement>('[data-swipe-front]');
-  const frontRect = front && effectiveOpacity(front, true) > .01 ? front.getBoundingClientRect() : null;
+  const frontRect = front && opacityOf(front, true) > .01 ? front.getBoundingClientRect() : null;
   const entries = [...registry].map(([id, registration]) => ({ id, registration, preview: false }));
   document.querySelectorAll<HTMLElement>('[data-glass-preview]').forEach(el => {
     const entry = previewControls.get(el);
@@ -318,7 +323,7 @@ function sample(): void {
   for (const { id, registration: reg, preview } of entries) {
     const rect = reg.el.getBoundingClientRect();
     if (rect.width < 1 || rect.height < 1) continue;
-    let alpha = effectiveOpacity(reg.el, preview) * (reg.disabled ? 0.4 : 1);
+    let alpha = opacityOf(reg.el, preview) * (reg.disabled ? 0.4 : 1);
     if (preview && reg.el.closest('[data-glass-handoff]')) alpha = 0;
     let clip = { x: 0, y: 0, width: window.innerWidth, height: window.innerHeight };
     const isFront = !!reg.el.closest('[data-swipe-front]');
@@ -333,7 +338,7 @@ function sample(): void {
         else { clip.x = Math.max(0, frontRect.right); clip.width = window.innerWidth - clip.x; }
       } else {
         const live = document.querySelector<HTMLElement>('[data-swipe-page] [data-route-stack]:not([inert])');
-        if (live && effectiveOpacity(live) > .01) {
+        if (live && opacityOf(live) > .01) {
           const r = live.getBoundingClientRect();
           if (r.top > 0) clip.height = r.top;
           else if (r.left > 0) clip.width = r.left;
@@ -341,7 +346,7 @@ function sample(): void {
         }
       }
       if (clip.width <= 0 || clip.height <= 0 || rect.right <= clip.x || rect.left >= clip.x + clip.width || rect.bottom <= clip.y || rect.top >= clip.y + clip.height) alpha = 0;
-    } else if (alpha > .01 && (occluded(reg.el, rect) || (frontRect && rect.left < frontRect.right && rect.right > frontRect.left && rect.top < frontRect.bottom && rect.bottom > frontRect.top))) alpha = 0;
+    } else if (alpha > .01 && (occluded(reg.el, rect, opacityOf) || (frontRect && rect.left < frontRect.right && rect.right > frontRect.left && rect.top < frontRect.bottom && rect.bottom > frontRect.top))) alpha = 0;
     buttons.push({
       id,
       preview,
@@ -383,7 +388,7 @@ function sample(): void {
       } : {}),
     });
   }
-  const tabBarPreview = sampleNativeTabPreview(effectiveOpacity);
+  const tabBarPreview = sampleNativeTabPreview(opacityOf);
   const payload = JSON.stringify({ buttons, tabBarPreview });
   if (payload === lastPayload) return;
   lastPayload = payload;

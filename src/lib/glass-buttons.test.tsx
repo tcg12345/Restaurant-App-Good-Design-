@@ -88,3 +88,12 @@ it('batches the native tab reveal with header geometry and releases it after han
   expect(mock.push.mock.calls.at(-1)?.[0].tabBarPreview).toBeNull();
   releaseGlass();
 });
+it('reads shared ancestor styles once per animation frame and observes changes on the next frame', async () => {
+  await act(async()=>root.render(<div data-shared><GlassButton id="a" symbol="star" label="A" onClick={()=>{}}>A</GlassButton><GlassButton id="b" symbol="star" label="B" onClick={()=>{}}>B</GlassButton></div>));
+  const shared=host.querySelector<HTMLElement>('[data-shared]')!;
+  const style=vi.spyOn(window,'getComputedStyle');
+  await frame();
+  expect(style.mock.calls.filter(([node])=>node===shared)).toHaveLength(1);
+  shared.style.opacity='0'; wakeGlassButtons(); await frame();
+  expect(latest().every(button=>button.alpha===0)).toBe(true);
+});
