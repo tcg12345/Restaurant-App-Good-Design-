@@ -146,7 +146,7 @@ export const RestaurantDetailMobile: React.FC = () => {
     galleryOpen, setGalleryOpen,
     mapContainerRef,
     priceStr, cuisine, cuisines, cuisineLine, cuisineCredit, suggestCuisine, mySuggestion, michelin,
-    photos, directionsUrl, mapsUrl,
+    photos, photosLoading, directionsUrl, mapsUrl,
     communityStats, friendsStats, communityPhotos, expertRecommendations,
     showFriendsDetail, setShowFriendsDetail,
     visitHistory, visitCount,
@@ -283,7 +283,7 @@ export const RestaurantDetailMobile: React.FC = () => {
     // instead of a bare centered spinner that popped into the full page.
     return (
       <div className="min-h-screen bg-surface" aria-busy="true">
-        <div className="animate-pulse bg-on-surface/[0.06] w-full" style={{ height: '40vh', maxHeight: '46vh' }} />
+        <div className="animate-pulse bg-on-surface/[0.06] w-full" style={{ height: 'clamp(250px, 36vh, 360px)' }} />
         <div className="px-5 pt-6 space-y-3">
           <div className="animate-pulse bg-on-surface/[0.06] rounded h-7 w-3/4" />
           <div className="animate-pulse bg-on-surface/[0.06] rounded h-4 w-1/2" />
@@ -339,7 +339,7 @@ export const RestaurantDetailMobile: React.FC = () => {
   // eyebrow labels already said where they started.
 
   return (
-    <div data-no-pull-refresh="" className={cn("restaurant-detail restaurant-detail-mobile min-h-screen bg-cream type-archivo", photos.length > 0 && "has-detail-photo")}>
+    <div data-no-pull-refresh="" className={cn("restaurant-detail restaurant-detail-mobile min-h-screen bg-cream type-archivo", (photos.length > 0 || photosLoading) && "has-detail-photo")}>
 
       {/* ── Floating top controls — back / bookmark / share. Light glass
           circles so the icons stay legible both over the hero photo and
@@ -400,7 +400,7 @@ export const RestaurantDetailMobile: React.FC = () => {
         </div>
       </div>
 
-      <RestaurantPhotoStage key={place.id} name={place.name} photos={photos} communityPhotos={communityPhotos}
+      <RestaurantPhotoStage key={place.id} name={place.name} photos={photos} loading={photosLoading} communityPhotos={communityPhotos}
         index={photoIndex} onIndexChange={setPhotoIndex} open={galleryOpen} onOpenChange={setGalleryOpen} interactionBlocked={paywallOpen}
         onRecreate={(p) => {
           const open = () => {

@@ -17,11 +17,12 @@ function Photo({ url, alt, className = '', lazy = false }: { url: string; alt: s
   const [failed, setFailed] = useState(false);
   useEffect(() => setFailed(false), [url]);
   return failed ? <span className={`rps-photo-failed ${className}`} role="img" aria-label={`${alt}. Photo unavailable`}><ImageOff size={28} /><span>Photo unavailable</span></span>
-    : <PhotoImage loading={lazy ? "lazy" : "eager"} decoding="async" className={className} src={url} alt={alt} referrerPolicy="no-referrer" draggable={false} onError={() => setFailed(true)} />;
+    : <PhotoImage loading={lazy ? "lazy" : "eager"} fetchPriority={lazy ? "low" : "high"} decoding="async" className={className} src={url} alt={alt} referrerPolicy="no-referrer" draggable={false} onError={() => setFailed(true)} />;
 }
 interface Props {
   name: string;
   photos: string[];
+  loading?: boolean;
   communityPhotos?: Array<CommunityPhoto & { rawUrl?: string }>;
   index: number;
   onIndexChange: (index: number) => void;
@@ -32,7 +33,7 @@ interface Props {
   children: React.ReactNode;
 }
 /** The photo header and restaurant card stay mounted throughout the reveal. */
-export const RestaurantPhotoStage: React.FC<Props> = ({ name, photos, communityPhotos = [], index, onIndexChange, open, onOpenChange, onRecreate, interactionBlocked = false, children }) => {
+export const RestaurantPhotoStage: React.FC<Props> = ({ name, photos, loading = false, communityPhotos = [], index, onIndexChange, open, onOpenChange, onRecreate, interactionBlocked = false, children }) => {
   const root = useRef<HTMLDivElement>(null);
   const sheet = useRef<HTMLDivElement>(null);
   const opener = useRef<HTMLElement | null>(null);
@@ -213,27 +214,27 @@ export const RestaurantPhotoStage: React.FC<Props> = ({ name, photos, communityP
     if (rail && thumb) rail.scrollTo({ left: thumb.offsetLeft - rail.clientWidth / 2 + thumb.offsetWidth / 2, behavior: reduced ? 'auto' : 'smooth' });
   }, [open, current, showGrid, reduced]);
 
-  if (!photos.length) return <><div style={{ height: 'calc(env(safe-area-inset-top, 0px) + 60px)' }} />{children}</>;
-  return <div ref={root} data-no-pull-refresh="" className={`restaurant-photo-stage${presented ? ' is-presented' : ''}${open ? ' is-gallery' : ''}`}
+  const hasHero = photos.length > 0 || loading;
+  return <div ref={root} data-no-pull-refresh="" className={`restaurant-photo-stage${hasHero ? '' : ' is-empty'}${presented ? ' is-presented' : ''}${open ? ' is-gallery' : ''}`}
     onClickCapture={event => { if (performance.now() < suppressClickUntil.current) { event.preventDefault(); event.stopPropagation(); suppressClickUntil.current = 0; } }}
     inert={interactionBlocked} role={open ? 'dialog' : undefined} aria-modal={(open && !interactionBlocked) || undefined} aria-label={open ? `Photos of ${name}` : undefined}
-    style={{ '--rps-hero': `${geometry.hero}px`, '--rps-left': `${geometry.left}px`, '--rps-width': `${geometry.width}px` } as React.CSSProperties}>
+    style={{ '--rps-hero': hasHero ? `${geometry.hero}px` : 'calc(env(safe-area-inset-top, 0px) + 60px)', '--rps-left': `${geometry.left}px`, '--rps-width': `${geometry.width}px` } as React.CSSProperties}>
     {/* The opaque details sheet reveals the canvas as it moves. Only the resting
         header needs clipping; changing a full-screen clip on every frame repaints on iOS. */}
-    <div className="rps-canvas" style={{ height: geometry.height, clipPath: presented ? undefined : `inset(0 0 ${Math.max(0, geometry.height - geometry.hero)}px)` }}>
+    <div className="rps-canvas" hidden={!hasHero} style={{ height: geometry.height, clipPath: presented ? undefined : `inset(0 0 ${Math.max(0, geometry.height - geometry.hero)}px)` }}>
       <motion.div className="rps-cover" aria-hidden={presented} style={{ opacity: imageOpacity, height: geometry.hero }}>
         <motion.div className="rps-cover-track" data-horizontal-gesture="" dragListener={false} dragControls={coverDrag} onPointerDown={event => { if (!open && event.clientX > 28) coverDrag.start(event); }} onTap={() => { if (!latest.current.open && !dragging.current && performance.now() >= suppressClickUntil.current) onOpenChange(true); }} drag={!open && photos.length > 1 ? 'x' : false} dragConstraints={{ left: 0, right: 0 }} dragElastic={.18}
           onDragEnd={(_, info) => { if (Math.abs(info.offset.x) > 45) step(info.offset.x < 0 ? 1 : -1); }}>
-          <Photo url={photos[current]} alt={`${name}, photo ${current + 1}`} />
+          {photos.length ? <Photo url={photos[current]} alt={`${name}, photo ${current + 1}`} /> : <div className="rps-cover-loading" role="status" aria-label="Loading restaurant photo" />}
         </motion.div>
       </motion.div>
       <motion.div className="rps-cover-shade" style={{ opacity: progress }} />
-      <motion.div className="rps-cover-controls" style={{ opacity: coverOpacity }} inert={presented} aria-hidden={presented}>
+      <motion.div className="rps-cover-controls" hidden={!photos.length} style={{ opacity: coverOpacity }} inert={presented} aria-hidden={presented}>
         <button onClick={() => onOpenChange(true)} className="rps-photo-count"><Images size={15} /> {photos.length} photos</button>
         <span className="rps-cover-position">{current + 1}<span> / {photos.length}</span></span>
       </motion.div>
       <motion.div className="rps-gallery" style={{ opacity: galleryOpacity }} inert={!open} aria-hidden={!open}>
-        <>
+        {photos.length > 0 && <>
         <header className="rps-gallery-header">
           <div><h2>Photos</h2><span>{name}</span></div>
           <button aria-label={showGrid ? 'Show selected photo' : 'Show all photos'} aria-pressed={showGrid} onClick={() => { setQuery(''); setGrid(!showGrid); }}><LayoutGrid size={19} /></button>
@@ -260,14 +261,14 @@ export const RestaurantPhotoStage: React.FC<Props> = ({ name, photos, communityP
               {photo?.id && <PhotoLikeButton photoId={photo.id} onSignInNeeded={() => onOpenChange(false)} />}
               {photo && onRecreate && <button aria-label="Recreate this dish" onClick={() => { opener.current = null; onRecreate({ url: photo.url, rawUrl: photo.rawUrl || photo.url, caption: photo.caption || '', ownerUserId: photo.user_id }); }}><Sparkles size={17} /></button>}
             </div>
-            <div className="rps-filmstrip" data-horizontal-gesture="" aria-label="Choose a photo">{photos.map((url, i) => <button key={`${url}-${i}`} aria-label={`Photo ${i + 1}`} aria-current={i === current} onClick={() => onIndexChange(i)}><Photo lazy url={url} alt="" /></button>)}</div>
+            {presented && <div className="rps-filmstrip" data-horizontal-gesture="" aria-label="Choose a photo">{photos.map((url, i) => <button key={`${url}-${i}`} aria-label={`Photo ${i + 1}`} aria-current={i === current} onClick={() => onIndexChange(i)}><Photo lazy url={url} alt="" /></button>)}</div>}
           </>}
-        </>
+        </>}
       </motion.div>
     </div>
     <div className="rps-hero-spacer" aria-hidden />
     <motion.div ref={sheet} className="rps-sheet" style={{ y }}>
-      <button ref={handle} className="rps-handle" aria-label="Pull down to explore restaurant photos" aria-expanded={open} onClick={() => onOpenChange(!open)} inert={open}><span /></button>
+      {photos.length > 0 && <button ref={handle} className="rps-handle" aria-label="Pull down to explore restaurant photos" aria-expanded={open} onClick={() => onOpenChange(!open)} inert={open}><span /></button>}
       <motion.div className="rps-details" style={{ opacity: detailsOpacity }} inert={open} aria-hidden={open}>{children}</motion.div>
       <motion.button className="rps-dock" style={{ opacity: dockOpacity }} inert={!open} aria-hidden={!open} onClick={() => onOpenChange(false)}><span className="rps-dock-grabber" /><span><strong>Restaurant details</strong></span><ArrowUp size={20} /></motion.button>
     </motion.div>

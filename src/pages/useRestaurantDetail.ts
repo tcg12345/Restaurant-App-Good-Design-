@@ -8,12 +8,12 @@ import mapboxgl from 'mapbox-gl';
 import { attachMapErrorFallback } from '../lib/map-error';
 import { supabaseConfigured } from '../lib/supabase';
 import { saveRecentViews } from '../lib/supabase-db';
-import { getCommunityStats, getFriendsStats, getCommunityPhotos, getVisitHistory, getExpertRecommendations, type CommunityStats, type FriendsStats, type CommunityPhoto, type VisitRecord, type ExpertRecommendation } from '../lib/supabase-community';
+import { getCommunityStats, getFriendsStats, getVisitHistory, getExpertRecommendations, type CommunityStats, type FriendsStats, type VisitRecord, type ExpertRecommendation } from '../lib/supabase-community';
 import { useAuth } from '../contexts/AuthContext';
 import { useLists, readLocalVisitHistory, type LocalVisitRecord } from '../contexts/ListsContext';
 // @ts-ignore
 import MapboxWorker from 'mapbox-gl/dist/mapbox-gl-csp-worker?worker';
-import { getPlaceDetails, resolvePlaceIdByNameCoords, priceLevelToString, type PlaceDetails } from '../lib/places';
+import { getPlaceDetails, getCachedPlaceDetails, resolvePlaceIdByNameCoords, priceLevelToString, type PlaceDetails } from '../lib/places';
 import { cuisineLabel, formatCuisines, type CuisineSource } from '../lib/cuisine';
 import { settleRestaurantCuisine, getRestaurantCuisineTags } from '../lib/restaurant-cuisine';
 import { onCuisineChange } from '../lib/cuisine-events';
@@ -27,6 +27,8 @@ mapboxgl.workerClass = MapboxWorker;
 import { MAPBOX_TOKEN } from '../lib/keys';
 import { buildDirectionsUrl } from '../lib/directions';
 import { useBlobPhotos } from '../lib/useBlobPhotos';
+import { useRestaurantPhotos } from '../lib/useRestaurantPhotos';
+import { useRouteSettled } from '../components/RouteMotionLayer';
 
 // The base64→blob conversion + cache moved to the shared useBlobPhotos hook
 // (src/lib/useBlobPhotos.ts) so RestaurantPanel and any other community-photo
@@ -68,15 +70,13 @@ export function getTodayHours(hours: string[]): string {
 }
 
 const detailMemory = new Map<string, PlaceDetails>();
-// Preserve the hero height on return without retaining entire photo libraries.
-const detailHeroMemory = new Map<string, CommunityPhoto[]>();
 
 export function useRestaurantDetail() {
   const { darkMode } = useSettings();
   const { id } = useParams();
   const navigate = useNavigate();
   const { user } = useAuth();
-  const [place, setPlace] = useState<PlaceDetails | null>(() => id ? detailMemory.get(id) ?? null : null);
+  const [place, setPlace] = useState<PlaceDetails | null>(() => id ? detailMemory.get(id) ?? getCachedPlaceDetails(id) ?? null : null);
   useRestaurantAnalytics(place?.id, place?.name, 'detail', place?.dataSource);
   const [michelin, setMichelin] = useState<MichelinInfo | null>(null);
   /** Cuisine settled through the shared cache (migration 068) — the answer
@@ -86,7 +86,7 @@ export function useRestaurantDetail() {
   /** This user's own proposal for this place, if they've made one. Shown
    *  back to them so a pending suggestion doesn't look like it vanished. */
   const [mySuggestion, setMySuggestion] = useState<CuisineSuggestion | null>(null);
-  const [loading, setLoading] = useState(() => !id || !detailMemory.has(id));
+  const [loading, setLoading] = useState(() => !id || !(detailMemory.has(id) || getCachedPlaceDetails(id)));
   const [error, setError] = useState<string | null>(null);
   const [photoIndex, setPhotoIndex] = useState(0);
   const [hoursOpen, setHoursOpen] = useState(false);
@@ -176,7 +176,7 @@ export function useRestaurantDetail() {
 
   useEffect(() => {
     if (!id) return;
-    const warm = detailMemory.get(id);
+    const warm = detailMemory.get(id) ?? getCachedPlaceDetails(id);
     setPlace(warm ?? null);
     setLoading(!warm);
     setError(null);
@@ -258,7 +258,9 @@ export function useRestaurantDetail() {
   // Community & friends data
   const [communityStats, setCommunityStats] = useState<CommunityStats>({ avgScore: 0, totalRatings: 0, ratings: [] });
   const [friendsStats, setFriendsStats] = useState<FriendsStats>({ avgScore: 0, totalRatings: 0, ratings: [] });
-  const [communityPhotos, setCommunityPhotos] = useState<CommunityPhoto[]>(() => detailHeroMemory.get(`${user?.id ?? 'guest'}:${id}`) ?? []);
+  const routeSettled = useRouteSettled();
+  const photoPlaceId = id && !isMichelinSyntheticId(id) ? id : place?.id;
+  const {communityPhotos, photosLoading} = useRestaurantPhotos(photoPlaceId, user?.id ?? 'guest', routeSettled);
   // base64 data-URL → blob object-URL map, so the iOS web view can render
   // them (shared hook — see src/lib/useBlobPhotos.ts).
   const photoBlobMap = useBlobPhotos(communityPhotos);
@@ -501,41 +503,6 @@ export function useRestaurantDetail() {
       ? (priceLevelToString(place.priceLevel) || communityPrice || '')
       : '';
 
-  // Load community photos: the cover first (one tiny row → instant hero), then
-  // the full set behind it. getCommunityPhotos returns [] on error/timeout, and
-  // a many-photo restaurant's big request is exactly what fails on a cold load
-  // — so the original `.then(setCommunityPhotos)` was wiping the cover back out
-  // (photos showed nothing on the first visit but were fine on the second, once
-  // the response was cached). We only let a non-empty result replace what's
-  // shown; the `cancelled` guard stops a stale fetch writing one restaurant's
-  // photos onto the next when the user navigates quickly.
-  useEffect(() => {
-    const id = place?.id;
-    if (!id) return;
-    let cancelled = false;
-    const cacheKey = `${user?.id ?? 'guest'}:${id}`;
-    setCommunityPhotos(detailHeroMemory.get(cacheKey) ?? []);
-    (async () => {
-      try {
-        const cover = await getCommunityPhotos(id, 1);
-        if (cancelled) return;
-        if (cover.length > 0) {
-          setCommunityPhotos(cover);
-          if (cover[0].url.length < 2_000_000) detailHeroMemory.set(cacheKey, cover.slice(0, 1));
-          if (detailHeroMemory.size > 12) detailHeroMemory.delete(detailHeroMemory.keys().next().value!);
-        }
-        const all = await getCommunityPhotos(id);
-        if (cancelled) return;
-        // Only a non-empty result replaces what's shown — a failed/timed-out
-        // full fetch returns [] and must NOT wipe the cover.
-        if (all.length > 0) setCommunityPhotos(all);
-      } catch (err) {
-        if (!cancelled) console.warn('[RestaurantDetail] community photos fetch failed:', err);
-      }
-    })();
-    return () => { cancelled = true; };
-  }, [place?.id, user?.id]);
-
   // Merge Google Places photos with community user-uploaded photos
   const photos = useMemo(() => {
     const googlePhotos = place
@@ -594,6 +561,7 @@ export function useRestaurantDetail() {
     mySuggestion,
 
     photos,
+    photosLoading,
     directionsUrl,
     mapsUrl,
 

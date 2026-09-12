@@ -120,3 +120,8 @@ body:has([data-no-pull-refresh]:not([inert] [data-no-pull-refresh])) { overscrol
 .rps-dock strong { font-size: 13px; font-weight: 550; }
 .rps-dock-grabber { top: 5px; width: 28px; height: 3px; left: calc(50% - 14px); }
 @media (max-height: 500px) { .rps-gallery { padding-bottom: 10px; }.rps-gallery-header { padding-top: 6px; } }
+
+.restaurant-photo-stage.is-empty .rps-sheet { margin-top:0; border-radius:0; box-shadow:none; }
+.rps-cover-loading { position:absolute; inset:0; background:var(--color-surface); }
+.rps-cover-loading::after { content:""; position:absolute; inset:0; background:color-mix(in srgb,var(--color-on-surface) 6%,transparent); }
+.rps-canvas[hidden], .rps-cover-controls[hidden], .rps-handle[hidden] { display:none; }

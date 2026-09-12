@@ -922,6 +922,12 @@ const DETAIL_FIELDS = 'id,displayName,location,rating,priceLevel,shortFormattedA
 const placeDetailsCache = new Map<string, { data: PlaceDetails; ts: number }>();
 const DETAIL_CACHE_TTL = 5 * 60 * 1000;
 
+/** Synchronous first paint for details already fetched by a saved-place row. */
+export function getCachedPlaceDetails(placeId: string): PlaceDetails | null {
+  const cached = placeDetailsCache.get(placeId);
+  return cached && Date.now() - cached.ts < DETAIL_CACHE_TTL ? cached.data : null;
+}
+
 export async function getPlaceDetails(placeId: string): Promise<PlaceDetails> {
   // Check cache first
   const cached = placeDetailsCache.get(placeId);

@@ -135,3 +135,12 @@ describe('restaurant photo reveal', () => {
     await mount([]); expect(container.querySelector('.rps-handle')).toBeNull(); expect(container.textContent).toContain('Rate a visit');
   });
 });
+it('keeps details mounted when the first photo arrives and avoids mounting a closed library of thumbnails',async()=>{
+  await mount([]);
+  const details=container.querySelector('.rps-details main');
+  await mount(Array.from({length:150},(_,i)=>`photo-${i}.jpg`));
+  expect(container.querySelector('.rps-details main')).toBe(details);
+  expect(container.querySelectorAll('img')).toHaveLength(2);
+  expect(container.querySelector('.rps-filmstrip')).toBeNull();
+  await click('.rps-handle');expect(container.querySelectorAll('.rps-filmstrip img')).toHaveLength(150);
+});

@@ -114,7 +114,7 @@ const ProIntroRoute: React.FC = () => {
   return <ProIntroStep onDone={back} />;
 };
 import { RequireAuthRoute } from './components/RequireAuthRoute';
-import { wakeGlassButtons } from './lib/glass-buttons';
+import { wakeGlassButtons, flushGlassButtons } from './lib/glass-buttons';
 import { routeInstanceKey } from './lib/route-instance-key';
 
 function useIsDesktop(): boolean {
@@ -223,9 +223,13 @@ const AppContent: React.FC = () => {
   // A route change moves whole layers (keep-alive flips visibility with no
   // event the sampler listens for) — re-arm it so native glass from the
   // hidden layer stands down instead of floating over the new page.
-  React.useEffect(() => {
+  React.useLayoutEffect(() => {
+    // Retire hidden tab controls in the same commit, before the detail
+    // skeleton paints. Waiting for a passive effect + RAF leaves old glass
+    // floating over the new page during its first frames.
+    void flushGlassButtons();
     wakeGlassButtons();
-  }, [location.pathname]);
+  }, [location.key]);
   const { phoneMode, setKeyboardOpen } = useSettings();
   React.useEffect(() => {
     let handle: { destroy(): void } | null = null;
@@ -311,7 +315,7 @@ const AppContent: React.FC = () => {
   const [keptAlive, setKeptAlive] = React.useState<string[]>([]);
   React.useEffect(() => {
     if (loading || (!isGuest && !isSignedIn) || (isSignedIn && !profileComplete)) return;
-    const pages = [Search, Pantry, Profile, SocialHub, CalendarPage, SearchMain];
+    const pages = [Search, Pantry, Profile, RestaurantDetail, SocialHub, CalendarPage, SearchMain];
     const paths = ['/search', '/pantry', '/profile'];
     return warmNavigation(pages.map(Page => Page.preload), index => {
       const path = paths[index];

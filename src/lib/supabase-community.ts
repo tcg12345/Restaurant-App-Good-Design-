@@ -425,7 +425,8 @@ export async function getCommunityPhotos(restaurantId: string, limit?: number, o
     let q = supabase.from('community_photos')
       .select('*').eq('restaurant_id', restaurantId)
       .order('is_favorite', { ascending: false })
-      .order('created_at', { ascending: false });
+      .order('created_at', { ascending: false })
+      .order('id', { ascending: false });
     if (offset != null && limit && limit > 0) q = q.range(offset, offset + limit - 1);
     else if (limit && limit > 0) q = q.limit(limit);
     const { data, error } = await q;

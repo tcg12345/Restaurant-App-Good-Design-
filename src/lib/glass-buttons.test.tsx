@@ -2,7 +2,7 @@
 import React, { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import { GlassButton, holdGlass, releaseGlass, resetGlassHolds, copyGlassToPreview, wakeGlassButtons } from './glass-buttons';
+import { GlassButton, holdGlass, releaseGlass, resetGlassHolds, copyGlassToPreview, wakeGlassButtons, flushGlassButtons } from './glass-buttons';
 const mock = vi.hoisted(() => ({ push: vi.fn(async (_: any) => {}), clear: vi.fn(async () => {}), events: new Map<string, Function>() }));
 vi.mock('@capacitor/core', () => ({ Capacitor: { isNativePlatform: () => true } }));
 vi.mock('./native-glass', () => ({ LiquidGlass: { isSupported: async () => ({ supported: true }), setGlassButtons: mock.push, clearGlassButtons: mock.clear, addListener: async (event: string, handler: Function) => { mock.events.set(event, handler); return { remove: async () => {} }; } } }));
@@ -96,4 +96,11 @@ it('reads shared ancestor styles once per animation frame and observes changes o
   expect(style.mock.calls.filter(([node])=>node===shared)).toHaveLength(1);
   shared.style.opacity='0'; wakeGlassButtons(); await frame();
   expect(latest().every(button=>button.alpha===0)).toBe(true);
+});
+
+it('retires hidden Lists chrome immediately without waiting for an animation frame',async()=>{
+  await mount();expect(latest()[0].alpha).toBe(1);
+  host.setAttribute('inert','');host.style.visibility='hidden';
+  await act(async()=>flushGlassButtons());
+  expect(latest()[0].alpha).toBe(0);
 });

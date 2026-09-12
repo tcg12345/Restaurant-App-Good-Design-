@@ -41,7 +41,7 @@
 
 /* A scrollable Home with a stationary feed shortcut above the tab bar. */
 .home-launch.has-reels { --home-dock-bottom:calc(env(safe-area-inset-bottom,0px) + 66px); position:relative; padding-bottom:0; }
-.home-launch.has-reels .home-topbar { padding-top:calc(env(safe-area-inset-top,0px) + 4px); padding-bottom:4px; }
+.home-launch.has-reels .home-topbar { padding-top:calc(env(safe-area-inset-top,0px) + 4px); padding-bottom:12px; }
 /* A block scroll viewport around the flex content avoids WebKit's flex
    overflow/padding edge cases. The explicit tail stays in scrollable layout. */
 .home-launch.has-reels .home-scroll-viewport { display:block; flex:1 1 0%; min-height:0; min-width:0; overflow-y:auto; overflow-x:hidden; overscroll-behavior-y:contain; -webkit-overflow-scrolling:touch; scrollbar-width:none; scroll-padding-bottom:calc(var(--home-dock-bottom) + 68px); }
