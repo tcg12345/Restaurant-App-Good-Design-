@@ -17,6 +17,7 @@ import React from 'react';
 import { lazyPage } from './components/LazyPage';
 import { DeferredEditors } from './components/DeferredEditors';
 import { PageSkeleton } from './components/PageSkeleton';
+import { LaunchScreen } from './components/LaunchScreen';
 import { RetainedTabLocation } from './components/RetainedTabLocation';
 import { warmNavigation } from './lib/navigation-warmup';
 const CalendarPage = lazyPage(() => import('./pages/CalendarPage').then(m => ({ default: m.CalendarPage })), 'calendar');
@@ -352,7 +353,7 @@ const AppContent: React.FC = () => {
 
   if (loading) {
     return (
-      <PageSkeleton />
+      <LaunchScreen />
     );
   }
 
@@ -419,7 +420,7 @@ const AppContent: React.FC = () => {
   }
   if (isSignedIn && !setupActive && !profileComplete && profileLoading) {
     return (
-      <PageSkeleton />
+      <LaunchScreen />
     );
   }
   if (isSignedIn && (!profileComplete || setupActive)) {

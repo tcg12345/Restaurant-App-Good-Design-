@@ -1,0 +1,21 @@
+/* Available before the application bundle; shared by the static boot screen
+   and React's session/profile loading screen. Match the native launch view. */
+html { background: #f8f8f8; }
+html.dark { background: #18191b; }
+.launch-screen {
+  position: fixed; inset: 0; z-index: 100; overflow: hidden;
+  background: #f8f8f8; color: #272b30;
+  font-family: -apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif;
+  -webkit-user-select: none; user-select: none;
+}
+.dark .launch-screen { background: #18191b; color: #eef0f2; }
+.launch-brand { position: absolute; top: calc(50% - 112px); left: 24px; right: 24px; text-align: center; }
+.launch-mark { display: block; width: 84px; height: 84px; margin: 0 auto; }
+.launch-name { margin: 16px 0 0; font-size: 28px; line-height: 36px; font-weight: 600; letter-spacing: -.8px; }
+.launch-tagline { margin: 8px 0 0; font-size: 14px; line-height: 20px; letter-spacing: .1px; opacity: .58; }
+.launch-activity { position: absolute; bottom: calc(env(safe-area-inset-bottom, 0px) + 64px); left: calc(50% - 28px); width: 56px; height: 3px; border-radius: 3px; overflow: hidden; background: #a8d0b82b; }
+.launch-activity::after { content: ''; display: block; width: 28px; height: 100%; border-radius: inherit; background: #78a88d; animation: launch-drift 1.7s ease-in-out infinite alternate; }
+.launch-status { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+@keyframes launch-drift { from { transform: translateX(-18px); opacity: .45; } to { transform: translateX(46px); opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .launch-activity::after { animation: none; transform: translateX(14px); } }
+@media (max-height: 420px) { .launch-activity { bottom: 20px; } }

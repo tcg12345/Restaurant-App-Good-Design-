@@ -8,21 +8,40 @@
         <capability name="documents saved in the Xcode 8 format" minToolsVersion="8.0"/>
     </dependencies>
     <scenes>
-        <!--View Controller-->
         <scene sceneID="EHf-IW-A2E">
             <objects>
                 <viewController id="01J-lp-oVM" sceneMemberID="viewController">
-                    <!-- Full-bleed splash image: the app logo centered on the
-                         app's cream background (dark variant in the asset
-                         catalog switches automatically). The view background
-                         uses the same LaunchBackground color so any uncovered
-                         edge during aspect-fill matches exactly — no white
-                         flash between launch and the webview's first paint. -->
-                    <imageView key="view" userInteractionEnabled="NO" contentMode="scaleAspectFill" horizontalHuggingPriority="251" verticalHuggingPriority="251" image="Splash" id="snD-IY-ifK">
-                        <rect key="frame" x="0.0" y="0.0" width="375" height="667"/>
-                        <autoresizingMask key="autoresizingMask"/>
+                    <!-- Match LaunchScreen.tsx and launch.css without scaling a
+                         full-screen bitmap differently on each device. -->
+                    <view key="view" contentMode="scaleToFill" id="snD-IY-ifK">
+                        <rect key="frame" x="0" y="0" width="375" height="667"/>
+                        <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
+                        <subviews>
+                            <imageView userInteractionEnabled="NO" contentMode="scaleAspectFit" image="LaunchMark" translatesAutoresizingMaskIntoConstraints="NO" id="launch-mark">
+                                <rect key="frame" x="145.5" y="221.5" width="84" height="84"/>
+                                <constraints><constraint firstAttribute="width" constant="84" id="mark-width"/><constraint firstAttribute="height" constant="84" id="mark-height"/></constraints>
+                            </imageView>
+                            <label opaque="NO" userInteractionEnabled="NO" contentMode="left" text="GoodEats" textAlignment="center" translatesAutoresizingMaskIntoConstraints="NO" id="launch-name">
+                                <rect key="frame" x="87.5" y="321.5" width="200" height="36"/>
+                                <fontDescription key="fontDescription" type="system" weight="semibold" pointSize="28"/>
+                                <color key="textColor" name="LaunchInk"/>
+                            </label>
+                            <label opaque="NO" userInteractionEnabled="NO" alpha="0.58" contentMode="left" text="Good food. Good company." textAlignment="center" translatesAutoresizingMaskIntoConstraints="NO" id="launch-tagline">
+                                <rect key="frame" x="47.5" y="365.5" width="280" height="20"/>
+                                <fontDescription key="fontDescription" type="system" pointSize="14"/>
+                                <color key="textColor" name="LaunchInk"/>
+                            </label>
+                        </subviews>
                         <color key="backgroundColor" name="LaunchBackground"/>
-                    </imageView>
+                        <constraints>
+                            <constraint firstItem="launch-mark" firstAttribute="centerX" secondItem="snD-IY-ifK" secondAttribute="centerX" id="mark-x"/>
+                            <constraint firstItem="launch-mark" firstAttribute="centerY" secondItem="snD-IY-ifK" secondAttribute="centerY" constant="-70" id="mark-y"/>
+                            <constraint firstItem="launch-name" firstAttribute="centerX" secondItem="snD-IY-ifK" secondAttribute="centerX" id="name-x"/>
+                            <constraint firstItem="launch-name" firstAttribute="centerY" secondItem="snD-IY-ifK" secondAttribute="centerY" constant="6" id="name-y"/>
+                            <constraint firstItem="launch-tagline" firstAttribute="centerX" secondItem="snD-IY-ifK" secondAttribute="centerX" id="tagline-x"/>
+                            <constraint firstItem="launch-tagline" firstAttribute="centerY" secondItem="snD-IY-ifK" secondAttribute="centerY" constant="42" id="tagline-y"/>
+                        </constraints>
+                    </view>
                 </viewController>
                 <placeholder placeholderIdentifier="IBFirstResponder" id="iYj-Kq-Ea1" userLabel="First Responder" sceneMemberID="firstResponder"/>
             </objects>
@@ -30,9 +49,8 @@
         </scene>
     </scenes>
     <resources>
-        <image name="Splash" width="2732" height="2732"/>
-        <namedColor name="LaunchBackground">
-            <color red="0.92941176470588238" green="0.90588235294117647" blue="0.85098039215686272" alpha="1" colorSpace="custom" customColorSpace="sRGB"/>
-        </namedColor>
+        <image name="LaunchMark" width="100" height="100"/>
+        <namedColor name="LaunchBackground"><color red="0.9725490196" green="0.9725490196" blue="0.9725490196" alpha="1" colorSpace="custom" customColorSpace="sRGB"/></namedColor>
+        <namedColor name="LaunchInk"><color red="0.1529411765" green="0.1686274510" blue="0.1882352941" alpha="1" colorSpace="custom" customColorSpace="sRGB"/></namedColor>
     </resources>
 </document>
