@@ -265,6 +265,7 @@ const AppContent: React.FC = () => {
   // the durable record so a relaunch ON the gate keeps that framing instead
   // of falling back to the generic "Welcome to GoodEats" sign-in copy.
   const [preauthExited, setPreauthExited] = React.useState<null | 'signup' | 'signin'>(() => {
+    if (location.pathname === '/auth' && new URLSearchParams(location.search).get('login') === '1') return 'signin';
     const o = getPreauthOutcome();
     return o === 'signup' || o === 'signin' ? o : null;
   });
@@ -371,7 +372,8 @@ const AppContent: React.FC = () => {
   // question and was never once offered an account, because "Browse without
   // an account" wrote a flag that this branch has always treated as final.
   // They get the gate one more time, with the escape still on it.
-  if ((!isSignedIn && !isGuest) || (isSignedIn && needsPasswordSetup) || (isGuest && askGuestToSave)) {
+  const requestedWebSignIn = !isSignedIn && location.pathname === '/auth' && new URLSearchParams(location.search).get('login') === '1';
+  if ((!isSignedIn && !isGuest) || (isSignedIn && needsPasswordSetup) || (isGuest && askGuestToSave) || requestedWebSignIn) {
     // Fresh installs meet the taste questions BEFORE the account gate — the
     // signup ask lands after the personalized preview, framed as saving
     // what was just built. One-shot per device (isPreauthDone); leaving the
@@ -393,7 +395,11 @@ const AppContent: React.FC = () => {
                   // For the guest follow-up the escape DISMISSES the ask —
                   // they are already a guest, so re-entering guest mode
                   // would leave the gate up forever.
-                  onBrowseAsGuest={askGuestToSave ? () => setAskGuestToSave(false) : continueAsGuest}
+                  onBrowseAsGuest={requestedWebSignIn ? () => {
+                    setAskGuestToSave(false);
+                    continueAsGuest();
+                    navigate('/', { replace: true });
+                  } : askGuestToSave ? () => setAskGuestToSave(false) : continueAsGuest}
                   saveTasteFraming={preauthExited === 'signup' || askGuestToSave}
                   // Reached via "Sign in": unknown identifiers error
                   // instead of silently starting a signup. (Survives
