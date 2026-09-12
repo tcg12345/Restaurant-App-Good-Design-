@@ -20,6 +20,8 @@ ios/App/Pods/
 ios/App/build/
 ios/App/output/
 ios/DerivedData/
+*.xcarchive/
+*.ipa
 xcuserdata/
 .ds-sync/
 ds-bundle/
