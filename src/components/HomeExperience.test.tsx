@@ -60,6 +60,14 @@ it('opens Search with one haptic after a deliberate downward pull at the top', a
   await act(async () => { touch('touchstart', 180, 200); touch('touchmove', 180, 280); touch('touchend', 180, 280); });
   expect(search).toHaveBeenCalledTimes(1); expect(homeHaptic).toHaveBeenCalledTimes(1);
 });
+it('preserves a search pull when Home refreshes its props mid-gesture', async () => {
+  await act(async () => { touch('touchstart', 180, 200); touch('touchmove', 180, 240); });
+  const updatedSearch = vi.fn();
+  await act(async () => root.render(<HomeExperience active city="New York" highlights={[]} header={null} reels={<p>Reels</p>} feed={<p>Feed contents</p>} onHighlightLink={() => {}} onLocation={() => {}} onSearch={updatedSearch} onAction={() => {}} />));
+  await act(async () => { touch('touchmove', 180, 290); touch('touchend', 180, 290); });
+  expect(updatedSearch).toHaveBeenCalledTimes(1);
+  expect(search).not.toHaveBeenCalled();
+});
 it('opens the feed after pulling upward past the bottom', async () => {
   host.querySelector('.home-scroll-viewport')!.scrollTop = 300;
   await act(async () => { touch('touchstart', 180, 400); expect(touch('touchmove', 180, 310).defaultPrevented).toBe(true); touch('touchend', 180, 310); });

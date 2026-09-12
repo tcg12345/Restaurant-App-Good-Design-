@@ -62,19 +62,20 @@ export const HomeExperience: React.FC<Props> = ({ active, name, city, highlights
   const wheelGesture = useRef({ lastAt: 0, consumed: false });
   const focusAfterTransition = useRef(false);
   const reduced = useReducedMotion();
+  const searchRef = useRef(onSearch); searchRef.current = onSearch;
 
   const go = useCallback((destination: HomeDestination, focus = false) => {
     if (!active || isOverlayOpen() || performance.now() < lockedUntil.current) return;
     lockedUntil.current = performance.now() + 650;
     homeHaptic();
-    if (destination === 'search') { onSearch(); return; }
+    if (destination === 'search') { searchRef.current(); return; }
     if (destination === 'feed') setFeedVisited(true);
     if (destination === 'home') setGlassNavMinimized(false);
     focusAfterTransition.current = focus;
     // Move focus outside the outgoing inert panel before hiding it.
     if (root.current?.contains(document.activeElement)) root.current.focus({ preventScroll: true });
     setPage(destination);
-  }, [active, onSearch]);
+  }, [active]);
 
 
   useEffect(() => {
@@ -180,7 +181,7 @@ export const HomeExperience: React.FC<Props> = ({ active, name, city, highlights
         <div className="home-launch-content">
           <div className="home-welcome">
             {reels ? <div className="home-location-row">
-              <button className="home-search-entry" type="button" onClick={() => { homeHaptic(); onSearch(); }} aria-label="Search restaurants, recipes, and people" aria-haspopup="dialog">
+              <button className="home-search-entry" type="button" onClick={() => { homeHaptic(); onSearch(); }} aria-label="Search restaurants, recipes, and people">
                 <Search size={18} strokeWidth={1.8} aria-hidden="true" /><span>Search</span>
               </button>
               <button className="home-location" onClick={onLocation} aria-label={`Change dining location: ${city}`}><span className="home-location-pin"><MapPin size={17} /></span><span>{city}</span><ChevronDown size={14} /></button>

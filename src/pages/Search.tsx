@@ -1,6 +1,6 @@
 import { useTabActive } from '../components/RetainedTabLocation';
 import { usePageBack } from '../lib/usePageBack';
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Map as MapIcon, ChevronRight, ChevronLeft, X, MapPin, Navigation, Loader2 } from 'lucide-react';
 import { MAPBOX_TOKEN } from '../lib/keys';
@@ -48,7 +48,8 @@ const PhoneSearch: React.FC = () => {
   const navigate = useNavigate();
   const routerLocation = useLocation();
   const [tab, setTab] = useState<SearchTab>('discover');
-  const [searching, setSearching] = useState(false);
+  const [searching, setSearching] = useState(() => !!routerLocation.state?.openTakeover);
+  const [directSearchEntry, setDirectSearchEntry] = useState(() => !!routerLocation.state?.openTakeover);
   const [query, setQuery] = useState('');
   const mapSearchRef = useRef<((q: string) => void) | null>(null);
   /* ── The Following view's field ───────────────────────────────────────
@@ -75,6 +76,7 @@ const PhoneSearch: React.FC = () => {
   const [recipeEditing, setRecipeEditing] = useState(false);
   const [recipesOpened, setRecipesOpened] = useState(false);
   const onRecipes = tab === 'recipes';
+  const filteringFollowing = followingActive && !searching;
   /* ── Arrived from the AI creator's ideas ("Find existing") ──
      Only that route in gets a back arrow: it reopens the creator, which
      picks the parked brainstorm back up (lib/ideas-session). A plain
@@ -184,7 +186,8 @@ const PhoneSearch: React.FC = () => {
     return () => setSearchTakeoverOpen(false);
   }, [searching, tabActive]);
 
-  const openSearch = () => {
+  const openSearch = (direct = false) => {
+    setDirectSearchEntry(direct);
     setSearching(true);
     setCityLabel(anchorLabel || locationBridgeRef.current?.label || 'Current location');
     // The native glass field raises its own keyboard (autoFocus through the
@@ -196,12 +199,12 @@ const PhoneSearch: React.FC = () => {
   // takeover already rising. State is consumed once and cleared, the same
   // move Messages makes for its openUserId link. Guarded on the pathname
   // because this page stays mounted (keep-alive) while other routes show.
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!tabActive || routerLocation.pathname !== '/search') return;
     const state = routerLocation.state as { openTakeover?: boolean; recipeQuery?: string } | null;
     if (state?.openTakeover) {
       setTab('discover');
-      openSearch();
+      openSearch(true);
       navigate('/search', { replace: true, state: null });
     } else if (typeof state?.recipeQuery === 'string') {
       // "Find existing" on an AI idea card: land on the Recipes tab with the
@@ -541,15 +544,15 @@ const PhoneSearch: React.FC = () => {
           // Following, and the Recipe Box's filter on Recipes. The two
           // filters are tap-to-edit — no takeover, the list under the
           // field is already the thing being narrowed.
-          readOnly={onRecipes ? !recipeEditing : followingActive ? !followEditing : !searching}
-          onPress={onRecipes ? openRecipeSearch : followingActive ? openFollowSearch : openSearch}
-          value={onRecipes ? recipeQuery : followingActive ? followQuery : query}
-          onChange={onRecipes ? setRecipeQuery : followingActive ? setFollowQuery : setQuery}
-          onSubmit={onRecipes ? endRecipeSearch : followingActive ? endFollowSearch : submitToMap}
+          readOnly={onRecipes ? !recipeEditing : filteringFollowing ? !followEditing : !searching}
+          onPress={onRecipes ? openRecipeSearch : filteringFollowing ? openFollowSearch : openSearch}
+          value={onRecipes ? recipeQuery : filteringFollowing ? followQuery : query}
+          onChange={onRecipes ? setRecipeQuery : filteringFollowing ? setFollowQuery : setQuery}
+          onSubmit={onRecipes ? endRecipeSearch : filteringFollowing ? endFollowSearch : submitToMap}
           inputRef={inputRef}
           placeholder={
             onRecipes ? 'Recipes, ingredients, cuisines'
-              : followingActive ? 'Search followed restaurants'
+              : filteringFollowing ? 'Search followed restaurants'
                 // Names the three things the takeover actually searches. It
                 // used to say "lists", which this field cannot search, and
                 // omitted people and recipes, which it can — so the one
@@ -559,7 +562,7 @@ const PhoneSearch: React.FC = () => {
           }
           aria-label={
             onRecipes ? 'Search recipes'
-              : followingActive ? 'Search followed restaurants'
+              : filteringFollowing ? 'Search followed restaurants'
                 : 'Search'
           }
         />
@@ -571,7 +574,7 @@ const PhoneSearch: React.FC = () => {
           <motion.div
             key="search-wash"
             className="fixed inset-0 z-40"
-            initial={{ opacity: 0 }}
+            initial={directSearchEntry ? false : { opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.3, ease: [0.32, 0.72, 0, 1] }}
@@ -587,7 +590,7 @@ const PhoneSearch: React.FC = () => {
             <motion.div
               className="absolute inset-0 overflow-y-auto no-scrollbar px-4 pb-10"
               style={{ paddingTop: 'calc(env(safe-area-inset-top) + 140px)' }}
-              initial={{ y: reduceMotion ? 0 : 16 }}
+              initial={{ y: reduceMotion || directSearchEntry ? 0 : 16 }}
               animate={{ y: 0 }}
               exit={{ y: reduceMotion ? 0 : 16 }}
               transition={{ duration: 0.35, ease: [0.32, 0.72, 0, 1] }}
@@ -608,7 +611,8 @@ const PhoneSearch: React.FC = () => {
 const ClassicSearch: React.FC = () => {
   const tabActive = useTabActive();
   const navigate = useNavigate();
-  const [searching, setSearching] = useState(false);
+  const routerLocation = useLocation();
+  const [searching, setSearching] = useState(() => !!routerLocation.state?.openTakeover);
   const { setHideBottomNav } = useSettings();
   useEffect(() => {
     if (!tabActive) return;
@@ -628,6 +632,14 @@ const ClassicSearch: React.FC = () => {
     if (!glassActive) inputRef.current?.blur();
   };
   const [tab, setTab] = useState<SearchTab>('discover');
+  useLayoutEffect(() => {
+    if (!tabActive || routerLocation.pathname !== '/search' || !routerLocation.state?.openTakeover) return;
+    setTab('discover');
+    openSearch();
+    navigate('/search', { replace: true, state: null });
+    // Consume a Home search request once, including on a retained tab.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [routerLocation, tabActive]);
   const reduceMotion = useReducedMotion();
   const direction = tab === 'discover' ? -1 : 1;
 

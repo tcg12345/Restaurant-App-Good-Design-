@@ -5,8 +5,6 @@ import { useTastePreferences } from '../hooks/useTastePreferences';
 import React, { useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { HomeNextMeal } from '../components/HomeNextMeal';
-import { AnimatePresence } from 'motion/react';
-import { HomeSearchOverlay } from '../components/HomeSearchOverlay';
 import { HomeGuides } from '../components/HomeGuides';
 import { HomeExperience } from '../components/HomeExperience';
 import { SocialFeed, type FeedFilter } from '../components/SocialFeed';
@@ -43,11 +41,10 @@ export const Home: React.FC = () => {
   const { requestOpen, setAttachment, setHomeFeedVisible } = useAssistantContext();
   const [filter, setFilter] = useState<FeedFilter>('friends');
   const [locationOpen, setLocationOpen] = useState(false);
-  const [searchOpen, setSearchOpen] = useState(false);
   return <>
     <HomeExperience
       key={user?.id ?? 'guest'}
-      active={route.pathname === '/' && !searchOpen}
+      active={route.pathname === '/'}
       name={profile?.display_name?.split(' ')[0]}
       city={city}
       highlights={[]}
@@ -56,7 +53,7 @@ export const Home: React.FC = () => {
       guides={<HomeGuides preferences={preferences} />}
       onHighlightLink={href => navigate(href)}
       onLocation={() => setLocationOpen(true)}
-      onSearch={() => setSearchOpen(true)}
+      onSearch={() => navigate('/search', { state: { openTakeover: true, navigationPresentation: 'tab' } })}
       onAction={(action) => {
         if (action === 'group') navigate('/decide');
         if (action === 'find') navigate('/search');
@@ -76,9 +73,6 @@ export const Home: React.FC = () => {
       </div>}
       feed={<SocialFeed compactControls={HOME_REELS_EXPERIMENT} includeReels={HOME_REELS_EXPERIMENT} filter={filter} onFilterChange={setFilter} centerLat={home?.location?.lat} centerLng={home?.location?.lng} />}
     />
-    <AnimatePresence>
-      {searchOpen && <HomeSearchOverlay active={route.pathname === '/'} onClose={() => setSearchOpen(false)} />}
-    </AnimatePresence>
     {home && <HomeLocationBar variant="headless" open={locationOpen} onOpenChange={setLocationOpen}
       location={home.location} onChange={home.setLocation} onUseCurrent={home.useCurrent} />}
   </>;
