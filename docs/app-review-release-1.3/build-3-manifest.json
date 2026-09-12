@@ -4,7 +4,7 @@
   "baseline": "38c5d72",
   "archive": "/Users/tylergorin/Desktop/Restaurant-App-Good-Design-/artifacts/GoodEats-1.3-build-3.xcarchive",
   "bundledFilesVerified": 229,
-  "deployment": "Safety database migration and all ten matching Edge Functions deployed; web release verification in progress.",
+  "deployment": "Production safety migration and all ten matching Edge Functions deployed. App website release e54a17a and support site 5a3394e published and verified.",
   "tests": "1746 passed in 200 files on merged main plus safety release",
   "files": {
     "index.html": "e6cd2c2f8c25f28f1f55d2d3fc59d3762d72fd7a38bf62dccce59e98266f0f04",
@@ -236,5 +236,6 @@
     "images/landing/pasta-alex-froloff.jpg": "9513f31650107cadd85529bbf3680df00cb61c423e419e053b3973c2148a79e6",
     "images/onboarding/contemporary-dining.jpg": "d318daae3ea38ccc848cda16a38d40fb2b7938fb6ce7c89cb987b58586a94f98",
     "images/onboarding/miso-salmon.jpg": "9e36d0c3d514ee5fa30c2c14d949927f6a302bebfc9696307b2a9812030e2b41"
-  }
+  },
+  "releaseCommit": "e54a17a"
 }

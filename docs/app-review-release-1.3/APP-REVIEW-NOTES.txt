@@ -1,0 +1,9 @@
+GoodEats version 1.3 is free. No subscription purchase is required, and subscriptions are not offered in this build. The draft subscriptions in App Store Connect are not part of this submission.
+
+AI features are optional. Open the floating assistant, enter a message, and send it to see the explicit Anthropic/OpenAI data-sharing disclosure. Declining keeps the rest of the app available. Permission can be revoked in Profile → Settings → Privacy & permissions → Turn off AI sharing.
+
+Community content and profiles have a three-dot Report or block menu. Blocked accounts can be managed in Privacy & permissions. New shared content and edits are held for manual moderation before other users can see them. Authors can view their publication status in Privacy & permissions.
+
+Account deletion is available in Profile → Settings → Account & security → Delete account.
+
+Please use the demo account credentials supplied in the App Review Information sign-in fields. Contact gourmetcanvassupport@gmail.com for assistance.

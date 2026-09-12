@@ -1,6 +1,6 @@
 # GoodEats 1.3 (3): App Review safety fixes
 
-Status: the owner approved deployment on September 12, 2026. The safety migration and all ten matching Edge Functions are live, live safety checks passed, and the support pages are published. Final app website verification is in progress. App Store Connect has not been accessed or changed.
+Status: the owner approved deployment on September 12, 2026. The safety migration and all ten matching Edge Functions are live, live safety checks passed, and the support pages are published. The matching website release is published and verified. App Store Connect has not been accessed or changed.
 
 ## What changes
 
@@ -33,7 +33,7 @@ Final archive baseline: `38c5d72` (merged landing page), plus the safety changes
 - Existing publications were preserved as approved. Live transactional tests passed with the dedicated test account and a temporary second account: owner-only pending posts/photos, moderator approval/removal, private reports and deduplication, denied self-approval, bidirectional blocks, denied blocked messages, restored messaging after unblock, and corresponding storage-object access rules. All fixture writes and temporary moderator privileges were rolled back. Cleanup confirmed 0 temporary accounts, 0 reports, 0 blocks, the original 1 administrator, and the test account's original 9 ratings.
 - Security advisors reported no ERROR findings. Remaining notices cover existing service-only tables intentionally lacking client policies, the existing `pg_trgm` extension location, and executable security-definer functions. The new exposed helpers are intentional authorization boundaries; tests confirm ordinary callers cannot approve content, access internal helpers, or invoke operational functions. This is not a claim that all advisory warnings have disappeared.
 - Published support site commit `5a3394e` to `tcg12345/gourmetcanvas-support`.
-- App website deployment and public URL checks: in progress.
+- App release commit `e54a17a` is on main. Vercel reported a successful deployment; `https://grubbyrater.com` returns 200 and serves the new AI-consent and moderation routes. The canonical privacy, support, and terms URLs each return 200 with the approved content. The live publication-status screen shows the test account’s existing approved records.
 
 ## Operational limits
 
