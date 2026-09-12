@@ -4,7 +4,7 @@ The owner handles App Store Connect. No upload or submission is performed by the
 
 ## Local archive
 
-Open `artifacts/GoodEats-1.3.xcarchive` in Xcode. The app and widget extension use version 1.3; the local archive starts with build 1. App Store Connect's existing build history has not been inspected. Let Xcode manage the build number during upload to avoid reusing a number.
+Open `artifacts/GoodEats-1.3-build-2.xcarchive` in Xcode. The app and widget extension use version 1.3; the corrected local archive starts with build 2. App Store Connect's existing build history has not been inspected. Let Xcode manage the build number during upload to avoid reusing a number.
 
 In Xcode Organizer, select the archive, then **Distribute App → TestFlight & App Store**. If the flow instead presents **App Store Connect**, choose that and **Upload**. Keep automatic signing, symbol upload and **Manage version and build numbers** enabled. Use the normal App Store distribution path; an archive uploaded as **TestFlight Internal Only** cannot later be submitted to the App Store. Review validation results, then upload. Complete Apple sign-in yourself if requested.
 
@@ -43,4 +43,6 @@ Version 1.3 is fully free. All available features can be used without a purchase
 
 ## Local verification completed
 
-The Release archive built successfully with Xcode 26.6 / iOS 26.5 SDK. App and widget both report version 1.3, build 1. The app uses the production push environment, contains no development server override, and bundles the freshly built web assets. Code-signature verification passed; four dSYM bundles are included. Apple upload validation and processing remain for the owner to perform.
+The corrected Release archive built successfully with Xcode 26.6 / iOS 26.5 SDK. App and widget both report version 1.3, build 2. The app uses the production push environment, contains no development server override, and bundles the freshly built web assets. Code-signature verification passed; four dSYM bundles are included. Apple upload validation and processing remain for the owner to perform.
+
+Build 2 fixes the assistant layout on a fresh launch and restores the floating Home assistant button. Use this archive instead of the earlier build 1. Browser verification covered Home Ask AI, full-screen panel geometry, floating-button reopening, and a complete live AI response; the temporary conversation was removed.

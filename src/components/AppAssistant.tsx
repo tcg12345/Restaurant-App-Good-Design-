@@ -400,7 +400,7 @@ export const AppAssistant: React.FC = () => {
   const guides = useGuideCreator();
   const homeLocation = useHomeLocation();
   const homeLoc = homeLocation?.location || null;
-  const { pageContext, attachment, setAttachment, composerDraft, openRequest, homeFeedVisible } = useAssistantContext();
+  const { pageContext, attachment, setAttachment, composerDraft, openRequest } = useAssistantContext();
 
   // The Search tab is the map now, and the FAB sat on the results sheet's
   // corner there. It stands down on the map and steps back in when the
@@ -1090,7 +1090,7 @@ export const AppAssistant: React.FC = () => {
           lists.openHomeMealModal(undefined, { initialMethod: feature === 'dish' ? 'dish' : 'ai', initialAiView: 'recipe' });
         } else navigate(feature === 'group' ? '/decide' : '/pantry/recommended');
       }}
-      hideLauncher={shouldHideFab(location.pathname) || (settings.phoneMode && location.pathname === '/' && !homeFeedVisible)}
+      hideLauncher={shouldHideFab(location.pathname)}
       fabAboveBottomNav={fabAboveBottomNav}
       fabOverTakeover={onSearchMap && takeoverOpen}
       fabHidden={fabHidden}

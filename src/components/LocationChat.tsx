@@ -14,6 +14,7 @@ import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence, useReducedMotion } from 'motion/react';
 import { AssistantWelcome, AssistantOrb, type AssistantFeature } from './chat/AssistantWelcome';
 import { homeHaptic } from '../lib/haptics';
+import './chat/AssistantBase.css';
 import './chat/AssistantDesign.css';
 import {
   ArrowDown,
