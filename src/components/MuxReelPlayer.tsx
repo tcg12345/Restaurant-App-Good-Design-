@@ -3,6 +3,8 @@ import MuxPlayer from '@mux/mux-player-react';
 import type MuxPlayerElement from '@mux/mux-player';
 import { ReelMediaPoster } from './ReelMediaPoster';
 import { useRouteSettled } from './RouteMotionLayer';
+import { useMuxPlaybackTokens } from '../lib/useMuxPlaybackTokens';
+import { muxPosterUrl } from '../lib/mux';
 /**
  * What the page-level scrub bar needs from the active reel's media. Works for
  * both a legacy <video> and a Mux player (both expose this media subset).
@@ -35,6 +37,9 @@ export interface ActiveReelMedia {
  */
 export interface MuxReelMediaProps {
   playbackId: string;
+  mediaId?: string;
+  mediaKind?: 'reel' | 'post_item';
+  signed?: boolean;
   /** Signed-playback tokens for a followers-only asset (from
    *  mux-playback-token). Omit for public assets. */
   tokens?: { playback?: string; thumbnail?: string; storyboard?: string };
@@ -59,8 +64,11 @@ export interface MuxReelMediaProps {
 }
 
 export const MuxReelMedia: React.FC<MuxReelMediaProps> = ({
-  playbackId, tokens, poster, active, near, muted, phoneMode, objectFit, onPausedChange, onUserToggle, onActiveMedia,
+  playbackId, mediaId, mediaKind = 'reel' as const, signed = false, tokens, poster, active, near, muted, phoneMode, objectFit, onPausedChange, onUserToggle, onActiveMedia,
 }) => {
+  const authorization = useMuxPlaybackTokens(mediaKind, mediaId, signed && near);
+  const playbackTokens = signed ? authorization.tokens : tokens;
+  const currentPoster = signed ? (playbackTokens?.thumbnail ? muxPosterUrl(playbackId, { token: playbackTokens.thumbnail }) : undefined) : poster;
   const fit = objectFit ?? (phoneMode ? 'cover' : 'contain');
   const ref = useRef<MuxPlayerElement | null>(null);
   // Mount while near so swiping is instant, and UNMOUNT once the slide
@@ -68,7 +76,7 @@ export const MuxReelMedia: React.FC<MuxReelMediaProps> = ({
   // so a one-way latch here accumulated a live <mux-player> for every reel
   // ever scrolled past — memory / media-decoder exhaustion on iPhone.)
   const routeSettled = useRouteSettled();
-  const mounted = near && (routeSettled || !poster);
+  const mounted = near && (routeSettled || !currentPoster) && (!signed || !!playbackTokens);
   const [playingId, setPlayingId] = useState<string | null>(null);
   useEffect(() => { if (!mounted) setPlayingId(null); }, [mounted]);
 
@@ -142,7 +150,7 @@ export const MuxReelMedia: React.FC<MuxReelMediaProps> = ({
         <MuxPlayer
           ref={ref}
           playbackId={playbackId}
-          tokens={tokens}
+          tokens={playbackTokens}
           streamType="on-demand"
           // Let Mux Player autoplay (muted) once HLS is ready when this slide
           // mounts active — more reliable than calling play() before load. The
@@ -150,7 +158,7 @@ export const MuxReelMedia: React.FC<MuxReelMediaProps> = ({
           autoPlay={active ? 'muted' : false}
           loop
           muted={muted}
-          poster={poster}
+          poster={currentPoster}
           onPlaying={() => setPlayingId(playbackId)}
           onEmptied={() => setPlayingId(null)}
           preload={active ? 'auto' : 'metadata'}
@@ -165,7 +173,8 @@ export const MuxReelMedia: React.FC<MuxReelMediaProps> = ({
           className="absolute inset-0 w-full h-full"
         />
       ) : null}
-      <ReelMediaPoster src={poster} ready={mounted && playingId === playbackId} fit={fit} />
+      {signed && authorization.failed && <button type="button" className="absolute inset-0 z-10 flex items-center justify-center text-white bg-black/50" onClick={event => { event.stopPropagation(); authorization.retry(); }}>Retry video</button>}
+      <ReelMediaPoster src={currentPoster} ready={mounted && playingId === playbackId} fit={fit} />
     </div>
   );
 };

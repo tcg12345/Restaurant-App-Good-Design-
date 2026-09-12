@@ -48,6 +48,7 @@ export interface Reel {
   posterUrl?: string;
   /** Mux playback id — present once a Mux reel finishes transcoding. */
   muxPlaybackId?: string;
+  muxPlaybackPolicy?: string;
   /** Mux lifecycle: 'processing' | 'ready' | 'errored'. Undefined = legacy
    *  Storage reel (plays from videoUrl). */
   muxStatus?: 'processing' | 'ready' | 'errored';
@@ -101,6 +102,7 @@ function rowToUi(row: ReelRow): Reel {
     videoUrl: row.videoUrl || undefined,
     posterUrl: row.posterUrl || undefined,
     muxPlaybackId: row.muxPlaybackId || undefined,
+    muxPlaybackPolicy: row.muxPlaybackPolicy,
     muxStatus: (row.muxStatus || undefined) as Reel['muxStatus'],
     muxTokens: row.muxTokens || undefined,
     bgGradient: row.bgGradient || DEFAULT_BG,

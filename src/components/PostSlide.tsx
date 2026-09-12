@@ -218,6 +218,9 @@ const MediaFrameInner: React.FC<MediaFrameProps> = ({ item, postActive, itemActi
     return (
       <MuxReelMedia
         playbackId={item.muxPlaybackId}
+        mediaId={item.id}
+        mediaKind="post_item"
+        signed={item.muxPlaybackPolicy === 'signed'}
         tokens={item.muxTokens || undefined}
         poster={item.posterUrl || undefined}
         active={postActive && itemActive}

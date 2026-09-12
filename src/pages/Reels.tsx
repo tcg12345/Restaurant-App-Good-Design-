@@ -369,6 +369,8 @@ const ReelSlideInner: React.FC<ReelSlideProps> = ({ reel, active, near, preloadF
           // Mux adaptive-streaming reel — instant poster, HLS playback.
           <MuxReelMedia
             playbackId={reel.muxPlaybackId}
+            mediaId={reel.id}
+            signed={reel.muxPlaybackPolicy === 'signed'}
             tokens={reel.muxTokens}
             poster={poster}
             active={active}
